@@ -1181,27 +1181,15 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
                 usleep(500_000)
                 continue
             }
-            guard let response = session.request("read 10\n", timeoutUsec: 100_000) else {
-                closeHelperSession(sendQuit: false)
-                usleep(250_000)
-                continue
+            session.asyncPushHandler = { [weak self] line in
+                guard let self else { return }
+                if line.hasPrefix("in ") {
+                    self.handleDaemonSurfaceResponse(line)
+                } else if line.hasPrefix("midi ") {
+                    self.handleDaemonMIDIResponse(line)
+                }
             }
-            if handleDaemonReconnectResponse(response, source: "input") {
-                usleep(80_000)
-                continue
-            }
-            handleDaemonSurfaceResponse(response)
-
-            guard let midiResponse = session.request("midiread 2\n", timeoutUsec: 50_000) else {
-                closeHelperSession(sendQuit: false)
-                usleep(50_000)
-                continue
-            }
-            if handleDaemonReconnectResponse(midiResponse, source: "MIDI") {
-                usleep(80_000)
-                continue
-            }
-            handleDaemonMIDIResponse(midiResponse)
+            session.readPushes(timeoutUsec: 50_000)
         }
     }
 
@@ -1569,10 +1557,22 @@ public enum KompleteKontrolLibUSBServer {
         exit(0)
     }
 
+    private static let asyncInputCallback: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?) -> Void = { data, length, userData in
+        guard let data, let userData else { return }
+        let hardware = Unmanaged<DaemonHardware>.fromOpaque(userData).takeUnretainedValue()
+        hardware.pushInputToClients(data, length: length)
+    }
+
+    private static let asyncMidiCallback: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?) -> Void = { data, length, userData in
+        guard let data, let userData else { return }
+        let hardware = Unmanaged<DaemonHardware>.fromOpaque(userData).takeUnretainedValue()
+        hardware.pushMidiToClients(data, length: length)
+    }
+
     public static func runDaemon(socketPath: String = defaultDaemonSocketPath) -> Never {
         signal(SIGPIPE, SIG_IGN)
         unlink(socketPath)
-        daemonLog("starting foreground daemon socket=\(socketPath)")
+        daemonLog("starting kqueue daemon socket=\(socketPath)")
 
         let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverFD >= 0 else {
@@ -1605,26 +1605,111 @@ public enum KompleteKontrolLibUSBServer {
 
         let hardware = DaemonHardware()
         hardware.runStartupAnimationThenIdle()
-        var clientID = 0
+        hardware.startAsyncTransfers()
+
+        let kq = kqueue()
+        guard kq >= 0 else {
+            daemonLog("kqueue() failed errno=\(errno)")
+            exit(5)
+        }
+
+        // Register server socket
+        var serverKev = kevent(ident: UInt(serverFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+        kevent(kq, &serverKev, 1, nil, 0, nil)
+
+        // Register libusb poll fds
+        let initialUsbFds = hardware.currentLibusbFds()
+        var trackedUsbFds = Set<Int32>(initialUsbFds)
+        hardware.updateTrackedLibusbFds(trackedUsbFds)
+        for fd in initialUsbFds {
+            var kev = kevent(ident: UInt(fd), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+            kevent(kq, &kev, 1, nil, 0, nil)
+        }
+        daemonLog("tracking \(initialUsbFds.count) libusb poll fds")
+
+        var clientBuffers: [Int32: [UInt8]] = [:]
+        var clientIDs: [Int32: Int] = [:]
+        var nextClientID = 0
+        var events = Array<kevent>(repeating: kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil), count: 32)
+
         while true {
-            let clientFD = accept(serverFD, nil, nil)
-            guard clientFD >= 0 else {
-                usleep(50_000)
+            let nReady = events.withUnsafeMutableBufferPointer { buf -> Int32 in
+                kevent(kq, nil, 0, buf.baseAddress, Int32(buf.count), nil)
+            }
+
+            for i in 0..<Int(nReady) {
+                let event = events[i]
+                let fd = Int32(event.ident)
+
+                if fd == serverFD {
+                    let clientFD = accept(serverFD, nil, nil)
+                    if clientFD >= 0 {
+                        nextClientID += 1
+                        fcntl(clientFD, F_SETFL, O_NONBLOCK)
+                        clientIDs[clientFD] = nextClientID
+                        clientBuffers[clientFD] = []
+                        hardware.addClient(fd: clientFD, clientID: nextClientID)
+                        var kev = kevent(ident: UInt(clientFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+                        kevent(kq, &kev, 1, nil, 0, nil)
+                        daemonLog("client \(nextClientID) connected")
+                    }
+                } else if hardware.isLibusbFd(fd) {
+                    hardware.handleUsbEvents(timeoutMs: 0)
+                    // Re-sync libusb fds (they may change)
+                    let currentFds = Set(hardware.currentLibusbFds())
+                    let toAdd = currentFds.subtracting(trackedUsbFds)
+                    let toRemove = trackedUsbFds.subtracting(currentFds)
+                    for newFd in toAdd {
+                        var kev = kevent(ident: UInt(newFd), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+                        kevent(kq, &kev, 1, nil, 0, nil)
+                    }
+                    for oldFd in toRemove {
+                        var kev = kevent(ident: UInt(oldFd), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+                        kevent(kq, &kev, 1, nil, 0, nil)
+                    }
+                    trackedUsbFds = currentFds
+                    hardware.updateTrackedLibusbFds(trackedUsbFds)
+                } else if clientIDs[fd] != nil {
+                    let cid = clientIDs[fd]!
+                    let shouldClose = processClientCommands(fd, clientID: cid, hardware: hardware, buffer: &clientBuffers[fd, default: []])
+                    if shouldClose {
+                        hardware.removeClient(clientID: cid)
+                        hardware.disconnect(clientID: cid)
+                        var kev = kevent(ident: UInt(fd), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+                        kevent(kq, &kev, 1, nil, 0, nil)
+                        close(fd)
+                        clientIDs.removeValue(forKey: fd)
+                        clientBuffers.removeValue(forKey: fd)
+                        daemonLog("client \(cid) disconnected")
+                    }
+                }
+            }
+        }
+    }
+
+    private static func processClientCommands(_ fd: Int32, clientID: Int, hardware: DaemonHardware, buffer: inout [UInt8]) -> Bool {
+        var scratch = [UInt8](repeating: 0, count: 512)
+        let scratchCount = scratch.count
+        let count = scratch.withUnsafeMutableBytes { raw in
+            Darwin.read(fd, raw.baseAddress!, scratchCount)
+        }
+        if count <= 0 {
+            return true
+        }
+        buffer.append(contentsOf: scratch.prefix(count))
+
+        while let newline = buffer.firstIndex(of: 0x0a) {
+            let lineBytes = buffer.prefix(upTo: newline)
+            buffer.removeSubrange(...newline)
+            guard let line = String(bytes: lineBytes, encoding: .utf8) else {
+                writeDaemonResponse("err utf8", to: fd)
                 continue
             }
-            clientID += 1
-            daemonLog("client \(clientID) connected")
-            let acceptedID = clientID
-            let thread = Thread {
-                handleDaemonClient(clientFD, clientID: acceptedID, hardware: hardware)
-                daemonLog("client \(acceptedID) disconnected")
-                hardware.disconnect(clientID: acceptedID)
-                close(clientFD)
-            }
-            thread.name = "KompleteKontrolDaemonClient-\(acceptedID)"
-            thread.stackSize = 1 << 20
-            thread.start()
+            daemonTraceLog("client \(clientID) recv \(line)")
+            let response = hardware.handle(line, clientID: clientID)
+            writeDaemonResponse(response, to: fd)
         }
+        return false
     }
 
     public static func daemonSocketIsAvailable(socketPath: String = defaultDaemonSocketPath) -> Bool {
@@ -1760,6 +1845,8 @@ public enum KompleteKontrolLibUSBServer {
         private var libusbSession: KontrolUSBLibUSBSessionRef?
         private var registeredClients: [Int: RegisteredClient] = [:]
         private var activeClientID: Int?
+        private var clientFDs: [Int: Int32] = [:]
+        private var trackedLibusbFds: Set<Int32> = []
 
         deinit {
             if let libusbSession {
@@ -1955,40 +2042,74 @@ public enum KompleteKontrolLibUSBServer {
                 KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
             }
         }
-    }
 
-    private static func handleDaemonClient(_ fd: Int32, clientID: Int, hardware: DaemonHardware) {
-        let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
-        if transientClaim {
-            daemonLog("client \(clientID) transient claim mode enabled")
+        func addClient(fd: Int32, clientID: Int) {
+            lock.lock()
+            clientFDs[clientID] = fd
+            lock.unlock()
         }
 
-        var buffer: [UInt8] = []
-        var scratch = [UInt8](repeating: 0, count: 512)
+        func removeClient(clientID: Int) {
+            lock.lock()
+            clientFDs.removeValue(forKey: clientID)
+            lock.unlock()
+        }
 
-        while true {
-            let scratchCount = scratch.count
-            let count = scratch.withUnsafeMutableBytes { raw in
-                Darwin.read(fd, raw.baseAddress!, scratchCount)
-            }
-            if count <= 0 {
-                return
-            }
-            buffer.append(contentsOf: scratch.prefix(count))
+        func startAsyncTransfers() {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let session = ensureSession() else { return }
+            let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+            let inputStatus = KontrolUSBLibUSBSessionStartAsyncInput(session, KompleteKontrolLibUSBServer.asyncInputCallback, selfPtr)
+            let midiStatus = KontrolUSBLibUSBSessionStartAsyncMIDI(session, KompleteKontrolLibUSBServer.asyncMidiCallback, selfPtr)
+            daemonLog("async transfers started input=\(inputStatus) midi=\(midiStatus)")
+        }
 
-            while let newline = buffer.firstIndex(of: 0x0a) {
-                let lineBytes = buffer.prefix(upTo: newline)
-                buffer.removeSubrange(...newline)
-                guard let line = String(bytes: lineBytes, encoding: .utf8) else {
-                    writeDaemonResponse("err utf8", to: fd)
-                    continue
+        func handleUsbEvents(timeoutMs: Int) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let session = libusbSession else { return }
+            KontrolUSBLibUSBHandleEventsTimeout(session, Int32(timeoutMs))
+        }
+
+        func currentLibusbFds() -> [Int32] {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let session = libusbSession else { return [] }
+            var pollFds = [KontrolUSBPollFd](repeating: KontrolUSBPollFd(), count: 8)
+            let count = pollFds.withUnsafeMutableBufferPointer { buf in
+                KontrolUSBLibUSBSessionGetPollFds(session, buf.baseAddress, Int32(buf.count))
+            }
+            return pollFds.prefix(Int(max(0, count))).map { $0.fd }
+        }
+
+        func isLibusbFd(_ fd: Int32) -> Bool {
+            trackedLibusbFds.contains(fd)
+        }
+
+        func updateTrackedLibusbFds(_ fds: Set<Int32>) {
+            trackedLibusbFds = fds
+        }
+
+        fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
+            let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            pushToClients("in \(hex)")
+        }
+
+        fileprivate func pushMidiToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
+            let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            pushToClients("midi \(hex)")
+        }
+
+        private func pushToClients(_ message: String) {
+            lock.lock()
+            let fds = Array(clientFDs.values)
+            lock.unlock()
+            let bytes = Array((message + "\n").utf8)
+            for fd in fds {
+                bytes.withUnsafeBytes { raw in
+                    _ = Darwin.write(fd, raw.baseAddress, bytes.count)
                 }
-                let commandStart = KKTiming.now()
-                daemonTraceLog("client \(clientID) recv \(line)")
-                let response = hardware.handle(line, clientID: clientID)
-                daemonTraceLog("client \(clientID) done \(line) elapsed=\(KKTiming.msSince(commandStart))")
-                logDaemonCommand(line, response: response, clientID: clientID)
-                writeDaemonResponse(response, to: fd)
             }
         }
     }
@@ -2245,6 +2366,7 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
     let fd: Int32
     var responseBuffer: [UInt8] = []
     private let lock = NSLock()
+    public var asyncPushHandler: ((String) -> Void)?
 
     public init?(socketPath: String = KompleteKontrolLibUSBServer.defaultDaemonSocketPath) {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2319,7 +2441,13 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
             if let newline = responseBuffer.firstIndex(of: 0x0a) {
                 let lineBytes = responseBuffer.prefix(upTo: newline)
                 responseBuffer.removeSubrange(...newline)
-                return String(bytes: lineBytes, encoding: .utf8)
+                let line = String(bytes: lineBytes, encoding: .utf8)
+                // Dispatch async push messages to handler, keep reading for actual response
+                if let line, (line.hasPrefix("in ") || line.hasPrefix("midi ")) {
+                    asyncPushHandler?(line)
+                    continue
+                }
+                return line
             }
 
             var scratch = [UInt8](repeating: 0, count: 512)
@@ -2338,6 +2466,37 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    public func readPushes(timeoutUsec: useconds_t = 1_000_000) {
+        lock.lock()
+        defer { lock.unlock() }
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
+        while Date() < deadline {
+            if let newline = responseBuffer.firstIndex(of: 0x0a) {
+                let lineBytes = responseBuffer.prefix(upTo: newline)
+                responseBuffer.removeSubrange(...newline)
+                if let line = String(bytes: lineBytes, encoding: .utf8) {
+                    asyncPushHandler?(line)
+                }
+                continue
+            }
+
+            var scratch = [UInt8](repeating: 0, count: 512)
+            let scratchCount = scratch.count
+            let count = scratch.withUnsafeMutableBytes { raw in
+                Darwin.read(fd, raw.baseAddress!, scratchCount)
+            }
+            if count > 0 {
+                responseBuffer.append(contentsOf: scratch.prefix(count))
+            } else if count == 0 {
+                return
+            } else if errno == EAGAIN || errno == EWOULDBLOCK {
+                usleep(10_000)
+            } else {
+                return
+            }
+        }
     }
 }
 

@@ -35,6 +35,15 @@ typedef struct {
     uint8_t midiInterface;
     uint8_t midiInputEndpoint;
     uint8_t midiClaimed;
+    /* Async state */
+    struct libusb_transfer *inputTransfer;
+    struct libusb_transfer *midiTransfer;
+    KontrolUSBInputCallback inputCallback;
+    void *inputUserData;
+    KontrolUSBInputCallback midiCallback;
+    void *midiUserData;
+    uint8_t inputBuffer[256];
+    uint8_t midiBuffer[256];
 } KontrolLibUSBSession;
 
 static void result_append(KontrolUSBResult *result, const char *format, ...) {
@@ -710,6 +719,15 @@ void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef sessionRef) {
     if (session == NULL) {
         return;
     }
+    KontrolUSBLibUSBSessionStopAsync(sessionRef);
+    if (session->inputTransfer != NULL) {
+        libusb_free_transfer(session->inputTransfer);
+        session->inputTransfer = NULL;
+    }
+    if (session->midiTransfer != NULL) {
+        libusb_free_transfer(session->midiTransfer);
+        session->midiTransfer = NULL;
+    }
     if (session->handle != NULL && session->midiClaimed) {
         libusb_release_interface(session->handle, session->midiInterface);
         libusb_attach_kernel_driver(session->handle, session->midiInterface);
@@ -818,4 +836,147 @@ KontrolUSBResult KontrolUSBLibUSBRunHoldDemo(uint32_t steps, uint32_t intervalUs
     result.status = status;
     libusb_close_claim(ctx, handle, &result);
     return result;
+}
+
+/* ---- Async API implementation ---- */
+
+static void input_transfer_callback(struct libusb_transfer *transfer) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)transfer->user_data;
+    if (session == NULL) return;
+
+    if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
+        if (session->inputCallback) {
+            session->inputCallback(transfer->buffer, transfer->actual_length, session->inputUserData);
+        }
+    }
+
+    if (transfer->status != LIBUSB_TRANSFER_CANCELLED && session->inputTransfer != NULL) {
+        libusb_submit_transfer(transfer);
+    }
+}
+
+static void midi_transfer_callback(struct libusb_transfer *transfer) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)transfer->user_data;
+    if (session == NULL) return;
+
+    if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
+        if (session->midiCallback) {
+            session->midiCallback(transfer->buffer, transfer->actual_length, session->midiUserData);
+        }
+    }
+
+    if (transfer->status != LIBUSB_TRANSFER_CANCELLED && session->midiTransfer != NULL) {
+        libusb_submit_transfer(transfer);
+    }
+}
+
+int KontrolUSBLibUSBSessionGetPollFds(KontrolUSBLibUSBSessionRef sessionRef,
+                                       KontrolUSBPollFd *outFds, int maxFds) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->ctx == NULL || outFds == NULL || maxFds <= 0) {
+        return -1;
+    }
+
+    const struct libusb_pollfd **pollfds = libusb_get_pollfds(session->ctx);
+    if (pollfds == NULL) {
+        return -1;
+    }
+
+    int count = 0;
+    for (int i = 0; pollfds[i] != NULL && i < maxFds; i++) {
+        outFds[i].fd = pollfds[i]->fd;
+        outFds[i].events = pollfds[i]->events;
+        count++;
+    }
+
+    libusb_free_pollfds(pollfds);
+    return count;
+}
+
+void KontrolUSBLibUSBHandleEventsTimeout(KontrolUSBLibUSBSessionRef sessionRef,
+                                          int timeoutMs) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->ctx == NULL) return;
+
+    struct timeval tv;
+    tv.tv_sec = timeoutMs / 1000;
+    tv.tv_usec = (timeoutMs % 1000) * 1000;
+    libusb_handle_events_timeout(session->ctx, &tv);
+}
+
+int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef,
+                                            KontrolUSBInputCallback callback,
+                                            void *userData) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || session->inputEndpoint == 0) {
+        return -1;
+    }
+
+    session->inputCallback = callback;
+    session->inputUserData = userData;
+
+    if (session->inputTransfer == NULL) {
+        session->inputTransfer = libusb_alloc_transfer(0);
+        if (session->inputTransfer == NULL) {
+            return -1;
+        }
+        libusb_fill_interrupt_transfer(session->inputTransfer,
+                                       session->handle,
+                                       session->inputEndpoint,
+                                       session->inputBuffer,
+                                       sizeof(session->inputBuffer),
+                                       input_transfer_callback,
+                                       session,
+                                       0);
+    }
+
+    return libusb_submit_transfer(session->inputTransfer);
+}
+
+int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
+                                           KontrolUSBInputCallback callback,
+                                           void *userData) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || !session->midiClaimed || session->midiInputEndpoint == 0) {
+        return -1;
+    }
+
+    session->midiCallback = callback;
+    session->midiUserData = userData;
+
+    if (session->midiTransfer == NULL) {
+        session->midiTransfer = libusb_alloc_transfer(0);
+        if (session->midiTransfer == NULL) {
+            return -1;
+        }
+        libusb_fill_bulk_transfer(session->midiTransfer,
+                                  session->handle,
+                                  session->midiInputEndpoint,
+                                  session->midiBuffer,
+                                  sizeof(session->midiBuffer),
+                                  midi_transfer_callback,
+                                  session,
+                                  0);
+    }
+
+    return libusb_submit_transfer(session->midiTransfer);
+}
+
+void KontrolUSBLibUSBSessionStopAsync(KontrolUSBLibUSBSessionRef sessionRef) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL) return;
+
+    if (session->inputTransfer != NULL) {
+        libusb_cancel_transfer(session->inputTransfer);
+        session->inputTransfer = NULL;
+    }
+    if (session->midiTransfer != NULL) {
+        libusb_cancel_transfer(session->midiTransfer);
+        session->midiTransfer = NULL;
+    }
+
+    if (session->ctx != NULL) {
+        struct timeval tv = {0, 100000};
+        libusb_handle_events_timeout(session->ctx, &tv);
+    }
 }
