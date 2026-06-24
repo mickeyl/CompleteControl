@@ -1,0 +1,85 @@
+#!/bin/bash
+set -e
+
+# KompleteKontrol LibUSB Daemon Installer
+# This script installs the daemon as a launchd service, allowing it to start
+# without requiring password prompts each time.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_LABEL="media.vanille.kompletekontrol-libusb"
+PLIST_FILE="$SCRIPT_DIR/media.vanille.kompletekontrol-libusb.plist"
+LAUNCHD_PLIST="/Library/LaunchDaemons/$DAEMON_LABEL.plist"
+SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
+EXECUTABLE_PATH="$SCRIPT_DIR/.build/debug/KontrolProbe"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "KompleteKontrol LibUSB Daemon Installer"
+echo "======================================"
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Error: This script must be run as root (sudo).${NC}"
+    echo "Please run: sudo $0"
+    exit 1
+fi
+
+# Check if executable exists
+if [ ! -f "$EXECUTABLE_PATH" ]; then
+    echo -e "${YELLOW}Warning: Executable not found at $EXECUTABLE_PATH${NC}"
+    echo "Building the project first..."
+    cd "$SCRIPT_DIR"
+    swift build --product KontrolProbe
+    if [ ! -f "$EXECUTABLE_PATH" ]; then
+        echo -e "${RED}Error: Failed to build executable${NC}"
+        exit 1
+    fi
+fi
+
+# Stop any existing daemon
+echo "Stopping any existing daemon..."
+launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+pkill -f -- "--kk-libusb-daemon" 2>/dev/null || true
+rm -f "$SOCKET_PATH"
+
+# Copy executable to /usr/local/bin
+echo "Installing executable to /usr/local/bin..."
+cp "$EXECUTABLE_PATH" /usr/local/bin/KontrolProbe
+chmod +x /usr/local/bin/KontrolProbe
+
+# Update plist with correct executable path
+echo "Installing launchd plist..."
+sed "s|/usr/local/bin/KontrolProbe|/usr/local/bin/KontrolProbe|g" "$PLIST_FILE" > /tmp/kk-daemon.plist
+cp /tmp/kk-daemon.plist "$LAUNCHD_PLIST"
+rm /tmp/kk-daemon.plist
+chmod 644 "$LAUNCHD_PLIST"
+
+# Load the daemon
+echo "Loading daemon..."
+launchctl load "$LAUNCHD_PLIST"
+
+# Wait for socket to appear
+echo "Waiting for daemon to start..."
+for i in {1..10}; do
+    if [ -S "$SOCKET_PATH" ]; then
+        echo -e "${GREEN}Daemon started successfully!${NC}"
+        echo "Socket: $SOCKET_PATH"
+        echo "Log: /tmp/media.vanille.kompletekontrol-libusb.stdout.log"
+        echo ""
+        echo "To control the daemon:"
+        echo "  Start:   sudo launchctl load $LAUNCHD_PLIST"
+        echo "  Stop:    sudo launchctl unload $LAUNCHD_PLIST"
+        echo "  Restart: sudo launchctl kickstart -k gui/$(id -u)/$DAEMON_LABEL"
+        echo "  Status:  sudo launchctl list | grep $DAEMON_LABEL"
+        exit 0
+    fi
+    sleep 0.5
+done
+
+echo -e "${RED}Error: Daemon failed to start within 5 seconds${NC}"
+echo "Check logs: /tmp/media.vanille.kompletekontrol-libusb.stderr.log"
+exit 1

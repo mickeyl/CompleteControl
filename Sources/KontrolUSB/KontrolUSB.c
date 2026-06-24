@@ -1,0 +1,821 @@
+#include "KontrolUSB.h"
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOCFPlugIn.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/usb/IOUSBLib.h>
+#include <IOKit/usb/IOUSBHostFamilyDefinitions.h>
+#include <IOKit/usb/USBSpec.h>
+#include <libusb.h>
+#include <mach/mach_error.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#define KONTROL_VID 0x17cc
+#define KONTROL_PID 0x1340
+#define KONTROL_INTERFACE 2
+#define KONTROL_EP_OUT 0x02
+#define KONTROL_EP_IN 0x84
+
+typedef struct {
+    IOUSBInterfaceInterface **iface;
+    uint8_t pipeRef;
+    uint8_t endpointAddress;
+    uint8_t numEndpoints;
+} OpenedKontrolUSB;
+
+typedef struct {
+    libusb_context *ctx;
+    libusb_device_handle *handle;
+    uint8_t inputEndpoint;
+    uint8_t outputEndpoint;
+    uint8_t midiInterface;
+    uint8_t midiInputEndpoint;
+    uint8_t midiClaimed;
+} KontrolLibUSBSession;
+
+static void result_append(KontrolUSBResult *result, const char *format, ...) {
+    size_t used = strnlen(result->message, sizeof(result->message));
+    if (used >= sizeof(result->message) - 1) {
+        return;
+    }
+
+    va_list args;
+    va_start(args, format);
+    vsnprintf(result->message + used, sizeof(result->message) - used, format, args);
+    va_end(args);
+}
+
+static const char *status_string(IOReturn status) {
+    const char *text = mach_error_string(status);
+    return text != NULL ? text : "unknown";
+}
+
+static int int_property(io_service_t service, const char *key, int *out) {
+    CFStringRef keyRef = CFStringCreateWithCStringNoCopy(kCFAllocatorDefault, key, kCFStringEncodingUTF8, kCFAllocatorNull);
+    if (keyRef == NULL) {
+        return 0;
+    }
+
+    CFTypeRef value = IORegistryEntryCreateCFProperty(service, keyRef, kCFAllocatorDefault, 0);
+    CFRelease(keyRef);
+    if (value == NULL) {
+        return 0;
+    }
+
+    int ok = 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        ok = CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, out);
+    }
+    CFRelease(value);
+    return ok;
+}
+
+static int is_kontrol_hid_interface(io_service_t service) {
+    int vid = 0;
+    int pid = 0;
+    int interfaceNumber = 0;
+    return int_property(service, kUSBHostMatchingPropertyVendorID, &vid)
+        && int_property(service, kUSBHostMatchingPropertyProductID, &pid)
+        && int_property(service, kUSBHostMatchingPropertyInterfaceNumber, &interfaceNumber)
+        && vid == KONTROL_VID
+        && pid == KONTROL_PID
+        && interfaceNumber == KONTROL_INTERFACE;
+}
+
+static io_service_t find_interface(KontrolUSBResult *result) {
+    CFMutableDictionaryRef match = IOServiceMatching(kIOUSBHostInterfaceClassName);
+    if (match == NULL) {
+        result->status = kIOReturnNoMemory;
+        snprintf(result->message, sizeof(result->message), "IOServiceMatching(%s) failed", kIOUSBHostInterfaceClassName);
+        return IO_OBJECT_NULL;
+    }
+
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    IOReturn status = IOServiceGetMatchingServices(kIOMainPortDefault, match, &iterator);
+    if (status != kIOReturnSuccess) {
+        result->status = status;
+        snprintf(result->message, sizeof(result->message), "IOServiceGetMatchingServices failed 0x%08x (%s)", status, status_string(status));
+        return IO_OBJECT_NULL;
+    }
+
+    io_service_t service = IO_OBJECT_NULL;
+    io_service_t candidate = IO_OBJECT_NULL;
+    while ((candidate = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        if (is_kontrol_hid_interface(candidate)) {
+            service = candidate;
+            break;
+        }
+        IOObjectRelease(candidate);
+    }
+    IOObjectRelease(iterator);
+
+    if (service == IO_OBJECT_NULL) {
+        result->status = kIOReturnNotFound;
+        snprintf(result->message, sizeof(result->message), "USB interface not found: VID 0x%04x PID 0x%04x interface %d", KONTROL_VID, KONTROL_PID, KONTROL_INTERFACE);
+        return IO_OBJECT_NULL;
+    }
+
+    CFTypeRef owner = IORegistryEntryCreateCFProperty(service, CFSTR(kUSBHostPropertyExclusiveOwner), kCFAllocatorDefault, 0);
+    if (owner != NULL) {
+        if (CFGetTypeID(owner) == CFStringGetTypeID()) {
+            char ownerText[160] = {0};
+            CFStringGetCString((CFStringRef)owner, ownerText, sizeof(ownerText), kCFStringEncodingUTF8);
+            result_append(result, "exclusiveOwner=%s; ", ownerText);
+        }
+        CFRelease(owner);
+    }
+
+    return service;
+}
+
+static IOReturn create_interface(io_service_t service, IOUSBInterfaceInterface ***ifaceOut, KontrolUSBResult *result) {
+    IOCFPlugInInterface **plugin = NULL;
+    SInt32 score = 0;
+    IOReturn status = IOCreatePlugInInterfaceForService(service, kIOUSBInterfaceUserClientTypeID, kIOCFPlugInInterfaceID, &plugin, &score);
+    if (status != kIOReturnSuccess || plugin == NULL) {
+        result_append(result, "IOCreatePlugInInterfaceForService -> 0x%08x (%s); ", status, status_string(status));
+        return status != kIOReturnSuccess ? status : kIOReturnError;
+    }
+
+    HRESULT hr = (*plugin)->QueryInterface(plugin, CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID), (LPVOID *)ifaceOut);
+    IODestroyPlugInInterface(plugin);
+
+    if (hr != S_OK || *ifaceOut == NULL) {
+        result_append(result, "QueryInterface(IOUSBInterfaceInterface) -> 0x%08x; ", (unsigned int)hr);
+        return kIOReturnUnsupported;
+    }
+
+    return kIOReturnSuccess;
+}
+
+static IOReturn find_out_pipe(IOUSBInterfaceInterface **iface, OpenedKontrolUSB *opened, KontrolUSBResult *result) {
+    UInt8 endpoints = 0;
+    IOReturn status = (*iface)->GetNumEndpoints(iface, &endpoints);
+    if (status != kIOReturnSuccess) {
+        result_append(result, "GetNumEndpoints -> 0x%08x (%s); ", status, status_string(status));
+        return status;
+    }
+
+    result->numEndpoints = endpoints;
+    opened->numEndpoints = endpoints;
+    result_append(result, "endpoints=%u; ", endpoints);
+
+    for (UInt8 pipe = 1; pipe <= endpoints; pipe++) {
+        UInt8 direction = 0;
+        UInt8 number = 0;
+        UInt8 transferType = 0;
+        UInt16 maxPacketSize = 0;
+        UInt8 interval = 0;
+        status = (*iface)->GetPipeProperties(iface, pipe, &direction, &number, &transferType, &maxPacketSize, &interval);
+        if (status != kIOReturnSuccess) {
+            result_append(result, "pipe%u GetPipeProperties -> 0x%08x; ", pipe, status);
+            continue;
+        }
+
+        uint8_t address = (uint8_t)((direction == kUSBIn ? 0x80 : 0x00) | number);
+        result_append(result, "pipe%u=ep0x%02x type%u max%u; ", pipe, address, transferType, maxPacketSize);
+        if (address == KONTROL_EP_OUT && transferType == kUSBInterrupt) {
+            opened->pipeRef = pipe;
+            opened->endpointAddress = address;
+            result->pipeRef = pipe;
+            result->endpointAddress = address;
+            return kIOReturnSuccess;
+        }
+    }
+
+    return kIOReturnNotFound;
+}
+
+static IOReturn open_kontrol(OpenedKontrolUSB *opened, KontrolUSBResult *result) {
+    memset(opened, 0, sizeof(*opened));
+
+    io_service_t service = find_interface(result);
+    if (service == IO_OBJECT_NULL) {
+        return result->status;
+    }
+
+    IOReturn status = create_interface(service, &opened->iface, result);
+    IOObjectRelease(service);
+    if (status != kIOReturnSuccess) {
+        result->status = status;
+        return status;
+    }
+
+    status = (*opened->iface)->USBInterfaceOpenSeize(opened->iface);
+    result_append(result, "USBInterfaceOpenSeize -> 0x%08x (%s); ", status, status_string(status));
+    if (status != kIOReturnSuccess) {
+        IOReturn fallback = (*opened->iface)->USBInterfaceOpen(opened->iface);
+        result_append(result, "USBInterfaceOpen -> 0x%08x (%s); ", fallback, status_string(fallback));
+        if (fallback != kIOReturnSuccess) {
+            result->status = status;
+            (*opened->iface)->Release(opened->iface);
+            opened->iface = NULL;
+            return status;
+        }
+        status = fallback;
+    }
+
+    result->opened = 1;
+    status = find_out_pipe(opened->iface, opened, result);
+    if (status != kIOReturnSuccess) {
+        result_append(result, "endpoint 0x%02x interrupt OUT not found; ", KONTROL_EP_OUT);
+        result->status = status;
+    }
+
+    return status;
+}
+
+static void close_kontrol(OpenedKontrolUSB *opened) {
+    if (opened->iface != NULL) {
+        (*opened->iface)->USBInterfaceClose(opened->iface);
+        (*opened->iface)->Release(opened->iface);
+        opened->iface = NULL;
+    }
+}
+
+static IOReturn write_report(OpenedKontrolUSB *opened, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen, KontrolUSBResult *result) {
+    uint8_t buffer[256] = {0};
+    uint32_t totalLen = payloadLen + 1;
+    if (totalLen > sizeof(buffer)) {
+        result_append(result, "report 0x%02x too large (%u bytes); ", reportID, totalLen);
+        return kIOReturnOverrun;
+    }
+
+    buffer[0] = reportID;
+    if (payloadLen > 0 && payload != NULL) {
+        memcpy(buffer + 1, payload, payloadLen);
+    }
+
+    IOReturn status = (*opened->iface)->WritePipeTO(opened->iface, opened->pipeRef, buffer, totalLen, 50, 50);
+    result_append(result, "WritePipeTO ep0x%02x report0x%02x len%u -> 0x%08x (%s); ",
+                  opened->endpointAddress, reportID, totalLen, status, status_string(status));
+    return status;
+}
+
+KontrolUSBResult KontrolUSBWriteReport(uint8_t reportID, const uint8_t *payload, uint32_t payloadLen) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = kIOReturnError;
+
+    OpenedKontrolUSB opened;
+    IOReturn status = open_kontrol(&opened, &result);
+    if (status == kIOReturnSuccess) {
+        status = write_report(&opened, reportID, payload, payloadLen, &result);
+        result.status = status;
+    }
+    close_kontrol(&opened);
+
+    return result;
+}
+
+KontrolUSBResult KontrolUSBRunDemo(void) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = kIOReturnError;
+
+    OpenedKontrolUSB opened;
+    IOReturn status = open_kontrol(&opened, &result);
+    if (status != kIOReturnSuccess) {
+        close_kontrol(&opened);
+        return result;
+    }
+
+    const uint8_t init[] = {0x00, 0x00};
+    status = write_report(&opened, 0xa0, init, sizeof(init), &result);
+    usleep(60000);
+
+    uint8_t keys[75] = {0};
+    for (int i = 0; i < 25; i++) {
+        keys[i * 3 + 0] = (uint8_t)(i < 9 ? 0xff : 0x00);
+        keys[i * 3 + 1] = (uint8_t)(i >= 8 && i < 17 ? 0xff : 0x00);
+        keys[i * 3 + 2] = (uint8_t)(i >= 16 ? 0xff : 0x00);
+    }
+    IOReturn latest = write_report(&opened, 0x82, keys, sizeof(keys), &result);
+    if (latest != kIOReturnSuccess) {
+        status = latest;
+    }
+
+    uint8_t buttons[25];
+    memset(buttons, 0x7f, sizeof(buttons));
+    latest = write_report(&opened, 0x80, buttons, sizeof(buttons), &result);
+    if (latest != kIOReturnSuccess) {
+        status = latest;
+    }
+
+    uint8_t display[248] = {0};
+    display[4] = 0x48;
+    display[6] = 0x01;
+    memset(display + 8, 0xff, sizeof(display) - 8);
+    latest = write_report(&opened, 0xe0, display, sizeof(display), &result);
+    if (latest != kIOReturnSuccess) {
+        status = latest;
+    }
+
+    result.status = status;
+    close_kontrol(&opened);
+    return result;
+}
+
+static void libusb_append(KontrolUSBResult *result, const char *label, int status) {
+    result_append(result, "%s -> %d (%s); ", label, status, status < 0 ? libusb_error_name(status) : "OK");
+}
+
+static int libusb_open_claim(libusb_context **ctxOut, libusb_device_handle **handleOut, KontrolUSBResult *result) {
+    *ctxOut = NULL;
+    *handleOut = NULL;
+
+    int status = libusb_init(ctxOut);
+    libusb_append(result, "libusb_init", status);
+    if (status != 0) {
+        result->status = status;
+        return status;
+    }
+
+    libusb_set_option(*ctxOut, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_NONE);
+
+    libusb_device_handle *handle = libusb_open_device_with_vid_pid(*ctxOut, KONTROL_VID, KONTROL_PID);
+    if (handle == NULL) {
+        result_append(result, "open 0x%04x:0x%04x -> NULL; ", KONTROL_VID, KONTROL_PID);
+        result->status = LIBUSB_ERROR_NO_DEVICE;
+        libusb_exit(*ctxOut);
+        *ctxOut = NULL;
+        return LIBUSB_ERROR_NO_DEVICE;
+    }
+    *handleOut = handle;
+    result->opened = 1;
+    result->endpointAddress = KONTROL_EP_OUT;
+
+    status = libusb_kernel_driver_active(handle, KONTROL_INTERFACE);
+    libusb_append(result, "kernel_driver_active interface2", status);
+
+    status = libusb_detach_kernel_driver(handle, KONTROL_INTERFACE);
+    libusb_append(result, "detach_kernel_driver interface2", status);
+    if (status != 0 && status != LIBUSB_ERROR_NOT_FOUND && status != LIBUSB_ERROR_NOT_SUPPORTED) {
+        if (status == LIBUSB_ERROR_ACCESS) {
+            result_append(result, "requires root/admin privileges or com.apple.vm.device-access; ");
+        }
+        result->status = status;
+        return status;
+    }
+
+    status = libusb_claim_interface(handle, KONTROL_INTERFACE);
+    libusb_append(result, "claim_interface 2", status);
+    if (status != 0) {
+        result->status = status;
+        libusb_attach_kernel_driver(handle, KONTROL_INTERFACE);
+        return status;
+    }
+
+    result->pipeRef = 1;
+    result->status = 0;
+    return 0;
+}
+
+static void libusb_find_interrupt_endpoints(libusb_device_handle *handle, uint8_t *inputOut, uint8_t *outputOut, KontrolUSBResult *result) {
+    if (inputOut != NULL) {
+        *inputOut = 0;
+    }
+    if (outputOut != NULL) {
+        *outputOut = KONTROL_EP_OUT;
+    }
+    libusb_device *device = libusb_get_device(handle);
+    if (device == NULL) {
+        return;
+    }
+
+    struct libusb_config_descriptor *config = NULL;
+    int status = libusb_get_active_config_descriptor(device, &config);
+    if (status != 0 || config == NULL) {
+        libusb_append(result, "get_active_config_descriptor", status);
+        return;
+    }
+
+    for (uint8_t interfaceIndex = 0; interfaceIndex < config->bNumInterfaces; interfaceIndex++) {
+        const struct libusb_interface *interface = &config->interface[interfaceIndex];
+        for (int altIndex = 0; altIndex < interface->num_altsetting; altIndex++) {
+            const struct libusb_interface_descriptor *alt = &interface->altsetting[altIndex];
+            if (alt->bInterfaceNumber != KONTROL_INTERFACE) {
+                continue;
+            }
+            result_append(result, "interface%d alt%d endpoints=%u; ", alt->bInterfaceNumber, alt->bAlternateSetting, alt->bNumEndpoints);
+            for (uint8_t endpointIndex = 0; endpointIndex < alt->bNumEndpoints; endpointIndex++) {
+                const struct libusb_endpoint_descriptor *endpoint = &alt->endpoint[endpointIndex];
+                uint8_t address = endpoint->bEndpointAddress;
+                uint8_t transferType = endpoint->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK;
+                result_append(result, "ep0x%02x attr0x%02x max%u interval%u; ",
+                              address, endpoint->bmAttributes, endpoint->wMaxPacketSize, endpoint->bInterval);
+                if (transferType != LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+                    continue;
+                }
+                if ((address & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN && inputOut != NULL) {
+                    *inputOut = address;
+                } else if ((address & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_OUT && outputOut != NULL) {
+                    *outputOut = address;
+                }
+            }
+        }
+    }
+
+    libusb_free_config_descriptor(config);
+    result_append(result, "selected in=0x%02x out=0x%02x; ",
+                  inputOut != NULL ? *inputOut : 0,
+                  outputOut != NULL ? *outputOut : 0);
+}
+
+static void libusb_find_midi_streaming_endpoint(libusb_device_handle *handle, uint8_t *interfaceOut, uint8_t *inputOut, KontrolUSBResult *result) {
+    if (interfaceOut != NULL) {
+        *interfaceOut = 0xff;
+    }
+    if (inputOut != NULL) {
+        *inputOut = 0;
+    }
+
+    libusb_device *device = libusb_get_device(handle);
+    if (device == NULL) {
+        return;
+    }
+
+    struct libusb_config_descriptor *config = NULL;
+    int status = libusb_get_active_config_descriptor(device, &config);
+    if (status != 0 || config == NULL) {
+        libusb_append(result, "get_active_config_descriptor midi", status);
+        return;
+    }
+
+    for (uint8_t interfaceIndex = 0; interfaceIndex < config->bNumInterfaces; interfaceIndex++) {
+        const struct libusb_interface *interface = &config->interface[interfaceIndex];
+        for (int altIndex = 0; altIndex < interface->num_altsetting; altIndex++) {
+            const struct libusb_interface_descriptor *alt = &interface->altsetting[altIndex];
+            if (alt->bInterfaceClass != LIBUSB_CLASS_AUDIO || alt->bInterfaceSubClass != 3) {
+                continue;
+            }
+            result_append(result, "midi interface%d alt%d endpoints=%u; ", alt->bInterfaceNumber, alt->bAlternateSetting, alt->bNumEndpoints);
+            for (uint8_t endpointIndex = 0; endpointIndex < alt->bNumEndpoints; endpointIndex++) {
+                const struct libusb_endpoint_descriptor *endpoint = &alt->endpoint[endpointIndex];
+                uint8_t address = endpoint->bEndpointAddress;
+                uint8_t transferType = endpoint->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK;
+                result_append(result, "midi ep0x%02x attr0x%02x max%u interval%u; ",
+                              address, endpoint->bmAttributes, endpoint->wMaxPacketSize, endpoint->bInterval);
+                if ((address & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN
+                    && (transferType == LIBUSB_TRANSFER_TYPE_BULK || transferType == LIBUSB_TRANSFER_TYPE_INTERRUPT)) {
+                    uint8_t selectedInterface = alt->bInterfaceNumber;
+                    uint8_t selectedInput = address;
+                    if (interfaceOut != NULL) {
+                        *interfaceOut = selectedInterface;
+                    }
+                    if (inputOut != NULL) {
+                        *inputOut = selectedInput;
+                    }
+                    libusb_free_config_descriptor(config);
+                    result_append(result, "selected midi interface=%u in=0x%02x; ", selectedInterface, selectedInput);
+                    return;
+                }
+            }
+        }
+    }
+
+    libusb_free_config_descriptor(config);
+    result_append(result, "no USB-MIDI streaming IN endpoint; ");
+}
+
+static int libusb_claim_midi_streaming(KontrolLibUSBSession *session, KontrolUSBResult *result) {
+    session->midiInterface = 0xff;
+    session->midiInputEndpoint = 0;
+    session->midiClaimed = 0;
+
+    libusb_find_midi_streaming_endpoint(session->handle, &session->midiInterface, &session->midiInputEndpoint, result);
+    if (session->midiInterface == 0xff || session->midiInputEndpoint == 0) {
+        return LIBUSB_ERROR_NOT_FOUND;
+    }
+
+    int status = libusb_kernel_driver_active(session->handle, session->midiInterface);
+    libusb_append(result, "kernel_driver_active midi", status);
+
+    status = libusb_detach_kernel_driver(session->handle, session->midiInterface);
+    libusb_append(result, "detach_kernel_driver midi", status);
+    if (status != 0 && status != LIBUSB_ERROR_NOT_FOUND && status != LIBUSB_ERROR_NOT_SUPPORTED) {
+        return status;
+    }
+
+    status = libusb_claim_interface(session->handle, session->midiInterface);
+    libusb_append(result, "claim_interface midi", status);
+    if (status == 0) {
+        session->midiClaimed = 1;
+    }
+    return status;
+}
+
+static int libusb_write_report(libusb_device_handle *handle, uint8_t endpoint, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen, KontrolUSBResult *result) {
+    uint8_t buffer[256] = {0};
+    uint32_t totalLen = payloadLen + 1;
+    if (totalLen > sizeof(buffer)) {
+        result_append(result, "report 0x%02x too large (%u bytes); ", reportID, totalLen);
+        return LIBUSB_ERROR_OVERFLOW;
+    }
+    if (endpoint == 0) {
+        result_append(result, "no interrupt-OUT endpoint discovered; ");
+        return LIBUSB_ERROR_NOT_FOUND;
+    }
+
+    buffer[0] = reportID;
+    if (payloadLen > 0 && payload != NULL) {
+        memcpy(buffer + 1, payload, payloadLen);
+    }
+
+    int transferred = 0;
+    int status = libusb_interrupt_transfer(handle, endpoint, buffer, (int)totalLen, &transferred, 50);
+    result_append(result, "interrupt_transfer ep0x%02x report0x%02x len%u -> %d (%s) transferred=%d; ",
+                  endpoint, reportID, totalLen, status, status < 0 ? libusb_error_name(status) : "OK", transferred);
+    return status;
+}
+
+static void libusb_close_claim(libusb_context *ctx, libusb_device_handle *handle, KontrolUSBResult *result) {
+    if (handle != NULL) {
+        if (result->pipeRef != 0) {
+            libusb_release_interface(handle, KONTROL_INTERFACE);
+            int status = libusb_attach_kernel_driver(handle, KONTROL_INTERFACE);
+            libusb_append(result, "attach_kernel_driver interface2", status);
+        }
+        libusb_close(handle);
+    }
+    if (ctx != NULL) {
+        libusb_exit(ctx);
+    }
+}
+
+KontrolUSBResult KontrolUSBLibUSBWriteReport(uint8_t reportID, const uint8_t *payload, uint32_t payloadLen) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_OTHER;
+
+    libusb_context *ctx = NULL;
+    libusb_device_handle *handle = NULL;
+    int status = libusb_open_claim(&ctx, &handle, &result);
+    if (status == 0) {
+        uint8_t inputEndpoint = 0;
+        uint8_t outputEndpoint = 0;
+        libusb_find_interrupt_endpoints(handle, &inputEndpoint, &outputEndpoint, &result);
+        result.endpointAddress = outputEndpoint;
+        status = libusb_write_report(handle, outputEndpoint, reportID, payload, payloadLen, &result);
+        result.status = status;
+    }
+    libusb_close_claim(ctx, handle, &result);
+
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionOpen(KontrolUSBLibUSBSessionRef *sessionOut) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_OTHER;
+    if (sessionOut == NULL) {
+        result.status = LIBUSB_ERROR_INVALID_PARAM;
+        return result;
+    }
+    *sessionOut = NULL;
+
+    KontrolLibUSBSession *session = calloc(1, sizeof(KontrolLibUSBSession));
+    if (session == NULL) {
+        result.status = LIBUSB_ERROR_NO_MEM;
+        return result;
+    }
+
+    int status = libusb_open_claim(&session->ctx, &session->handle, &result);
+    if (status != 0) {
+        if (session->handle != NULL || session->ctx != NULL) {
+            libusb_close_claim(session->ctx, session->handle, &result);
+        }
+        free(session);
+        result.status = status;
+        return result;
+    }
+
+    libusb_find_interrupt_endpoints(session->handle, &session->inputEndpoint, &session->outputEndpoint, &result);
+    int midiStatus = libusb_claim_midi_streaming(session, &result);
+    if (midiStatus != 0 && midiStatus != LIBUSB_ERROR_NOT_FOUND) {
+        result_append(&result, "USB-MIDI claim unavailable; ");
+    }
+    result.endpointAddress = session->outputEndpoint;
+    *sessionOut = session;
+    result.status = 0;
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionStatus(KontrolUSBLibUSBSessionRef sessionRef) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL) {
+        return result;
+    }
+    result.status = 0;
+    result.opened = 1;
+    result.pipeRef = 1;
+    result.endpointAddress = session->outputEndpoint;
+    result_append(&result, "session endpoints in=0x%02x out=0x%02x midiInterface=%u midiIn=0x%02x midiClaimed=%u; ",
+                  session->inputEndpoint,
+                  session->outputEndpoint,
+                  session->midiInterface,
+                  session->midiInputEndpoint,
+                  session->midiClaimed);
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionWrite(KontrolUSBLibUSBSessionRef sessionRef, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL) {
+        return result;
+    }
+    result.opened = 1;
+    result.pipeRef = 1;
+    result.endpointAddress = session->outputEndpoint != 0 ? session->outputEndpoint : KONTROL_EP_OUT;
+    int status = libusb_write_report(session->handle, session->outputEndpoint, reportID, payload, payloadLen, &result);
+    result.status = status;
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionRead(KontrolUSBLibUSBSessionRef sessionRef, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    if (transferredOut != NULL) {
+        *transferredOut = 0;
+    }
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || buffer == NULL || bufferLen == 0) {
+        return result;
+    }
+    result.opened = 1;
+    result.pipeRef = 1;
+    uint8_t endpoint = session->inputEndpoint;
+    result.endpointAddress = endpoint;
+    if (endpoint == 0) {
+        result_append(&result, "no interrupt-IN endpoint discovered; ");
+        result.status = LIBUSB_ERROR_NOT_FOUND;
+        return result;
+    }
+
+    int transferred = 0;
+    int status = libusb_interrupt_transfer(session->handle, endpoint, buffer, (int)bufferLen, &transferred, timeoutMs);
+    result_append(&result, "interrupt_transfer ep0x%02x len%u -> %d (%s) transferred=%d; ",
+                  endpoint, bufferLen, status, status < 0 ? libusb_error_name(status) : "OK", transferred);
+    if (transferredOut != NULL) {
+        *transferredOut = transferred > 0 ? (uint32_t)transferred : 0;
+    }
+    result.status = status;
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionReadMIDI(KontrolUSBLibUSBSessionRef sessionRef, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    if (transferredOut != NULL) {
+        *transferredOut = 0;
+    }
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || buffer == NULL || bufferLen == 0) {
+        return result;
+    }
+    result.opened = 1;
+    result.pipeRef = 1;
+    result.endpointAddress = session->midiInputEndpoint;
+    if (!session->midiClaimed || session->midiInputEndpoint == 0) {
+        result_append(&result, "no claimed USB-MIDI IN endpoint; ");
+        result.status = LIBUSB_ERROR_NOT_FOUND;
+        return result;
+    }
+
+    int transferred = 0;
+    int status = libusb_bulk_transfer(session->handle, session->midiInputEndpoint, buffer, (int)bufferLen, &transferred, timeoutMs);
+    result_append(&result, "midi bulk_transfer ep0x%02x len%u -> %d (%s) transferred=%d; ",
+                  session->midiInputEndpoint, bufferLen, status, status < 0 ? libusb_error_name(status) : "OK", transferred);
+    if (transferredOut != NULL) {
+        *transferredOut = transferred > 0 ? (uint32_t)transferred : 0;
+    }
+    result.status = status;
+    return result;
+}
+
+void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef sessionRef) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL) {
+        return;
+    }
+    if (session->handle != NULL && session->midiClaimed) {
+        libusb_release_interface(session->handle, session->midiInterface);
+        libusb_attach_kernel_driver(session->handle, session->midiInterface);
+        session->midiClaimed = 0;
+    }
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.pipeRef = session->handle != NULL ? 1 : 0;
+    libusb_close_claim(session->ctx, session->handle, &result);
+    free(session);
+}
+
+KontrolUSBResult KontrolUSBLibUSBRunDemo(void) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_OTHER;
+
+    libusb_context *ctx = NULL;
+    libusb_device_handle *handle = NULL;
+    int status = libusb_open_claim(&ctx, &handle, &result);
+    if (status != 0) {
+        libusb_close_claim(ctx, handle, &result);
+        return result;
+    }
+
+    const uint8_t init[] = {0x00, 0x00};
+    status = libusb_write_report(handle, KONTROL_EP_OUT, 0xa0, init, sizeof(init), &result);
+    usleep(60000);
+
+    uint8_t keys[75] = {0};
+    for (int i = 0; i < 25; i++) {
+        int lane = i % 6;
+        keys[i * 3 + 0] = (uint8_t)((lane == 0 || lane == 1) ? 0x7f : 0x00);
+        keys[i * 3 + 1] = (uint8_t)((lane == 2 || lane == 3) ? 0x7f : 0x00);
+        keys[i * 3 + 2] = (uint8_t)((lane == 4 || lane == 5) ? 0x7f : 0x00);
+    }
+    int latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x82, keys, sizeof(keys), &result);
+    if (latest != 0) {
+        status = latest;
+    }
+
+    uint8_t buttons[25];
+    memset(buttons, 0x7f, sizeof(buttons));
+    latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x80, buttons, sizeof(buttons), &result);
+    if (latest != 0) {
+        status = latest;
+    }
+
+    result.status = status;
+    libusb_close_claim(ctx, handle, &result);
+    return result;
+}
+
+KontrolUSBResult KontrolUSBLibUSBRunHoldDemo(uint32_t steps, uint32_t intervalUsec) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_OTHER;
+
+    libusb_context *ctx = NULL;
+    libusb_device_handle *handle = NULL;
+    int status = libusb_open_claim(&ctx, &handle, &result);
+    if (status != 0) {
+        libusb_close_claim(ctx, handle, &result);
+        return result;
+    }
+
+    const uint8_t init[] = {0x00, 0x00};
+    status = libusb_write_report(handle, KONTROL_EP_OUT, 0xa0, init, sizeof(init), &result);
+
+    uint8_t buttons[25];
+    memset(buttons, 0x7f, sizeof(buttons));
+    int latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x80, buttons, sizeof(buttons), &result);
+    if (latest != 0) {
+        status = latest;
+    }
+
+    uint8_t keys[75] = {0};
+    uint32_t count = steps == 0 ? 8 : steps;
+    uint32_t delay = intervalUsec == 0 ? 250000 : intervalUsec;
+    for (uint32_t phase = 0; phase < count; phase++) {
+        memset(keys, 0, sizeof(keys));
+        for (int i = 0; i < 25; i++) {
+            int lane = (i + (int)phase) % 6;
+            keys[i * 3 + 0] = (uint8_t)((lane == 0 || lane == 1) ? 0x7f : 0x00);
+            keys[i * 3 + 1] = (uint8_t)((lane == 2 || lane == 3) ? 0x7f : 0x00);
+            keys[i * 3 + 2] = (uint8_t)((lane == 4 || lane == 5) ? 0x7f : 0x00);
+        }
+        latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x82, keys, sizeof(keys), &result);
+        if (latest != 0) {
+            status = latest;
+        }
+        usleep(delay);
+    }
+
+    memset(keys, 0, sizeof(keys));
+    latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x82, keys, sizeof(keys), &result);
+    if (latest != 0) {
+        status = latest;
+    }
+    memset(buttons, 0, sizeof(buttons));
+    latest = libusb_write_report(handle, KONTROL_EP_OUT, 0x80, buttons, sizeof(buttons), &result);
+    if (latest != 0) {
+        status = latest;
+    }
+
+    result.status = status;
+    libusb_close_claim(ctx, handle, &result);
+    return result;
+}
