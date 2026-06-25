@@ -336,10 +336,20 @@ Step 2 is independently shippable and is the recommended first milestone.
 - `setSpinner` activity widget: a segment runs around a cell's rectangle (the outer eight
   segments walk the perimeter clockwise as bits 0…7), animated on the shared clock; supports
   comet length, reverse, single-column or whole-row.
-- `SurfaceDemo` is now multi-page (Page Left / Page Right switch pages): a parameter page, a
-  glyph page showing the entire CP437 set at once (16 glyphs per display × 8 displays = all
-  128, with a scrollable name detail on display 0 that also reaches the 129th cabl glyph), and
-  an activity page of spinners.
+**Transport and gestures (step 4)** are in:
 
-Next: the result-builder `Screen` DSL and components (step 3), gestures and `Transport`
-(step 4), then `ParameterBank` paging and the MCU/HUI adapter.
+- LED reconciler with `LampState` (`off`/`on`/`blink`/`pulse`) animated on the clock; `setLamp`
+  reconciles minimal LED reports.
+- `TransportState` + `updateTransport`: the surface mirrors transport state on the hardware
+  LEDs (play steady, record blinking, loop steady).
+- `GestureRecognizer` + `SurfaceInput.gesture`: tap / double-tap / hold derived from button
+  edges (taps delayed past the double-tap window so they never overlap).
+
+- `SurfaceDemo` is multi-page (Page Left / Page Right switch pages): a parameter page; a glyph
+  page showing the entire CP437 set at once (16 glyphs per display × 8 = all 128, with a
+  scrollable name detail on display 0 that also reaches the 129th cabl glyph); an activity page
+  of spinners; and a transport page driven by gestures (tap Play, double-tap Play to restart,
+  hold Stop for return-to-zero) with the LEDs mirroring state and the Arp LED pulsing.
+
+Next: the result-builder `Screen` DSL and components (step 3), then `ParameterBank` paging and
+the MCU/HUI adapter.

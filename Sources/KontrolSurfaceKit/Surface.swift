@@ -23,9 +23,11 @@ public actor Surface {
     private var clock: SurfaceClock?
     private var lastTickNanos: UInt64 = 0
     private var guideDirty = false
-    private var ledsDirty = false
     private var running = false
     private var activePage: ParameterPage?
+    private var ledReconciler = LEDReconciler()
+    private var gestures = GestureRecognizer()
+    private var transport = TransportState()
     private let inputStream: AsyncStream<SurfaceInput>
     private var inputContinuation: AsyncStream<SurfaceInput>.Continuation?
 
@@ -70,7 +72,9 @@ public actor Surface {
         clock?.stop()
         clock = nil
         reconciler.clearAll()
+        ledReconciler.clearAll()
         device.clearDisplaysAsync()
+        _ = device.clearButtonLEDs()
     }
 
     // MARK: Imperative display API
@@ -136,9 +140,32 @@ public actor Surface {
         guideDirty = true
     }
 
+    /// Sets a button LED, including animated states (blink/pulse), driven by the
+    /// surface clock and reconciled to minimal LED reports.
+    public func setLamp(_ led: KKButtonLED, _ state: LampState) {
+        ledReconciler.set(led, state)
+    }
+
     public func setButtonLED(_ name: String, value: UInt8) {
-        _ = device.setButtonLED(name: name, value: value, flush: false)
-        ledsDirty = true
+        guard let led = KKButtonLED.allCases.first(where: { $0.protocolName == name }) else { return }
+        ledReconciler.set(led, value == 0 ? .off : .on(value))
+    }
+
+    // MARK: Transport
+
+    public func transportState() -> TransportState { transport }
+
+    /// Mutates transport state and reflects it on the hardware transport LEDs.
+    public func updateTransport(_ mutate: (inout TransportState) -> Void) {
+        mutate(&transport)
+        reflectTransport()
+    }
+
+    private func reflectTransport() {
+        ledReconciler.set(.play, transport.isPlaying ? .on(0x7f) : .on(0x14))
+        ledReconciler.set(.stop, .on(0x14))
+        ledReconciler.set(.rec, transport.isRecording ? .blink(period: 0.4, level: 0x7f) : .off)
+        ledReconciler.set(.loop, transport.loopEnabled ? .on(0x7f) : .off)
     }
 
     // MARK: Declarative composition
@@ -173,10 +200,16 @@ public actor Surface {
     // MARK: Input
 
     private func handleInput(_ report: KKInputReport) {
+        let now = DispatchTime.now().uptimeNanoseconds
         for event in report.events {
             guard let input = SurfaceInput.from(event) else { continue }
             if case let .encoder(index, delta, _) = input {
                 activePage?.handleEncoder(encoder: index, delta: delta, on: self)
+            }
+            if case let .button(name, pressed) = input {
+                for phase in gestures.buttonChanged(name, pressed: pressed, now: now) {
+                    inputContinuation?.yield(.gesture(button: name, phase: phase))
+                }
             }
             inputContinuation?.yield(input)
         }
@@ -193,13 +226,23 @@ public actor Surface {
         for (row, data) in reconciler.render() {
             device.sendDisplayRowAsync(row, data: data)
         }
+
+        ledReconciler.advance(dt: dt)
+        let changedLEDs = ledReconciler.render()
+        if !changedLEDs.isEmpty {
+            for (index, value) in changedLEDs {
+                _ = device.setButtonLED(index: index, value: value, flush: false)
+            }
+            device.sendButtonLEDsAsync()
+        }
+
         if guideDirty {
             device.sendGuideAsync()
             guideDirty = false
         }
-        if ledsDirty {
-            device.sendButtonLEDsAsync()
-            ledsDirty = false
+
+        for gesture in gestures.tick(now: now) {
+            inputContinuation?.yield(.gesture(button: gesture.name, phase: gesture.phase))
         }
     }
 }

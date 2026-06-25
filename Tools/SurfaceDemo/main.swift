@@ -5,56 +5,72 @@ import KontrolSurfaceKit
 // A multi-page demo. Page Left / Page Right switch between widget showcases.
 //
 //   - Parameters: eight encoder-bound parameters on displays 1…8.
-//   - Glyphs:     the whole CP437 set at once. Displays 1…8 hold 16 glyphs each
-//                 (8 per text row) = 128 cells = glyphs 0…127. Display 0 is a
-//                 detail view: the focused glyph plus its name as a marquee,
-//                 scrolled with the main encoder; it also reaches the 129th
-//                 (cabl extra) glyph.
+//   - Glyphs:     the whole CP437 set at once (16 per display); display 0 is a
+//                 detail view whose bottom row marquees the focused glyph's name
+//                 (main encoder scrolls).
 //   - Activity:   spinner widgets running a segment around the cell rectangle.
+//   - Transport:  transport state mirrored on the LEDs (play steady, record
+//                 blinking, loop steady), driven by gestures: tap Play to toggle,
+//                 double-tap Play to restart, hold Stop for return-to-zero. The
+//                 Arp LED pulses to show the pulse animator.
 actor DemoController {
     enum Page: Int, CaseIterable {
-        case parameters, glyphs, activity
+        case parameters, glyphs, activity, transport
         var name: String {
             switch self {
                 case .parameters: "PARAMETERS"
                 case .glyphs: "GLYPHS"
                 case .activity: "ACTIVITY"
+                case .transport: "TRANSPORT"
             }
         }
     }
 
     private static let glyphCount = KKDisplayFrame.availableGlyphCount   // 129
-    private static let mapDisplays = 1...8                               // displays for glyphs 0…127
-    private static let detailDisplay = 0                                 // focused glyph + name
+    private static let mapDisplays = 1...8
+    private static let detailDisplay = 0
 
     private let surface: Surface
     private let page: ParameterPage
     private var current: Page = .parameters
     private var glyphSelection = 0
+    private var lastGesture = "READY"
 
     init(surface: Surface, page: ParameterPage) {
         self.surface = surface
         self.page = page
     }
 
+    func start() async {
+        await surface.updateTransport { _ in }   // light the transport LEDs in their idle state
+        await show(.parameters)
+    }
+
     func show(_ target: Page) async {
         current = target
+        await surface.setLamp(.arp, .off)
         switch target {
             case .parameters:
                 await surface.setParameterPage(page)
-                await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
             case .glyphs:
                 await surface.clearParameterPage()
                 await surface.clearAll()
                 await renderGlyphMap()
                 await renderGlyphDetail()
+                return
             case .activity:
                 await surface.clearParameterPage()
                 await surface.clearAll()
                 await renderActivity()
                 await surface.setStatus(target.name)
-                await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
+            case .transport:
+                await surface.clearParameterPage()
+                await surface.clearAll()
+                await renderTransport()
+                await surface.setStatus(target.name)
+                await surface.setLamp(.arp, .pulse)
         }
+        await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
     }
 
     private func next() async {
@@ -65,8 +81,8 @@ actor DemoController {
         await show(Page(rawValue: (current.rawValue + Page.allCases.count - 1) % Page.allCases.count)!)
     }
 
-    /// Lays the full CP437 set across displays 1…8: each display shows 16
-    /// consecutive glyphs, the first 8 on row 1 and the next 8 on row 2.
+    // MARK: Glyphs
+
     private func renderGlyphMap() async {
         for display in Self.mapDisplays {
             let base = (display - 1) * 16
@@ -91,6 +107,8 @@ actor DemoController {
         await renderGlyphDetail()
     }
 
+    // MARK: Activity
+
     private func renderActivity() async {
         await surface.setSpinner(1, 1, column: 0, speed: 10)
         await surface.setText(1, 2, "SPIN", alignment: .center, overflow: .clip)
@@ -105,6 +123,48 @@ actor DemoController {
         await surface.setText(4, 2, "ROW", alignment: .center, overflow: .clip)
     }
 
+    // MARK: Transport
+
+    private func renderTransport() async {
+        let state = await surface.transportState()
+        await surface.setText(1, 1, "STATE", alignment: .center, overflow: .clip)
+        await surface.setText(1, 2, state.isPlaying ? "PLAY" : "STOP", alignment: .center, overflow: .clip)
+        await surface.setText(2, 1, "REC", alignment: .center, overflow: .clip)
+        await surface.setText(2, 2, state.isRecording ? "ON" : "OFF", alignment: .center, overflow: .clip)
+        await surface.setText(3, 1, "LOOP", alignment: .center, overflow: .clip)
+        await surface.setText(3, 2, state.loopEnabled ? "ON" : "OFF", alignment: .center, overflow: .clip)
+        await surface.setText(4, 1, "GESTURE", alignment: .center, overflow: .clip)
+        await surface.setText(4, 2, lastGesture, alignment: .center, overflow: .marquee())
+    }
+
+    private func handleTransportGesture(button: String, phase: GesturePhase) async {
+        switch (button, phase) {
+            case ("play", .tap):
+                await surface.updateTransport { $0.isPlaying.toggle() }
+                lastGesture = "PLAY TAP"
+            case ("play", .doubleTap):
+                await surface.updateTransport { $0.isPlaying = true }
+                lastGesture = "RESTART"
+            case ("stop", .tap):
+                await surface.updateTransport { $0.isPlaying = false }
+                lastGesture = "STOP"
+            case ("stop", .hold):
+                await surface.updateTransport { $0.isPlaying = false }
+                lastGesture = "RETURN TO ZERO"
+            case ("rec", .tap):
+                await surface.updateTransport { $0.isRecording.toggle() }
+                lastGesture = "REC"
+            case ("loop", .tap):
+                await surface.updateTransport { $0.loopEnabled.toggle() }
+                lastGesture = "LOOP"
+            default:
+                return
+        }
+        if current == .transport { await renderTransport() }
+    }
+
+    // MARK: Input
+
     func handle(_ event: SurfaceInput) async {
         switch event {
             case let .button(name, pressed) where pressed && name == "page right":
@@ -115,6 +175,8 @@ actor DemoController {
                 await scrollGlyphs(delta)
             case let .mainEncoder(delta) where current == .glyphs:
                 await scrollGlyphs(delta)
+            case let .gesture(button, phase):
+                await handleTransportGesture(button: button, phase: phase)
             default:
                 break
         }
@@ -137,7 +199,7 @@ let page = ParameterPage(title: "OSC / FILTER", parameters: [
 let demo = DemoController(surface: surface, page: page)
 
 print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
-print("Glyphs shows the whole CP437 set; the main encoder scrolls the name detail. Ctrl-C to quit.")
+print("Transport page: tap Play/Rec/Loop, double-tap Play, hold Stop. Ctrl-C to quit.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {
@@ -151,7 +213,7 @@ signal(SIGINT, SIG_IGN)
 
 Task {
     await surface.start()
-    await demo.show(.parameters)
+    await demo.start()
     for await event in await surface.inputs {
         await demo.handle(event)
     }

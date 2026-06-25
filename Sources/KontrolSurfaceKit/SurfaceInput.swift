@@ -10,6 +10,8 @@ public enum SurfaceInput: Sendable, Equatable {
     case encoderTouch(index: Int, touching: Bool)
     case mainEncoder(delta: Int)
     case button(name: String, pressed: Bool)
+    /// A recognized gesture on a button (tap / double-tap / hold, plus raw edges).
+    case gesture(button: String, phase: GesturePhase)
     case strip(name: String, value: Int)
 
     static func from(_ event: KKInputEvent) -> SurfaceInput? {
