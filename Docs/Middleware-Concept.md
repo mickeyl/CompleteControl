@@ -362,6 +362,15 @@ Step 2 is independently shippable and is the recommended first milestone.
 - `SurfaceDemo`'s activity page is now written with the DSL (`ActivityScreen`), presented via
   `present`, while the other pages stay imperative — proving the two coexist.
 
-Next: a reactivity hook (observe state → re-`present`) to express interactive pages like
-`ParameterPage`/`Transport` declaratively too, then `ParameterBank` paging and the MCU/HUI
+**Reactivity (`@Observable`)** is in:
+
+- `Surface.observe { SomeScreen(model) }` lowers the screen under `withObservationTracking`;
+  when any `@Observable` property the screen read changes, it re-lowers and reconciles
+  automatically. The diffing reconciler keeps the full re-render cheap. Any later
+  `observe`/`present`/page change supersedes it.
+- `SurfaceDemo`'s transport page is now declarative **and** reactive: a `TransportScreen` reads
+  an `@Observable TransportModel` for both its displays and its LEDs, so a gesture only flips
+  the model — no explicit render call.
+
+Next: `ParameterBank` paging (multiple parameter pages, page-left/right), then the MCU/HUI
 adapter.

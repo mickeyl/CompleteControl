@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import KompleteKontrol
 
 /// The middleware root. A `Surface` owns the device, a shadow model of the
@@ -28,6 +29,7 @@ public actor Surface {
     private var ledReconciler = LEDReconciler()
     private var gestures = GestureRecognizer()
     private var transport = TransportState()
+    private var observationGeneration = 0
     private let inputStream: AsyncStream<SurfaceInput>
     private var inputContinuation: AsyncStream<SurfaceInput>.Continuation?
 
@@ -69,6 +71,7 @@ public actor Surface {
     public func stop() {
         guard running else { return }
         running = false
+        cancelObservation()
         clock?.stop()
         clock = nil
         reconciler.clearAll()
@@ -115,6 +118,7 @@ public actor Surface {
 
     /// Clears every display.
     public func clearAll() {
+        cancelObservation()
         reconciler.clearAll()
     }
 
@@ -174,11 +178,36 @@ public actor Surface {
     /// Display content is fully redefined (unset cells clear); declared lamps are
     /// merged so transport/interactive LEDs set elsewhere are left untouched.
     public func present(_ screen: some Screen) {
+        cancelObservation()
         apply(screen.lowered())
+    }
+
+    /// Presents a screen and keeps it in sync: whenever any `@Observable` state
+    /// the screen reads changes, the screen is re-lowered and reconciled. The
+    /// diffing reconciler makes the full re-render cheap. Superseded by the next
+    /// `observe`/`present`/page change.
+    public func observe(_ build: @escaping () -> any Screen) {
+        observationGeneration += 1
+        renderObserved(build, generation: observationGeneration)
+    }
+
+    private func renderObserved(_ build: @escaping () -> any Screen, generation: Int) {
+        guard generation == observationGeneration else { return }
+        let model = withObservationTracking {
+            build().lowered()
+        } onChange: { [weak self] in
+            Task { await self?.renderObserved(build, generation: generation) }
+        }
+        apply(model)
+    }
+
+    private func cancelObservation() {
+        observationGeneration += 1
     }
 
     /// Replaces the whole surface using an inline builder closure (imperative).
     public func show(_ build: (isolated Surface) -> Void) {
+        cancelObservation()
         reconciler.clearAll()
         build(self)
     }
@@ -198,6 +227,7 @@ public actor Surface {
 
     /// Makes `page` the active page: renders it and routes encoder turns to it.
     public func setParameterPage(_ page: ParameterPage) {
+        cancelObservation()
         activePage = page
         reconciler.clearAll()
         page.render(on: self)

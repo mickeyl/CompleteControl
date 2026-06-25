@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Screens are pure values — they never touch the device — so the declarative
 /// path stands on its own, independent of the imperative setters.
-public protocol Screen: Sendable {
+public protocol Screen {
     @ScreenBuilder var body: [any ScreenElement] { get }
 }
 

@@ -1,6 +1,35 @@
 import Foundation
+import Observation
 import KompleteKontrol
 import KontrolSurfaceKit
+
+// Observable transport state. Mutating it re-renders any presented screen that
+// reads it — no explicit present call.
+@Observable final class TransportModel {
+    var isPlaying = false
+    var isRecording = false
+    var loopEnabled = false
+    var lastGesture = "READY"
+}
+
+// The transport page, declarative and reactive: both the displays and the LEDs
+// are functions of the model, so a gesture that flips the model is enough.
+struct TransportScreen: Screen {
+    let model: TransportModel
+
+    var body: [any ScreenElement] {
+        Status("TRANSPORT")
+        PageIndicator(4, of: 4)
+        Cell(1) { Label("STATE", overflow: .clip); Label(model.isPlaying ? "PLAY" : "STOP", overflow: .clip) }
+        Cell(2) { Label("REC", overflow: .clip); Label(model.isRecording ? "ON" : "OFF", overflow: .clip) }
+        Cell(3) { Label("LOOP", overflow: .clip); Label(model.loopEnabled ? "ON" : "OFF", overflow: .clip) }
+        Cell(4) { Label("GESTURE", overflow: .clip); Label(model.lastGesture, overflow: .marquee) }
+        Lamp(.play, model.isPlaying ? .on : .on(0x14))
+        Lamp(.stop, .on(0x14))
+        Lamp(.rec, model.isRecording ? .blink : .off)
+        Lamp(.loop, model.loopEnabled ? .on : .off)
+    }
+}
 
 // A multi-page demo. Page Left / Page Right switch between widget showcases.
 //
@@ -51,7 +80,7 @@ actor DemoController {
     private let page: ParameterPage
     private var current: Page = .parameters
     private var glyphSelection = 0
-    private var lastGesture = "READY"
+    private let transportModel = TransportModel()
 
     init(surface: Surface, page: ParameterPage) {
         self.surface = surface
@@ -59,7 +88,6 @@ actor DemoController {
     }
 
     func start() async {
-        await surface.updateTransport { _ in }   // light the transport LEDs in their idle state
         await show(.parameters)
     }
 
@@ -81,10 +109,8 @@ actor DemoController {
                 return
             case .transport:
                 await surface.clearParameterPage()
-                await surface.clearAll()
-                await renderTransport()
-                await surface.setStatus(target.name)
-                await surface.setLamp(.arp, .pulse)
+                await surface.observe { [transportModel] in TransportScreen(model: transportModel) }
+                return
         }
         await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
     }
@@ -123,44 +149,31 @@ actor DemoController {
         await renderGlyphDetail()
     }
 
-    // MARK: Transport
+    // MARK: Transport — only the model is mutated; the observed screen re-renders.
 
-    private func renderTransport() async {
-        let state = await surface.transportState()
-        await surface.setText(1, 1, "STATE", alignment: .center, overflow: .clip)
-        await surface.setText(1, 2, state.isPlaying ? "PLAY" : "STOP", alignment: .center, overflow: .clip)
-        await surface.setText(2, 1, "REC", alignment: .center, overflow: .clip)
-        await surface.setText(2, 2, state.isRecording ? "ON" : "OFF", alignment: .center, overflow: .clip)
-        await surface.setText(3, 1, "LOOP", alignment: .center, overflow: .clip)
-        await surface.setText(3, 2, state.loopEnabled ? "ON" : "OFF", alignment: .center, overflow: .clip)
-        await surface.setText(4, 1, "GESTURE", alignment: .center, overflow: .clip)
-        await surface.setText(4, 2, lastGesture, alignment: .center, overflow: .marquee())
-    }
-
-    private func handleTransportGesture(button: String, phase: GesturePhase) async {
+    private func handleTransportGesture(button: String, phase: GesturePhase) {
         switch (button, phase) {
             case ("play", .tap):
-                await surface.updateTransport { $0.isPlaying.toggle() }
-                lastGesture = "PLAY TAP"
+                transportModel.isPlaying.toggle()
+                transportModel.lastGesture = "PLAY TAP"
             case ("play", .doubleTap):
-                await surface.updateTransport { $0.isPlaying = true }
-                lastGesture = "RESTART"
+                transportModel.isPlaying = true
+                transportModel.lastGesture = "RESTART"
             case ("stop", .tap):
-                await surface.updateTransport { $0.isPlaying = false }
-                lastGesture = "STOP"
+                transportModel.isPlaying = false
+                transportModel.lastGesture = "STOP"
             case ("stop", .hold):
-                await surface.updateTransport { $0.isPlaying = false }
-                lastGesture = "RETURN TO ZERO"
+                transportModel.isPlaying = false
+                transportModel.lastGesture = "RETURN TO ZERO"
             case ("rec", .tap):
-                await surface.updateTransport { $0.isRecording.toggle() }
-                lastGesture = "REC"
+                transportModel.isRecording.toggle()
+                transportModel.lastGesture = "REC"
             case ("loop", .tap):
-                await surface.updateTransport { $0.loopEnabled.toggle() }
-                lastGesture = "LOOP"
+                transportModel.loopEnabled.toggle()
+                transportModel.lastGesture = "LOOP"
             default:
-                return
+                break
         }
-        if current == .transport { await renderTransport() }
     }
 
     // MARK: Input
@@ -176,7 +189,7 @@ actor DemoController {
             case let .mainEncoder(delta) where current == .glyphs:
                 await scrollGlyphs(delta)
             case let .gesture(button, phase):
-                await handleTransportGesture(button: button, phase: phase)
+                handleTransportGesture(button: button, phase: phase)
             default:
                 break
         }
