@@ -25,11 +25,20 @@ public actor Surface {
     private var guideDirty = false
     private var ledsDirty = false
     private var running = false
+    private var activePage: ParameterPage?
+    private let inputStream: AsyncStream<SurfaceInput>
+    private var inputContinuation: AsyncStream<SurfaceInput>.Continuation?
 
     public init(device: KompleteKontrolS25MK1 = KompleteKontrolS25MK1(), options: Options = Options()) {
         self.device = device
         self.options = options
+        var continuation: AsyncStream<SurfaceInput>.Continuation!
+        inputStream = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { continuation = $0 }
+        inputContinuation = continuation
     }
+
+    /// Normalized surface input. Single-consumer; iterate it from one `Task`.
+    public var inputs: AsyncStream<SurfaceInput> { inputStream }
 
     // MARK: Lifecycle
 
@@ -38,6 +47,10 @@ public actor Surface {
         guard !running else { return }
         running = true
         device.monitorMode = .changed
+        device.onInputReport = { [weak self] report in
+            guard let self else { return }
+            Task { await self.handleInput(report) }
+        }
         device.startInputMonitoring()
         device.handshakeAsync()
         lastTickNanos = DispatchTime.now().uptimeNanoseconds
@@ -132,6 +145,32 @@ public actor Surface {
     public func show(_ build: (isolated Surface) -> Void) {
         reconciler.clearAll()
         build(self)
+    }
+
+    // MARK: Parameter pages
+
+    /// Makes `page` the active page: renders it and routes encoder turns to it.
+    public func setParameterPage(_ page: ParameterPage) {
+        activePage = page
+        reconciler.clearAll()
+        page.render(on: self)
+    }
+
+    /// Stops routing encoder turns to a parameter page (input still streams).
+    public func clearParameterPage() {
+        activePage = nil
+    }
+
+    // MARK: Input
+
+    private func handleInput(_ report: KKInputReport) {
+        for event in report.events {
+            guard let input = SurfaceInput.from(event) else { continue }
+            if case let .encoder(index, delta, _) = input {
+                activePage?.handleEncoder(index: index, delta: delta, on: self)
+            }
+            inputContinuation?.yield(input)
+        }
     }
 
     // MARK: Reconcile tick

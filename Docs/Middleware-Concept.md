@@ -326,5 +326,15 @@ Step 2 is independently shippable and is the recommended first milestone.
 - Both styles: imperative setters and a declarative `Screen` / `present` / `show` path.
 - `SurfaceDemo` executable (baseline `KontrolProbe` left untouched).
 
-Next: the result-builder `Screen` DSL and components (step 3), then input/gestures and
-`Transport` (step 4).
+**Parameter layer (step 5)** is also in:
+
+- `Parameter` (value, range, velocity-accelerated `step`, `ValueFormat`) and `ParameterPage`
+  (8 parameters → 8 encoders → displays 1…8, status on display 0).
+- Normalized input via `Surface.inputs` (`AsyncStream<SurfaceInput>`); while a page is active,
+  encoder turns are routed and stepped automatically.
+- `KKDisplayFrame.glyphName(at:)` — glyph names transcribed from cabl `FONT_16-seg.h`.
+- `SurfaceDemo` now shows a parameter page plus a glyph browser whose bottom row marquees the
+  selected glyph's name (Browse toggles; main encoder scrolls).
+
+Next: the result-builder `Screen` DSL and components (step 3), gestures and `Transport`
+(step 4), then `ParameterBank` paging and the MCU/HUI adapter.
