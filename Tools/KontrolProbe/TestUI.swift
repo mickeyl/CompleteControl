@@ -41,6 +41,10 @@ private final class TestUIDelegate: NSObject, NSApplicationDelegate {
 }
 
 private final class KKTestUIController: @unchecked Sendable {
+    private static let glyphDisplayIndex = KKDisplayFrame.displayCount - 1
+    private static let glyphEncoderIndex = 8
+    private static let visibleGlyphCount = KKDisplayFrame.characterCount
+
     private struct EncoderDemoRange {
         let label: String
         let min: Double
@@ -63,10 +67,11 @@ private final class KKTestUIController: @unchecked Sendable {
     private var velocityFactorIndex = 3
     private var displayRefreshScheduled = false
     private var displayRefreshGeneration = 0
+    private var glyphSelectionIndex = 0
     private var buttonInputToLED: [String: String] = [:]
     private let traceEnabled = ProcessInfo.processInfo.environment["LOGLEVEL"]?.uppercased() == "TRACE"
     private let lightGuideBaseNote: UInt8 = 48
-    private let manualDisplayLabels = ["SID", "TEXT", "BAR", "BOX", "DRAW", "NOTE", "MOD", "PITCH", "OK"]
+    private let manualDisplayLabels = ["SID", "TEXT", "BAR", "BOX", "DRAW", "NOTE", "MOD", "PITCH", "GLYPH"]
     private let velocityFactors = [0.05, 0.10, 0.15, 0.20, 0.30, 0.45, 0.65, 0.90, 1.20]
     private let encoderRanges = [
         EncoderDemoRange(label: "0-15", min: 0, max: 15, slowStep: 0.10, mediumStep: 0.25, fastStep: 0.70),
@@ -133,7 +138,7 @@ private final class KKTestUIController: @unchecked Sendable {
     private func enableDemoMode() {
         demoModeEnabled = true
         resetDemoState()
-        status = "Demo mode: encoder velocity x\(velocityFactorLabel)"
+        status = "Demo mode: encoder 8 \(glyphSelectionLabel)"
     }
 
     private func resetDemoState() {
@@ -142,6 +147,7 @@ private final class KKTestUIController: @unchecked Sendable {
         lastEncoderTurnAt = [Date?](repeating: nil, count: encoderRanges.count)
         lastEncoderDirection = [Int](repeating: 0, count: encoderRanges.count)
         velocityFactorIndex = 3
+        glyphSelectionIndex = 0
         sendDemoDisplayFrame()
     }
 
@@ -180,14 +186,28 @@ private final class KKTestUIController: @unchecked Sendable {
     func toggleDisplayTest(index: Int) {
         guard displayValues.indices.contains(index) else { return }
         guard !demoModeEnabled else {
+            var statusMessage: String
+            var sendImmediately = false
             if index == 0 {
                 velocityFactorIndex = min(velocityFactors.count - 1, velocityFactorIndex + 1)
+                statusMessage = "velocity x\(velocityFactorLabel)"
+            } else if index == Self.glyphDisplayIndex {
+                advanceGlyphSelection(by: 1)
+                statusMessage = glyphSelectionLabel
+                sendImmediately = true
             } else if encoderValues.indices.contains(index - 1) {
                 let range = encoderRanges[index - 1]
                 encoderValues[index - 1] = encoderValues[index - 1] >= range.max ? range.min : range.max
+                statusMessage = "display \(index) demo value"
+            } else {
+                statusMessage = "display \(index) demo"
             }
-            scheduleDemoDisplayFrame()
-            status = index == 0 ? "velocity x\(velocityFactorLabel)" : "display \(index) demo value"
+            if sendImmediately {
+                sendDemoDisplayFrameImmediately()
+            } else {
+                scheduleDemoDisplayFrame()
+            }
+            status = statusMessage
             view?.pulse(id: "display:\(index)")
             view?.needsDisplay = true
             return
@@ -207,6 +227,9 @@ private final class KKTestUIController: @unchecked Sendable {
     }
 
     func displayIsOn(_ index: Int) -> Bool {
+        if demoModeEnabled, index == Self.glyphDisplayIndex {
+            return true
+        }
         if demoModeEnabled {
             return displayProgress(index) > 0
         }
@@ -216,6 +239,9 @@ private final class KKTestUIController: @unchecked Sendable {
     func displayProgress(_ index: Int) -> Int {
         if demoModeEnabled, index == 0 {
             return pageProgress()
+        }
+        if demoModeEnabled, index == Self.glyphDisplayIndex {
+            return glyphProgress()
         }
         let encoderIndex = demoModeEnabled ? index - 1 : index
         guard encoderValues.indices.contains(encoderIndex) else { return 0 }
@@ -265,12 +291,27 @@ private final class KKTestUIController: @unchecked Sendable {
 
         for index in encoderValues.indices {
             let display = index + 1
+            if display == Self.glyphDisplayIndex {
+                setGlyphTestDisplayFrame()
+                continue
+            }
             let range = encoderRanges[index]
             _ = device.setDisplayBar(normalizedEncoderValue(index), display: display, row: 0, flush: false)
             _ = device.setDisplayText(range.label, display: display, row: 1, alignment: .center, flush: false)
             _ = device.setDisplayText(displayValue(encoderValues[index]), display: display, row: 2, alignment: .center, flush: false)
         }
         device.sendDisplaysAsync()
+    }
+
+    private func setGlyphTestDisplayFrame() {
+        let total = max(1, KKDisplayFrame.availableGlyphCount)
+        _ = device.setDisplayBar(Double(glyphProgress()) / 64.0, display: Self.glyphDisplayIndex, row: 0, flush: false)
+        for slot in 0..<Self.visibleGlyphCount {
+            let glyphIndex = glyphSelectionIndex + slot
+            let glyph = glyphIndex < total ? KKDisplayFrame.glyph(at: glyphIndex) ?? 0 : 0
+            _ = device.setDisplayGlyph(glyph, display: Self.glyphDisplayIndex, row: 1, column: slot, flush: false)
+        }
+        _ = device.setDisplayText(glyphIndexDisplayValue, display: Self.glyphDisplayIndex, row: 2, alignment: .center, flush: false)
     }
 
     private func pageProgress() -> Int {
@@ -392,6 +433,10 @@ private final class KKTestUIController: @unchecked Sendable {
     }
 
     private func updateEncoderProgress(index: Int, delta: Int) {
+        if index == Self.glyphEncoderIndex {
+            updateGlyphSelection(delta: delta)
+            return
+        }
         let slot = index - 1
         guard encoderValues.indices.contains(slot) else { return }
         let range = encoderRanges[slot]
@@ -409,6 +454,18 @@ private final class KKTestUIController: @unchecked Sendable {
         lastEncoderDirection[slot] = direction
         status = "demo encoder \(index) \(range.label) \(displayValue(encoderValues[slot])) d=\(delta)"
         trace("demo encoder \(index) delta=\(delta) elapsed=\(String(format: "%.3f", elapsed)) step=\(step) value=\(encoderValues[slot])")
+    }
+
+    private func updateGlyphSelection(delta: Int) {
+        guard delta != 0 else { return }
+        advanceGlyphSelection(by: delta < 0 ? -1 : 1)
+        sendDemoDisplayFrameImmediately()
+        status = "\(glyphSelectionLabel) d=\(delta)"
+        trace("demo glyph encoder \(Self.glyphEncoderIndex) delta=\(delta) index=\(glyphSelectionIndex)")
+    }
+
+    private func advanceGlyphSelection(by delta: Int) {
+        glyphSelectionIndex = max(0, min(maxGlyphSelectionIndex, glyphSelectionIndex + delta))
     }
 
     private func scheduleDemoDisplayFrame() {
@@ -451,6 +508,23 @@ private final class KKTestUIController: @unchecked Sendable {
     private func normalizedVelocityFactorStep() -> Int {
         guard velocityFactors.count > 1 else { return 64 }
         return max(1, Int((Double(velocityFactorIndex) / Double(velocityFactors.count - 1) * 64.0).rounded()))
+    }
+
+    private func glyphProgress() -> Int {
+        guard maxGlyphSelectionIndex > 0 else { return 64 }
+        return max(1, Int((Double(glyphSelectionIndex) / Double(maxGlyphSelectionIndex) * 64.0).rounded()))
+    }
+
+    private var glyphSelectionLabel: String {
+        "glyph 0x\(String(format: "%02X", glyphSelectionIndex)) \(glyphSelectionIndex + 1)/\(KKDisplayFrame.availableGlyphCount)"
+    }
+
+    private var glyphIndexDisplayValue: String {
+        String(format: "%03d/%03d", glyphSelectionIndex, max(0, KKDisplayFrame.availableGlyphCount - 1))
+    }
+
+    private var maxGlyphSelectionIndex: Int {
+        max(0, KKDisplayFrame.availableGlyphCount - Self.visibleGlyphCount)
     }
 
     private func normalizedEncoderValue(_ index: Int) -> Double {

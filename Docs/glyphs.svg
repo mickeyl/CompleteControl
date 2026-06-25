@@ -1,0 +1,663 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1668" viewBox="0 0 1160 1668" role="img" aria-labelledby="title desc">
+<title id="title">KompleteKontrol-Swift CP437 16-segment glyph table</title>
+<desc id="desc">All glyph indices available in the S25 MK1 display table used by KompleteKontrol-Swift.</desc>
+<style>
+  .bg { fill: #101316; }
+  .title { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f2f5f7; }
+  .sub { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #aeb8c2; }
+  .cell { fill: #171d22; stroke: #33414c; stroke-width: 1; rx: 8; }
+  .code { font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #8bd5ff; }
+  .glyph { font: 700 26px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #f6d365; }
+  .name { font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #d2d8dd; }
+  .mask { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #92e6a7; }
+</style>
+<rect class="bg" width="100%" height="100%"/>
+<text class="title" x="28" y="34">S25 MK1 Display Glyphs</text>
+<text class="sub" x="28" y="58">CP437-compatible 16-segment masks from shaduzlabs/cabl FONT_16-seg.h; index, preview label, and native 16-bit mask.</text>
+
+<rect class="cell" x="34" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="101">#000</text>
+<text class="glyph" x="44" y="131">#0</text>
+<text class="name" x="82" y="123">space</text>
+<text class="mask" x="82" y="142">0x0000</text>
+<rect class="cell" x="172" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="101">#001</text>
+<text class="glyph" x="182" y="131">#1</text>
+<text class="name" x="220" y="123">smiley transparent</text>
+<text class="mask" x="220" y="142">0x0578</text>
+<rect class="cell" x="310" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="101">#002</text>
+<text class="glyph" x="320" y="131">#2</text>
+<text class="name" x="358" y="123">smiley matte</text>
+<text class="mask" x="358" y="142">0x0578</text>
+<rect class="cell" x="448" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="101">#003</text>
+<text class="glyph" x="458" y="131">#3</text>
+<text class="name" x="496" y="123">heart</text>
+<text class="mask" x="496" y="142">0x830F</text>
+<rect class="cell" x="586" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="101">#004</text>
+<text class="glyph" x="596" y="131">#4</text>
+<text class="name" x="634" y="123">diamond</text>
+<text class="mask" x="634" y="142">0x0503</text>
+<rect class="cell" x="724" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="101">#005</text>
+<text class="glyph" x="734" y="131">#5</text>
+<text class="name" x="772" y="123">club</text>
+<text class="mask" x="772" y="142">0x5A87</text>
+<rect class="cell" x="862" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="101">#006</text>
+<text class="glyph" x="872" y="131">#6</text>
+<text class="name" x="910" y="123">spade</text>
+<text class="mask" x="910" y="142">0x0C7C</text>
+<rect class="cell" x="1000" y="82" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="101">#007</text>
+<text class="glyph" x="1010" y="131">#7</text>
+<text class="name" x="1048" y="123">bullet filled</text>
+<text class="mask" x="1048" y="142">0x1878</text>
+<rect class="cell" x="34" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="193">#008</text>
+<text class="glyph" x="44" y="223">#8</text>
+<text class="name" x="82" y="215">negative bullet fill...</text>
+<text class="mask" x="82" y="234">0x1887</text>
+<rect class="cell" x="172" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="193">#009</text>
+<text class="glyph" x="182" y="223">#9</text>
+<text class="name" x="220" y="215">bullet</text>
+<text class="mask" x="220" y="234">0x4860</text>
+<rect class="cell" x="310" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="193">#010</text>
+<text class="glyph" x="320" y="223">#10</text>
+<text class="name" x="358" y="215">negative bullet</text>
+<text class="mask" x="358" y="234">0x0A81</text>
+<rect class="cell" x="448" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="193">#011</text>
+<text class="glyph" x="458" y="223">#11</text>
+<text class="name" x="496" y="215">male</text>
+<text class="mask" x="496" y="234">0x4C66</text>
+<rect class="cell" x="586" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="193">#012</text>
+<text class="glyph" x="596" y="223">#12</text>
+<text class="name" x="634" y="215">female</text>
+<text class="mask" x="634" y="234">0x5D03</text>
+<rect class="cell" x="724" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="193">#013</text>
+<text class="glyph" x="734" y="223">#13</text>
+<text class="name" x="772" y="215">eighth note</text>
+<text class="mask" x="772" y="234">0x4A62</text>
+<rect class="cell" x="862" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="193">#014</text>
+<text class="glyph" x="872" y="223">#14</text>
+<text class="name" x="910" y="215">beamed eighth notes</text>
+<text class="mask" x="910" y="234">0x5A7E</text>
+<rect class="cell" x="1000" y="174" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="193">#015</text>
+<text class="glyph" x="1010" y="223">#15</text>
+<text class="name" x="1048" y="215">sun with rays</text>
+<text class="mask" x="1048" y="234">0xFF00</text>
+<rect class="cell" x="34" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="285">#016</text>
+<text class="glyph" x="44" y="315">#16</text>
+<text class="name" x="82" y="307">right pointer filled</text>
+<text class="mask" x="82" y="326">0x21C0</text>
+<rect class="cell" x="172" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="285">#017</text>
+<text class="glyph" x="182" y="315">#17</text>
+<text class="name" x="220" y="307">left pointer filled</text>
+<text class="mask" x="220" y="326">0x840C</text>
+<rect class="cell" x="310" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="285">#018</text>
+<text class="glyph" x="320" y="315">#18</text>
+<text class="name" x="358" y="307">up-down arrow</text>
+<text class="mask" x="358" y="326">0x2466</text>
+<rect class="cell" x="448" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="285">#019</text>
+<text class="glyph" x="458" y="315">#19</text>
+<text class="name" x="496" y="307">double exclamation</text>
+<text class="mask" x="496" y="326">0x420C</text>
+<rect class="cell" x="586" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="285">#020</text>
+<text class="glyph" x="596" y="315">#20</text>
+<text class="name" x="634" y="307">paragraph</text>
+<text class="mask" x="634" y="326">0x189F</text>
+<rect class="cell" x="724" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="285">#021</text>
+<text class="glyph" x="734" y="315">#21</text>
+<text class="name" x="772" y="307">section</text>
+<text class="mask" x="772" y="326">0xC333</text>
+<rect class="cell" x="862" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="285">#022</text>
+<text class="glyph" x="872" y="315">#22</text>
+<text class="name" x="910" y="307">filled rectangle</text>
+<text class="mask" x="910" y="326">0xF878</text>
+<rect class="cell" x="1000" y="266" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="285">#023</text>
+<text class="glyph" x="1010" y="315">#23</text>
+<text class="name" x="1048" y="307">up-down arrow base</text>
+<text class="mask" x="1048" y="326">0x2466</text>
+<rect class="cell" x="34" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="377">#024</text>
+<text class="glyph" x="44" y="407">#24</text>
+<text class="name" x="82" y="399">up arrow</text>
+<text class="mask" x="82" y="418">0xE000</text>
+<rect class="cell" x="172" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="377">#025</text>
+<text class="glyph" x="182" y="407">#25</text>
+<text class="name" x="220" y="399">down arrow</text>
+<text class="mask" x="220" y="418">0x0700</text>
+<rect class="cell" x="310" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="377">#026</text>
+<text class="glyph" x="320" y="407">#26</text>
+<text class="name" x="358" y="399">right arrow</text>
+<text class="mask" x="358" y="418">0x2900</text>
+<rect class="cell" x="448" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="377">#027</text>
+<text class="glyph" x="458" y="407">#27</text>
+<text class="name" x="496" y="399">left arrow</text>
+<text class="mask" x="496" y="418">0x9400</text>
+<rect class="cell" x="586" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="377">#028</text>
+<text class="glyph" x="596" y="407">#28</text>
+<text class="name" x="634" y="399">right angle</text>
+<text class="mask" x="634" y="418">0x0060</text>
+<rect class="cell" x="724" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="377">#029</text>
+<text class="glyph" x="734" y="407">#29</text>
+<text class="name" x="772" y="399">left-right arrow</text>
+<text class="mask" x="772" y="418">0x2466</text>
+<rect class="cell" x="862" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="377">#030</text>
+<text class="glyph" x="872" y="407">#30</text>
+<text class="name" x="910" y="399">up pointer filled</text>
+<text class="mask" x="910" y="418">0xE030</text>
+<rect class="cell" x="1000" y="358" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="377">#031</text>
+<text class="glyph" x="1010" y="407">#31</text>
+<text class="name" x="1048" y="399">down pointer filled</text>
+<text class="mask" x="1048" y="418">0x0703</text>
+<rect class="cell" x="34" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="469">#032</text>
+<text class="glyph" x="44" y="499">#32</text>
+<text class="name" x="82" y="491">space</text>
+<text class="mask" x="82" y="510">0x0000</text>
+<rect class="cell" x="172" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="469">#033</text>
+<text class="glyph" x="182" y="499">!</text>
+<text class="name" x="220" y="491">!</text>
+<text class="mask" x="220" y="510">0x0004</text>
+<rect class="cell" x="310" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="469">#034</text>
+<text class="glyph" x="320" y="499">&amp;quot;</text>
+<text class="name" x="358" y="491">&quot;</text>
+<text class="mask" x="358" y="510">0x0204</text>
+<rect class="cell" x="448" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="469">#035</text>
+<text class="glyph" x="458" y="499">#</text>
+<text class="name" x="496" y="491">#</text>
+<text class="mask" x="496" y="510">0x5AC0</text>
+<rect class="cell" x="586" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="469">#036</text>
+<text class="glyph" x="596" y="499">$</text>
+<text class="name" x="634" y="491">$</text>
+<text class="mask" x="634" y="510">0x5ABB</text>
+<rect class="cell" x="724" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="469">#037</text>
+<text class="glyph" x="734" y="499">%</text>
+<text class="name" x="772" y="491">%</text>
+<text class="mask" x="772" y="510">0x7E99</text>
+<rect class="cell" x="862" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="469">#038</text>
+<text class="glyph" x="872" y="499">#38</text>
+<text class="name" x="910" y="491">&amp;</text>
+<text class="mask" x="910" y="510">0x8B79</text>
+<rect class="cell" x="1000" y="450" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="469">#039</text>
+<text class="glyph" x="1010" y="499">&amp;#x27;</text>
+<text class="name" x="1048" y="491">&#x27;</text>
+<text class="mask" x="1048" y="510">0x0004</text>
+<rect class="cell" x="34" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="561">#040</text>
+<text class="glyph" x="44" y="591">(</text>
+<text class="name" x="82" y="583">(</text>
+<text class="mask" x="82" y="602">0x8400</text>
+<rect class="cell" x="172" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="561">#041</text>
+<text class="glyph" x="182" y="591">)</text>
+<text class="name" x="220" y="583">)</text>
+<text class="mask" x="220" y="602">0x2100</text>
+<rect class="cell" x="310" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="561">#042</text>
+<text class="glyph" x="320" y="591">*</text>
+<text class="name" x="358" y="583">*</text>
+<text class="mask" x="358" y="602">0xFF00</text>
+<rect class="cell" x="448" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="561">#043</text>
+<text class="glyph" x="458" y="591">+</text>
+<text class="name" x="496" y="583">+</text>
+<text class="mask" x="496" y="602">0x5A00</text>
+<rect class="cell" x="586" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="561">#044</text>
+<text class="glyph" x="596" y="591">,</text>
+<text class="name" x="634" y="583">,</text>
+<text class="mask" x="634" y="602">0x2000</text>
+<rect class="cell" x="724" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="561">#045</text>
+<text class="glyph" x="734" y="591">-</text>
+<text class="name" x="772" y="583">-</text>
+<text class="mask" x="772" y="602">0x1800</text>
+<rect class="cell" x="862" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="561">#046</text>
+<text class="glyph" x="872" y="591">.</text>
+<text class="name" x="910" y="583">.</text>
+<text class="mask" x="910" y="602">0x0000</text>
+<rect class="cell" x="1000" y="542" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="561">#047</text>
+<text class="glyph" x="1010" y="591">/</text>
+<text class="name" x="1048" y="583">/</text>
+<text class="mask" x="1048" y="602">0x2400</text>
+<rect class="cell" x="34" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="653">#048</text>
+<text class="glyph" x="44" y="683">0</text>
+<text class="name" x="82" y="675">0</text>
+<text class="mask" x="82" y="694">0x24FF</text>
+<rect class="cell" x="172" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="653">#049</text>
+<text class="glyph" x="182" y="683">1</text>
+<text class="name" x="220" y="675">1</text>
+<text class="mask" x="220" y="694">0x040C</text>
+<rect class="cell" x="310" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="653">#050</text>
+<text class="glyph" x="320" y="683">2</text>
+<text class="name" x="358" y="675">2</text>
+<text class="mask" x="358" y="694">0x1877</text>
+<rect class="cell" x="448" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="653">#051</text>
+<text class="glyph" x="458" y="683">3</text>
+<text class="name" x="496" y="675">3</text>
+<text class="mask" x="496" y="694">0x183F</text>
+<rect class="cell" x="586" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="653">#052</text>
+<text class="glyph" x="596" y="683">4</text>
+<text class="name" x="634" y="675">4</text>
+<text class="mask" x="634" y="694">0x188C</text>
+<rect class="cell" x="724" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="653">#053</text>
+<text class="glyph" x="734" y="683">5</text>
+<text class="name" x="772" y="675">5</text>
+<text class="mask" x="772" y="694">0x18BB</text>
+<rect class="cell" x="862" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="653">#054</text>
+<text class="glyph" x="872" y="683">6</text>
+<text class="name" x="910" y="675">6</text>
+<text class="mask" x="910" y="694">0x18FB</text>
+<rect class="cell" x="1000" y="634" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="653">#055</text>
+<text class="glyph" x="1010" y="683">7</text>
+<text class="name" x="1048" y="675">7</text>
+<text class="mask" x="1048" y="694">0x000F</text>
+<rect class="cell" x="34" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="745">#056</text>
+<text class="glyph" x="44" y="775">8</text>
+<text class="name" x="82" y="767">8</text>
+<text class="mask" x="82" y="786">0x18FF</text>
+<rect class="cell" x="172" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="745">#057</text>
+<text class="glyph" x="182" y="775">9</text>
+<text class="name" x="220" y="767">9</text>
+<text class="mask" x="220" y="786">0x18BF</text>
+<rect class="cell" x="310" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="745">#058</text>
+<text class="glyph" x="320" y="775">:</text>
+<text class="name" x="358" y="767">:</text>
+<text class="mask" x="358" y="786">0x0021</text>
+<rect class="cell" x="448" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="745">#059</text>
+<text class="glyph" x="458" y="775">;</text>
+<text class="name" x="496" y="767">;</text>
+<text class="mask" x="496" y="786">0x2001</text>
+<rect class="cell" x="586" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="745">#060</text>
+<text class="glyph" x="596" y="775">#60</text>
+<text class="name" x="634" y="767">&lt;</text>
+<text class="mask" x="634" y="786">0x8103</text>
+<rect class="cell" x="724" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="745">#061</text>
+<text class="glyph" x="734" y="775">=</text>
+<text class="name" x="772" y="767">=</text>
+<text class="mask" x="772" y="786">0x1830</text>
+<rect class="cell" x="862" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="745">#062</text>
+<text class="glyph" x="872" y="775">#62</text>
+<text class="name" x="910" y="767">&gt;</text>
+<text class="mask" x="910" y="786">0x2403</text>
+<rect class="cell" x="1000" y="726" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="745">#063</text>
+<text class="glyph" x="1010" y="775">?</text>
+<text class="name" x="1048" y="767">?</text>
+<text class="mask" x="1048" y="786">0x5007</text>
+<rect class="cell" x="34" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="837">#064</text>
+<text class="glyph" x="44" y="867">@</text>
+<text class="name" x="82" y="859">@</text>
+<text class="mask" x="82" y="878">0x487F</text>
+<rect class="cell" x="172" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="837">#065</text>
+<text class="glyph" x="182" y="867">A</text>
+<text class="name" x="220" y="859">A</text>
+<text class="mask" x="220" y="878">0x18CF</text>
+<rect class="cell" x="310" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="837">#066</text>
+<text class="glyph" x="320" y="867">B</text>
+<text class="name" x="358" y="859">B</text>
+<text class="mask" x="358" y="878">0x523F</text>
+<rect class="cell" x="448" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="837">#067</text>
+<text class="glyph" x="458" y="867">C</text>
+<text class="name" x="496" y="859">C</text>
+<text class="mask" x="496" y="878">0x00F3</text>
+<rect class="cell" x="586" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="837">#068</text>
+<text class="glyph" x="596" y="867">D</text>
+<text class="name" x="634" y="859">D</text>
+<text class="mask" x="634" y="878">0x423F</text>
+<rect class="cell" x="724" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="837">#069</text>
+<text class="glyph" x="734" y="867">E</text>
+<text class="name" x="772" y="859">E</text>
+<text class="mask" x="772" y="878">0x18F3</text>
+<rect class="cell" x="862" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="837">#070</text>
+<text class="glyph" x="872" y="867">F</text>
+<text class="name" x="910" y="859">F</text>
+<text class="mask" x="910" y="878">0x18C3</text>
+<rect class="cell" x="1000" y="818" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="837">#071</text>
+<text class="glyph" x="1010" y="867">G</text>
+<text class="name" x="1048" y="859">G</text>
+<text class="mask" x="1048" y="878">0x10FB</text>
+<rect class="cell" x="34" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="929">#072</text>
+<text class="glyph" x="44" y="959">H</text>
+<text class="name" x="82" y="951">H</text>
+<text class="mask" x="82" y="970">0x18CC</text>
+<rect class="cell" x="172" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="929">#073</text>
+<text class="glyph" x="182" y="959">I</text>
+<text class="name" x="220" y="951">I</text>
+<text class="mask" x="220" y="970">0x4200</text>
+<rect class="cell" x="310" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="929">#074</text>
+<text class="glyph" x="320" y="959">J</text>
+<text class="name" x="358" y="951">J</text>
+<text class="mask" x="358" y="970">0x203C</text>
+<rect class="cell" x="448" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="929">#075</text>
+<text class="glyph" x="458" y="959">K</text>
+<text class="name" x="496" y="951">K</text>
+<text class="mask" x="496" y="970">0x8CC0</text>
+<rect class="cell" x="586" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="929">#076</text>
+<text class="glyph" x="596" y="959">L</text>
+<text class="name" x="634" y="951">L</text>
+<text class="mask" x="634" y="970">0x00F0</text>
+<rect class="cell" x="724" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="929">#077</text>
+<text class="glyph" x="734" y="959">M</text>
+<text class="name" x="772" y="951">M</text>
+<text class="mask" x="772" y="970">0x05CC</text>
+<rect class="cell" x="862" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="929">#078</text>
+<text class="glyph" x="872" y="959">N</text>
+<text class="name" x="910" y="951">N</text>
+<text class="mask" x="910" y="970">0x81CC</text>
+<rect class="cell" x="1000" y="910" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="929">#079</text>
+<text class="glyph" x="1010" y="959">O</text>
+<text class="name" x="1048" y="951">O</text>
+<text class="mask" x="1048" y="970">0x00FF</text>
+<rect class="cell" x="34" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1021">#080</text>
+<text class="glyph" x="44" y="1051">P</text>
+<text class="name" x="82" y="1043">P</text>
+<text class="mask" x="82" y="1062">0x18C7</text>
+<rect class="cell" x="172" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1021">#081</text>
+<text class="glyph" x="182" y="1051">Q</text>
+<text class="name" x="220" y="1043">Q</text>
+<text class="mask" x="220" y="1062">0x80FF</text>
+<rect class="cell" x="310" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1021">#082</text>
+<text class="glyph" x="320" y="1051">R</text>
+<text class="name" x="358" y="1043">R</text>
+<text class="mask" x="358" y="1062">0x98C7</text>
+<rect class="cell" x="448" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1021">#083</text>
+<text class="glyph" x="458" y="1051">S</text>
+<text class="name" x="496" y="1043">S</text>
+<text class="mask" x="496" y="1062">0x18BB</text>
+<rect class="cell" x="586" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1021">#084</text>
+<text class="glyph" x="596" y="1051">T</text>
+<text class="name" x="634" y="1043">T</text>
+<text class="mask" x="634" y="1062">0x4203</text>
+<rect class="cell" x="724" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1021">#085</text>
+<text class="glyph" x="734" y="1051">U</text>
+<text class="name" x="772" y="1043">U</text>
+<text class="mask" x="772" y="1062">0x00FC</text>
+<rect class="cell" x="862" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1021">#086</text>
+<text class="glyph" x="872" y="1051">V</text>
+<text class="name" x="910" y="1043">V</text>
+<text class="mask" x="910" y="1062">0x24C0</text>
+<rect class="cell" x="1000" y="1002" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1021">#087</text>
+<text class="glyph" x="1010" y="1051">W</text>
+<text class="name" x="1048" y="1043">W</text>
+<text class="mask" x="1048" y="1062">0xA0CC</text>
+<rect class="cell" x="34" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1113">#088</text>
+<text class="glyph" x="44" y="1143">X</text>
+<text class="name" x="82" y="1135">X</text>
+<text class="mask" x="82" y="1154">0xA500</text>
+<rect class="cell" x="172" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1113">#089</text>
+<text class="glyph" x="182" y="1143">Y</text>
+<text class="name" x="220" y="1135">Y</text>
+<text class="mask" x="220" y="1154">0x5884</text>
+<rect class="cell" x="310" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1113">#090</text>
+<text class="glyph" x="320" y="1143">Z</text>
+<text class="name" x="358" y="1135">Z</text>
+<text class="mask" x="358" y="1154">0x2433</text>
+<rect class="cell" x="448" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1113">#091</text>
+<text class="glyph" x="458" y="1143">[</text>
+<text class="name" x="496" y="1135">[</text>
+<text class="mask" x="496" y="1154">0x00E1</text>
+<rect class="cell" x="586" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1113">#092</text>
+<text class="glyph" x="596" y="1143">\</text>
+<text class="name" x="634" y="1135">\</text>
+<text class="mask" x="634" y="1154">0x8100</text>
+<rect class="cell" x="724" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1113">#093</text>
+<text class="glyph" x="734" y="1143">]</text>
+<text class="name" x="772" y="1135">]</text>
+<text class="mask" x="772" y="1154">0x001E</text>
+<rect class="cell" x="862" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1113">#094</text>
+<text class="glyph" x="872" y="1143">^</text>
+<text class="name" x="910" y="1135">^</text>
+<text class="mask" x="910" y="1154">0x0180</text>
+<rect class="cell" x="1000" y="1094" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1113">#095</text>
+<text class="glyph" x="1010" y="1143">_</text>
+<text class="name" x="1048" y="1135">_</text>
+<text class="mask" x="1048" y="1154">0x0030</text>
+<rect class="cell" x="34" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1205">#096</text>
+<text class="glyph" x="44" y="1235">`</text>
+<text class="name" x="82" y="1227">`</text>
+<text class="mask" x="82" y="1246">0x0100</text>
+<rect class="cell" x="172" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1205">#097</text>
+<text class="glyph" x="182" y="1235">a</text>
+<text class="name" x="220" y="1227">a</text>
+<text class="mask" x="220" y="1246">0xC860</text>
+<rect class="cell" x="310" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1205">#098</text>
+<text class="glyph" x="320" y="1235">b</text>
+<text class="name" x="358" y="1227">b</text>
+<text class="mask" x="358" y="1246">0x48E0</text>
+<rect class="cell" x="448" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1205">#099</text>
+<text class="glyph" x="458" y="1235">c</text>
+<text class="name" x="496" y="1227">c</text>
+<text class="mask" x="496" y="1246">0x0860</text>
+<rect class="cell" x="586" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1205">#100</text>
+<text class="glyph" x="596" y="1235">d</text>
+<text class="name" x="634" y="1227">d</text>
+<text class="mask" x="634" y="1246">0x4A60</text>
+<rect class="cell" x="724" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1205">#101</text>
+<text class="glyph" x="734" y="1235">e</text>
+<text class="name" x="772" y="1227">e</text>
+<text class="mask" x="772" y="1246">0x2860</text>
+<rect class="cell" x="862" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1205">#102</text>
+<text class="glyph" x="872" y="1235">f</text>
+<text class="name" x="910" y="1227">f</text>
+<text class="mask" x="910" y="1246">0x5A02</text>
+<rect class="cell" x="1000" y="1186" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1205">#103</text>
+<text class="glyph" x="1010" y="1235">g</text>
+<text class="name" x="1048" y="1227">g</text>
+<text class="mask" x="1048" y="1246">0x4AA1</text>
+<rect class="cell" x="34" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1297">#104</text>
+<text class="glyph" x="44" y="1327">h</text>
+<text class="name" x="82" y="1319">h</text>
+<text class="mask" x="82" y="1338">0x48C0</text>
+<rect class="cell" x="172" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1297">#105</text>
+<text class="glyph" x="182" y="1327">i</text>
+<text class="name" x="220" y="1319">i</text>
+<text class="mask" x="220" y="1338">0x4000</text>
+<rect class="cell" x="310" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1297">#106</text>
+<text class="glyph" x="320" y="1327">j</text>
+<text class="name" x="358" y="1319">j</text>
+<text class="mask" x="358" y="1338">0x4220</text>
+<rect class="cell" x="448" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1297">#107</text>
+<text class="glyph" x="458" y="1327">k</text>
+<text class="name" x="496" y="1319">k</text>
+<text class="mask" x="496" y="1338">0xC600</text>
+<rect class="cell" x="586" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1297">#108</text>
+<text class="glyph" x="596" y="1327">l</text>
+<text class="name" x="634" y="1319">l</text>
+<text class="mask" x="634" y="1338">0x4200</text>
+<rect class="cell" x="724" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1297">#109</text>
+<text class="glyph" x="734" y="1327">m</text>
+<text class="name" x="772" y="1319">m</text>
+<text class="mask" x="772" y="1338">0x5848</text>
+<rect class="cell" x="862" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1297">#110</text>
+<text class="glyph" x="872" y="1327">n</text>
+<text class="name" x="910" y="1319">n</text>
+<text class="mask" x="910" y="1338">0x4840</text>
+<rect class="cell" x="1000" y="1278" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1297">#111</text>
+<text class="glyph" x="1010" y="1327">o</text>
+<text class="name" x="1048" y="1319">o</text>
+<text class="mask" x="1048" y="1338">0x4860</text>
+<rect class="cell" x="34" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1389">#112</text>
+<text class="glyph" x="44" y="1419">p</text>
+<text class="name" x="82" y="1411">p</text>
+<text class="mask" x="82" y="1430">0x0AC1</text>
+<rect class="cell" x="172" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1389">#113</text>
+<text class="glyph" x="182" y="1419">q</text>
+<text class="name" x="220" y="1411">q</text>
+<text class="mask" x="220" y="1430">0x4A81</text>
+<rect class="cell" x="310" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1389">#114</text>
+<text class="glyph" x="320" y="1419">r</text>
+<text class="name" x="358" y="1411">r</text>
+<text class="mask" x="358" y="1430">0x0840</text>
+<rect class="cell" x="448" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1389">#115</text>
+<text class="glyph" x="458" y="1419">s</text>
+<text class="name" x="496" y="1411">s</text>
+<text class="mask" x="496" y="1430">0x9010</text>
+<rect class="cell" x="586" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1389">#116</text>
+<text class="glyph" x="596" y="1419">t</text>
+<text class="name" x="634" y="1411">t</text>
+<text class="mask" x="634" y="1430">0x08E0</text>
+<rect class="cell" x="724" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1389">#117</text>
+<text class="glyph" x="734" y="1419">u</text>
+<text class="name" x="772" y="1411">u</text>
+<text class="mask" x="772" y="1430">0x4060</text>
+<rect class="cell" x="862" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1389">#118</text>
+<text class="glyph" x="872" y="1419">v</text>
+<text class="name" x="910" y="1411">v</text>
+<text class="mask" x="910" y="1430">0x2040</text>
+<rect class="cell" x="1000" y="1370" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1389">#119</text>
+<text class="glyph" x="1010" y="1419">w</text>
+<text class="name" x="1048" y="1411">w</text>
+<text class="mask" x="1048" y="1430">0xA048</text>
+<rect class="cell" x="34" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1481">#120</text>
+<text class="glyph" x="44" y="1511">x</text>
+<text class="name" x="82" y="1503">x</text>
+<text class="mask" x="82" y="1522">0x6600</text>
+<rect class="cell" x="172" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="182" y="1481">#121</text>
+<text class="glyph" x="182" y="1511">y</text>
+<text class="name" x="220" y="1503">y</text>
+<text class="mask" x="220" y="1522">0x2500</text>
+<rect class="cell" x="310" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="320" y="1481">#122</text>
+<text class="glyph" x="320" y="1511">z</text>
+<text class="name" x="358" y="1503">z</text>
+<text class="mask" x="358" y="1522">0x2820</text>
+<rect class="cell" x="448" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="458" y="1481">#123</text>
+<text class="glyph" x="458" y="1511">{</text>
+<text class="name" x="496" y="1503">{</text>
+<text class="mask" x="496" y="1522">0x4A12</text>
+<rect class="cell" x="586" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="596" y="1481">#124</text>
+<text class="glyph" x="596" y="1511">|</text>
+<text class="name" x="634" y="1503">|</text>
+<text class="mask" x="634" y="1522">0x4200</text>
+<rect class="cell" x="724" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="734" y="1481">#125</text>
+<text class="glyph" x="734" y="1511">}</text>
+<text class="name" x="772" y="1503">}</text>
+<text class="mask" x="772" y="1522">0x5221</text>
+<rect class="cell" x="862" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="872" y="1481">#126</text>
+<text class="glyph" x="872" y="1511">~</text>
+<text class="name" x="910" y="1503">~</text>
+<text class="mask" x="910" y="1522">0x0580</text>
+<rect class="cell" x="1000" y="1462" width="126" height="80" rx="8"/>
+<text class="code" x="1010" y="1481">#127</text>
+<text class="glyph" x="1010" y="1511">#127</text>
+<text class="name" x="1048" y="1503">home</text>
+<text class="mask" x="1048" y="1522">0x540C</text>
+<rect class="cell" x="34" y="1554" width="126" height="80" rx="8"/>
+<text class="code" x="44" y="1573">#128</text>
+<text class="glyph" x="44" y="1603">#128</text>
+<text class="name" x="82" y="1595">shaduzLABS</text>
+<text class="mask" x="82" y="1614">0x4850</text>
+</svg>

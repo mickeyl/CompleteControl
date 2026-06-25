@@ -2,9 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "KompleteKontrol",
+    name: "CompleteControl",
     platforms: [.macOS(.v15)],
     products: [
+        .library(name: "CompleteControl", targets: ["KompleteKontrol"]),
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),

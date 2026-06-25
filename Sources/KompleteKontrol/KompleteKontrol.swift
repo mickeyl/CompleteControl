@@ -97,6 +97,15 @@ public struct KKDisplayFrame: Equatable, Sendable {
         )
     }
 
+    public static var availableGlyphCount: Int {
+        font16Segment.count
+    }
+
+    public static func glyph(at index: Int) -> UInt16? {
+        guard font16Segment.indices.contains(index) else { return nil }
+        return font16Segment[index]
+    }
+
     public static func glyph(for scalar: Unicode.Scalar) -> UInt16 {
         let value = Int(scalar.value)
         guard value >= 0, value < font16Segment.count else { return emptyGlyph }
@@ -136,6 +145,11 @@ public struct KKDisplayFrame: Equatable, Sendable {
         for (offset, scalar) in scalars.enumerated() where leftPadding + offset < Self.characterCount {
             setGlyph(Self.glyph(for: scalar), display: display, row: row, column: leftPadding + offset)
         }
+    }
+
+    public mutating func setRawGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int) {
+        guard Self.validDisplay(display), Self.validTextRow(row), (0..<Self.characterCount).contains(column) else { return }
+        setGlyph(glyph, display: display, row: row, column: column)
     }
 
     public mutating func setBar(_ value: Double, display: Int, row: Int = 0) {
@@ -923,6 +937,15 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         guard (0..<KKDisplayFrame.displayCount).contains(display),
               row == 0 else { return nil }
         displayFrame.setBar(value, display: display, row: row)
+        return flush ? sendDisplays() : nil
+    }
+
+    @discardableResult
+    public func setDisplayGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int, flush: Bool = true) -> [KKUSBResult]? {
+        guard (0..<KKDisplayFrame.displayCount).contains(display),
+              (1..<KKDisplayFrame.rowCount).contains(row),
+              (0..<KKDisplayFrame.characterCount).contains(column) else { return nil }
+        displayFrame.setRawGlyph(glyph, display: display, row: row, column: column)
         return flush ? sendDisplays() : nil
     }
 
