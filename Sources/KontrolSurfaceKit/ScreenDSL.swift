@@ -95,31 +95,113 @@ public protocol ScreenElement: Sendable {
     func render(into model: inout SurfaceModel)
 }
 
-/// One LCD (0…8) and its rows.
+/// One LCD (0…8) and its rows. `onEncoder` binds the rotary encoder above this
+/// display (encoder index == display index, 1…8) to a delta handler.
 public struct Cell: ScreenElement {
     let display: Int
     let elements: [any CellElement]
+    var encoderHandler: ((Int) -> Void)?
+
     public init(_ display: Int, @CellBuilder _ content: () -> [any CellElement]) {
         self.display = display
         self.elements = content()
     }
+
+    public func onEncoder(_ handler: @escaping (Int) -> Void) -> Cell {
+        var copy = self
+        copy.encoderHandler = handler
+        return copy
+    }
+
     public func render(into model: inout SurfaceModel) {
         var textRow = 1
         for element in elements {
             element.place(into: &model, display: display, textRow: &textRow)
         }
+        if let encoderHandler, (1...8).contains(display) {
+            model.handlers.encoder[display] = encoderHandler
+        }
     }
 }
 
-/// A button LED, including animated states.
+/// A button LED, including animated states. The handler modifiers bind the
+/// matching hardware button's gestures: `onTap`, `onHold`, and `onSecondary`
+/// (a tap on this button while another is held — the held one is the modifier).
 public struct Lamp: ScreenElement {
     let led: KKButtonLED
     let state: LampState
+    var tapHandler: (() -> Void)?
+    var holdHandler: (() -> Void)?
+    var secondaryHandler: ((String) -> Void)?
+
     public init(_ led: KKButtonLED, _ state: LampState) {
         self.led = led
         self.state = state
     }
-    public func render(into model: inout SurfaceModel) { model.setLamp(led, state) }
+
+    public func onTap(_ handler: @escaping () -> Void) -> Lamp {
+        var copy = self
+        copy.tapHandler = handler
+        return copy
+    }
+
+    public func onHold(_ handler: @escaping () -> Void) -> Lamp {
+        var copy = self
+        copy.holdHandler = handler
+        return copy
+    }
+
+    public func onSecondary(_ handler: @escaping (String) -> Void) -> Lamp {
+        var copy = self
+        copy.secondaryHandler = handler
+        return copy
+    }
+
+    public func render(into model: inout SurfaceModel) {
+        model.setLamp(led, state)
+        let name = led.inputName
+        if let tapHandler { model.handlers.tap[name] = tapHandler }
+        if let holdHandler { model.handlers.hold[name] = holdHandler }
+        if let secondaryHandler { model.handlers.secondary[name] = secondaryHandler }
+    }
+}
+
+/// Binds the main 4-D wheel's turn to a delta handler.
+public struct MainEncoder: ScreenElement {
+    let handler: (Int) -> Void
+    public init(_ handler: @escaping (Int) -> Void) { self.handler = handler }
+    public func render(into model: inout SurfaceModel) { model.handlers.mainEncoder = handler }
+}
+
+extension KKButtonLED {
+    /// The decoder's input button name for this LED (they differ for a few).
+    var inputName: String {
+        switch self {
+            case .shift: "shift"
+            case .scale: "scale"
+            case .arp: "arp"
+            case .loop: "loop"
+            case .rwd: "rewind"
+            case .ffw: "fast forward"
+            case .play: "play"
+            case .rec: "rec"
+            case .stop: "stop"
+            case .pageLeft: "page left"
+            case .pageRight: "page right"
+            case .browse: "browse"
+            case .presetUp: "preset up"
+            case .instance: "instance"
+            case .presetDown: "preset down"
+            case .back: "back"
+            case .navigateUp: "navigate up"
+            case .enter: "enter"
+            case .navigateLeft: "navigate left"
+            case .navigateDown: "navigate down"
+            case .navigateRight: "navigate right"
+            case .octaveDownWhite, .octaveDownRed: "octave down"
+            case .octaveUpWhite, .octaveUpRed: "octave up"
+        }
+    }
 }
 
 /// Global status line on the status display (0, row 1).

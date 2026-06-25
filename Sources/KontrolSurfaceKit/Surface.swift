@@ -31,19 +31,28 @@ public actor Surface {
     private var gestures = GestureRecognizer()
     private var transport = TransportState()
     private var observationGeneration = 0
+    private var inputHandlers = InputHandlers()
     private let inputStream: AsyncStream<SurfaceInput>
     private var inputContinuation: AsyncStream<SurfaceInput>.Continuation?
+    private let midiStream: AsyncStream<KKMIDIEvent>
+    private var midiContinuation: AsyncStream<KKMIDIEvent>.Continuation?
 
     public init(device: KompleteKontrolS25MK1 = KompleteKontrolS25MK1(), options: Options = Options()) {
         self.device = device
         self.options = options
-        var continuation: AsyncStream<SurfaceInput>.Continuation!
-        inputStream = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { continuation = $0 }
-        inputContinuation = continuation
+        var input: AsyncStream<SurfaceInput>.Continuation!
+        inputStream = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { input = $0 }
+        inputContinuation = input
+        var midiCont: AsyncStream<KKMIDIEvent>.Continuation!
+        midiStream = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { midiCont = $0 }
+        midiContinuation = midiCont
     }
 
     /// Normalized surface input. Single-consumer; iterate it from one `Task`.
     public var inputs: AsyncStream<SurfaceInput> { inputStream }
+
+    /// USB-MIDI input (keys, pitch, mod, CC). Single-consumer.
+    public var midi: AsyncStream<KKMIDIEvent> { midiStream }
 
     // MARK: Lifecycle
 
@@ -55,6 +64,10 @@ public actor Surface {
         device.onInputReport = { [weak self] report in
             guard let self else { return }
             Task { await self.handleInput(report) }
+        }
+        device.onMIDIEvent = { [weak self] event in
+            guard let self else { return }
+            Task { await self.forwardMIDI(event) }
         }
         device.startInputMonitoring()
         device.handshakeAsync()
@@ -204,6 +217,7 @@ public actor Surface {
 
     private func cancelObservation() {
         observationGeneration += 1
+        inputHandlers = InputHandlers()
     }
 
     /// Replaces the whole surface using an inline builder closure (imperative).
@@ -222,6 +236,7 @@ public actor Surface {
         for (led, state) in model.lamps {
             ledReconciler.set(led, state)
         }
+        inputHandlers = model.handlers
     }
 
     // MARK: Parameter pages
@@ -274,16 +289,38 @@ public actor Surface {
         let now = DispatchTime.now().uptimeNanoseconds
         for event in report.events {
             guard let input = SurfaceInput.from(event) else { continue }
-            if case let .encoder(index, delta, _) = input {
-                activePage?.handleEncoder(encoder: index, delta: delta, on: self)
-            }
-            if case let .button(name, pressed) = input {
-                for phase in gestures.buttonChanged(name, pressed: pressed, now: now) {
-                    inputContinuation?.yield(.gesture(button: name, phase: phase))
-                }
+            switch input {
+                case let .encoder(index, delta, _):
+                    if let handler = inputHandlers.encoder[index] {
+                        handler(delta)
+                    } else {
+                        activePage?.handleEncoder(encoder: index, delta: delta, on: self)
+                    }
+                case let .mainEncoder(delta):
+                    inputHandlers.mainEncoder?(delta)
+                case let .button(name, pressed):
+                    for phase in gestures.buttonChanged(name, pressed: pressed, now: now) {
+                        dispatchGesture(name, phase)
+                        inputContinuation?.yield(.gesture(button: name, phase: phase))
+                    }
+                default:
+                    break
             }
             inputContinuation?.yield(input)
         }
+    }
+
+    private func dispatchGesture(_ button: String, _ phase: GesturePhase) {
+        switch phase {
+            case .tap: inputHandlers.tap[button]?()
+            case .hold: inputHandlers.hold[button]?()
+            case let .secondary(modifier): inputHandlers.secondary[button]?(modifier)
+            case .down, .up: break
+        }
+    }
+
+    private func forwardMIDI(_ event: KKMIDIEvent) {
+        midiContinuation?.yield(event)
     }
 
     // MARK: Reconcile tick
@@ -313,6 +350,7 @@ public actor Surface {
         }
 
         for gesture in gestures.tick(now: now) {
+            dispatchGesture(gesture.name, gesture.phase)
             inputContinuation?.yield(.gesture(button: gesture.name, phase: gesture.phase))
         }
     }

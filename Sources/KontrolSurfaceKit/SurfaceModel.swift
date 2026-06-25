@@ -1,14 +1,26 @@
 import Foundation
 import KompleteKontrol
 
-/// A full, intended snapshot of the surface: content for every LCD row and any
-/// declared button LEDs. The declarative DSL builds one of these and the surface
-/// applies it through the reconcilers; the imperative setters mutate the same
-/// underlying state. Keeping both front-ends lowering to this model is what lets
-/// the imperative API be removed later without touching declarative code.
-public struct SurfaceModel: Sendable {
+/// Input handlers a screen attaches to its elements while lowering. The surface
+/// stores the latest set after each render and dispatches input to it.
+struct InputHandlers {
+    var encoder: [Int: (Int) -> Void] = [:]          // rotary encoder index 1…8 -> delta
+    var mainEncoder: ((Int) -> Void)?                // 4-D wheel -> delta
+    var tap: [String: () -> Void] = [:]              // button name -> tap
+    var hold: [String: () -> Void] = [:]             // button name -> hold
+    var secondary: [String: (String) -> Void] = [:]  // button name -> (modifier)
+}
+
+/// A full, intended snapshot of the surface: content for every LCD row, declared
+/// button LEDs, and the input handlers a screen attached. The declarative DSL
+/// builds one of these and the surface applies it through the reconcilers; the
+/// imperative setters mutate the same underlying state. Keeping both front-ends
+/// lowering to this model is what lets the imperative API be removed later
+/// without touching declarative code.
+public struct SurfaceModel {
     var cells: [[CellContent]]
     var lamps: [KKButtonLED: LampState]
+    var handlers = InputHandlers()
 
     public init() {
         cells = Array(

@@ -9,25 +9,41 @@ import KontrolSurfaceKit
     var isPlaying = false
     var isRecording = false
     var loopEnabled = false
+    var filter = 50
+    var position = 0
     var lastGesture = "READY"
 }
 
-// The transport page, declarative and reactive: both the displays and the LEDs
-// are functions of the model, so a gesture that flips the model is enough.
+// The transport page, fully declarative and reactive: displays, LEDs AND input
+// all live in the body. Gestures/encoders mutate the model, which re-renders.
 struct TransportScreen: Screen {
     let model: TransportModel
 
     var body: [any ScreenElement] {
         Status("TRANSPORT")
-        PageIndicator(4, of: 4)
         Cell(1) { Label("STATE", overflow: .clip); Label(model.isPlaying ? "PLAY" : "STOP", overflow: .clip) }
         Cell(2) { Label("REC", overflow: .clip); Label(model.isRecording ? "ON" : "OFF", overflow: .clip) }
         Cell(3) { Label("LOOP", overflow: .clip); Label(model.loopEnabled ? "ON" : "OFF", overflow: .clip) }
-        Cell(4) { Label("GESTURE", overflow: .clip); Label(model.lastGesture, overflow: .marquee) }
+        Cell(5) { Bar(Double(model.filter) / 100); Label("FILTER", overflow: .clip); Value(model.filter) }
+            .onEncoder { model.filter = min(100, max(0, model.filter + ($0 > 0 ? 1 : -1))) }
+        Cell(6) { Bar(Double(model.position) / 63); Label("ROW", overflow: .clip); Value(model.position) }
+        Cell(8) { Label("GESTURE", overflow: .clip); Label(model.lastGesture, overflow: .marquee) }
+
         Lamp(.play, model.isPlaying ? .on : .on(0x14))
+            .onTap { model.isPlaying.toggle(); model.lastGesture = model.isPlaying ? "PLAY" : "PAUSE" }
+            .onHold { model.isPlaying = true; model.position = 0; model.lastGesture = "RESTART" }
         Lamp(.stop, .on(0x14))
+            .onTap {
+                if model.isPlaying { model.isPlaying = false; model.lastGesture = "STOP" }
+                else { model.position = 0; model.lastGesture = "RETURN TO ZERO" }
+            }
         Lamp(.rec, model.isRecording ? .blink : .off)
+            .onTap { model.isRecording.toggle(); model.lastGesture = "REC" }
         Lamp(.loop, model.loopEnabled ? .on : .off)
+            .onTap { model.loopEnabled.toggle(); model.lastGesture = "LOOP" }
+            .onSecondary { _ in model.loopEnabled = true; model.lastGesture = "SET LOOP" }
+
+        MainEncoder { model.position = min(63, max(0, model.position + $0)) }
     }
 }
 
@@ -150,32 +166,16 @@ actor DemoController {
         await renderGlyphDetail()
     }
 
-    // MARK: Transport — only the model is mutated; the observed screen re-renders.
+    // MARK: MIDI — light the played keys on the guide (global, any page).
 
-    private func handleTransportGesture(button: String, phase: GesturePhase) {
-        switch (button, phase) {
-            case ("play", .tap):
-                transportModel.isPlaying.toggle()
-                transportModel.lastGesture = transportModel.isPlaying ? "PLAY" : "PAUSE"
-            case ("play", .hold):                                   // tap-and-hold
-                transportModel.isPlaying = true
-                transportModel.lastGesture = "RESTART"
-            case ("stop", .tap):                                    // state-based "double"
-                if transportModel.isPlaying {
-                    transportModel.isPlaying = false
-                    transportModel.lastGesture = "STOP"
-                } else {
-                    transportModel.lastGesture = "RETURN TO ZERO"
-                }
-            case ("rec", .tap):
-                transportModel.isRecording.toggle()
-                transportModel.lastGesture = "REC"
-            case ("loop", .tap):
-                transportModel.loopEnabled.toggle()
-                transportModel.lastGesture = "LOOP"
-            case let ("loop", .secondary(modifier)) where modifier == "shift":   // chord
-                transportModel.loopEnabled = true
-                transportModel.lastGesture = "SET LOOP"
+    func handleMIDI(_ event: KKMIDIEvent) async {
+        let index = Int(event.note) - 48
+        guard (0..<KompleteKontrolS25MK1Protocol.keyCount).contains(index) else { return }
+        switch event.kind {
+            case .noteOn where event.velocity > 0:
+                await surface.setKey(index, color: KKRGB(red: 0x00, green: 0x50, blue: 0x7f))
+            case .noteOn, .noteOff:
+                await surface.setKey(index, color: .off)
             default:
                 break
         }
@@ -197,8 +197,6 @@ actor DemoController {
                 await scrollGlyphs(delta)
             case let .mainEncoder(delta) where current == .glyphs:
                 await scrollGlyphs(delta)
-            case let .gesture(button, phase):
-                handleTransportGesture(button: button, phase: phase)
             default:
                 break
         }
@@ -243,7 +241,8 @@ let bank = ParameterBank([
 let demo = DemoController(surface: surface, bank: bank)
 
 print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
-print("Parameters: Preset Up / Down page the bank. Transport: tap/hold + Shift+Loop chord.")
+print("Parameters: Preset Up / Down page the bank. Transport: tap/hold + Shift+Loop chord,")
+print("encoder 5 = filter, main wheel = row. MIDI keys light the guide. Ctrl-C to quit.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {
@@ -260,6 +259,12 @@ Task {
     await demo.start()
     for await event in await surface.inputs {
         await demo.handle(event)
+    }
+}
+
+Task {
+    for await event in await surface.midi {
+        await demo.handleMIDI(event)
     }
 }
 

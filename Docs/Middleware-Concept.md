@@ -380,5 +380,20 @@ Step 2 is independently shippable and is the recommended first milestone.
 bank position (`n/N`) on the status display. `SurfaceDemo`'s parameter page is now a
 three-page bank (OSC/FILTER, ENVELOPE, FX SENDS) paged with Preset Up / Down.
 
-Next: the MCU/HUI adapter — feed a `ControlModel` from a DAW so the surface becomes a
-first-class remote control.
+**Declarative input + MIDI (step toward a real client)** are in:
+
+- DSL input handlers: `Cell(n).onEncoder { delta }` (rotary above the display), `Lamp(led)
+  .onTap/.onHold/.onSecondary`, and a `MainEncoder { delta }` element. Screens attach handlers
+  while lowering; the surface stores the latest set and dispatches input to it. A screen is now
+  fully self-contained — displays, LEDs, and behavior in one `body`.
+- `Surface.midi` (`AsyncStream<KKMIDIEvent>`) exposes USB-MIDI input for note entry / light
+  feedback.
+- `SurfaceDemo`'s transport page is now fully declarative input too (taps/hold/secondary on the
+  LEDs, encoder 5 → filter, main wheel → row), and MIDI keys light the guide.
+
+Direction: the first concrete client is **Paulinche**, an Amiga MOD tracker, whose core surface
+is 4-channel pattern editing (live MIDI record, transport, channel via Navigate ◀▶, instrument
+via Navigate ▲▼, exact row via the main wheel). The `PatternScreen` lives in Paulinche on top
+of this kit. Remaining kit work is pulled by it as needed: a declarative light-guide / `KeyBed`,
+list/menu navigation, and `Meter` widgets. The MCU/HUI adapter is deprioritized — Paulinche
+integrates directly, not via MIDI emulation.
