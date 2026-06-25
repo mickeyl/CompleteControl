@@ -372,5 +372,10 @@ Step 2 is independently shippable and is the recommended first milestone.
   an `@Observable TransportModel` for both its displays and its LEDs, so a gesture only flips
   the model — no explicit render call.
 
-Next: `ParameterBank` paging (multiple parameter pages, page-left/right), then the MCU/HUI
-adapter.
+**`ParameterBank`** is in: an ordered set of parameter pages with `Surface.setParameterBank` /
+`bankNext` / `bankPrevious`; the surface renders the selected page and shows its title and the
+bank position (`n/N`) on the status display. `SurfaceDemo`'s parameter page is now a
+three-page bank (OSC/FILTER, ENVELOPE, FX SENDS) paged with Preset Up / Down.
+
+Next: the MCU/HUI adapter — feed a `ControlModel` from a DAW so the surface becomes a
+first-class remote control.

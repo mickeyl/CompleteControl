@@ -26,6 +26,7 @@ public actor Surface {
     private var guideDirty = false
     private var running = false
     private var activePage: ParameterPage?
+    private var activeBank: ParameterBank?
     private var ledReconciler = LEDReconciler()
     private var gestures = GestureRecognizer()
     private var transport = TransportState()
@@ -228,14 +229,43 @@ public actor Surface {
     /// Makes `page` the active page: renders it and routes encoder turns to it.
     public func setParameterPage(_ page: ParameterPage) {
         cancelObservation()
+        activeBank = nil
         activePage = page
         reconciler.clearAll()
         page.render(on: self)
     }
 
+    /// Makes `bank` active: renders its selected page and routes encoder turns to
+    /// it. Page with `bankNext` / `bankPrevious`.
+    public func setParameterBank(_ bank: ParameterBank) {
+        cancelObservation()
+        activeBank = bank
+        presentBankPage()
+    }
+
+    public func bankNext() {
+        activeBank?.selectNext()
+        presentBankPage()
+    }
+
+    public func bankPrevious() {
+        activeBank?.selectPrevious()
+        presentBankPage()
+    }
+
+    private func presentBankPage() {
+        guard let bank = activeBank, let page = bank.current else { return }
+        activePage = page
+        reconciler.clearAll()
+        page.render(on: self)
+        reconciler.set(display: 0, row: 2, .text("\(bank.index + 1)/\(bank.count)", .center, .clip))
+        reconciler.set(display: 0, row: 0, .bar(bank.count > 1 ? Double(bank.index) / Double(bank.count - 1) : 0))
+    }
+
     /// Stops routing encoder turns to a parameter page (input still streams).
     public func clearParameterPage() {
         activePage = nil
+        activeBank = nil
     }
 
     // MARK: Input

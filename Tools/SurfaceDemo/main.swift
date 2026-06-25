@@ -77,14 +77,14 @@ actor DemoController {
     private static let detailDisplay = 0
 
     private let surface: Surface
-    private let page: ParameterPage
+    private let bank: ParameterBank
     private var current: Page = .parameters
     private var glyphSelection = 0
     private let transportModel = TransportModel()
 
-    init(surface: Surface, page: ParameterPage) {
+    init(surface: Surface, bank: ParameterBank) {
         self.surface = surface
-        self.page = page
+        self.bank = bank
     }
 
     func start() async {
@@ -96,7 +96,8 @@ actor DemoController {
         await surface.setLamp(.arp, .off)
         switch target {
             case .parameters:
-                await surface.setParameterPage(page)
+                await surface.setParameterBank(bank)
+                return
             case .glyphs:
                 await surface.clearParameterPage()
                 await surface.clearAll()
@@ -184,6 +185,10 @@ actor DemoController {
                 await next()
             case let .button(name, pressed) where pressed && name == "page left":
                 await previous()
+            case let .button(name, pressed) where pressed && name == "preset up" && current == .parameters:
+                await surface.bankNext()
+            case let .button(name, pressed) where pressed && name == "preset down" && current == .parameters:
+                await surface.bankPrevious()
             case let .encoder(index, delta, _) where current == .glyphs && index == 1:
                 await scrollGlyphs(delta)
             case let .mainEncoder(delta) where current == .glyphs:
@@ -199,20 +204,42 @@ actor DemoController {
 let device = KompleteKontrolS25MK1()
 let surface = Surface(device: device)
 
-let page = ParameterPage(title: "OSC / FILTER", parameters: [
-    Parameter(name: "CUTOFF", value: 64, range: 0...127),
-    Parameter(name: "RESONANCE", value: 20, range: 0...127),
-    Parameter(name: "DRIVE", value: 30, range: 0...100, format: .percent),
-    Parameter(name: "ATTACK", value: 5, range: 0...1000, step: 2),
-    Parameter(name: "DECAY MILLISECONDS", value: 120, range: 0...2000, step: 4),
-    Parameter(name: "SUSTAIN", value: 80, range: 0...100, format: .percent),
-    Parameter(name: "RELEASE", value: 200, range: 0...3000, step: 5),
-    Parameter(name: "LEVEL", value: -6, range: -60...6, step: 0.5, format: .decibel),
+let bank = ParameterBank([
+    ParameterPage(title: "OSC / FILTER", parameters: [
+        Parameter(name: "CUTOFF", value: 64, range: 0...127),
+        Parameter(name: "RESONANCE", value: 20, range: 0...127),
+        Parameter(name: "DRIVE", value: 30, range: 0...100, format: .percent),
+        Parameter(name: "OSC MIX", value: 50, range: 0...100, format: .percent),
+        Parameter(name: "DETUNE", value: 0, range: -50...50),
+        Parameter(name: "SUB OSC", value: 20, range: 0...100, format: .percent),
+        Parameter(name: "NOISE", value: 0, range: 0...100, format: .percent),
+        Parameter(name: "KEY TRACK", value: 50, range: 0...100, format: .percent),
+    ]),
+    ParameterPage(title: "ENVELOPE", parameters: [
+        Parameter(name: "ATTACK", value: 5, range: 0...1000, step: 2),
+        Parameter(name: "DECAY MILLISECONDS", value: 120, range: 0...2000, step: 4),
+        Parameter(name: "SUSTAIN", value: 80, range: 0...100, format: .percent),
+        Parameter(name: "RELEASE", value: 200, range: 0...3000, step: 5),
+        Parameter(name: "ENV AMOUNT", value: 50, range: 0...100, format: .percent),
+        Parameter(name: "VELOCITY", value: 64, range: 0...127),
+        Parameter(name: "ENV DELAY", value: 0, range: 0...500, step: 2),
+        Parameter(name: "ENV CURVE", value: 0, range: -100...100),
+    ]),
+    ParameterPage(title: "FX SENDS", parameters: [
+        Parameter(name: "REVERB", value: 20, range: 0...100, format: .percent),
+        Parameter(name: "DELAY", value: 15, range: 0...100, format: .percent),
+        Parameter(name: "CHORUS", value: 0, range: 0...100, format: .percent),
+        Parameter(name: "WIDTH", value: 100, range: 0...100, format: .percent),
+        Parameter(name: "PAN", value: 0, range: -50...50),
+        Parameter(name: "LEVEL", value: -6, range: -60...6, step: 0.5, format: .decibel),
+        Parameter(name: "SEND A", value: 30, range: 0...100, format: .percent),
+        Parameter(name: "SEND B", value: 10, range: 0...100, format: .percent),
+    ]),
 ])
-let demo = DemoController(surface: surface, page: page)
+let demo = DemoController(surface: surface, bank: bank)
 
 print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
-print("Transport page: tap Play/Rec/Loop, double-tap Play, hold Stop. Ctrl-C to quit.")
+print("Parameters: Preset Up / Down page the bank. Transport: gestures on Play/Rec/Loop/Stop.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {
