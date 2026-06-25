@@ -39,13 +39,16 @@ public final class ParameterPage: @unchecked Sendable {
         }
     }
 
-    func handleEncoder(index: Int, delta: Int, on surface: isolated Surface) {
-        guard parameters.indices.contains(index) else { return }
-        parameters[index].apply(delta: step(for: index, delta: delta))
-        let parameter = parameters[index]
+    /// `encoder` is the hardware encoder index (1…8, as the decoder reports it);
+    /// slot 0 / display 1 sits under encoder 1.
+    func handleEncoder(encoder: Int, delta: Int, on surface: isolated Surface) {
+        let slot = encoder - 1
+        guard parameters.indices.contains(slot) else { return }
+        parameters[slot].apply(delta: step(for: slot, delta: delta))
+        let parameter = parameters[slot]
         parameter.onChange?(parameter.value)
 
-        let display = display(for: index)
+        let display = display(for: slot)
         surface.setBar(parameter.normalized, lcd: display)
         surface.setText(display, 2, parameter.formattedValue, alignment: .center, overflow: .clip)
     }

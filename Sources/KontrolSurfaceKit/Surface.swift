@@ -176,7 +176,7 @@ public actor Surface {
         for event in report.events {
             guard let input = SurfaceInput.from(event) else { continue }
             if case let .encoder(index, delta, _) = input {
-                activePage?.handleEncoder(index: index, delta: delta, on: self)
+                activePage?.handleEncoder(encoder: index, delta: delta, on: self)
             }
             inputContinuation?.yield(input)
         }

@@ -337,8 +337,9 @@ Step 2 is independently shippable and is the recommended first milestone.
   segments walk the perimeter clockwise as bits 0…7), animated on the shared clock; supports
   comet length, reverse, single-column or whole-row.
 - `SurfaceDemo` is now multi-page (Page Left / Page Right switch pages): a parameter page, a
-  glyph browser whose bottom row marquees the selected glyph's name (main encoder scrolls),
-  and an activity page of spinners.
+  glyph page showing the entire CP437 set at once (16 glyphs per display × 8 displays = all
+  128, with a scrollable name detail on display 0 that also reaches the 129th cabl glyph), and
+  an activity page of spinners.
 
 Next: the result-builder `Screen` DSL and components (step 3), gestures and `Transport`
 (step 4), then `ParameterBank` paging and the MCU/HUI adapter.

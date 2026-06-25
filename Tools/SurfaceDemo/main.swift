@@ -2,12 +2,14 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit
 
-// A multi-page demo. Page Left / Page Right switch between widget showcases;
-// the status display (0) always shows the page name and index.
+// A multi-page demo. Page Left / Page Right switch between widget showcases.
 //
 //   - Parameters: eight encoder-bound parameters on displays 1…8.
-//   - Glyphs:     a sliding 16-segment glyph window; the bottom row marquees the
-//                 selected glyph's name. Main encoder / encoder 1 scrolls.
+//   - Glyphs:     the whole CP437 set at once. Displays 1…8 hold 16 glyphs each
+//                 (8 per text row) = 128 cells = glyphs 0…127. Display 0 is a
+//                 detail view: the focused glyph plus its name as a marquee,
+//                 scrolled with the main encoder; it also reaches the 129th
+//                 (cabl extra) glyph.
 //   - Activity:   spinner widgets running a segment around the cell rectangle.
 actor DemoController {
     enum Page: Int, CaseIterable {
@@ -21,10 +23,9 @@ actor DemoController {
         }
     }
 
-    private static let glyphCount = KKDisplayFrame.availableGlyphCount
-    private static let glyphWindow = KKDisplayFrame.characterCount
-    private static let maxSelection = max(0, glyphCount - glyphWindow)
-    private static let glyphDisplay = KKDisplayFrame.displayCount - 1
+    private static let glyphCount = KKDisplayFrame.availableGlyphCount   // 129
+    private static let mapDisplays = 1...8                               // displays for glyphs 0…127
+    private static let detailDisplay = 0                                 // focused glyph + name
 
     private let surface: Surface
     private let page: ParameterPage
@@ -41,18 +42,19 @@ actor DemoController {
         switch target {
             case .parameters:
                 await surface.setParameterPage(page)
+                await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
             case .glyphs:
                 await surface.clearParameterPage()
                 await surface.clearAll()
-                await renderGlyphs()
-                await surface.setStatus(target.name)
+                await renderGlyphMap()
+                await renderGlyphDetail()
             case .activity:
                 await surface.clearParameterPage()
                 await surface.clearAll()
                 await renderActivity()
                 await surface.setStatus(target.name)
+                await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
         }
-        await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
     }
 
     private func next() async {
@@ -63,20 +65,30 @@ actor DemoController {
         await show(Page(rawValue: (current.rawValue + Page.allCases.count - 1) % Page.allCases.count)!)
     }
 
-    private func renderGlyphs() async {
-        let glyphs = (0..<Self.glyphWindow).map {
-            KKDisplayFrame.glyph(at: min(glyphSelection + $0, Self.glyphCount - 1)) ?? 0
+    /// Lays the full CP437 set across displays 1…8: each display shows 16
+    /// consecutive glyphs, the first 8 on row 1 and the next 8 on row 2.
+    private func renderGlyphMap() async {
+        for display in Self.mapDisplays {
+            let base = (display - 1) * 16
+            let rowOne = (0..<8).map { KKDisplayFrame.glyph(at: base + $0) ?? 0 }
+            let rowTwo = (0..<8).map { KKDisplayFrame.glyph(at: base + 8 + $0) ?? 0 }
+            await surface.setGlyphs(display, 1, rowOne)
+            await surface.setGlyphs(display, 2, rowTwo)
         }
-        await surface.setGlyphs(Self.glyphDisplay, 1, glyphs)
-        await surface.setBar(Self.maxSelection > 0 ? Double(glyphSelection) / Double(Self.maxSelection) : 0,
-                             lcd: Self.glyphDisplay)
-        await surface.setText(Self.glyphDisplay, 2, KKDisplayFrame.glyphName(at: glyphSelection) ?? "?",
+    }
+
+    private func renderGlyphDetail() async {
+        let glyph = KKDisplayFrame.glyph(at: glyphSelection) ?? 0
+        await surface.setGlyphs(Self.detailDisplay, 1, [glyph])
+        await surface.setText(Self.detailDisplay, 2, KKDisplayFrame.glyphName(at: glyphSelection) ?? "?",
                               alignment: .center, overflow: .marquee())
+        await surface.setBar(Double(glyphSelection) / Double(max(1, Self.glyphCount - 1)),
+                             lcd: Self.detailDisplay)
     }
 
     private func scrollGlyphs(_ delta: Int) async {
-        glyphSelection = min(Self.maxSelection, max(0, glyphSelection + (delta < 0 ? -1 : 1)))
-        await renderGlyphs()
+        glyphSelection = min(Self.glyphCount - 1, max(0, glyphSelection + (delta < 0 ? -1 : 1)))
+        await renderGlyphDetail()
     }
 
     private func renderActivity() async {
@@ -99,7 +111,7 @@ actor DemoController {
                 await next()
             case let .button(name, pressed) where pressed && name == "page left":
                 await previous()
-            case let .encoder(index, delta, _) where current == .glyphs && index == 0:
+            case let .encoder(index, delta, _) where current == .glyphs && index == 1:
                 await scrollGlyphs(delta)
             case let .mainEncoder(delta) where current == .glyphs:
                 await scrollGlyphs(delta)
@@ -125,7 +137,7 @@ let page = ParameterPage(title: "OSC / FILTER", parameters: [
 let demo = DemoController(surface: surface, page: page)
 
 print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
-print("On Glyphs, the main encoder scrolls; the bottom row marquees the name. Ctrl-C to quit.")
+print("Glyphs shows the whole CP437 set; the main encoder scrolls the name detail. Ctrl-C to quit.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {

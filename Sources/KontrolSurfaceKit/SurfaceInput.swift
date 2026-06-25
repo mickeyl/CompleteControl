@@ -5,6 +5,7 @@ import KompleteKontrol
 /// `KKInputEvent` that hides report-byte details. Gesture recognition
 /// (tap/hold/double-tap) and per-encoder velocity will layer on top later.
 public enum SurfaceInput: Sendable, Equatable {
+    /// `index` is the hardware encoder number, 1…8 (matching the panel labels).
     case encoder(index: Int, delta: Int, value: Int)
     case encoderTouch(index: Int, touching: Bool)
     case mainEncoder(delta: Int)
