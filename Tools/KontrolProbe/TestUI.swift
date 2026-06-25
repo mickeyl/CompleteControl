@@ -703,13 +703,13 @@ private final class KKTestSurfaceView: NSView {
             rounded(key, radius: 3).stroke()
         }
 
-        let blackPositions: [CGFloat] = [0.72, 1.72, 3.72, 4.72, 5.72, 7.72, 8.72, 10.72, 11.72, 12.72]
-        for position in blackPositions {
+        let blackWidth = whiteWidth * 0.58
+        for boundary in Self.blackKeyBoundaries {
             let key = NSRect(
-                x: keybed.minX + position * whiteWidth - whiteWidth * 0.28,
-                y: keybed.minY + keybed.height * 0.38,
-                width: whiteWidth * 0.56,
-                height: keybed.height * 0.58
+                x: keybed.minX + boundary * whiteWidth - blackWidth / 2,
+                y: keybed.minY + keybed.height * 0.40,
+                width: blackWidth,
+                height: keybed.height * 0.60
             )
             NSColor(calibratedWhite: 0.02, alpha: 1).setFill()
             rounded(key, radius: 4).fill()
@@ -881,10 +881,37 @@ private final class KKTestSurfaceView: NSView {
         NSString(string: text).draw(in: rect, withAttributes: attributes)
     }
 
+    // Keybed geometry in design coordinates; the light guide and click targets
+    // derive from the same layout as the drawn keys so they stay aligned.
+    private static let keybedDesign = NSRect(x: 260, y: 218, width: 642, height: 184)
+    private static let whiteKeyCount = 15
+
+    // White-key boundary index (0-based) that each black key is centred on.
+    private static let blackKeyBoundaries: [CGFloat] = [1, 2, 4, 5, 6, 8, 9, 11, 12, 13]
+
+    // Per-key light position (design x, isBlack) for all 25 keys, C to C.
+    private static let keyLightLayout: [(x: CGFloat, black: Bool)] = {
+        let whiteWidth = keybedDesign.width / CGFloat(whiteKeyCount)
+        let blackSemitones: Set<Int> = [1, 3, 6, 8, 10]
+        var layout: [(CGFloat, Bool)] = []
+        var white = 0
+        for index in 0..<KompleteKontrolS25MK1Protocol.keyCount {
+            if blackSemitones.contains(index % 12) {
+                layout.append((keybedDesign.minX + CGFloat(white) * whiteWidth, true))
+            } else {
+                layout.append((keybedDesign.minX + (CGFloat(white) + 0.5) * whiteWidth, false))
+                white += 1
+            }
+        }
+        return layout
+    }()
+
     private static func keyLightRect(_ index: Int) -> NSRect {
-        let startX: CGFloat = 268
-        let width: CGFloat = 636 / CGFloat(KompleteKontrolS25MK1Protocol.keyCount)
-        return NSRect(x: startX + CGFloat(index) * width + 3, y: 205, width: width - 6, height: 9)
+        guard keyLightLayout.indices.contains(index) else { return .zero }
+        let whiteWidth = keybedDesign.width / CGFloat(whiteKeyCount)
+        let position = keyLightLayout[index]
+        let width = whiteWidth * (position.black ? 0.42 : 0.62)
+        return NSRect(x: position.x - width / 2, y: 206, width: width, height: 10)
     }
 
     private static let designSize = NSSize(width: 1000, height: 420)
