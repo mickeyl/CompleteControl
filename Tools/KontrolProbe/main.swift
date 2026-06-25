@@ -11,13 +11,31 @@ import KontrolUSB
 nonisolated(unsafe) var midiClient = MIDIClientRef()
 nonisolated(unsafe) var midiInputPort = MIDIPortRef()
 
+enum BenchmarkSource: String {
+    case surface = "Surface"
+    case midi = "MIDI"
+}
+
+struct BenchmarkSample {
+    let source: BenchmarkSource
+    let latencyNs: UInt64
+}
+
+struct BenchmarkStats {
+    let count: Int
+    let min: UInt64
+    let max: UInt64
+    let avg: Double
+    let median: Double
+    let p95: UInt64
+    let p99: UInt64
+}
+
 // Latency benchmark state
+let benchmarkLock = NSLock()
 nonisolated(unsafe) var benchmarkMode = false
-nonisolated(unsafe) var benchmarkSamples: [UInt64] = []
-nonisolated(unsafe) var benchmarkSampleCount = 0
+nonisolated(unsafe) var benchmarkSamples: [BenchmarkSample] = []
 nonisolated(unsafe) var benchmarkTargetSamples = 100
-nonisolated(unsafe) var benchmarkSurfaceSampleCount = 0
-nonisolated(unsafe) var benchmarkMIDISampleCount = 0
 
 func midiStatus(_ status: UInt8) -> String {
     let channel = Int(status & 0x0f) + 1
@@ -199,58 +217,148 @@ func printButtonLEDMap() {
     }
 }
 
-func printBenchmarkResults() {
-    guard !benchmarkSamples.isEmpty else {
+func formatLatencyMs(_ latencyNs: UInt64) -> String {
+    formatLatencyMs(Double(latencyNs))
+}
+
+func formatLatencyMs(_ latencyNs: Double) -> String {
+    String(format: "%.3f ms", latencyNs / 1_000_000.0)
+}
+
+func percentileIndex(count: Int, percentile: Double) -> Int {
+    guard count > 1 else { return 0 }
+    let rawIndex = Int((Double(count - 1) * percentile).rounded())
+    return max(0, min(count - 1, rawIndex))
+}
+
+func parseBenchmarkTarget(_ tokens: [String]) -> Int {
+    guard tokens.count > 1 else { return 100 }
+    let raw = tokens[1]
+    let parsed = Int(raw) ?? KKHex.parse(raw) ?? 100
+    return max(1, min(parsed, 10_000))
+}
+
+func benchmarkIsActive() -> Bool {
+    benchmarkLock.lock()
+    let active = benchmarkMode
+    benchmarkLock.unlock()
+    return active
+}
+
+func resetBenchmark(targetSamples: Int) {
+    benchmarkLock.lock()
+    benchmarkMode = true
+    benchmarkTargetSamples = targetSamples
+    benchmarkSamples.removeAll(keepingCapacity: true)
+    benchmarkLock.unlock()
+}
+
+func latencyStats(_ samples: [BenchmarkSample]) -> BenchmarkStats? {
+    guard !samples.isEmpty else { return nil }
+    let sorted = samples.map(\.latencyNs).sorted()
+    let count = sorted.count
+    let sum = sorted.reduce(0, +)
+    let median: Double
+    if count % 2 == 0 {
+        median = (Double(sorted[count / 2 - 1]) + Double(sorted[count / 2])) / 2.0
+    } else {
+        median = Double(sorted[count / 2])
+    }
+    return BenchmarkStats(
+        count: count,
+        min: sorted.first!,
+        max: sorted.last!,
+        avg: Double(sum) / Double(count),
+        median: median,
+        p95: sorted[percentileIndex(count: count, percentile: 0.95)],
+        p99: sorted[percentileIndex(count: count, percentile: 0.99)]
+    )
+}
+
+func printBenchmarkStats(_ label: String, _ samples: [BenchmarkSample]) {
+    guard let stats = latencyStats(samples) else {
+        print("\(label): no samples")
+        return
+    }
+    print("\(label):")
+    print("  Samples: \(stats.count)")
+    print("  Min:     \(formatLatencyMs(stats.min))")
+    print("  Max:     \(formatLatencyMs(stats.max))")
+    print("  Avg:     \(formatLatencyMs(stats.avg))")
+    print("  Median:  \(formatLatencyMs(stats.median))")
+    print("  P95:     \(formatLatencyMs(stats.p95))")
+    print("  P99:     \(formatLatencyMs(stats.p99))")
+}
+
+func printSlowestBenchmarkSamples(_ samples: [BenchmarkSample], limit: Int = 5) {
+    let slowest = samples.enumerated()
+        .sorted { lhs, rhs in lhs.element.latencyNs > rhs.element.latencyNs }
+        .prefix(limit)
+    guard !slowest.isEmpty else { return }
+
+    print("Slowest samples:")
+    for (offset, item) in slowest.enumerated() {
+        let sampleNumber = item.offset + 1
+        let source = item.element.source.rawValue.padding(toLength: 7, withPad: " ", startingAt: 0)
+        print("  \(offset + 1). #\(sampleNumber) \(source) \(formatLatencyMs(item.element.latencyNs))")
+    }
+}
+
+func printBenchmarkResults(samples: [BenchmarkSample], targetSamples: Int) {
+    guard !samples.isEmpty else {
         print("No benchmark samples collected.")
         return
     }
 
-    let sorted = benchmarkSamples.sorted()
-    let count = benchmarkSamples.count
-    let sum = benchmarkSamples.reduce(0, +)
-    let avg = Double(sum) / Double(count)
-    let min = sorted.first!
-    let max = sorted.last!
-    let medianIndex = count % 2 == 0 ? count / 2 - 1 : count / 2
-    let median = sorted[medianIndex]
-    let p95 = sorted[Int(Double(count) * 0.95)]
-    let p99 = sorted[Int(Double(count) * 0.99)]
+    let surfaceSamples = samples.filter { $0.source == .surface }
+    let midiSamples = samples.filter { $0.source == .midi }
 
     print("\n=== End-to-End Latency Benchmark Results ===")
-    print("Samples: \(count)")
-    print("Surface: \(benchmarkSurfaceSampleCount)")
-    print("MIDI:    \(benchmarkMIDISampleCount)")
-    print("Min:     \(min)μs")
-    print("Max:     \(max)μs")
-    print("Avg:     \(String(format: "%.1f", avg))μs")
-    print("Median:  \(median)μs")
-    print("P95:     \(p95)μs")
-    print("P99:     \(p99)μs")
+    print("Target:  \(targetSamples)")
+    print("Samples: \(samples.count)")
+    print("Surface: \(surfaceSamples.count)")
+    print("MIDI:    \(midiSamples.count)")
     print("==========================================")
-
-    benchmarkSamples.removeAll()
-    benchmarkSampleCount = 0
-    benchmarkSurfaceSampleCount = 0
-    benchmarkMIDISampleCount = 0
+    printBenchmarkStats("Combined", samples)
+    printBenchmarkStats("Surface", surfaceSamples)
+    printBenchmarkStats("MIDI", midiSamples)
+    printSlowestBenchmarkSamples(samples)
+    print("==========================================")
 }
 
-func recordBenchmarkSample(source: String, latencyUs: UInt64) {
-    benchmarkSamples.append(latencyUs)
-    benchmarkSampleCount += 1
-    if source == "surface" {
-        benchmarkSurfaceSampleCount += 1
-    } else if source == "midi" {
-        benchmarkMIDISampleCount += 1
-    }
-    let progress = Double(benchmarkSampleCount) / Double(benchmarkTargetSamples) * 100
-    print("\r[benchmark] \(benchmarkSampleCount)/\(benchmarkTargetSamples) (\(String(format: "%.1f", progress))%) \(source) last: \(latencyUs)μs", terminator: "")
-    fflush(stdout)
+@discardableResult
+func recordBenchmarkSample(source: BenchmarkSource, latencyNs: UInt64) -> Bool {
+    var completed: (samples: [BenchmarkSample], target: Int)?
 
-    if benchmarkSampleCount >= benchmarkTargetSamples {
-        benchmarkMode = false
-        print("\n")
-        printBenchmarkResults()
+    benchmarkLock.lock()
+    guard benchmarkMode else {
+        benchmarkLock.unlock()
+        return false
     }
+    benchmarkSamples.append(BenchmarkSample(source: source, latencyNs: latencyNs))
+    if benchmarkSamples.count >= benchmarkTargetSamples {
+        completed = (benchmarkSamples, benchmarkTargetSamples)
+        benchmarkMode = false
+        benchmarkSamples.removeAll(keepingCapacity: true)
+    }
+    benchmarkLock.unlock()
+
+    if let completed {
+        printBenchmarkResults(samples: completed.samples, targetSamples: completed.target)
+        print("kk> ", terminator: "")
+        fflush(stdout)
+    }
+    return true
+}
+
+func surfaceReportHasBenchmarkSignal(_ report: KKInputReport) -> Bool {
+    if !report.events.isEmpty {
+        return true
+    }
+    guard let previous = report.previous, previous.count == report.bytes.count else {
+        return false
+    }
+    return zip(previous, report.bytes).contains { $0 != $1 }
 }
 
 func selfTest(_ kk: KompleteKontrolS25MK1) {
@@ -333,16 +441,23 @@ let kk = KompleteKontrolS25MK1()
 kk.log = { print($0) }
 kk.onInputReport = { report in
     let clientTimestamp = KKTiming.now()
-    let latencyUs = report.receptionTimestamp > 0 ? clientTimestamp - report.receptionTimestamp : 0
+    let latencyNs: UInt64
+    if report.receptionTimestamp > 0 && clientTimestamp >= report.receptionTimestamp {
+        latencyNs = clientTimestamp - report.receptionTimestamp
+    } else {
+        latencyNs = 0
+    }
 
-    if benchmarkMode && !report.events.isEmpty && latencyUs > 0 {
-        recordBenchmarkSample(source: "surface", latencyUs: latencyUs)
+    if benchmarkIsActive() && surfaceReportHasBenchmarkSignal(report) {
+        if latencyNs > 0 {
+            recordBenchmarkSample(source: .surface, latencyNs: latencyNs)
+        }
         return
     }
 
     let header = String(format: "IN 0x%02x[%d]", report.reportID, report.bytes.count)
     if kk.monitorMode == .changed && !report.events.isEmpty {
-        let latencyStr = latencyUs > 0 ? " [\(latencyUs)μs]" : ""
+        let latencyStr = latencyNs > 0 ? " [\(formatLatencyMs(latencyNs))]" : ""
         print("\r\(report.events.map(\.description).joined(separator: " | "))\(latencyStr)")
     } else if kk.monitorMode == .changed {
         let diff = changedIndices(previous: report.previous, current: report.bytes)
@@ -358,14 +473,21 @@ kk.onInputReport = { report in
 
 kk.onMIDIEvent = { event in
     let clientTimestamp = KKTiming.now()
-    let latencyUs = event.receptionTimestamp > 0 ? clientTimestamp - event.receptionTimestamp : 0
+    let latencyNs: UInt64
+    if event.receptionTimestamp > 0 && clientTimestamp >= event.receptionTimestamp {
+        latencyNs = clientTimestamp - event.receptionTimestamp
+    } else {
+        latencyNs = 0
+    }
 
-    if benchmarkMode && latencyUs > 0 {
-        recordBenchmarkSample(source: "midi", latencyUs: latencyUs)
+    if benchmarkIsActive() {
+        if latencyNs > 0 {
+            recordBenchmarkSample(source: .midi, latencyNs: latencyNs)
+        }
         return
     }
 
-    let latencyStr = latencyUs > 0 ? " [\(latencyUs)μs]" : ""
+    let latencyStr = latencyNs > 0 ? " [\(formatLatencyMs(latencyNs))]" : ""
     print("\rMIDI: \(event.description)\(latencyStr)")
     print("kk> ", terminator: "")
     fflush(stdout)
@@ -498,16 +620,11 @@ while true {
             }
             print("monitor = \(["off", "changed", "all"][kk.monitorMode.rawValue])")
         case "benchmark":
-            let targetCount = tokens.count > 1 ? max(10, min(KKHex.parse(tokens[1]) ?? 100, 1000)) : 100
-            benchmarkMode = true
-            benchmarkTargetSamples = targetCount
-            benchmarkSamples.removeAll()
-            benchmarkSampleCount = 0
-            benchmarkSurfaceSampleCount = 0
-            benchmarkMIDISampleCount = 0
+            let targetCount = parseBenchmarkTarget(tokens)
+            resetBenchmark(targetSamples: targetCount)
             print("Starting benchmark: use buttons, encoders, touch controls, keys, pitch, or mod wheel.")
             print("Target: \(targetCount) samples. Use any control to begin...")
-            print("(Type 'quit' to cancel)")
+            print("Collecting silently; results print when the target is reached. Type 'quit' to cancel.")
         case "benchmark-midi":
             print("benchmark-midi was folded into benchmark. Use: benchmark [N]")
         case "all":

@@ -2,14 +2,18 @@
 
 SOCKET ?= /var/run/kompletekontrol-libusb.sock
 PROBE := .build/debug/KontrolProbe
+PROBE_RELEASE := .build/release/KontrolProbe
 
-.PHONY: help build daemon-preflight daemon-debug install-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run kk-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help build build-release daemon-preflight daemon-debug daemon-release install-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release kk-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-18s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 build: ## Build KontrolProbe.
 	swift build --product KontrolProbe
+
+build-release: ## Build optimized KontrolProbe.
+	swift build -c release --product KontrolProbe
 
 daemon-preflight: ## Refuse stale or duplicate daemon state.
 	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
@@ -26,6 +30,7 @@ daemon-preflight: ## Refuse stale or duplicate daemon state.
 		case "$$command" in \
 			/usr/local/bin/KontrolProbe" "--kk-libusb-daemon*|/usr/local/bin/KontrolProbe" "--libusb-daemon*) ;; \
 			*"/.build/debug/KontrolProbe "--kk-libusb-daemon*|*"/.build/debug/KontrolProbe "--libusb-daemon*) foreground_daemon=1 ;; \
+			*"/.build/release/KontrolProbe "--kk-libusb-daemon*|*"/.build/release/KontrolProbe "--libusb-daemon*) foreground_daemon=1 ;; \
 			*) \
 				echo "Refusing to run: unexpected KompleteKontrol daemon is active:" >&2; \
 				ps -o pid,user,command -p "$$pid" >&2; \
@@ -34,7 +39,8 @@ daemon-preflight: ## Refuse stale or duplicate daemon state.
 				;; \
 		esac; \
 	done; \
-	if [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/KontrolProbe ] && [ -x "$(PROBE)" ] && ! cmp -s "$(PROBE)" /usr/local/bin/KontrolProbe; then \
+	probe_path="$${PROBE_PREFLIGHT:-$(PROBE)}"; \
+	if [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/KontrolProbe ] && [ -x "$$probe_path" ] && ! cmp -s "$$probe_path" /usr/local/bin/KontrolProbe; then \
 		echo "Refusing to run: /usr/local/bin/KontrolProbe is stale." >&2; \
 		echo "Run: make install-daemon" >&2; \
 		exit 1; \
@@ -47,6 +53,14 @@ daemon-debug: build ## Stop launchd daemon and run foreground daemon with struct
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	sudo env KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(PROBE)" --kk-libusb-daemon "$(SOCKET)"
+
+daemon-release: build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
+	@echo "Stopping installed/foreground daemons..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
+	@sudo "$$(pwd)/$(PROBE_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
 
 install-daemon: build ## Install daemon as launchd service (requires sudo, one-time setup).
 	sudo ./install-daemon.sh
@@ -75,6 +89,10 @@ daemon-restart: ## Restart daemon via launchctl.
 
 run: build daemon-preflight ## Run KontrolProbe (daemon-client mode).
 	$(PROBE)
+
+run-release: build-release ## Run optimized KontrolProbe for benchmarks.
+	@$(MAKE) daemon-preflight PROBE_PREFLIGHT="$(PROBE_RELEASE)"
+	$(PROBE_RELEASE)
 
 kk-ui: build ## Run the KontrolProbe S25 photo-overlay test UI.
 	$(PROBE) --test-ui

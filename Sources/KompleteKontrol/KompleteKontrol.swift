@@ -1184,9 +1184,9 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
     }
 
-    private func handleInput(reportID: UInt32, bytes current: [UInt8]) {
+    private func handleInput(reportID: UInt32, bytes current: [UInt8], receptionTimestamp suppliedTimestamp: UInt64 = 0) {
         guard monitorMode != .off else { return }
-        let receptionTimestamp = KKTiming.now()
+        let receptionTimestamp = suppliedTimestamp > 0 ? suppliedTimestamp : KKTiming.now()
         let previous = lastReports[reportID]
         var changedIndices: [Int] = []
         if let previous, previous.count == current.count {
@@ -1204,6 +1204,22 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             return
         }
         onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
+    }
+
+    private static func parseDaemonPushPayload(_ payload: Substring) -> (timestamp: UInt64, bytes: [UInt8]) {
+        var timestamp: UInt64 = 0
+        var bytes: [UInt8] = []
+        for tokenPart in payload.split(separator: " ") {
+            let token = String(tokenPart)
+            if token.hasPrefix("@") {
+                timestamp = UInt64(String(token.dropFirst()), radix: 16) ?? timestamp
+                continue
+            }
+            if let value = KKHex.parse(token) {
+                bytes.append(UInt8(value & 0xff))
+            }
+        }
+        return (timestamp, bytes)
     }
 
     private static func neutralInputReport(matching current: [UInt8], reportID: UInt32) -> [UInt8]? {
@@ -1279,12 +1295,13 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             }
             return
         }
-        let bytes = response
-            .dropFirst(3)
-            .split(separator: " ")
-            .compactMap { KKHex.parse(String($0)).map { UInt8($0 & 0xff) } }
-        guard !bytes.isEmpty else { return }
-        handleInput(reportID: KompleteKontrolS25MK1Protocol.inputReportID, bytes: normalizedDaemonSurfaceBytes(bytes))
+        let payload = Self.parseDaemonPushPayload(response.dropFirst(3))
+        guard !payload.bytes.isEmpty else { return }
+        handleInput(
+            reportID: KompleteKontrolS25MK1Protocol.inputReportID,
+            bytes: normalizedDaemonSurfaceBytes(payload.bytes),
+            receptionTimestamp: payload.timestamp
+        )
     }
 
     private func normalizedDaemonSurfaceBytes(_ bytes: [UInt8]) -> [UInt8] {
@@ -1308,12 +1325,9 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             }
             return
         }
-        let receptionTimestamp = KKTiming.now()
-        let bytes = response
-            .dropFirst(5)
-            .split(separator: " ")
-            .compactMap { KKHex.parse(String($0)).map { UInt8($0 & 0xff) } }
-        for event in Self.parseUSBMIDIEvents(bytes, receptionTimestamp: receptionTimestamp) {
+        let payload = Self.parseDaemonPushPayload(response.dropFirst(5))
+        let receptionTimestamp = payload.timestamp > 0 ? payload.timestamp : KKTiming.now()
+        for event in Self.parseUSBMIDIEvents(payload.bytes, receptionTimestamp: receptionTimestamp) {
             onMIDIEvent?(event)
         }
     }
@@ -2445,15 +2459,17 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
+            let timestamp = KKTiming.now()
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
             daemonDebugLog("async input len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "surface", level: .info)
-            pushToClients("in \(hex)", kind: .input)
+            pushToClients("in @\(String(timestamp, radix: 16)) \(hex)", kind: .input)
         }
 
         fileprivate func pushMidiToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
+            let timestamp = KKTiming.now()
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
             daemonDebugLog("async midi len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "midi", level: .info)
-            pushToClients("midi \(hex)", kind: .midi)
+            pushToClients("midi @\(String(timestamp, radix: 16)) \(hex)", kind: .midi)
         }
 
         private func pushToClients(_ message: String, kind: PushKind) {
@@ -2636,7 +2652,12 @@ public enum KompleteKontrolLibUSBServer {
         group: String = "daemon",
         level: KKStderrLogLevel = .info
     ) {
+        #if KK_DEBUG
         KKStderrLog.write(group: group, level: level, message())
+        #else
+        guard ProcessInfo.processInfo.environment["KK_DAEMON_LOG"] == "1" else { return }
+        KKStderrLog.write(group: group, level: level, message())
+        #endif
     }
 
     private static func daemonDebugLog(
