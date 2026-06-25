@@ -23,7 +23,7 @@ public actor Surface {
     private var reconciler = DisplayReconciler()
     private var clock: SurfaceClock?
     private var lastTickNanos: UInt64 = 0
-    private var guideDirty = false
+    private var keyReconciler = KeyReconciler()
     private var running = false
     private var activePage: ParameterPage?
     private var activeBank: ParameterBank?
@@ -154,8 +154,12 @@ public actor Surface {
     // MARK: Keys and button LEDs (coalesced into the tick)
 
     public func setKey(_ index: Int, color: KKRGB) {
-        _ = device.setKey(index, color: color, flush: false)
-        guideDirty = true
+        keyReconciler.set(index, color)
+    }
+
+    /// Turns the whole light guide off.
+    public func clearKeys() {
+        keyReconciler.clearAll()
     }
 
     /// Sets a button LED, including animated states (blink/pulse), driven by the
@@ -218,6 +222,7 @@ public actor Surface {
     private func cancelObservation() {
         observationGeneration += 1
         inputHandlers = InputHandlers()
+        keyReconciler.clearAll()
     }
 
     /// Replaces the whole surface using an inline builder closure (imperative).
@@ -236,6 +241,7 @@ public actor Surface {
         for (led, state) in model.lamps {
             ledReconciler.set(led, state)
         }
+        keyReconciler.setAll(model.keys)
         inputHandlers = model.handlers
     }
 
@@ -344,9 +350,11 @@ public actor Surface {
             device.sendButtonLEDsAsync()
         }
 
-        if guideDirty {
+        if let keys = keyReconciler.render() {
+            for (index, color) in keys.enumerated() {
+                _ = device.setKey(index, color: color, flush: false)
+            }
             device.sendGuideAsync()
-            guideDirty = false
         }
 
         for gesture in gestures.tick(now: now) {

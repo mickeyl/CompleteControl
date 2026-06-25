@@ -58,6 +58,32 @@ struct TransportScreen: Screen {
 //                 blinking, loop steady), driven by gestures: tap Play to toggle,
 //                 hold Play to restart, tap Stop again once stopped for
 //                 return-to-zero, Shift + Loop (chord) to set the loop.
+// Observable set of currently-held keys (light-guide feedback from MIDI).
+@Observable final class KeyBedModel {
+    var played: Set<Int> = []
+}
+
+// The keybed page: the light guide is a function of state — an in-scale tint
+// plus bright feedback for played keys — re-rendered as MIDI notes come in.
+struct KeyBedScreen: Screen {
+    let model: KeyBedModel
+    static let scaleSemitones: Set<Int> = [0, 2, 4, 5, 7, 9, 11]   // C major
+
+    var body: [any ScreenElement] {
+        Status("KEYBED")
+        Cell(4) { Label("PLAY KEYS", overflow: .clip); Value(model.played.count) }
+        KeyColors { key in
+            if model.played.contains(key) {
+                return KKRGB(red: 0x00, green: 0x60, blue: 0x7f)   // played: bright cyan
+            }
+            if Self.scaleSemitones.contains(key % 12) {
+                return KKRGB(red: 0x14, green: 0x00, blue: 0x06)   // in-scale: dim tint
+            }
+            return nil                                              // off
+        }
+    }
+}
+
 // The activity page, written declaratively with the DSL. It lowers to a model
 // that `present` reconciles — no imperative setter calls.
 struct ActivityScreen: Screen {
@@ -77,13 +103,14 @@ struct ActivityScreen: Screen {
 
 actor DemoController {
     enum Page: Int, CaseIterable {
-        case parameters, glyphs, activity, transport
+        case parameters, glyphs, activity, transport, keybed
         var name: String {
             switch self {
                 case .parameters: "PARAMETERS"
                 case .glyphs: "GLYPHS"
                 case .activity: "ACTIVITY"
                 case .transport: "TRANSPORT"
+                case .keybed: "KEYBED"
             }
         }
     }
@@ -97,6 +124,7 @@ actor DemoController {
     private var current: Page = .parameters
     private var glyphSelection = 0
     private let transportModel = TransportModel()
+    private let keyBedModel = KeyBedModel()
 
     init(surface: Surface, bank: ParameterBank) {
         self.surface = surface
@@ -127,6 +155,10 @@ actor DemoController {
             case .transport:
                 await surface.clearParameterPage()
                 await surface.observe { [transportModel] in TransportScreen(model: transportModel) }
+                return
+            case .keybed:
+                await surface.clearParameterPage()
+                await surface.observe { [keyBedModel] in KeyBedScreen(model: keyBedModel) }
                 return
         }
         await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
@@ -168,14 +200,14 @@ actor DemoController {
 
     // MARK: MIDI — light the played keys on the guide (global, any page).
 
-    func handleMIDI(_ event: KKMIDIEvent) async {
+    func handleMIDI(_ event: KKMIDIEvent) {
         let index = Int(event.note) - 48
         guard (0..<KompleteKontrolS25MK1Protocol.keyCount).contains(index) else { return }
         switch event.kind {
             case .noteOn where event.velocity > 0:
-                await surface.setKey(index, color: KKRGB(red: 0x00, green: 0x50, blue: 0x7f))
+                keyBedModel.played.insert(index)
             case .noteOn, .noteOff:
-                await surface.setKey(index, color: .off)
+                keyBedModel.played.remove(index)
             default:
                 break
         }

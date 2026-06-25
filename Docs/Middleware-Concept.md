@@ -389,11 +389,16 @@ three-page bank (OSC/FILTER, ENVELOPE, FX SENDS) paged with Preset Up / Down.
 - `Surface.midi` (`AsyncStream<KKMIDIEvent>`) exposes USB-MIDI input for note entry / light
   feedback.
 - `SurfaceDemo`'s transport page is now fully declarative input too (taps/hold/secondary on the
-  LEDs, encoder 5 → filter, main wheel → row), and MIDI keys light the guide.
+  LEDs, encoder 5 → filter, main wheel → row).
+
+**Declarative light guide** is in: a `KeyColors { keyIndex in color? }` element and a
+`KeyReconciler` (one guide report per change). Keys redefine on apply (cleared between screens).
+`SurfaceDemo`'s keybed page shows an in-scale tint plus bright MIDI played-note feedback, driven
+reactively from `Surface.midi`.
 
 Direction: the first concrete client is **Paulinche**, an Amiga MOD tracker, whose core surface
 is 4-channel pattern editing (live MIDI record, transport, channel via Navigate ◀▶, instrument
 via Navigate ▲▼, exact row via the main wheel). The `PatternScreen` lives in Paulinche on top
-of this kit. Remaining kit work is pulled by it as needed: a declarative light-guide / `KeyBed`,
-list/menu navigation, and `Meter` widgets. The MCU/HUI adapter is deprioritized — Paulinche
-integrates directly, not via MIDI emulation.
+of this kit. Remaining kit work is pulled by it as needed: main-wheel row stepping (count
+accumulation), list/menu navigation, and `Meter` widgets. The MCU/HUI adapter is deprioritized —
+Paulinche integrates directly, not via MIDI emulation.

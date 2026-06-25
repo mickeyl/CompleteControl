@@ -20,6 +20,7 @@ struct InputHandlers {
 public struct SurfaceModel {
     var cells: [[CellContent]]
     var lamps: [KKButtonLED: LampState]
+    var keys: [Int: KKRGB] = [:]
     var handlers = InputHandlers()
 
     public init() {
@@ -37,6 +38,10 @@ public struct SurfaceModel {
 
     public mutating func setLamp(_ led: KKButtonLED, _ state: LampState) {
         lamps[led] = state
+    }
+
+    public mutating func setKey(_ index: Int, _ color: KKRGB) {
+        keys[index] = color
     }
 
     func content(_ display: Int, _ row: Int) -> CellContent { cells[display][row] }

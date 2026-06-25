@@ -166,6 +166,20 @@ public struct Lamp: ScreenElement {
     }
 }
 
+/// Declares the RGB light guide. The closure returns the colour for each key
+/// index (0…24), or `nil` for off — so scales, chords, and played-note feedback
+/// are just functions of state (compose them inside the closure). Keys not set
+/// by the presented screen are cleared.
+public struct KeyColors: ScreenElement {
+    let color: (Int) -> KKRGB?
+    public init(_ color: @escaping (Int) -> KKRGB?) { self.color = color }
+    public func render(into model: inout SurfaceModel) {
+        for index in 0..<KompleteKontrolS25MK1Protocol.keyCount {
+            if let color = color(index) { model.setKey(index, color) }
+        }
+    }
+}
+
 /// Binds the main 4-D wheel's turn to a delta handler.
 public struct MainEncoder: ScreenElement {
     let handler: (Int) -> Void
