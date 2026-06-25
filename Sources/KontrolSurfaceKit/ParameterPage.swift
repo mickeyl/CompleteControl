@@ -66,10 +66,10 @@ public final class ParameterPage: @unchecked Sendable {
 
         let parameter = parameters[index]
         let span = max(parameter.range.upperBound - parameter.range.lowerBound, 1)
-        let perCount = span / 600.0
+        let perCount = span / 900.0
         let acceleration: Double
         if elapsed < 0.035 {
-            acceleration = 6
+            acceleration = 5
         } else if elapsed < 0.090 {
             acceleration = 3
         } else {
