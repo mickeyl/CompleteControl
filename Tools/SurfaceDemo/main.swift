@@ -40,8 +40,8 @@ struct TransportScreen: Screen {
 //   - Activity:   spinner widgets running a segment around the cell rectangle.
 //   - Transport:  transport state mirrored on the LEDs (play steady, record
 //                 blinking, loop steady), driven by gestures: tap Play to toggle,
-//                 double-tap Play to restart, hold Stop for return-to-zero. The
-//                 Arp LED pulses to show the pulse animator.
+//                 hold Play to restart, tap Stop again once stopped for
+//                 return-to-zero, Shift + Loop (chord) to set the loop.
 // The activity page, written declaratively with the DSL. It lowers to a model
 // that `present` reconciles — no imperative setter calls.
 struct ActivityScreen: Screen {
@@ -156,22 +156,26 @@ actor DemoController {
         switch (button, phase) {
             case ("play", .tap):
                 transportModel.isPlaying.toggle()
-                transportModel.lastGesture = "PLAY TAP"
-            case ("play", .doubleTap):
+                transportModel.lastGesture = transportModel.isPlaying ? "PLAY" : "PAUSE"
+            case ("play", .hold):                                   // tap-and-hold
                 transportModel.isPlaying = true
                 transportModel.lastGesture = "RESTART"
-            case ("stop", .tap):
-                transportModel.isPlaying = false
-                transportModel.lastGesture = "STOP"
-            case ("stop", .hold):
-                transportModel.isPlaying = false
-                transportModel.lastGesture = "RETURN TO ZERO"
+            case ("stop", .tap):                                    // state-based "double"
+                if transportModel.isPlaying {
+                    transportModel.isPlaying = false
+                    transportModel.lastGesture = "STOP"
+                } else {
+                    transportModel.lastGesture = "RETURN TO ZERO"
+                }
             case ("rec", .tap):
                 transportModel.isRecording.toggle()
                 transportModel.lastGesture = "REC"
             case ("loop", .tap):
                 transportModel.loopEnabled.toggle()
                 transportModel.lastGesture = "LOOP"
+            case let ("loop", .secondary(modifier)) where modifier == "shift":   // chord
+                transportModel.loopEnabled = true
+                transportModel.lastGesture = "SET LOOP"
             default:
                 break
         }
@@ -216,13 +220,13 @@ let bank = ParameterBank([
         Parameter(name: "KEY TRACK", value: 50, range: 0...100, format: .percent),
     ]),
     ParameterPage(title: "ENVELOPE", parameters: [
-        Parameter(name: "ATTACK", value: 5, range: 0...1000, step: 2),
-        Parameter(name: "DECAY MILLISECONDS", value: 120, range: 0...2000, step: 4),
+        Parameter(name: "ATTACK", value: 5, range: 0...1000),
+        Parameter(name: "DECAY MILLISECONDS", value: 120, range: 0...2000),
         Parameter(name: "SUSTAIN", value: 80, range: 0...100, format: .percent),
-        Parameter(name: "RELEASE", value: 200, range: 0...3000, step: 5),
+        Parameter(name: "RELEASE", value: 200, range: 0...3000),
         Parameter(name: "ENV AMOUNT", value: 50, range: 0...100, format: .percent),
         Parameter(name: "VELOCITY", value: 64, range: 0...127),
-        Parameter(name: "ENV DELAY", value: 0, range: 0...500, step: 2),
+        Parameter(name: "ENV DELAY", value: 0, range: 0...500),
         Parameter(name: "ENV CURVE", value: 0, range: -100...100),
     ]),
     ParameterPage(title: "FX SENDS", parameters: [
@@ -231,7 +235,7 @@ let bank = ParameterBank([
         Parameter(name: "CHORUS", value: 0, range: 0...100, format: .percent),
         Parameter(name: "WIDTH", value: 100, range: 0...100, format: .percent),
         Parameter(name: "PAN", value: 0, range: -50...50),
-        Parameter(name: "LEVEL", value: -6, range: -60...6, step: 0.5, format: .decibel),
+        Parameter(name: "LEVEL", value: -6, range: -60...6, format: .decibel),
         Parameter(name: "SEND A", value: 30, range: 0...100, format: .percent),
         Parameter(name: "SEND B", value: 10, range: 0...100, format: .percent),
     ]),
@@ -239,7 +243,7 @@ let bank = ParameterBank([
 let demo = DemoController(surface: surface, bank: bank)
 
 print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
-print("Parameters: Preset Up / Down page the bank. Transport: gestures on Play/Rec/Loop/Stop.")
+print("Parameters: Preset Up / Down page the bank. Transport: tap/hold + Shift+Loop chord.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {

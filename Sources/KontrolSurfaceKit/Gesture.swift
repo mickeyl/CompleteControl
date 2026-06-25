@@ -1,45 +1,49 @@
 import Foundation
 
-/// A recognized button gesture phase. `down`/`up` are the raw edges; `tap`,
-/// `doubleTap`, and `hold` are derived. A `tap` is delayed by the double-tap
-/// window so it never fires alongside a `doubleTap`.
+/// A recognized button gesture. `down`/`up` are the raw edges. `tap` fires
+/// immediately on release for low latency. `hold` fires once a button has been
+/// held past the threshold. `secondary` is a tap on one button while another is
+/// held down (a chord / modifier — e.g. Shift + Loop); the held button is then
+/// consumed so its own release produces no `tap`.
+///
+/// There is deliberately no double-tap: repeated-press semantics are better
+/// expressed through state (e.g. a second Stop tap means return-to-zero).
 public enum GesturePhase: Sendable, Equatable {
     case down
     case up
     case tap
-    case doubleTap
     case hold
+    case secondary(modifier: String)
 }
 
-/// Turns raw button up/down edges into tap / double-tap / hold gestures. Edge
-/// events are fed from input; `tick` is polled on the surface clock to fire
-/// holds and to resolve pending taps once the double-tap window passes.
+/// Turns raw button up/down edges into tap / hold / secondary gestures. Edges
+/// are fed from input and resolved immediately; `tick` is polled on the surface
+/// clock only to fire holds while a button stays down.
 struct GestureRecognizer {
     private struct Press {
         var downAt: UInt64
         var heldFired: Bool
+        var consumed: Bool
     }
 
     private var presses: [String: Press] = [:]
-    private var pendingTap: [String: UInt64] = [:]
 
     let holdThreshold: Double = 0.45
-    let doubleTapWindow: Double = 0.30
 
     mutating func buttonChanged(_ name: String, pressed: Bool, now: UInt64) -> [GesturePhase] {
         if pressed {
-            presses[name] = Press(downAt: now, heldFired: false)
+            presses[name] = Press(downAt: now, heldFired: false, consumed: false)
             return [.down]
         }
-        let wasHeld = presses[name]?.heldFired ?? false
+        let press = presses[name]
         presses[name] = nil
         var phases: [GesturePhase] = [.up]
-        guard !wasHeld else { return phases }
-        if let firstTap = pendingTap[name], seconds(now - firstTap) <= doubleTapWindow {
-            pendingTap[name] = nil
-            phases.append(.doubleTap)
+        guard let press, !press.heldFired, !press.consumed else { return phases }
+        if let modifier = heldModifier() {
+            presses[modifier]?.consumed = true
+            phases.append(.secondary(modifier: modifier))
         } else {
-            pendingTap[name] = now
+            phases.append(.tap)
         }
         return phases
     }
@@ -50,11 +54,13 @@ struct GestureRecognizer {
             presses[name]?.heldFired = true
             out.append((name, .hold))
         }
-        for (name, at) in pendingTap where seconds(now - at) > doubleTapWindow {
-            pendingTap[name] = nil
-            out.append((name, .tap))
-        }
         return out
+    }
+
+    /// A button still held while another is tapped acts as the modifier. Shift
+    /// wins if it is one of them; otherwise any held button.
+    private func heldModifier() -> String? {
+        presses.keys.contains("shift") ? "shift" : presses.keys.first
     }
 
     private func seconds(_ delta: UInt64) -> Double { Double(delta) / 1_000_000_000 }

@@ -342,8 +342,10 @@ Step 2 is independently shippable and is the recommended first milestone.
   reconciles minimal LED reports.
 - `TransportState` + `updateTransport`: the surface mirrors transport state on the hardware
   LEDs (play steady, record blinking, loop steady).
-- `GestureRecognizer` + `SurfaceInput.gesture`: tap / double-tap / hold derived from button
-  edges (taps delayed past the double-tap window so they never overlap).
+- `GestureRecognizer` + `SurfaceInput.gesture`: tap / hold / secondary derived from button
+  edges. `tap` fires immediately on release (low latency); `secondary` is a tap while another
+  button is held (a chord/modifier, e.g. Shift + Loop). No double-tap — repeat semantics are
+  expressed through state (a second Stop tap = return-to-zero).
 
 - `SurfaceDemo` is multi-page (Page Left / Page Right switch pages): a parameter page; a glyph
   page showing the entire CP437 set at once (16 glyphs per display × 8 = all 128, with a
@@ -370,7 +372,8 @@ Step 2 is independently shippable and is the recommended first milestone.
   `observe`/`present`/page change supersedes it.
 - `SurfaceDemo`'s transport page is now declarative **and** reactive: a `TransportScreen` reads
   an `@Observable TransportModel` for both its displays and its LEDs, so a gesture only flips
-  the model — no explicit render call.
+  the model — no explicit render call. Gestures: tap Play, hold Play to restart, tap Stop again
+  while stopped for return-to-zero, Shift + Loop chord to set the loop.
 
 **`ParameterBank`** is in: an ordered set of parameter pages with `Surface.setParameterBank` /
 `bankNext` / `bankPrevious`; the surface renders the selected page and shows its title and the

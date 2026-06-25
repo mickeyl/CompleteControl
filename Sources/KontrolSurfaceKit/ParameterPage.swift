@@ -53,8 +53,11 @@ public final class ParameterPage: @unchecked Sendable {
         surface.setText(display, 2, parameter.formattedValue, alignment: .center, overflow: .clip)
     }
 
-    /// Velocity-sensitive step: faster turns (large delta or short interval)
-    /// multiply the parameter's base step.
+    /// Velocity-sensitive step. The base increment is range-relative — roughly a
+    /// full sweep over ~600 encoder counts at slow speed — so the same feel works
+    /// across small and large ranges. Faster turns (shorter interval between
+    /// reports) accelerate it. The encoder delta scales linearly, which already
+    /// accounts for how far the high-resolution encoder moved.
     private func step(for index: Int, delta: Int) -> Double {
         let now = DispatchTime.now().uptimeNanoseconds
         let previous = lastTurnNanos[index]
@@ -62,16 +65,16 @@ public final class ParameterPage: @unchecked Sendable {
         lastTurnNanos[index] = now
 
         let parameter = parameters[index]
-        let direction = delta < 0 ? -1.0 : 1.0
-        let magnitude = 1.0 + log2(Double(max(1, abs(delta))))
-        var acceleration = 1.0
-        if parameter.accelerate {
-            if abs(delta) >= 5 || elapsed < 0.035 {
-                acceleration = 8
-            } else if abs(delta) >= 2 || elapsed < 0.090 {
-                acceleration = 3
-            }
+        let span = max(parameter.range.upperBound - parameter.range.lowerBound, 1)
+        let perCount = span / 600.0
+        let acceleration: Double
+        if elapsed < 0.035 {
+            acceleration = 6
+        } else if elapsed < 0.090 {
+            acceleration = 3
+        } else {
+            acceleration = 1
         }
-        return direction * magnitude * parameter.step * acceleration
+        return Double(delta) * perCount * acceleration * parameter.sensitivity
     }
 }

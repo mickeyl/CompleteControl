@@ -32,8 +32,9 @@ public struct Parameter: Sendable {
     public var name: String
     public var value: Double
     public var range: ClosedRange<Double>
-    public var step: Double
-    public var accelerate: Bool
+    /// Per-parameter feel multiplier on the (range-derived, velocity-accelerated)
+    /// encoder step. 1.0 is the default; raise for coarser, lower for finer.
+    public var sensitivity: Double
     public var format: ValueFormat
     public var onChange: (@Sendable (Double) -> Void)?
 
@@ -41,16 +42,14 @@ public struct Parameter: Sendable {
         name: String,
         value: Double,
         range: ClosedRange<Double>,
-        step: Double = 1,
-        accelerate: Bool = true,
+        sensitivity: Double = 1,
         format: ValueFormat = .integer,
         onChange: (@Sendable (Double) -> Void)? = nil
     ) {
         self.name = name
         self.range = range
         self.value = min(range.upperBound, max(range.lowerBound, value))
-        self.step = step
-        self.accelerate = accelerate
+        self.sensitivity = sensitivity
         self.format = format
         self.onChange = onChange
     }
