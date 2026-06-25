@@ -1,15 +1,6 @@
 import Foundation
 import KompleteKontrol
 
-/// Intended content of a single LCD row.
-enum CellContent {
-    case empty
-    case bar(Double)
-    case text(String, KKDisplayAlignment, TextOverflow)
-    case glyphs([UInt16])
-    case spinner(speed: Double, length: Int, reverse: Bool, column: Int?)
-}
-
 /// Per-cell marquee animation state, advanced by the surface clock.
 private struct MarqueeState {
     var offset: Double = 0

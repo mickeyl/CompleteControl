@@ -170,17 +170,28 @@ public actor Surface {
 
     // MARK: Declarative composition
 
-    /// Replaces the whole surface with the content produced by `screen`.
-    /// Cells the screen does not set are cleared, giving declarative semantics.
+    /// Presents a declarative screen: lowers it to a model and reconciles to it.
+    /// Display content is fully redefined (unset cells clear); declared lamps are
+    /// merged so transport/interactive LEDs set elsewhere are left untouched.
     public func present(_ screen: some Screen) {
-        reconciler.clearAll()
-        screen.render(on: self)
+        apply(screen.lowered())
     }
 
-    /// Replaces the whole surface using an inline builder closure.
+    /// Replaces the whole surface using an inline builder closure (imperative).
     public func show(_ build: (isolated Surface) -> Void) {
         reconciler.clearAll()
         build(self)
+    }
+
+    private func apply(_ model: SurfaceModel) {
+        for display in 0..<KKDisplayFrame.displayCount {
+            for row in 0..<KKDisplayFrame.rowCount {
+                reconciler.set(display: display, row: row, model.content(display, row))
+            }
+        }
+        for (led, state) in model.lamps {
+            ledReconciler.set(led, state)
+        }
     }
 
     // MARK: Parameter pages

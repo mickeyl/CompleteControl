@@ -1,11 +1,20 @@
 import Foundation
 
-/// A reusable, declarative description of the whole surface. Conformers set the
-/// content they want via the isolated `surface`; anything they leave untouched
-/// is cleared by ``Surface/present(_:)`` before `render` runs.
+/// A declarative description of the whole surface. `body` composes `Cell`,
+/// `Lamp`, `Status`, and `PageIndicator` elements with the result builder; the
+/// surface lowers it to a ``SurfaceModel`` and reconciles the hardware to match.
 ///
-/// This is the building block the upcoming result-builder DSL will sit on top of;
-/// for now it gives a clean object form alongside the imperative setters.
+/// Screens are pure values — they never touch the device — so the declarative
+/// path stands on its own, independent of the imperative setters.
 public protocol Screen: Sendable {
-    func render(on surface: isolated Surface)
+    @ScreenBuilder var body: [any ScreenElement] { get }
+}
+
+public extension Screen {
+    /// Lowers the screen to a model snapshot.
+    func lowered() -> SurfaceModel {
+        var model = SurfaceModel()
+        for element in body { element.render(into: &model) }
+        return model
+    }
 }

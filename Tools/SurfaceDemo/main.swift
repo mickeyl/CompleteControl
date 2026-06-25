@@ -13,6 +13,23 @@ import KontrolSurfaceKit
 //                 blinking, loop steady), driven by gestures: tap Play to toggle,
 //                 double-tap Play to restart, hold Stop for return-to-zero. The
 //                 Arp LED pulses to show the pulse animator.
+// The activity page, written declaratively with the DSL. It lowers to a model
+// that `present` reconciles — no imperative setter calls.
+struct ActivityScreen: Screen {
+    let page: Int
+    let total: Int
+
+    var body: [any ScreenElement] {
+        Status("ACTIVITY")
+        PageIndicator(page, of: total)
+        Cell(1) { Spinner(column: 0, speed: 10); Label("SPIN", overflow: .clip) }
+        Cell(2) { Spinner(column: 0, speed: 14, length: 2); Label("COMET", overflow: .clip) }
+        Cell(3) { Spinner(column: 0, speed: 10, reverse: true); Label("REV", overflow: .clip) }
+        Cell(4) { Spinner(speed: 8); Label("ROW", overflow: .clip) }
+        Lamp(.arp, .pulse)
+    }
+}
+
 actor DemoController {
     enum Page: Int, CaseIterable {
         case parameters, glyphs, activity, transport
@@ -60,9 +77,8 @@ actor DemoController {
                 return
             case .activity:
                 await surface.clearParameterPage()
-                await surface.clearAll()
-                await renderActivity()
-                await surface.setStatus(target.name)
+                await surface.present(ActivityScreen(page: target.rawValue + 1, total: Page.allCases.count))
+                return
             case .transport:
                 await surface.clearParameterPage()
                 await surface.clearAll()
@@ -105,22 +121,6 @@ actor DemoController {
     private func scrollGlyphs(_ delta: Int) async {
         glyphSelection = min(Self.glyphCount - 1, max(0, glyphSelection + (delta < 0 ? -1 : 1)))
         await renderGlyphDetail()
-    }
-
-    // MARK: Activity
-
-    private func renderActivity() async {
-        await surface.setSpinner(1, 1, column: 0, speed: 10)
-        await surface.setText(1, 2, "SPIN", alignment: .center, overflow: .clip)
-
-        await surface.setSpinner(2, 1, column: 0, speed: 14, length: 2)
-        await surface.setText(2, 2, "COMET", alignment: .center, overflow: .clip)
-
-        await surface.setSpinner(3, 1, column: 0, speed: 10, reverse: true)
-        await surface.setText(3, 2, "REV", alignment: .center, overflow: .clip)
-
-        await surface.setSpinner(4, 1, speed: 8)
-        await surface.setText(4, 2, "ROW", alignment: .center, overflow: .clip)
     }
 
     // MARK: Transport

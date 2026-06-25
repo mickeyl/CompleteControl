@@ -351,5 +351,17 @@ Step 2 is independently shippable and is the recommended first milestone.
   of spinners; and a transport page driven by gestures (tap Play, double-tap Play to restart,
   hold Stop for return-to-zero) with the LEDs mirroring state and the Arp LED pulsing.
 
-Next: the result-builder `Screen` DSL and components (step 3), then `ParameterBank` paging and
-the MCU/HUI adapter.
+**Declarative `Screen` DSL (step 3)** is in:
+
+- A `Screen` has a `@ScreenBuilder var body` composing `Cell`, `Lamp`, `Status`, and
+  `PageIndicator`; `Cell(n) { Bar(…); Label(…); Value(…); Glyphs(…); Spinner(…) }` fills row 0
+  (bar) and the text rows in order.
+- Screens are pure values that lower to a `SurfaceModel`; `present(screen)` reconciles to it.
+  Both front-ends — the imperative setters and the DSL — lower to the same model, so the
+  imperative API is a removable peer rather than a dependency of the declarative path.
+- `SurfaceDemo`'s activity page is now written with the DSL (`ActivityScreen`), presented via
+  `present`, while the other pages stay imperative — proving the two coexist.
+
+Next: a reactivity hook (observe state → re-`present`) to express interactive pages like
+`ParameterPage`/`Transport` declaratively too, then `ParameterBank` paging and the MCU/HUI
+adapter.
