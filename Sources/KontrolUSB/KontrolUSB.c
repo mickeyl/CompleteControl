@@ -12,6 +12,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define KONTROL_VID 0x17cc
@@ -45,6 +48,78 @@ typedef struct {
     uint8_t inputBuffer[256];
     uint8_t midiBuffer[256];
 } KontrolLibUSBSession;
+
+#ifdef KK_DEBUG
+static int kk_usb_debug_flag_enabled(const char *value) {
+    return value != NULL
+        && value[0] != '\0'
+        && strcmp(value, "0") != 0
+        && strcasecmp(value, "false") != 0
+        && strcasecmp(value, "no") != 0;
+}
+
+static int kk_usb_debug_enabled(void) {
+    const char *level = getenv("LOGLEVEL");
+    return kk_usb_debug_flag_enabled(getenv("KK_USB_DEBUG"))
+        || kk_usb_debug_flag_enabled(getenv("KK_DAEMON_DEBUG"))
+        || (level != NULL && strcasecmp(level, "TRACE") == 0);
+}
+
+static void kk_usb_debug_log(const char *group, const char *level, const char *format, ...) {
+    if (!kk_usb_debug_enabled()) {
+        return;
+    }
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    struct tm tm;
+    gmtime_r(&tv.tv_sec, &tm);
+
+    char timestamp[40];
+    snprintf(timestamp,
+             sizeof(timestamp),
+             "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+             tm.tm_year + 1900,
+             tm.tm_mon + 1,
+             tm.tm_mday,
+             tm.tm_hour,
+             tm.tm_min,
+             tm.tm_sec,
+             (int)(tv.tv_usec / 1000));
+
+    fprintf(stderr, "timestamp=%s group=%s level=%s message=", timestamp, group, level);
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    fputc('\n', stderr);
+    fflush(stderr);
+}
+
+static void kk_usb_debug_head(char *out, size_t outLen, const uint8_t *data, int length) {
+    if (outLen == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (data == NULL || length <= 0) {
+        return;
+    }
+
+    size_t used = 0;
+    int limit = length < 12 ? length : 12;
+    for (int i = 0; i < limit && used < outLen; i++) {
+        int written = snprintf(out + used, outLen - used, "%s%02x", i == 0 ? "" : " ", data[i]);
+        if (written < 0) {
+            out[0] = '\0';
+            return;
+        }
+        used += (size_t)written;
+    }
+}
+#else
+#define kk_usb_debug_log(...) do { } while (0)
+#endif
 
 static void result_append(KontrolUSBResult *result, const char *format, ...) {
     size_t used = strnlen(result->message, sizeof(result->message));
@@ -844,14 +919,30 @@ static void input_transfer_callback(struct libusb_transfer *transfer) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)transfer->user_data;
     if (session == NULL) return;
 
+#ifdef KK_DEBUG
+    char head[96];
+    kk_usb_debug_head(head, sizeof(head), transfer->buffer, transfer->actual_length);
+    kk_usb_debug_log("usb-surface",
+                     transfer->status == LIBUSB_TRANSFER_COMPLETED ? "INFO" : "ERROR",
+                     "callback status=%d actual=%d endpoint=0x%02x head=%s",
+                     transfer->status,
+                     transfer->actual_length,
+                     transfer->endpoint,
+                     head);
+#endif
+
     if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
         if (session->inputCallback) {
             session->inputCallback(transfer->buffer, transfer->actual_length, session->inputUserData);
         }
     }
 
-    if (transfer->status != LIBUSB_TRANSFER_CANCELLED && session->inputTransfer != NULL) {
-        libusb_submit_transfer(transfer);
+    if (session->inputTransfer == transfer) {
+        int submitStatus = libusb_submit_transfer(transfer);
+        kk_usb_debug_log("usb-surface",
+                         submitStatus == 0 ? "TRACE" : "ERROR",
+                         "resubmit status=%d",
+                         submitStatus);
     }
 }
 
@@ -859,14 +950,30 @@ static void midi_transfer_callback(struct libusb_transfer *transfer) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)transfer->user_data;
     if (session == NULL) return;
 
+#ifdef KK_DEBUG
+    char head[96];
+    kk_usb_debug_head(head, sizeof(head), transfer->buffer, transfer->actual_length);
+    kk_usb_debug_log("usb-midi",
+                     transfer->status == LIBUSB_TRANSFER_COMPLETED ? "INFO" : "ERROR",
+                     "callback status=%d actual=%d endpoint=0x%02x head=%s",
+                     transfer->status,
+                     transfer->actual_length,
+                     transfer->endpoint,
+                     head);
+#endif
+
     if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
         if (session->midiCallback) {
             session->midiCallback(transfer->buffer, transfer->actual_length, session->midiUserData);
         }
     }
 
-    if (transfer->status != LIBUSB_TRANSFER_CANCELLED && session->midiTransfer != NULL) {
-        libusb_submit_transfer(transfer);
+    if (session->midiTransfer == transfer) {
+        int submitStatus = libusb_submit_transfer(transfer);
+        kk_usb_debug_log("usb-midi",
+                         submitStatus == 0 ? "TRACE" : "ERROR",
+                         "resubmit status=%d",
+                         submitStatus);
     }
 }
 
@@ -886,10 +993,12 @@ int KontrolUSBLibUSBSessionGetPollFds(KontrolUSBLibUSBSessionRef sessionRef,
     for (int i = 0; pollfds[i] != NULL && i < maxFds; i++) {
         outFds[i].fd = pollfds[i]->fd;
         outFds[i].events = pollfds[i]->events;
+        kk_usb_debug_log("usb", "TRACE", "pollfd fd=%d events=0x%04x", outFds[i].fd, outFds[i].events);
         count++;
     }
 
     libusb_free_pollfds(pollfds);
+    kk_usb_debug_log("usb", "TRACE", "pollfds count=%d", count);
     return count;
 }
 
@@ -901,7 +1010,12 @@ void KontrolUSBLibUSBHandleEventsTimeout(KontrolUSBLibUSBSessionRef sessionRef,
     struct timeval tv;
     tv.tv_sec = timeoutMs / 1000;
     tv.tv_usec = (timeoutMs % 1000) * 1000;
-    libusb_handle_events_timeout(session->ctx, &tv);
+    int status = libusb_handle_events_timeout(session->ctx, &tv);
+    kk_usb_debug_log("usb",
+                     status == 0 ? "TRACE" : "ERROR",
+                     "handle_events timeout_ms=%d status=%d",
+                     timeoutMs,
+                     status);
 }
 
 int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef,
@@ -909,6 +1023,7 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
                                             void *userData) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
     if (session == NULL || session->handle == NULL || session->inputEndpoint == 0) {
+        kk_usb_debug_log("usb-surface", "ERROR", "start async input unavailable endpoint=0x%02x", session != NULL ? session->inputEndpoint : 0);
         return -1;
     }
 
@@ -918,6 +1033,7 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
     if (session->inputTransfer == NULL) {
         session->inputTransfer = libusb_alloc_transfer(0);
         if (session->inputTransfer == NULL) {
+            kk_usb_debug_log("usb-surface", "ERROR", "alloc transfer failed");
             return -1;
         }
         libusb_fill_interrupt_transfer(session->inputTransfer,
@@ -930,7 +1046,14 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
                                        0);
     }
 
-    return libusb_submit_transfer(session->inputTransfer);
+    int status = libusb_submit_transfer(session->inputTransfer);
+    kk_usb_debug_log("usb-surface",
+                     status == 0 ? "INFO" : "ERROR",
+                     "start async input endpoint=0x%02x buffer=%zu status=%d",
+                     session->inputEndpoint,
+                     sizeof(session->inputBuffer),
+                     status);
+    return status;
 }
 
 int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
@@ -938,6 +1061,11 @@ int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
                                            void *userData) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
     if (session == NULL || session->handle == NULL || !session->midiClaimed || session->midiInputEndpoint == 0) {
+        kk_usb_debug_log("usb-midi",
+                         "ERROR",
+                         "start async midi unavailable claimed=%d endpoint=0x%02x",
+                         session != NULL ? session->midiClaimed : 0,
+                         session != NULL ? session->midiInputEndpoint : 0);
         return -1;
     }
 
@@ -947,6 +1075,7 @@ int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
     if (session->midiTransfer == NULL) {
         session->midiTransfer = libusb_alloc_transfer(0);
         if (session->midiTransfer == NULL) {
+            kk_usb_debug_log("usb-midi", "ERROR", "alloc transfer failed");
             return -1;
         }
         libusb_fill_bulk_transfer(session->midiTransfer,
@@ -959,7 +1088,14 @@ int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
                                   0);
     }
 
-    return libusb_submit_transfer(session->midiTransfer);
+    int status = libusb_submit_transfer(session->midiTransfer);
+    kk_usb_debug_log("usb-midi",
+                     status == 0 ? "INFO" : "ERROR",
+                     "start async midi endpoint=0x%02x buffer=%zu status=%d",
+                     session->midiInputEndpoint,
+                     sizeof(session->midiBuffer),
+                     status);
+    return status;
 }
 
 void KontrolUSBLibUSBSessionStopAsync(KontrolUSBLibUSBSessionRef sessionRef) {

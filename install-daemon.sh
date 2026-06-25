@@ -42,9 +42,25 @@ fi
 
 # Stop any existing daemon
 echo "Stopping any existing daemon..."
+launchctl bootout system "$LAUNCHD_PLIST" 2>/dev/null || true
 launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
-pkill -f -- "--kk-libusb-daemon" 2>/dev/null || true
-rm -f "$SOCKET_PATH"
+
+daemon_pids="$(pgrep -f "kk-libusb-daemon" || true)"
+if [ -n "$daemon_pids" ]; then
+    echo "$daemon_pids" | xargs kill 2>/dev/null || true
+    for i in {1..20}; do
+        daemon_pids="$(pgrep -f "kk-libusb-daemon" || true)"
+        if [ -z "$daemon_pids" ]; then
+            break
+        fi
+        sleep 0.1
+    done
+    daemon_pids="$(pgrep -f "kk-libusb-daemon" || true)"
+    if [ -n "$daemon_pids" ]; then
+        echo "$daemon_pids" | xargs kill -9 2>/dev/null || true
+    fi
+fi
+rm -f "$SOCKET_PATH" /var/run/kompletekontrol-libusb.lock
 
 # Copy executable to /usr/local/bin
 echo "Installing executable to /usr/local/bin..."
@@ -60,7 +76,8 @@ chmod 644 "$LAUNCHD_PLIST"
 
 # Load the daemon
 echo "Loading daemon..."
-launchctl load "$LAUNCHD_PLIST"
+launchctl bootstrap system "$LAUNCHD_PLIST" 2>/dev/null || launchctl load "$LAUNCHD_PLIST"
+launchctl kickstart -k "system/$DAEMON_LABEL" 2>/dev/null || true
 
 # Wait for socket to appear
 echo "Waiting for daemon to start..."
@@ -71,10 +88,10 @@ for i in {1..10}; do
         echo "Log: /tmp/media.vanille.kompletekontrol-libusb.stdout.log"
         echo ""
         echo "To control the daemon:"
-        echo "  Start:   sudo launchctl load $LAUNCHD_PLIST"
-        echo "  Stop:    sudo launchctl unload $LAUNCHD_PLIST"
-        echo "  Restart: sudo launchctl kickstart -k gui/$(id -u)/$DAEMON_LABEL"
-        echo "  Status:  sudo launchctl list | grep $DAEMON_LABEL"
+        echo "  Start:   sudo launchctl bootstrap system $LAUNCHD_PLIST"
+        echo "  Stop:    sudo launchctl bootout system $LAUNCHD_PLIST"
+        echo "  Restart: sudo launchctl kickstart -k system/$DAEMON_LABEL"
+        echo "  Status:  sudo launchctl print system/$DAEMON_LABEL"
         exit 0
     fi
     sleep 0.5

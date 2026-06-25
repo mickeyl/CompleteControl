@@ -13,10 +13,11 @@ nonisolated(unsafe) var midiInputPort = MIDIPortRef()
 
 // Latency benchmark state
 nonisolated(unsafe) var benchmarkMode = false
-nonisolated(unsafe) var benchmarkType = "surface" // "surface" or "midi"
 nonisolated(unsafe) var benchmarkSamples: [UInt64] = []
 nonisolated(unsafe) var benchmarkSampleCount = 0
-nonisolated(unsafe) let benchmarkTargetSamples = 100
+nonisolated(unsafe) var benchmarkTargetSamples = 100
+nonisolated(unsafe) var benchmarkSurfaceSampleCount = 0
+nonisolated(unsafe) var benchmarkMIDISampleCount = 0
 
 func midiStatus(_ status: UInt8) -> String {
     let channel = Int(status & 0x0f) + 1
@@ -217,6 +218,8 @@ func printBenchmarkResults() {
 
     print("\n=== End-to-End Latency Benchmark Results ===")
     print("Samples: \(count)")
+    print("Surface: \(benchmarkSurfaceSampleCount)")
+    print("MIDI:    \(benchmarkMIDISampleCount)")
     print("Min:     \(min)μs")
     print("Max:     \(max)μs")
     print("Avg:     \(String(format: "%.1f", avg))μs")
@@ -227,6 +230,27 @@ func printBenchmarkResults() {
 
     benchmarkSamples.removeAll()
     benchmarkSampleCount = 0
+    benchmarkSurfaceSampleCount = 0
+    benchmarkMIDISampleCount = 0
+}
+
+func recordBenchmarkSample(source: String, latencyUs: UInt64) {
+    benchmarkSamples.append(latencyUs)
+    benchmarkSampleCount += 1
+    if source == "surface" {
+        benchmarkSurfaceSampleCount += 1
+    } else if source == "midi" {
+        benchmarkMIDISampleCount += 1
+    }
+    let progress = Double(benchmarkSampleCount) / Double(benchmarkTargetSamples) * 100
+    print("\r[benchmark] \(benchmarkSampleCount)/\(benchmarkTargetSamples) (\(String(format: "%.1f", progress))%) \(source) last: \(latencyUs)μs", terminator: "")
+    fflush(stdout)
+
+    if benchmarkSampleCount >= benchmarkTargetSamples {
+        benchmarkMode = false
+        print("\n")
+        printBenchmarkResults()
+    }
 }
 
 func selfTest(_ kk: KompleteKontrolS25MK1) {
@@ -241,19 +265,19 @@ func selfTest(_ kk: KompleteKontrolS25MK1) {
         printUSBResult("btnLED 0x80", result, signedStatus: true)
     }
     _ = kk.clearDisplays(flush: false)
-    _ = kk.setDisplayText("SID", display: 0, row: 0, alignment: .center, flush: false)
-    _ = kk.setDisplayText("STUDIO", display: 0, row: 1, alignment: .center, flush: false)
+    _ = kk.setDisplayBar(1.0, display: 0, row: 0, flush: false)
+    _ = kk.setDisplayText("SID", display: 0, row: 1, alignment: .center, flush: false)
     _ = kk.setDisplayText("READY", display: 0, row: 2, alignment: .center, flush: false)
-    _ = kk.setDisplayText("TEXT", display: 1, row: 0, alignment: .center, flush: false)
-    _ = kk.setDisplayText("ABC123", display: 1, row: 1, alignment: .center, flush: false)
+    _ = kk.setDisplayBar(0.5, display: 1, row: 0, flush: false)
+    _ = kk.setDisplayText("TEXT", display: 1, row: 1, alignment: .center, flush: false)
     _ = kk.setDisplayText("=+-/*<>", display: 1, row: 2, alignment: .center, flush: false)
     _ = kk.setDisplayBar(0.75, display: 2, row: 0, flush: false)
     _ = kk.setDisplayText("BAR", display: 2, row: 1, alignment: .center, flush: false)
     _ = kk.setDisplayText("75 PCT", display: 2, row: 2, alignment: .center, flush: false)
     _ = kk.setDisplayBox(display: 3, flush: false)
     for display in 4..<KKDisplayFrame.displayCount {
-        _ = kk.setDisplayText("LCD \(display)", display: display, row: 0, alignment: .center, flush: false)
-        _ = kk.setDisplayText("CONFIG", display: display, row: 1, alignment: .center, flush: false)
+        _ = kk.setDisplayBar(Double(display) / Double(KKDisplayFrame.displayCount - 1), display: display, row: 0, flush: false)
+        _ = kk.setDisplayText("LCD \(display)", display: display, row: 1, alignment: .center, flush: false)
         _ = kk.setDisplayText("TEXT", display: display, row: 2, alignment: .center, flush: false)
     }
     for (index, result) in kk.sendDisplays().enumerated() {
@@ -277,7 +301,7 @@ Commands:
   demo                run the start self-test (rainbow + LEDs + displays)
   rainbow             rainbow across the key light guide
   disp                light all display segments (display reachability test)
-  lcd D R TEXT...     display D (0..8), row R (0..2), text up to 8 chars
+  lcd D R TEXT...     display D (0..8), text row R (1..2), up to 8 chars
   lcdbar D VALUE      row-0 bar on display D, VALUE 0..1 or 0..100
   lcdbox D            simple box-drawing approximation on display D
   lcdoff              clear all LCD segments
@@ -295,12 +319,11 @@ Commands:
   libusbhold [N MS]   privileged LED animation, default 8 steps / 250 ms
   daemon              show daemon transport info
   daemonstatus        show daemon libusb session endpoints
-  daemonread [MS]     one daemon input read; prints raw socket response
-  daemonmidi [MS]     one daemon USB-MIDI read; prints raw socket response
+  daemonread [MS]     one queued async input read; prints raw socket response
+  daemonmidi [MS]     one queued async USB-MIDI read; prints raw socket response
   daemonraw LINE...   send a raw daemon socket request on the same session
   mon off|chg|all     input monitoring mode      (default chg)
-  benchmark [N]       run surface latency benchmark (default 100 samples)
-  benchmark-midi [N]  run MIDI latency benchmark (default 100 samples)
+  benchmark [N]       run surface/MIDI latency benchmark (default 100 samples)
   info                report daemon transport info
   help                this list
   quit
@@ -312,18 +335,8 @@ kk.onInputReport = { report in
     let clientTimestamp = KKTiming.now()
     let latencyUs = report.receptionTimestamp > 0 ? clientTimestamp - report.receptionTimestamp : 0
 
-    if benchmarkMode && benchmarkType == "surface" && !report.events.isEmpty && latencyUs > 0 {
-        benchmarkSamples.append(latencyUs)
-        benchmarkSampleCount += 1
-        let progress = Double(benchmarkSampleCount) / Double(benchmarkTargetSamples) * 100
-        print("\r[benchmark-surface] \(benchmarkSampleCount)/\(benchmarkTargetSamples) (\(String(format: "%.1f", progress))%) - last: \(latencyUs)μs", terminator: "")
-        fflush(stdout)
-
-        if benchmarkSampleCount >= benchmarkTargetSamples {
-            benchmarkMode = false
-            print("\n")
-            printBenchmarkResults()
-        }
+    if benchmarkMode && !report.events.isEmpty && latencyUs > 0 {
+        recordBenchmarkSample(source: "surface", latencyUs: latencyUs)
         return
     }
 
@@ -347,18 +360,8 @@ kk.onMIDIEvent = { event in
     let clientTimestamp = KKTiming.now()
     let latencyUs = event.receptionTimestamp > 0 ? clientTimestamp - event.receptionTimestamp : 0
 
-    if benchmarkMode && benchmarkType == "midi" && latencyUs > 0 {
-        benchmarkSamples.append(latencyUs)
-        benchmarkSampleCount += 1
-        let progress = Double(benchmarkSampleCount) / Double(benchmarkTargetSamples) * 100
-        print("\r[benchmark-midi] \(benchmarkSampleCount)/\(benchmarkTargetSamples) (\(String(format: "%.1f", progress))%) - last: \(latencyUs)μs", terminator: "")
-        fflush(stdout)
-
-        if benchmarkSampleCount >= benchmarkTargetSamples {
-            benchmarkMode = false
-            print("\n")
-            printBenchmarkResults()
-        }
+    if benchmarkMode && latencyUs > 0 {
+        recordBenchmarkSample(source: "midi", latencyUs: latencyUs)
         return
     }
 
@@ -376,7 +379,7 @@ if !skipIntro {
 }
 
 print("KontrolProbe daemon-client mode: using launchd socket \(KompleteKontrolLibUSBServer.defaultDaemonSocketPath)")
-guard kk.daemonRequest("read 1", timeoutUsec: 80_000) != nil else {
+guard kk.daemonRequest("status", timeoutUsec: 250_000) != nil else {
     fputs("Could not talk to Komplete Kontrol launch daemon. Run 'make install-daemon' to set up the daemon.\n", stderr)
     exit(1)
 }
@@ -454,7 +457,7 @@ while true {
                     printUSBResult("display row \(index) 0xe0", result, signedStatus: true)
                 }
             } else {
-                print("display or row out of range")
+                print("display or text row out of range; row 0 is bar-only")
             }
         case "lcdbar":
             guard tokens.count >= 3,
@@ -497,21 +500,16 @@ while true {
         case "benchmark":
             let targetCount = tokens.count > 1 ? max(10, min(KKHex.parse(tokens[1]) ?? 100, 1000)) : 100
             benchmarkMode = true
-            benchmarkType = "surface"
+            benchmarkTargetSamples = targetCount
             benchmarkSamples.removeAll()
             benchmarkSampleCount = 0
-            print("Starting surface benchmark: press buttons, turn encoders, or touch controls to measure latency.")
-            print("Target: \(targetCount) samples. Press any control to begin...")
+            benchmarkSurfaceSampleCount = 0
+            benchmarkMIDISampleCount = 0
+            print("Starting benchmark: use buttons, encoders, touch controls, keys, pitch, or mod wheel.")
+            print("Target: \(targetCount) samples. Use any control to begin...")
             print("(Type 'quit' to cancel)")
         case "benchmark-midi":
-            let targetCount = tokens.count > 1 ? max(10, min(KKHex.parse(tokens[1]) ?? 100, 1000)) : 100
-            benchmarkMode = true
-            benchmarkType = "midi"
-            benchmarkSamples.removeAll()
-            benchmarkSampleCount = 0
-            print("Starting MIDI benchmark: play keys or use pitch/mod wheels to measure latency.")
-            print("Target: \(targetCount) samples. Play a key to begin...")
-            print("(Type 'quit' to cancel)")
+            print("benchmark-midi was folded into benchmark. Use: benchmark [N]")
         case "all":
             let rgb = rgbArg(tokens, from: 1)
             _ = kk.setAllKeys(color: rgb)

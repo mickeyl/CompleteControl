@@ -64,7 +64,6 @@ public struct KKDisplayFrame: Equatable, Sendable {
     public static let bytesPerDisplayRow = characterCount * 2
     public static let bytesPerReportRow = 240
 
-    private static let plusGlyph: UInt16 = 0x5a00
     private static let emptyGlyph: UInt16 = 0x0000
 
     // CP437-compatible 16-segment glyph table from shaduzlabs/cabl
@@ -112,7 +111,7 @@ public struct KKDisplayFrame: Equatable, Sendable {
 
     public mutating func fillDisplay(_ display: Int, glyph: UInt16 = 0xffff) {
         guard Self.validDisplay(display) else { return }
-        for row in 0..<Self.rowCount {
+        for row in 1..<Self.rowCount {
             for column in 0..<Self.characterCount {
                 setGlyph(glyph, display: display, row: row, column: column)
             }
@@ -120,7 +119,7 @@ public struct KKDisplayFrame: Equatable, Sendable {
     }
 
     public mutating func setText(_ text: String, display: Int, row: Int, alignment: KKDisplayAlignment = .left) {
-        guard Self.validDisplay(display), Self.validRow(row) else { return }
+        guard Self.validDisplay(display), Self.validTextRow(row) else { return }
         let scalars = Array(text.unicodeScalars.prefix(Self.characterCount))
         let leftPadding: Int
         switch alignment {
@@ -140,28 +139,21 @@ public struct KKDisplayFrame: Equatable, Sendable {
     }
 
     public mutating func setBar(_ value: Double, display: Int, row: Int = 0) {
-        guard Self.validDisplay(display), Self.validRow(row) else { return }
+        guard Self.validDisplay(display), row == 0 else { return }
         let clamped = max(0.0, min(1.0, value))
-        if row == 0 {
-            let lit = Int((clamped * 9.0).rounded())
-            writeByte(display: display, row: 0, byte: 0, value: 0x04 | (lit > 0 ? 0x03 : 0x00))
-            for column in 1..<8 {
-                writeByte(display: display, row: 0, byte: column * 2, value: lit > column ? 0x03 : 0x00)
-            }
-            writeByte(display: display, row: 0, byte: 15, value: lit > 8 ? 0x03 : 0x00)
-        } else {
-            let lit = Int((clamped * Double(Self.characterCount)).rounded())
-            for column in 0..<Self.characterCount {
-                setGlyph(column < lit ? Self.plusGlyph : Self.emptyGlyph, display: display, row: row, column: column)
-            }
+        let lit = Int((clamped * 9.0).rounded())
+        writeByte(display: display, row: 0, byte: 0, value: 0x04 | (lit > 0 ? 0x03 : 0x00))
+        for column in 1..<8 {
+            writeByte(display: display, row: 0, byte: column * 2, value: lit > column ? 0x03 : 0x00)
         }
+        writeByte(display: display, row: 0, byte: 15, value: lit > 8 ? 0x03 : 0x00)
     }
 
     public mutating func setBox(_ display: Int) {
         guard Self.validDisplay(display) else { return }
-        setText("+------+", display: display, row: 0, alignment: .left)
-        setText("| SID  |", display: display, row: 1, alignment: .left)
-        setText("+------+", display: display, row: 2, alignment: .left)
+        setBar(1.0, display: display, row: 0)
+        setText("+------+", display: display, row: 1, alignment: .left)
+        setText("| SID  |", display: display, row: 2, alignment: .left)
     }
 
     public func rowData(_ row: Int) -> [UInt8] {
@@ -187,6 +179,10 @@ public struct KKDisplayFrame: Equatable, Sendable {
 
     private static func validRow(_ row: Int) -> Bool {
         (0..<rowCount).contains(row)
+    }
+
+    private static func validTextRow(_ row: Int) -> Bool {
+        (1..<rowCount).contains(row)
     }
 }
 
@@ -612,7 +608,14 @@ public struct KKMIDIEvent: Sendable, Equatable {
 
 public enum KKTiming {
     public static var traceEnabled: Bool {
-        ProcessInfo.processInfo.environment["LOGLEVEL"]?.uppercased() == "TRACE"
+        #if KK_DEBUG
+        let env = ProcessInfo.processInfo.environment
+        return env["LOGLEVEL"]?.uppercased() == "TRACE"
+            || env["KK_DAEMON_DEBUG"] == "1"
+            || env["KK_USB_DEBUG"] == "1"
+        #else
+        return false
+        #endif
     }
 
     public static func now() -> UInt64 {
@@ -625,6 +628,31 @@ public enum KKTiming {
 
     public static func short(_ payload: [UInt8]) -> String {
         payload.prefix(8).map(KKHex.byte).joined(separator: " ")
+    }
+}
+
+private enum KKStderrLogLevel: String {
+    case error = "ERROR"
+    case info = "INFO"
+    case debug = "DEBUG"
+    case trace = "TRACE"
+}
+
+private enum KKStderrLog {
+    private static let lock = NSLock()
+    private static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static func write(group: String, level: KKStderrLogLevel, _ message: String) {
+        let cleanMessage = message.replacingOccurrences(of: "\n", with: "\\n")
+        lock.lock()
+        let timestamp = formatter.string(from: Date())
+        fputs("timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n", stderr)
+        fflush(stderr)
+        lock.unlock()
     }
 }
 
@@ -647,6 +675,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     private var inputBuffer: UnsafeMutablePointer<UInt8>?
     private var inputBufferLength = 0
     private var lastReports: [UInt32: [UInt8]] = [:]
+    private var daemonSurfaceIncludesReportID: Bool?
     private var inputRunLoop: CFRunLoop?
     private var inputThread: Thread?
     private var inputUsesDaemon = false
@@ -756,6 +785,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         autoMountTask = nil
         stopOutputWorker()
         inputUsesDaemon = false
+        daemonSurfaceIncludesReportID = nil
         closeHelperSession(sendQuit: true)
         if let runLoop = inputRunLoop {
             CFRunLoopStop(runLoop)
@@ -883,7 +913,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         flush: Bool = true
     ) -> [KKUSBResult]? {
         guard (0..<KKDisplayFrame.displayCount).contains(display),
-              (0..<KKDisplayFrame.rowCount).contains(row) else { return nil }
+              (1..<KKDisplayFrame.rowCount).contains(row) else { return nil }
         displayFrame.setText(text, display: display, row: row, alignment: alignment)
         return flush ? sendDisplays() : nil
     }
@@ -891,7 +921,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     @discardableResult
     public func setDisplayBar(_ value: Double, display: Int, row: Int = 0, flush: Bool = true) -> [KKUSBResult]? {
         guard (0..<KKDisplayFrame.displayCount).contains(display),
-              (0..<KKDisplayFrame.rowCount).contains(row) else { return nil }
+              row == 0 else { return nil }
         displayFrame.setBar(value, display: display, row: row)
         return flush ? sendDisplays() : nil
     }
@@ -1146,7 +1176,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             current[index] = report[index]
         }
         lastReports[reportID] = current
-        let events = KKInputReportDecoder.events(reportID: reportID, previous: previous, current: current)
+        let eventBaseline = previous ?? Self.neutralInputReport(matching: current, reportID: reportID)
+        let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
         if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
             return
         }
@@ -1167,30 +1198,67 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             }
         }
         lastReports[reportID] = current
-        let events = KKInputReportDecoder.events(reportID: reportID, previous: previous, current: current)
+        let eventBaseline = previous ?? Self.neutralInputReport(matching: current, reportID: reportID)
+        let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
         if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
             return
         }
         onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
     }
 
+    private static func neutralInputReport(matching current: [UInt8], reportID: UInt32) -> [UInt8]? {
+        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID, !current.isEmpty else {
+            return nil
+        }
+        var neutral = [UInt8](repeating: 0, count: current.count)
+        neutral[0] = UInt8(reportID & 0xff)
+        return neutral
+    }
+
     private func runDaemonInputLoop() {
+        var inputSession: KKDaemonOutputSession?
         while inputUsesDaemon {
-            guard let session = startHelperSession() else {
+            if inputSession == nil {
+                inputSession = startDaemonInputSession()
+                inputSession?.asyncPushHandler = { [weak self] line in
+                    guard let self else { return }
+                    if line.hasPrefix("in ") {
+                        self.handleDaemonSurfaceResponse(line)
+                    } else if line.hasPrefix("midi ") {
+                        self.handleDaemonMIDIResponse(line)
+                    }
+                }
+            }
+            guard let session = inputSession else {
                 log?("Komplete Kontrol libusb daemon unavailable for input.")
                 usleep(500_000)
                 continue
             }
-            session.asyncPushHandler = { [weak self] line in
-                guard let self else { return }
-                if line.hasPrefix("in ") {
-                    self.handleDaemonSurfaceResponse(line)
-                } else if line.hasPrefix("midi ") {
-                    self.handleDaemonMIDIResponse(line)
-                }
+            if !session.readPushes(timeoutUsec: 50_000) {
+                inputSession = nil
+                usleep(50_000)
             }
-            session.readPushes(timeoutUsec: 50_000)
         }
+    }
+
+    private func startDaemonInputSession() -> KKDaemonOutputSession? {
+        guard case let .privilegedHelper(executablePath) = outputMode else {
+            return nil
+        }
+        if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
+            log?("Komplete Kontrol libusb daemon not running; requesting administrator startup.")
+            guard KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(executablePath: executablePath, logger: log) else {
+                log?("Komplete Kontrol libusb daemon startup failed.")
+                return nil
+            }
+        }
+        guard let session = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+            return nil
+        }
+        guard KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(session) else {
+            return nil
+        }
+        return session
     }
 
     private func handleDaemonReconnectResponse(_ response: String, source: String) -> Bool {
@@ -1216,7 +1284,17 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             .split(separator: " ")
             .compactMap { KKHex.parse(String($0)).map { UInt8($0 & 0xff) } }
         guard !bytes.isEmpty else { return }
-        handleInput(reportID: KompleteKontrolS25MK1Protocol.inputReportID, bytes: bytes)
+        handleInput(reportID: KompleteKontrolS25MK1Protocol.inputReportID, bytes: normalizedDaemonSurfaceBytes(bytes))
+    }
+
+    private func normalizedDaemonSurfaceBytes(_ bytes: [UInt8]) -> [UInt8] {
+        if daemonSurfaceIncludesReportID == nil {
+            daemonSurfaceIncludesReportID = bytes.first == UInt8(KompleteKontrolS25MK1Protocol.inputReportID)
+        }
+        if daemonSurfaceIncludesReportID == true {
+            return bytes
+        }
+        return [UInt8(KompleteKontrolS25MK1Protocol.inputReportID)] + bytes
     }
 
     private func handleDaemonMIDIResponse(_ response: String) {
@@ -1506,7 +1584,13 @@ public enum KompleteKontrolLibUSBServer {
     public static let defaultDaemonSocketPath = "/var/run/kompletekontrol-libusb.sock"
     public static let daemonLogPath = "/tmp/media.vanille.kompletekontrol-libusb.foreground.log"
     public static let protocolVersion = 3
+    private static let daemonLockPath = "/var/run/kompletekontrol-libusb.lock"
     private static let daemonStartLock = NSLock()
+
+    private struct LibUSBKqueueRegistration: Hashable {
+        var fd: Int32
+        var filter: Int16
+    }
 
     public static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
         let args = Array(arguments.dropFirst())
@@ -1571,6 +1655,26 @@ public enum KompleteKontrolLibUSBServer {
 
     public static func runDaemon(socketPath: String = defaultDaemonSocketPath) -> Never {
         signal(SIGPIPE, SIG_IGN)
+        daemonDebugLog("process start pid=\(getpid()) socket=\(socketPath)", group: "daemon")
+        daemonDebugLog("process scan begin", group: "daemon")
+        let otherPIDs = runningDaemonPIDs().filter { $0 != getpid() }
+        daemonDebugLog("process scan complete otherPIDs=\(otherPIDs.map(String.init).joined(separator: ","))", group: "daemon")
+        if !otherPIDs.isEmpty {
+            daemonLog("refusing to start: other daemon process already running pid=\(otherPIDs.map(String.init).joined(separator: ","))", level: .error)
+            exit(6)
+        }
+        daemonDebugLog("socket probe begin path=\(socketPath)", group: "daemon")
+        if daemonSocketIsReachable(socketPath: socketPath) {
+            daemonLog("refusing to start: daemon socket already responds at \(socketPath)", level: .error)
+            exit(6)
+        }
+        daemonDebugLog("socket probe complete", group: "daemon")
+        daemonDebugLog("lock acquire begin path=\(daemonLockPath)", group: "daemon")
+        guard acquireDaemonLock() != nil else {
+            daemonLog("refusing to start: another daemon holds \(daemonLockPath)", level: .error)
+            exit(6)
+        }
+        daemonDebugLog("lock acquire complete", group: "daemon")
         unlink(socketPath)
         daemonLog("starting kqueue daemon socket=\(socketPath)")
 
@@ -1616,36 +1720,69 @@ public enum KompleteKontrolLibUSBServer {
         // Register server socket
         var serverKev = kevent(ident: UInt(serverFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
         kevent(kq, &serverKev, 1, nil, 0, nil)
+        daemonDebugLog("register server fd=\(serverFD) filter=\(EVFILT_READ)", group: "reactor")
 
         // Register libusb poll fds
-        let initialUsbFds = hardware.currentLibusbFds()
-        var trackedUsbFds = Set<Int32>(initialUsbFds)
-        hardware.updateTrackedLibusbFds(trackedUsbFds)
-        for fd in initialUsbFds {
-            var kev = kevent(ident: UInt(fd), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+        let initialUsbRegistrations = kqueueRegistrations(for: hardware.currentLibusbPollFds())
+        var trackedUsbRegistrations = initialUsbRegistrations
+        hardware.updateTrackedLibusbFds(Set(initialUsbRegistrations.map(\.fd)))
+        for registration in initialUsbRegistrations {
+            var kev = kevent(ident: UInt(registration.fd), filter: registration.filter, flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
             kevent(kq, &kev, 1, nil, 0, nil)
+            daemonDebugLog("register libusb fd=\(registration.fd) filter=\(registration.filter)", group: "reactor")
         }
-        daemonLog("tracking \(initialUsbFds.count) libusb poll fds")
+        daemonLog("tracking \(initialUsbRegistrations.count) libusb kqueue registrations")
 
         var clientBuffers: [Int32: [UInt8]] = [:]
         var clientIDs: [Int32: Int] = [:]
         var nextClientID = 0
         var events = Array<kevent>(repeating: kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil), count: 32)
 
+        func syncLibUSBRegistrations() {
+            let currentRegistrations = kqueueRegistrations(for: hardware.currentLibusbPollFds())
+            let toAdd = currentRegistrations.subtracting(trackedUsbRegistrations)
+            let toRemove = trackedUsbRegistrations.subtracting(currentRegistrations)
+            for registration in toAdd {
+                var kev = kevent(ident: UInt(registration.fd), filter: registration.filter, flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+                kevent(kq, &kev, 1, nil, 0, nil)
+                daemonDebugLog("register libusb fd=\(registration.fd) filter=\(registration.filter)", group: "reactor")
+            }
+            for registration in toRemove {
+                var kev = kevent(ident: UInt(registration.fd), filter: registration.filter, flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+                kevent(kq, &kev, 1, nil, 0, nil)
+                daemonDebugLog("unregister libusb fd=\(registration.fd) filter=\(registration.filter)", group: "reactor")
+            }
+            if currentRegistrations != trackedUsbRegistrations {
+                daemonLog("tracking \(currentRegistrations.count) libusb kqueue registrations")
+            }
+            trackedUsbRegistrations = currentRegistrations
+            hardware.updateTrackedLibusbFds(Set(currentRegistrations.map(\.fd)))
+        }
+
         while true {
             let nReady = events.withUnsafeMutableBufferPointer { buf -> Int32 in
                 kevent(kq, nil, 0, buf.baseAddress, Int32(buf.count), nil)
             }
 
+            if nReady < 0 {
+                if errno != EINTR {
+                    daemonLog("kevent wait failed errno=\(errno)")
+                }
+                continue
+            }
+            daemonTraceLog("kevent ready count=\(nReady)", group: "reactor")
+
             for i in 0..<Int(nReady) {
                 let event = events[i]
                 let fd = Int32(event.ident)
+                daemonTraceLog("event fd=\(fd) filter=\(event.filter) flags=\(event.flags) fflags=\(event.fflags) data=\(event.data)", group: "reactor")
 
                 if fd == serverFD {
+                    daemonTraceLog("server fd ready", group: "reactor")
                     let clientFD = accept(serverFD, nil, nil)
                     if clientFD >= 0 {
                         nextClientID += 1
-                        fcntl(clientFD, F_SETFL, O_NONBLOCK)
+                        _ = fcntl(clientFD, F_SETFL, O_NONBLOCK)
                         clientIDs[clientFD] = nextClientID
                         clientBuffers[clientFD] = []
                         hardware.addClient(fd: clientFD, clientID: nextClientID)
@@ -1654,24 +1791,14 @@ public enum KompleteKontrolLibUSBServer {
                         daemonLog("client \(nextClientID) connected")
                     }
                 } else if hardware.isLibusbFd(fd) {
+                    daemonDebugLog("libusb fd ready fd=\(fd) filter=\(event.filter)", group: "reactor")
                     hardware.handleUsbEvents(timeoutMs: 0)
-                    // Re-sync libusb fds (they may change)
-                    let currentFds = Set(hardware.currentLibusbFds())
-                    let toAdd = currentFds.subtracting(trackedUsbFds)
-                    let toRemove = trackedUsbFds.subtracting(currentFds)
-                    for newFd in toAdd {
-                        var kev = kevent(ident: UInt(newFd), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
-                        kevent(kq, &kev, 1, nil, 0, nil)
-                    }
-                    for oldFd in toRemove {
-                        var kev = kevent(ident: UInt(oldFd), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
-                        kevent(kq, &kev, 1, nil, 0, nil)
-                    }
-                    trackedUsbFds = currentFds
-                    hardware.updateTrackedLibusbFds(trackedUsbFds)
+                    syncLibUSBRegistrations()
                 } else if clientIDs[fd] != nil {
                     let cid = clientIDs[fd]!
+                    daemonTraceLog("client fd ready client=\(cid) fd=\(fd)", group: "client")
                     let shouldClose = processClientCommands(fd, clientID: cid, hardware: hardware, buffer: &clientBuffers[fd, default: []])
+                    syncLibUSBRegistrations()
                     if shouldClose {
                         hardware.removeClient(clientID: cid)
                         hardware.disconnect(clientID: cid)
@@ -1685,6 +1812,25 @@ public enum KompleteKontrolLibUSBServer {
                 }
             }
         }
+    }
+
+    private static func kqueueRegistrations(for pollFds: [KontrolUSBPollFd]) -> Set<LibUSBKqueueRegistration> {
+        var registrations = Set<LibUSBKqueueRegistration>()
+        for pollFd in pollFds {
+            var added = false
+            if (pollFd.events & UInt16(POLLIN)) != 0 {
+                registrations.insert(LibUSBKqueueRegistration(fd: pollFd.fd, filter: Int16(EVFILT_READ)))
+                added = true
+            }
+            if (pollFd.events & UInt16(POLLOUT)) != 0 {
+                registrations.insert(LibUSBKqueueRegistration(fd: pollFd.fd, filter: Int16(EVFILT_WRITE)))
+                added = true
+            }
+            if !added {
+                registrations.insert(LibUSBKqueueRegistration(fd: pollFd.fd, filter: Int16(EVFILT_READ)))
+            }
+        }
+        return registrations
     }
 
     private static func processClientCommands(_ fd: Int32, clientID: Int, hardware: DaemonHardware, buffer: inout [UInt8]) -> Bool {
@@ -1718,6 +1864,11 @@ public enum KompleteKontrolLibUSBServer {
         return sessionHasCurrentProtocol(session)
     }
 
+    private static func daemonSocketIsReachable(socketPath: String = defaultDaemonSocketPath) -> Bool {
+        guard FileManager.default.fileExists(atPath: socketPath) else { return false }
+        return KompleteKontrolDaemonClient(socketPath: socketPath) != nil
+    }
+
     fileprivate static func sessionHasCurrentProtocol(_ session: KompleteKontrolDaemonClient) -> Bool {
         guard let response = session.request("version\n", timeoutUsec: 250_000) else {
             return false
@@ -1738,9 +1889,14 @@ public enum KompleteKontrolLibUSBServer {
             return true
         }
 
-        // First, try to use launchctl if the daemon is already installed as a launchd service
-        if tryStartDaemonViaLaunchctl(socketPath: socketPath, forceRestart: forceRestart, logger: logger) {
-            return true
+        let plistPath = launchdPlistPath()
+        let daemonIsInstalled = FileManager.default.fileExists(atPath: plistPath)
+        if daemonIsInstalled {
+            guard geteuid() == 0 else {
+                logger?("Launchd service is installed but not running. Run 'sudo make install-daemon' to restart the system daemon.")
+                return false
+            }
+            return tryStartDaemonViaLaunchctl(socketPath: socketPath, forceRestart: true, logger: logger)
         }
 
         // Fall back to osascript method for one-time setup
@@ -1755,7 +1911,7 @@ public enum KompleteKontrolLibUSBServer {
         var commandParts: [String] = []
         if forceRestart {
             commandParts += [
-                "/usr/bin/pkill -f --", shellQuote("--kk-libusb-daemon " + socketPath), "2>/dev/null || true", ";",
+                "/usr/bin/pkill -f", shellQuote("kk-libusb-daemon"), "2>/dev/null || true", ";",
             ]
         }
         commandParts += [
@@ -1793,7 +1949,7 @@ public enum KompleteKontrolLibUSBServer {
     }
 
     private static func tryStartDaemonViaLaunchctl(socketPath: String, forceRestart: Bool, logger: (@Sendable (String) -> Void)?) -> Bool {
-        let plistPath = "/Library/LaunchDaemons/\(daemonLabel).plist"
+        let plistPath = launchdPlistPath()
         let fileManager = FileManager.default
 
         guard fileManager.fileExists(atPath: plistPath) else {
@@ -1809,7 +1965,7 @@ public enum KompleteKontrolLibUSBServer {
             process.arguments = ["kickstart", "-k", "system/\(daemonLabel)"]
             logger?("Restarting daemon via launchctl...")
         } else {
-            process.arguments = ["start", "system/\(daemonLabel)"]
+            process.arguments = ["bootstrap", "system", plistPath]
             logger?("Starting daemon via launchctl...")
         }
 
@@ -1834,19 +1990,137 @@ public enum KompleteKontrolLibUSBServer {
         return false
     }
 
+    private static func launchdPlistPath() -> String {
+        "/Library/LaunchDaemons/\(daemonLabel).plist"
+    }
+
+    private static func acquireDaemonLock() -> Int32? {
+        let fd = Darwin.open(daemonLockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard fd >= 0 else {
+            daemonLog("daemon lock open failed path=\(daemonLockPath) errno=\(errno)")
+            return nil
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            Darwin.close(fd)
+            return nil
+        }
+        return fd
+    }
+
+    private static func runningDaemonPIDs() -> [pid_t] {
+        let patterns = [
+            "KontrolProbe .*--kk-libusb-daemon",
+            "KontrolProbe .*--libusb-daemon",
+        ]
+        var candidates = Set<pid_t>()
+        for pattern in patterns {
+            for pid in pgrep(pattern: pattern) {
+                candidates.insert(pid)
+            }
+        }
+        return candidates
+            .compactMap { pid -> pid_t? in
+                guard let command = commandLine(for: pid),
+                      isDaemonProcessCommand(command) else {
+                    return nil
+                }
+                return pid
+            }
+            .sorted()
+    }
+
+    private static func pgrep(pattern: String) -> [pid_t] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-f", pattern]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            daemonLog("daemon process scan failed pattern=\(pattern): \(error)")
+            return []
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        if process.terminationStatus == 1 {
+            return []
+        }
+        guard process.terminationStatus == 0 else {
+            daemonLog("daemon process scan failed pattern=\(pattern) status=\(process.terminationStatus)", level: .error)
+            return []
+        }
+        guard let output = String(data: data, encoding: .utf8) else {
+            return []
+        }
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    private static func commandLine(for pid: pid_t) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", String(pid), "-o", "command="]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            daemonLog("daemon process command scan failed pid=\(pid): \(error)")
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let command = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? nil : command
+    }
+
+    private static func isDaemonProcessCommand(_ command: String) -> Bool {
+        let executable = command
+            .split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
+            .first
+            .map(String.init) ?? ""
+        let executableName = URL(fileURLWithPath: executable).lastPathComponent
+        let ignoredWrappers: Set<String> = ["sudo", "sh", "zsh", "bash", "make", "awk", "env", "pgrep"]
+        guard !ignoredWrappers.contains(executableName) else {
+            return false
+        }
+        return command.contains("--kk-libusb-daemon") || command.contains("--libusb-daemon")
+    }
+
     private final class DaemonHardware: @unchecked Sendable {
         private struct RegisteredClient {
             var pid: Int32
             var name: String
         }
 
+        private enum PushKind {
+            case input
+            case midi
+        }
+
         private let lock = NSLock()
+        private let maxQueuedPushes = 64
         private let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
         private var libusbSession: KontrolUSBLibUSBSessionRef?
+        private var asyncTransfersStarted = false
         private var registeredClients: [Int: RegisteredClient] = [:]
         private var activeClientID: Int?
         private var clientFDs: [Int: Int32] = [:]
         private var trackedLibusbFds: Set<Int32> = []
+        private var queuedInputMessages: [String] = []
+        private var queuedMIDIMessages: [String] = []
 
         deinit {
             if let libusbSession {
@@ -1862,9 +2136,6 @@ public enum KompleteKontrolLibUSBServer {
                 return "ok kk-daemon \(protocolVersion)"
             }
 
-            lock.lock()
-            defer { lock.unlock() }
-
             if command == "register" {
                 return register(tokens: tokens, clientID: clientID)
             }
@@ -1876,27 +2147,48 @@ public enum KompleteKontrolLibUSBServer {
                 return KompleteKontrolLibUSBServer.handleDaemonCommand(line, session: nil, transientClaim: true)
             }
 
+            if command == "read" {
+                guard ensureSession() != nil else { return "timeout" }
+                handleUsbEvents(timeoutMs: 0)
+                return dequeueQueuedInputMessage() ?? "timeout"
+            }
+            if command == "midiread" {
+                guard ensureSession() != nil else { return "timeout" }
+                handleUsbEvents(timeoutMs: 0)
+                return dequeueQueuedMIDIMessage() ?? "timeout"
+            }
+
             guard let session = ensureSession() else {
                 return "err no session"
             }
 
             let response = KompleteKontrolLibUSBServer.handleDaemonCommand(line, session: session)
-            if shouldDropSession(after: response) {
-                KontrolUSBLibUSBSessionClose(session)
-                libusbSession = nil
-            }
+            dropSession(session, after: response)
             return response
         }
 
         func disconnect(clientID: Int) {
+            let nextClient: RegisteredClient?
+            let shouldRefreshDisplay: Bool
             lock.lock()
-            defer { lock.unlock() }
-            guard registeredClients.removeValue(forKey: clientID) != nil else { return }
-            daemonLog("client \(clientID) registration removed on disconnect")
+            guard registeredClients.removeValue(forKey: clientID) != nil else {
+                lock.unlock()
+                return
+            }
             if activeClientID == clientID {
                 activeClientID = registeredClients.keys.sorted().last
-                if let activeClientID, let active = registeredClients[activeClientID] {
-                    showConnectedClient(active)
+                nextClient = activeClientID.flatMap { registeredClients[$0] }
+                shouldRefreshDisplay = true
+            } else {
+                nextClient = nil
+                shouldRefreshDisplay = false
+            }
+            lock.unlock()
+
+            daemonLog("client \(clientID) registration removed on disconnect")
+            if shouldRefreshDisplay {
+                if let nextClient {
+                    showConnectedClient(nextClient)
                 } else {
                     showNoClient()
                 }
@@ -1904,8 +2196,6 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func runStartupAnimationThenIdle() {
-            lock.lock()
-            defer { lock.unlock() }
             runStartupAnimation()
             showNoClient()
         }
@@ -1918,22 +2208,40 @@ public enum KompleteKontrolLibUSBServer {
                 return "err register"
             }
             let client = RegisteredClient(pid: pidValue, name: name)
+            lock.lock()
             registeredClients[clientID] = client
             activeClientID = clientID
+            queuedInputMessages.removeAll()
+            queuedMIDIMessages.removeAll()
+            lock.unlock()
+
             daemonLog("client \(clientID) registered name=\(name) pid=\(pidValue)")
             showConnectedClient(client)
             return "ok registered"
         }
 
         private func unregister(clientID: Int) -> String {
+            let nextClient: RegisteredClient?
+            let shouldRefreshDisplay: Bool
+            lock.lock()
             guard let client = registeredClients.removeValue(forKey: clientID) else {
+                lock.unlock()
                 return "ok unregistered"
             }
-            daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
             if activeClientID == clientID {
                 activeClientID = registeredClients.keys.sorted().last
-                if let activeClientID, let active = registeredClients[activeClientID] {
-                    showConnectedClient(active)
+                nextClient = activeClientID.flatMap { registeredClients[$0] }
+                shouldRefreshDisplay = true
+            } else {
+                nextClient = nil
+                shouldRefreshDisplay = false
+            }
+            lock.unlock()
+
+            daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
+            if shouldRefreshDisplay {
+                if let nextClient {
+                    showConnectedClient(nextClient)
                 } else {
                     showNoClient()
                 }
@@ -1942,9 +2250,13 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func ensureSession() -> KontrolUSBLibUSBSessionRef? {
+            lock.lock()
             if let libusbSession {
+                lock.unlock()
                 return libusbSession
             }
+            lock.unlock()
+
             var session: KontrolUSBLibUSBSessionRef?
             let result = KontrolUSBLibUSBSessionOpen(&session)
             let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
@@ -1952,12 +2264,36 @@ public enum KompleteKontrolLibUSBServer {
             guard result.status == 0, let session else {
                 return nil
             }
+
+            lock.lock()
+            if let existingSession = libusbSession {
+                lock.unlock()
+                KontrolUSBLibUSBSessionClose(session)
+                return existingSession
+            }
             libusbSession = session
+            lock.unlock()
+
+            startAsyncTransfersIfNeeded(session)
             return session
         }
 
         private func shouldDropSession(after response: String) -> Bool {
             response.hasPrefix("err -4 ") || response.hasPrefix("err -5 ") || response.hasPrefix("err -6 ")
+        }
+
+        private func dropSession(_ session: KontrolUSBLibUSBSessionRef, after response: String) {
+            guard shouldDropSession(after: response) else { return }
+            lock.lock()
+            let shouldClose = libusbSession == session
+            if shouldClose {
+                libusbSession = nil
+                asyncTransfersStarted = false
+            }
+            lock.unlock()
+            if shouldClose {
+                KontrolUSBLibUSBSessionClose(session)
+            }
         }
 
         private func runStartupAnimation() {
@@ -1966,42 +2302,29 @@ public enum KompleteKontrolLibUSBServer {
 
             var allButtons = [UInt8](repeating: 0x7f, count: KKButtonLED.protocolNames.count)
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: allButtons)
-            var flashGuide = (0..<KompleteKontrolS25MK1Protocol.keyCount).flatMap { index -> [UInt8] in
-                let color = KKRGB.hsv(Double(index) / Double(KompleteKontrolS25MK1Protocol.keyCount) * 360.0, 1.0, 0.8)
-                return [color.red, color.green, color.blue]
-            }
+            var flashGuide = startupRainbowGuide()
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: flashGuide)
             usleep(120_000)
 
             allButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: allButtons)
 
-            let keyCount = KompleteKontrolS25MK1Protocol.keyCount
-            for index in 0..<keyCount {
-                writeStartupSweep(session: session, center: index)
-                usleep(18_000)
-            }
-            for index in stride(from: keyCount - 1, through: 0, by: -1) {
-                writeStartupSweep(session: session, center: index)
-                usleep(18_000)
-            }
-
-            flashGuide = [UInt8](repeating: 0, count: 3 * keyCount)
+            flashGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: flashGuide)
         }
 
-        private func writeStartupSweep(session: KontrolUSBLibUSBSessionRef, center: Int) {
+        private func startupRainbowGuide() -> [UInt8] {
             let keyCount = KompleteKontrolS25MK1Protocol.keyCount
-            var guide = [UInt8](repeating: 0, count: 3 * keyCount)
-            for offset in -2...2 {
-                let index = center + offset
-                guard (0..<keyCount).contains(index) else { continue }
-                let strength = UInt8(max(0, 0x7f - abs(offset) * 0x25))
-                guide[index * 3 + 0] = strength
-                guide[index * 3 + 1] = UInt8(Int(strength) * 3 / 4)
-                guide[index * 3 + 2] = 0
+            return (0..<keyCount).flatMap { index -> [UInt8] in
+                let position = Double(index) / Double(max(1, keyCount - 1))
+                let hue = (265.0 + position * 320.0).truncatingRemainder(dividingBy: 360.0)
+                let color = KKRGB.hsv(hue, 0.78, 0.48)
+                return [
+                    UInt8(min(0x7f, Int(color.red))),
+                    UInt8(min(0x7f, Int(color.green))),
+                    UInt8(min(0x7f, Int(color.blue))),
+                ]
             }
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: guide)
         }
 
         private func showConnectedClient(_ client: RegisteredClient) {
@@ -2009,7 +2332,6 @@ public enum KompleteKontrolLibUSBServer {
             let name = String(client.name.prefix(8)).uppercased()
             let pid = "PID \(client.pid)"
             var frame = KKDisplayFrame()
-            frame.setText("CLIENT", display: 0, row: 0, alignment: .center)
             frame.setText(name, display: 0, row: 1, alignment: .center)
             frame.setText(String(pid.prefix(8)), display: 0, row: 2, alignment: .center)
             frame.setText("CONNECTED", display: 1, row: 1, alignment: .center)
@@ -2019,7 +2341,6 @@ public enum KompleteKontrolLibUSBServer {
         private func showNoClient() {
             guard let session = ensureSession() else { return }
             var frame = KKDisplayFrame()
-            frame.setText("KK", display: 0, row: 0, alignment: .center)
             frame.setText("NO", display: 0, row: 1, alignment: .center)
             frame.setText("CLIENT", display: 0, row: 2, alignment: .center)
             writeDarkSurface(session: session, displayFrame: frame)
@@ -2038,9 +2359,12 @@ public enum KompleteKontrolLibUSBServer {
 
         private func writeReport(session: KontrolUSBLibUSBSessionRef, reportID: UInt8, payload: [UInt8]) {
             var payload = payload
-            _ = payload.withUnsafeMutableBufferPointer { buffer in
+            daemonTraceLog("write report begin report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) head=\(KKTiming.short(payload))", group: "usb-out")
+            let start = KKTiming.now()
+            let result = payload.withUnsafeMutableBufferPointer { buffer in
                 KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
             }
+            daemonTraceLog("write report end report=0x\(KKHex.byte(reportID)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "usb-out")
         }
 
         func addClient(fd: Int32, clientID: Int) {
@@ -2056,31 +2380,60 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func startAsyncTransfers() {
-            lock.lock()
-            defer { lock.unlock() }
             guard let session = ensureSession() else { return }
+            startAsyncTransfersIfNeeded(session)
+        }
+
+        private func startAsyncTransfersIfNeeded(_ session: KontrolUSBLibUSBSessionRef) {
+            lock.lock()
+            guard !asyncTransfersStarted else {
+                lock.unlock()
+                return
+            }
+            asyncTransfersStarted = true
+            lock.unlock()
+
             let selfPtr = Unmanaged.passUnretained(self).toOpaque()
             let inputStatus = KontrolUSBLibUSBSessionStartAsyncInput(session, KompleteKontrolLibUSBServer.asyncInputCallback, selfPtr)
             let midiStatus = KontrolUSBLibUSBSessionStartAsyncMIDI(session, KompleteKontrolLibUSBServer.asyncMidiCallback, selfPtr)
-            daemonLog("async transfers started input=\(inputStatus) midi=\(midiStatus)")
+
+            lock.lock()
+            asyncTransfersStarted = inputStatus == 0 || midiStatus == 0
+            lock.unlock()
+            daemonLog("async transfers started input=\(inputStatus) midi=\(midiStatus)", group: "usb")
         }
 
         func handleUsbEvents(timeoutMs: Int) {
             lock.lock()
-            defer { lock.unlock() }
-            guard let session = libusbSession else { return }
+            let session = libusbSession
+            lock.unlock()
+            guard let session else {
+                daemonDebugLog("handle_events skipped: no session", group: "usb")
+                return
+            }
+            daemonTraceLog("handle_events begin timeoutMs=\(timeoutMs)", group: "usb")
             KontrolUSBLibUSBHandleEventsTimeout(session, Int32(timeoutMs))
+            daemonTraceLog("handle_events end timeoutMs=\(timeoutMs)", group: "usb")
         }
 
-        func currentLibusbFds() -> [Int32] {
+        func currentLibusbPollFds() -> [KontrolUSBPollFd] {
             lock.lock()
-            defer { lock.unlock() }
-            guard let session = libusbSession else { return [] }
+            let session = libusbSession
+            lock.unlock()
+            guard let session else {
+                daemonTraceLog("pollfds skipped: no session", group: "usb")
+                return []
+            }
             var pollFds = [KontrolUSBPollFd](repeating: KontrolUSBPollFd(), count: 8)
             let count = pollFds.withUnsafeMutableBufferPointer { buf in
                 KontrolUSBLibUSBSessionGetPollFds(session, buf.baseAddress, Int32(buf.count))
             }
-            return pollFds.prefix(Int(max(0, count))).map { $0.fd }
+            let result = Array(pollFds.prefix(Int(max(0, count))))
+            let summary = result
+                .map { "fd=\($0.fd)/events=0x\(String(format: "%04x", Int($0.events)))" }
+                .joined(separator: ",")
+            daemonTraceLog("pollfds count=\(result.count) \(summary)", group: "usb")
+            return result
         }
 
         func isLibusbFd(_ fd: Int32) -> Bool {
@@ -2093,23 +2446,54 @@ public enum KompleteKontrolLibUSBServer {
 
         fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
-            pushToClients("in \(hex)")
+            daemonDebugLog("async input len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "surface", level: .info)
+            pushToClients("in \(hex)", kind: .input)
         }
 
         fileprivate func pushMidiToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
-            pushToClients("midi \(hex)")
+            daemonDebugLog("async midi len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "midi", level: .info)
+            pushToClients("midi \(hex)", kind: .midi)
         }
 
-        private func pushToClients(_ message: String) {
+        private func pushToClients(_ message: String, kind: PushKind) {
             lock.lock()
+            switch kind {
+                case .input:
+                    queuedInputMessages.append(message)
+                    trimQueuedMessages(&queuedInputMessages)
+                case .midi:
+                    queuedMIDIMessages.append(message)
+                    trimQueuedMessages(&queuedMIDIMessages)
+            }
             let fds = Array(clientFDs.values)
             lock.unlock()
+            daemonTraceLog("push clients=\(fds.count) message=\(message)", group: "client")
             let bytes = Array((message + "\n").utf8)
             for fd in fds {
                 bytes.withUnsafeBytes { raw in
                     _ = Darwin.write(fd, raw.baseAddress, bytes.count)
                 }
+            }
+        }
+
+        private func dequeueQueuedInputMessage() -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !queuedInputMessages.isEmpty else { return nil }
+            return queuedInputMessages.removeFirst()
+        }
+
+        private func dequeueQueuedMIDIMessage() -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !queuedMIDIMessages.isEmpty else { return nil }
+            return queuedMIDIMessages.removeFirst()
+        }
+
+        private func trimQueuedMessages(_ messages: inout [String]) {
+            if messages.count > maxQueuedPushes {
+                messages.removeFirst(messages.count - maxQueuedPushes)
             }
         }
     }
@@ -2233,29 +2617,43 @@ public enum KompleteKontrolLibUSBServer {
             return
         }
         if command.hasPrefix("read ") && response.hasPrefix("in ") {
-            daemonTraceLog("client \(clientID) read -> \(response)")
+            daemonTraceLog("client \(clientID) read -> \(response)", group: "client")
             return
         }
         if command.hasPrefix("midiread ") && response.hasPrefix("midi ") {
-            daemonTraceLog("client \(clientID) midiread -> \(response)")
+            daemonTraceLog("client \(clientID) midiread -> \(response)", group: "client")
             return
         }
         if command.hasPrefix("write ") {
-            daemonTraceLog("client \(clientID) \(command) -> \(response)")
+            daemonTraceLog("client \(clientID) \(command) -> \(response)", group: "client")
         } else {
-            daemonLog("client \(clientID) \(command) -> \(response)")
+            daemonLog("client \(clientID) \(command) -> \(response)", group: "client")
         }
     }
 
-    private static func daemonLog(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        fputs("[kk-daemon] \(timestamp) \(message)\n", stderr)
-        fflush(stderr)
+    private static func daemonLog(
+        _ message: @autoclosure () -> String,
+        group: String = "daemon",
+        level: KKStderrLogLevel = .info
+    ) {
+        KKStderrLog.write(group: group, level: level, message())
     }
 
-    private static func daemonTraceLog(_ message: String) {
+    private static func daemonDebugLog(
+        _ message: @autoclosure () -> String,
+        group: String = "daemon",
+        level: KKStderrLogLevel = .debug
+    ) {
+        #if KK_DEBUG
         guard KKTiming.traceEnabled else { return }
-        daemonLog(message)
+        KKStderrLog.write(group: group, level: level, message())
+        #endif
+    }
+
+    private static func daemonTraceLog(_ message: @autoclosure () -> String, group: String = "daemon") {
+        #if KK_DEBUG
+        daemonDebugLog(message(), group: group, level: .trace)
+        #endif
     }
 
     fileprivate static func fillSunPath(_ addr: inout sockaddr_un, socketPath: String) -> Bool {
@@ -2413,11 +2811,11 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         return response
     }
 
-    private func trace(_ message: String) {
+    private func trace(_ message: @autoclosure () -> String) {
+        #if KK_DEBUG
         guard KKTiming.traceEnabled else { return }
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        fputs("[kk-client] \(timestamp) \(message)\n", stderr)
-        fflush(stderr)
+        KKStderrLog.write(group: "client", level: .trace, message())
+        #endif
     }
 
     private func sendLine(_ line: String) -> Bool {
@@ -2458,9 +2856,9 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
             if count > 0 {
                 responseBuffer.append(contentsOf: scratch.prefix(count))
             } else if count == 0 {
-                usleep(10_000)
+                return nil
             } else if errno == EAGAIN || errno == EWOULDBLOCK {
-                usleep(10_000)
+                guard waitForReadable(until: deadline) else { return nil }
             } else {
                 return nil
             }
@@ -2468,7 +2866,8 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         return nil
     }
 
-    public func readPushes(timeoutUsec: useconds_t = 1_000_000) {
+    @discardableResult
+    public func readPushes(timeoutUsec: useconds_t = 1_000_000) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
@@ -2490,13 +2889,25 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
             if count > 0 {
                 responseBuffer.append(contentsOf: scratch.prefix(count))
             } else if count == 0 {
-                return
+                return false
             } else if errno == EAGAIN || errno == EWOULDBLOCK {
-                usleep(10_000)
+                guard waitForReadable(until: deadline) else { return true }
             } else {
-                return
+                return false
             }
         }
+        return true
+    }
+
+    private func waitForReadable(until deadline: Date) -> Bool {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { return false }
+        let timeoutMs = Int32(max(1, min(remaining * 1000.0, Double(Int32.max))))
+        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        let result = poll(&descriptor, 1, timeoutMs)
+        guard result > 0 else { return false }
+        let readableEvents = Int16(POLLIN | POLLERR | POLLHUP)
+        return (descriptor.revents & readableEvents) != 0
     }
 }
 

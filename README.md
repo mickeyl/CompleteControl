@@ -62,6 +62,7 @@ device.sendButtonLEDsAsync()
 ### Display Control
 
 ```swift
+// Row 0 is the progress/bar row; text is supported on rows 1 and 2.
 device.setDisplayText("HELLO", display: 0, row: 1, alignment: .center)
 device.setDisplayBar(0.5, display: 1, row: 0)
 device.sendDisplaysAsync()

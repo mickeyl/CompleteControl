@@ -16,6 +16,9 @@ let package = Package(
             dependencies: ["CLibUSB"],
             path: "Sources/KontrolUSB",
             publicHeadersPath: "include",
+            cSettings: [
+                .define("KK_DEBUG", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("IOKit"),
@@ -25,13 +28,19 @@ let package = Package(
             name: "KompleteKontrol",
             dependencies: ["KontrolUSB"],
             path: "Sources/KompleteKontrol",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [
+                .define("KK_DEBUG", .when(configuration: .debug)),
+                .swiftLanguageMode(.v5),
+            ]
         ),
         .executableTarget(
             name: "KontrolProbe",
             dependencies: ["KompleteKontrol", "KontrolUSB"],
             path: "Tools/KontrolProbe",
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            swiftSettings: [
+                .define("KK_DEBUG", .when(configuration: .debug)),
+                .swiftLanguageMode(.v5),
+            ]
         ),
         .systemLibrary(
             name: "CLibUSB",

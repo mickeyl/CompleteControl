@@ -18,17 +18,5 @@
     <true/>
     <key>KeepAlive</key>
     <true/>
-    <key>Sockets</key>
-    <dict>
-        <key>Listener</key>
-        <dict>
-            <key>SockFamily</key>
-            <string>Unix</string>
-            <key>SockPathMode</key>
-            <integer>438</integer>
-            <key>SockPathName</key>
-            <string>/var/run/kompletekontrol-libusb.sock</string>
-        </dict>
-    </dict>
 </dict>
 </plist>
