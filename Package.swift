@@ -7,8 +7,10 @@ let package = Package(
     products: [
         .library(name: "CompleteControl", targets: ["KompleteKontrol"]),
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
+        .library(name: "KontrolSurfaceKit", targets: ["KontrolSurfaceKit"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
+        .executable(name: "SurfaceDemo", targets: ["SurfaceDemo"]),
     ],
     dependencies: [],
     targets: [
@@ -40,6 +42,22 @@ let package = Package(
             path: "Tools/KontrolProbe",
             swiftSettings: [
                 .define("KK_DEBUG", .when(configuration: .debug)),
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
+            name: "KontrolSurfaceKit",
+            dependencies: ["KompleteKontrol"],
+            path: "Sources/KontrolSurfaceKit",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "SurfaceDemo",
+            dependencies: ["KontrolSurfaceKit", "KompleteKontrol"],
+            path: "Tools/SurfaceDemo",
+            swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
         ),
