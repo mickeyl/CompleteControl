@@ -2,13 +2,24 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit
 
-// Drives two screens on the surface and switches between them with the Browse
-// button:
-//   - a parameter page (eight encoder-bound parameters on displays 1…8), and
-//   - a glyph browser that shows a sliding window of 16-segment glyphs and the
-//     selected glyph's name on the bottom row, scrolled as a marquee.
+// A multi-page demo. Page Left / Page Right switch between widget showcases;
+// the status display (0) always shows the page name and index.
+//
+//   - Parameters: eight encoder-bound parameters on displays 1…8.
+//   - Glyphs:     a sliding 16-segment glyph window; the bottom row marquees the
+//                 selected glyph's name. Main encoder / encoder 1 scrolls.
+//   - Activity:   spinner widgets running a segment around the cell rectangle.
 actor DemoController {
-    enum Mode { case parameters, glyphs }
+    enum Page: Int, CaseIterable {
+        case parameters, glyphs, activity
+        var name: String {
+            switch self {
+                case .parameters: "PARAMETERS"
+                case .glyphs: "GLYPHS"
+                case .activity: "ACTIVITY"
+            }
+        }
+    }
 
     private static let glyphCount = KKDisplayFrame.availableGlyphCount
     private static let glyphWindow = KKDisplayFrame.characterCount
@@ -17,7 +28,7 @@ actor DemoController {
 
     private let surface: Surface
     private let page: ParameterPage
-    private var mode: Mode = .parameters
+    private var current: Page = .parameters
     private var glyphSelection = 0
 
     init(surface: Surface, page: ParameterPage) {
@@ -25,45 +36,72 @@ actor DemoController {
         self.page = page
     }
 
-    func showParameters() async {
-        mode = .parameters
-        await surface.setParameterPage(page)
+    func show(_ target: Page) async {
+        current = target
+        switch target {
+            case .parameters:
+                await surface.setParameterPage(page)
+            case .glyphs:
+                await surface.clearParameterPage()
+                await surface.clearAll()
+                await renderGlyphs()
+                await surface.setStatus(target.name)
+            case .activity:
+                await surface.clearParameterPage()
+                await surface.clearAll()
+                await renderActivity()
+                await surface.setStatus(target.name)
+        }
+        await surface.setPage(target.rawValue + 1, of: Page.allCases.count)
     }
 
-    private func showGlyphs() async {
-        mode = .glyphs
-        await surface.clearParameterPage()
-        await surface.clearAll()
-        await renderGlyphs()
+    private func next() async {
+        await show(Page(rawValue: (current.rawValue + 1) % Page.allCases.count)!)
+    }
+
+    private func previous() async {
+        await show(Page(rawValue: (current.rawValue + Page.allCases.count - 1) % Page.allCases.count)!)
     }
 
     private func renderGlyphs() async {
-        await surface.setStatus("GLYPH BROWSER")
-        await surface.setPage(glyphSelection + 1, of: Self.glyphCount)
-
         let glyphs = (0..<Self.glyphWindow).map {
             KKDisplayFrame.glyph(at: min(glyphSelection + $0, Self.glyphCount - 1)) ?? 0
         }
         await surface.setGlyphs(Self.glyphDisplay, 1, glyphs)
         await surface.setBar(Self.maxSelection > 0 ? Double(glyphSelection) / Double(Self.maxSelection) : 0,
                              lcd: Self.glyphDisplay)
-        let name = KKDisplayFrame.glyphName(at: glyphSelection) ?? "?"
-        await surface.setText(Self.glyphDisplay, 2, name, alignment: .center, overflow: .marquee())
+        await surface.setText(Self.glyphDisplay, 2, KKDisplayFrame.glyphName(at: glyphSelection) ?? "?",
+                              alignment: .center, overflow: .marquee())
     }
 
     private func scrollGlyphs(_ delta: Int) async {
-        let step = delta < 0 ? -1 : 1
-        glyphSelection = min(Self.maxSelection, max(0, glyphSelection + step))
+        glyphSelection = min(Self.maxSelection, max(0, glyphSelection + (delta < 0 ? -1 : 1)))
         await renderGlyphs()
+    }
+
+    private func renderActivity() async {
+        await surface.setSpinner(1, 1, column: 0, speed: 10)
+        await surface.setText(1, 2, "SPIN", alignment: .center, overflow: .clip)
+
+        await surface.setSpinner(2, 1, column: 0, speed: 14, length: 2)
+        await surface.setText(2, 2, "COMET", alignment: .center, overflow: .clip)
+
+        await surface.setSpinner(3, 1, column: 0, speed: 10, reverse: true)
+        await surface.setText(3, 2, "REV", alignment: .center, overflow: .clip)
+
+        await surface.setSpinner(4, 1, speed: 8)
+        await surface.setText(4, 2, "ROW", alignment: .center, overflow: .clip)
     }
 
     func handle(_ event: SurfaceInput) async {
         switch event {
-            case let .button(name, pressed) where pressed && name == "browse":
-                if mode == .parameters { await showGlyphs() } else { await showParameters() }
-            case let .encoder(index, delta, _) where mode == .glyphs && index == 0:
+            case let .button(name, pressed) where pressed && name == "page right":
+                await next()
+            case let .button(name, pressed) where pressed && name == "page left":
+                await previous()
+            case let .encoder(index, delta, _) where current == .glyphs && index == 0:
                 await scrollGlyphs(delta)
-            case let .mainEncoder(delta) where mode == .glyphs:
+            case let .mainEncoder(delta) where current == .glyphs:
                 await scrollGlyphs(delta)
             default:
                 break
@@ -86,8 +124,8 @@ let page = ParameterPage(title: "OSC / FILTER", parameters: [
 ])
 let demo = DemoController(surface: surface, page: page)
 
-print("KontrolSurfaceKit demo — turn encoders to edit parameters; press Browse to")
-print("toggle the glyph browser (main encoder / encoder 1 scrolls). Ctrl-C to quit.")
+print("KontrolSurfaceKit demo — Page Left / Page Right switch widget pages.")
+print("On Glyphs, the main encoder scrolls; the bottom row marquees the name. Ctrl-C to quit.")
 
 let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 interrupt.setEventHandler {
@@ -101,7 +139,7 @@ signal(SIGINT, SIG_IGN)
 
 Task {
     await surface.start()
-    await demo.showParameters()
+    await demo.show(.parameters)
     for await event in await surface.inputs {
         await demo.handle(event)
     }

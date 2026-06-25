@@ -93,6 +93,15 @@ public actor Surface {
         reconciler.set(display: lcd, row: 0, .bar(value))
     }
 
+    /// Runs a segment around a cell's rectangle perimeter as an activity
+    /// indicator, animated on the surface clock (rows 1 and 2 only).
+    /// `column == nil` spins every column of the row in sync; `length` lights
+    /// several adjacent segments (a comet); `reverse` runs counter-clockwise.
+    public func setSpinner(_ lcd: Int, _ row: Int, column: Int? = nil,
+                           speed: Double = 12, length: Int = 1, reverse: Bool = false) {
+        reconciler.set(display: lcd, row: row, .spinner(speed: speed, length: length, reverse: reverse, column: column))
+    }
+
     /// Clears all three rows of a single display.
     public func clearDisplay(_ lcd: Int) {
         for row in 0..<KKDisplayFrame.rowCount {

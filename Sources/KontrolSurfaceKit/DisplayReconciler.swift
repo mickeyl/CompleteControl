@@ -7,6 +7,7 @@ enum CellContent {
     case bar(Double)
     case text(String, KKDisplayAlignment, TextOverflow)
     case glyphs([UInt16])
+    case spinner(speed: Double, length: Int, reverse: Bool, column: Int?)
 }
 
 /// Per-cell marquee animation state, advanced by the surface clock.
@@ -63,12 +64,16 @@ struct DisplayReconciler {
     mutating func advance(dt: Double) {
         for display in content.indices {
             for row in 0..<Self.rows {
-                guard case let .text(text, _, overflow) = content[display][row],
-                      text.count > Self.width,
-                      case let .marquee(speed, _, _, startDelay) = overflow else { continue }
-                marquee[display][row].elapsed += dt
-                if marquee[display][row].elapsed >= startDelay {
-                    marquee[display][row].offset += speed * dt
+                switch content[display][row] {
+                    case let .text(text, _, .marquee(speed, _, _, startDelay)) where text.count > Self.width:
+                        marquee[display][row].elapsed += dt
+                        if marquee[display][row].elapsed >= startDelay {
+                            marquee[display][row].offset += speed * dt
+                        }
+                    case let .spinner(speed, _, _, _):
+                        marquee[display][row].offset += speed * dt
+                    default:
+                        break
                 }
             }
         }
@@ -112,7 +117,30 @@ struct DisplayReconciler {
                 } else {
                     frame.setText(window(text, overflow: overflow, marquee: marquee), display: display, row: row, alignment: .left)
                 }
+            case let .spinner(_, length, reverse, column):
+                guard row >= 1 else { break }
+                let mask = Self.perimeterMask(phase: Int(marquee.offset.rounded(.down)), length: length, reverse: reverse)
+                if let column, (0..<Self.width).contains(column) {
+                    frame.setRawGlyph(mask, display: display, row: row, column: column)
+                } else {
+                    for column in 0..<Self.width {
+                        frame.setRawGlyph(mask, display: display, row: row, column: column)
+                    }
+                }
         }
+    }
+
+    /// The eight outer segments form the cell's rectangle, and bits 0…7 happen to
+    /// walk that rectangle clockwise, so a single bit stepped through 0…7 runs a
+    /// segment around the perimeter. `length` lights several adjacent segments.
+    private static func perimeterMask(phase: Int, length: Int, reverse: Bool) -> UInt16 {
+        var mask: UInt16 = 0
+        for offset in 0..<max(1, length) {
+            let raw = reverse ? -(phase + offset) : (phase + offset)
+            let bit = ((raw % 8) + 8) % 8
+            mask |= UInt16(1) << bit
+        }
+        return mask
     }
 
     private func window(_ text: String, overflow: TextOverflow, marquee: MarqueeState) -> String {
