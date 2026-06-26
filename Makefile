@@ -1,18 +1,40 @@
 .DEFAULT_GOAL := help
 
 SOCKET ?= /var/run/kompletekontrol-libusb.sock
+DAEMON := .build/debug/ccd
+DAEMON_RELEASE := .build/release/ccd
 PROBE := .build/debug/KontrolProbe
 PROBE_RELEASE := .build/release/KontrolProbe
+SURFACE_DEMO := .build/debug/SurfaceDemo
+SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
 
-.PHONY: help build build-release daemon-preflight daemon-debug daemon-release install-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release kk-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-18s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
-build: ## Build KontrolProbe.
+build: ## Build the middleware SurfaceDemo.
+	swift build --product SurfaceDemo
+
+build-release: ## Build optimized middleware SurfaceDemo.
+	swift build -c release --product SurfaceDemo
+
+SurfaceDemo: build ## Build the middleware SurfaceDemo product.
+
+surface: run ## Run the middleware SurfaceDemo.
+
+surface-release: run-release ## Run optimized middleware SurfaceDemo.
+
+daemon-build: ## Build the CompleteControl daemon.
+	swift build --product ccd
+
+daemon-build-release: ## Build optimized CompleteControl daemon.
+	swift build -c release --product ccd
+
+probe-build: ## Build the old KontrolProbe baseline.
 	swift build --product KontrolProbe
 
-build-release: ## Build optimized KontrolProbe.
+probe-build-release: ## Build optimized old KontrolProbe baseline.
 	swift build -c release --product KontrolProbe
 
 daemon-preflight: ## Refuse stale or duplicate daemon state.
@@ -28,7 +50,10 @@ daemon-preflight: ## Refuse stale or duplicate daemon state.
 	for pid in $$pids; do \
 		command="$$(ps -o command= -p "$$pid")"; \
 		case "$$command" in \
+			/usr/local/bin/ccd" "--kk-libusb-daemon*|/usr/local/bin/ccd" "--libusb-daemon*) ;; \
 			/usr/local/bin/KontrolProbe" "--kk-libusb-daemon*|/usr/local/bin/KontrolProbe" "--libusb-daemon*) ;; \
+			*"/.build/debug/ccd "--kk-libusb-daemon*|*"/.build/debug/ccd "--libusb-daemon*) foreground_daemon=1 ;; \
+			*"/.build/release/ccd "--kk-libusb-daemon*|*"/.build/release/ccd "--libusb-daemon*) foreground_daemon=1 ;; \
 			*"/.build/debug/KontrolProbe "--kk-libusb-daemon*|*"/.build/debug/KontrolProbe "--libusb-daemon*) foreground_daemon=1 ;; \
 			*"/.build/release/KontrolProbe "--kk-libusb-daemon*|*"/.build/release/KontrolProbe "--libusb-daemon*) foreground_daemon=1 ;; \
 			*) \
@@ -39,30 +64,30 @@ daemon-preflight: ## Refuse stale or duplicate daemon state.
 				;; \
 		esac; \
 	done; \
-	probe_path="$${PROBE_PREFLIGHT:-$(PROBE)}"; \
-	if [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/KontrolProbe ] && [ -x "$$probe_path" ] && ! cmp -s "$$probe_path" /usr/local/bin/KontrolProbe; then \
-		echo "Refusing to run: /usr/local/bin/KontrolProbe is stale." >&2; \
+	daemon_path="$${DAEMON_PREFLIGHT:-$(DAEMON)}"; \
+	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ] && [ -x "$$daemon_path" ] && ! cmp -s "$$daemon_path" /usr/local/bin/ccd; then \
+		echo "Refusing to run: /usr/local/bin/ccd is stale." >&2; \
 		echo "Run: make install-daemon" >&2; \
 		exit 1; \
 	fi
 
-daemon-debug: build ## Stop launchd daemon and run foreground daemon with structured stderr tracing.
+daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with structured stderr tracing.
 	@echo "Stopping installed/foreground daemons..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
-	sudo env KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(PROBE)" --kk-libusb-daemon "$(SOCKET)"
+	sudo env KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
-daemon-release: build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
+daemon-release: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
 	@echo "Stopping installed/foreground daemons..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
-	@sudo "$$(pwd)/$(PROBE_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
+	@sudo "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
 
-install-daemon: build ## Install daemon as launchd service (requires sudo, one-time setup).
+install-daemon: daemon-build ## Install daemon as launchd service (requires sudo, one-time setup).
 	sudo ./install-daemon.sh
 
 uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
@@ -70,6 +95,7 @@ uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo launchctl unload /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo rm -f /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
+	-sudo rm -f /usr/local/bin/ccd
 	-sudo rm -f /usr/local/bin/KontrolProbe
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
@@ -87,14 +113,22 @@ daemon-stop: ## Stop daemon via launchctl.
 daemon-restart: ## Restart daemon via launchctl.
 	@sudo launchctl kickstart -k system/media.vanille.kompletekontrol-libusb
 
-run: build daemon-preflight ## Run KontrolProbe (daemon-client mode).
+run: build daemon-build probe-build ## Run the middleware SurfaceDemo.
+	@$(MAKE) daemon-preflight
+	$(SURFACE_DEMO)
+
+run-release: build-release daemon-build-release probe-build-release ## Run optimized middleware SurfaceDemo.
+	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+	$(SURFACE_DEMO_RELEASE)
+
+probe-run: daemon-build probe-build daemon-preflight ## Run the old KontrolProbe REPL baseline.
 	$(PROBE)
 
-run-release: build-release ## Run optimized KontrolProbe for benchmarks.
-	@$(MAKE) daemon-preflight PROBE_PREFLIGHT="$(PROBE_RELEASE)"
+probe-run-release: daemon-build-release probe-build-release ## Run optimized old KontrolProbe for benchmarks.
+	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
 	$(PROBE_RELEASE)
 
-kk-ui: build ## Run the KontrolProbe S25 photo-overlay test UI.
+probe-ui: probe-build ## Run the old KontrolProbe S25 photo-overlay test UI.
 	$(PROBE) --test-ui
 
 kk-reset: kk-stop kk-clean-socket ## Stop foreground daemon leftovers and remove stale socket.
@@ -106,4 +140,4 @@ kk-clean-socket: ## Remove the daemon socket.
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 
 kk-status: ## Show running SidStudio/KontrolProbe KK processes.
-	@pgrep -fl 'SidStudio|KontrolProbe|--kk-libusb-daemon' || true
+	@pgrep -fl 'SidStudio|KontrolProbe|ccd|--kk-libusb-daemon' || true

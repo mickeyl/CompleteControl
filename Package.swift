@@ -9,6 +9,7 @@ let package = Package(
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
         .library(name: "KontrolSurfaceKit", targets: ["KontrolSurfaceKit"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
+        .executable(name: "ccd", targets: ["ccd"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
         .executable(name: "SurfaceDemo", targets: ["SurfaceDemo"]),
     ],
@@ -31,6 +32,15 @@ let package = Package(
             name: "KompleteKontrol",
             dependencies: ["KontrolUSB"],
             path: "Sources/KompleteKontrol",
+            swiftSettings: [
+                .define("KK_DEBUG", .when(configuration: .debug)),
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "ccd",
+            dependencies: ["KompleteKontrol"],
+            path: "Tools/ccd",
             swiftSettings: [
                 .define("KK_DEBUG", .when(configuration: .debug)),
                 .swiftLanguageMode(.v5),

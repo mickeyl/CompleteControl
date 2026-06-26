@@ -175,6 +175,15 @@ public struct KKDisplayFrame: Equatable, Sendable {
         return rows[row]
     }
 
+    public mutating func setRowData(_ data: [UInt8], row: Int) {
+        guard Self.validRow(row) else { return }
+        var rowData = Array(data.prefix(Self.bytesPerReportRow))
+        if rowData.count < Self.bytesPerReportRow {
+            rowData += Array(repeating: 0, count: Self.bytesPerReportRow - rowData.count)
+        }
+        rows[row] = rowData
+    }
+
     private mutating func setGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int) {
         guard Self.validDisplay(display), Self.validRow(row), (0..<Self.characterCount).contains(column) else { return }
         let base = (display * Self.bytesPerDisplayRow) + (column * 2)
@@ -664,8 +673,14 @@ private enum KKStderrLog {
         let cleanMessage = message.replacingOccurrences(of: "\n", with: "\\n")
         lock.lock()
         let timestamp = formatter.string(from: Date())
-        fputs("timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n", stderr)
+        let line = "timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n"
+        fputs(line, stderr)
         fflush(stderr)
+        if let path = ProcessInfo.processInfo.environment["KK_DAEMON_LOG_FILE"],
+           let file = fopen(path, "a") {
+            fputs(line, file)
+            fclose(file)
+        }
         lock.unlock()
     }
 }
@@ -697,7 +712,6 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     private var helperSession: KKDaemonOutputSession?
     private let helperSessionLock = NSLock()
     private var surfaceReplayPending = true
-    private var clientRegistrationAnnouncementShown = false
     private var clientRegisteredWithSession = false
     private var sessionConnectionAnnounced = false
     private let outputQueueCondition = NSCondition()
@@ -974,6 +988,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         guard (0..<KKDisplayFrame.rowCount).contains(row) else {
             return KKUSBResult(status: -1, message: "display row out of range")
         }
+        displayFrame.setRowData(data, row: row)
         return sendInterruptOutput(
             reportID: KompleteKontrolS25MK1Protocol.displayReportID,
             payload: displayRowPayload(row, data: data)
@@ -982,6 +997,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
 
     public func sendDisplayRowAsync(_ row: Int, data: [UInt8]) {
         guard (0..<KKDisplayFrame.rowCount).contains(row) else { return }
+        displayFrame.setRowData(data, row: row)
         enqueueInterruptOutput(
             reportID: KompleteKontrolS25MK1Protocol.displayReportID,
             payload: displayRowPayload(row, data: data)
@@ -1528,15 +1544,10 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         guard !clientRegisteredWithSession else { return }
         let name = ProcessInfo.processInfo.processName
         let pid = getpid()
-        let shouldPauseForInitialAnnouncement = !clientRegistrationAnnouncementShown
-        clientRegistrationAnnouncementShown = true
         let response = session.request("register \(pid) \(KKHex.utf8(name))\n", timeoutUsec: 750_000)
         if response == "ok registered" {
             clientRegisteredWithSession = true
-            if shouldPauseForInitialAnnouncement {
-                log?("Komplete Kontrol daemon registered client \(name) pid=\(pid).")
-                usleep(180_000)
-            }
+            log?("Komplete Kontrol daemon registered client \(name) pid=\(pid).")
         } else if let response {
             log?("Komplete Kontrol daemon client registration returned: \(response)")
         } else {
@@ -2046,6 +2057,8 @@ public enum KompleteKontrolLibUSBServer {
 
     private static func runningDaemonPIDs() -> [pid_t] {
         let patterns = [
+            "ccd .*--kk-libusb-daemon",
+            "ccd .*--libusb-daemon",
             "KontrolProbe .*--kk-libusb-daemon",
             "KontrolProbe .*--libusb-daemon",
         ]
@@ -2150,6 +2163,7 @@ public enum KompleteKontrolLibUSBServer {
         private let lock = NSLock()
         private let maxQueuedPushes = 64
         private let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
+        private let daemonSurfaceEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_DISABLE_SURFACE"] != "1"
         private var libusbSession: KontrolUSBLibUSBSessionRef?
         private var asyncTransfersStarted = false
         private var registeredClients: [Int: RegisteredClient] = [:]
@@ -2206,7 +2220,8 @@ public enum KompleteKontrolLibUSBServer {
 
         func disconnect(clientID: Int) {
             let nextClient: RegisteredClient?
-            let shouldRefreshDisplay: Bool
+            let shouldShowConnectedClient: Bool
+            let shouldShowNoClient: Bool
             lock.lock()
             guard registeredClients.removeValue(forKey: clientID) != nil else {
                 lock.unlock()
@@ -2215,26 +2230,27 @@ public enum KompleteKontrolLibUSBServer {
             if activeClientID == clientID {
                 activeClientID = registeredClients.keys.sorted().last
                 nextClient = activeClientID.flatMap { registeredClients[$0] }
-                shouldRefreshDisplay = true
+                shouldShowConnectedClient = nextClient != nil
             } else {
                 nextClient = nil
-                shouldRefreshDisplay = false
+                shouldShowConnectedClient = false
             }
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) registration removed on disconnect")
-            if shouldRefreshDisplay {
-                if let nextClient {
-                    showConnectedClient(nextClient)
-                } else {
-                    showNoClient()
-                }
+            if shouldShowConnectedClient, let nextClient {
+                showConnectedClient(nextClient)
+            } else if shouldShowNoClient {
+                showNoClient()
             }
         }
 
         func runStartupAnimationThenIdle() {
             runStartupAnimation()
-            showNoClient()
+            if shouldDaemonShowIdleSurface() {
+                showNoClient()
+            }
         }
 
         private func register(tokens: [String], clientID: Int) -> String {
@@ -2259,7 +2275,8 @@ public enum KompleteKontrolLibUSBServer {
 
         private func unregister(clientID: Int) -> String {
             let nextClient: RegisteredClient?
-            let shouldRefreshDisplay: Bool
+            let shouldShowConnectedClient: Bool
+            let shouldShowNoClient: Bool
             lock.lock()
             guard let client = registeredClients.removeValue(forKey: clientID) else {
                 lock.unlock()
@@ -2268,20 +2285,19 @@ public enum KompleteKontrolLibUSBServer {
             if activeClientID == clientID {
                 activeClientID = registeredClients.keys.sorted().last
                 nextClient = activeClientID.flatMap { registeredClients[$0] }
-                shouldRefreshDisplay = true
+                shouldShowConnectedClient = nextClient != nil
             } else {
                 nextClient = nil
-                shouldRefreshDisplay = false
+                shouldShowConnectedClient = false
             }
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
-            if shouldRefreshDisplay {
-                if let nextClient {
-                    showConnectedClient(nextClient)
-                } else {
-                    showNoClient()
-                }
+            if shouldShowConnectedClient, let nextClient {
+                showConnectedClient(nextClient)
+            } else if shouldShowNoClient {
+                showNoClient()
             }
             return "ok unregistered"
         }
@@ -2365,6 +2381,7 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func showConnectedClient(_ client: RegisteredClient) {
+            guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
             let name = String(client.name.prefix(8)).uppercased()
             let pid = "PID \(client.pid)"
@@ -2376,11 +2393,18 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func showNoClient() {
+            guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
             var frame = KKDisplayFrame()
             frame.setText("NO", display: 0, row: 1, alignment: .center)
             frame.setText("CLIENT", display: 0, row: 2, alignment: .center)
             writeDarkSurface(session: session, displayFrame: frame)
+        }
+
+        private func shouldDaemonShowIdleSurface() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty
         }
 
         private func writeDarkSurface(session: KontrolUSBLibUSBSessionRef, displayFrame: KKDisplayFrame) {
@@ -2411,9 +2435,14 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func removeClient(clientID: Int) {
+            let shouldShowNoClient: Bool
             lock.lock()
             clientFDs.removeValue(forKey: clientID)
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
             lock.unlock()
+            if shouldShowNoClient {
+                showNoClient()
+            }
         }
 
         func startAsyncTransfers() {
@@ -2729,6 +2758,10 @@ public enum KompleteKontrolLibUSBServer {
         }
         let candidates = [
             requestedExecutablePath,
+            currentExecutableDirectory.map { $0 + "/ccd" },
+            fileManager.currentDirectoryPath + "/.build/debug/ccd",
+            "/usr/local/bin/ccd",
+            currentExecutable?.hasSuffix("/ccd") == true ? currentExecutable : nil,
             currentExecutableDirectory.map { $0 + "/KontrolProbe" },
             fileManager.currentDirectoryPath + "/.build/debug/KontrolProbe",
             currentExecutable?.hasSuffix("/KontrolProbe") == true ? currentExecutable : nil,

@@ -12,7 +12,8 @@ Two layers, plus a baseline app and a middleware demo:
 | --- | --- | --- |
 | `KompleteKontrol` (lib) | `Sources/KompleteKontrol/` | Low-level driver: USB/daemon transport, surface protocol, display frame, glyph font + names, input/MIDI decoding. |
 | `KontrolUSB` (C) | `Sources/KontrolUSB/` | libusb session, async transfers, endpoint discovery. |
-| `KontrolSurfaceKit` (lib) | `Sources/KontrolSurfaceKit/` | **The middleware** — declarative + imperative surface API on top of the driver. |
+| `KontrolSurfaceKit` (lib) | `Sources/KontrolSurfaceKit/` | **The middleware** — declarative `Screen` DSL on top of the driver. Imperative setters are deprecated for client code. |
+| `ccd` (exe) | `Tools/ccd/` | Privileged launchd/foreground daemon entry point. Owns USB and transports surface/MIDI events over the socket. |
 | `KontrolProbe` (exe) | `Tools/KontrolProbe/` | **Baseline** REPL + AppKit test UI. Leave as-is unless asked. |
 | `SurfaceDemo` (exe) | `Tools/SurfaceDemo/` | Console demo exercising every `KontrolSurfaceKit` feature. |
 
@@ -21,13 +22,16 @@ Build / run / test:
 ```bash
 swift build                              # all targets
 swift build --product KontrolSurfaceKit  # just the kit
+swift build --product ccd                # daemon
 swift run SurfaceDemo                     # needs the daemon + hardware to see output
 swift build -c release --product KontrolProbe
 ```
 
 The daemon owns the USB device; a client connects over a Unix socket. `make help` lists daemon
-targets (`make install-daemon`, `make daemon-status`, …). The hardware in this workspace is
-reachable through a running daemon.
+targets (`make install-daemon`, `make daemon-status`, …). While no socket client is connected the
+daemon may render its idle surface; once a client connects, the client owns all surface rendering
+until the last socket disconnects. The hardware in this workspace is reachable through a running
+daemon.
 
 ### Verifying without seeing the hardware
 
@@ -52,19 +56,25 @@ diff against *last sent*, so unchanged content produces **no USB traffic**:
 Input: `device.onInputReport` → `Surface.handleInput` (Task hop onto the actor). MIDI:
 `device.onMIDIEvent` → `Surface.midi` (`AsyncStream<KKMIDIEvent>`). Normalized surface events go
 out on `Surface.inputs` (`AsyncStream<SurfaceInput>`); gestures are also dispatched to
-declarative handlers (below).
+declarative handlers (below). Connection lifecycle goes out on
+`Surface.connectionStates` (`AsyncStream<SurfaceConnectionState>`); clients should show `.retrying`
+without disabling their app workflow. Once connected, the surface avoids periodic socket probes and
+keeps the established daemon session hot.
 
-### Two front-ends, one model — the core invariant
+### Declarative first — imperative deprecated
 
-Everything lowers to **`SurfaceModel`** (cells + lamps + keys + input handlers). Both front-ends
-target it, so the imperative API can be deleted later without touching declarative code:
+Everything lowers to **`SurfaceModel`** (cells + lamps + keys + input handlers). The
+declarative `Screen` DSL is the supported client-facing API. The imperative setters still
+target the same model, but they are deprecated for application workflows and should be used
+only for diagnostics, legacy tools, and short migration shims:
 
-- **Imperative**: `setText/setBar/setGlyphs/setSpinner/setLamp/setKey/setStatus/setPage`, plus
-  `setParameterPage`/`setParameterBank`.
 - **Declarative DSL**: a `Screen` has `@ScreenBuilder var body: [any ScreenElement]`.
   `present(screen)` lowers + reconciles; `observe { screen }` re-lowers under
   `withObservationTracking` whenever an `@Observable` the screen read changes (a generation token
   cancels it when something else takes over).
+- **Deprecated imperative escape hatch**: `setText/setBar/setGlyphs/setSpinner/setLamp/setKey/
+  setStatus/setPage`, plus `setParameterPage`/`setParameterBank`. Do not add new product
+  integrations against this path unless the work is explicitly diagnostic or transitional.
 
 DSL elements:
 - Cell content: `Cell(n) { Bar(_); Label(_, overflow:); Value(_, format:); Glyphs(_); Spinner(...) }`
@@ -79,14 +89,15 @@ DSL elements:
 
 **Merge vs redefine on apply**: displays and **keys are redefined** (unset → cleared); **lamps
 are merged** (only declared LEDs change, so transport/cross-cutting LEDs survive). `cancelObservation`
-(called by every imperative takeover: present/observe/setParameterPage/setParameterBank/clearAll/
-show/stop) resets handlers + clears keys so nothing leaks between screens.
+(called by every screen takeover: present/observe/setParameterPage/setParameterBank/clearAll/
+show/stop) resets handlers + clears keys so nothing leaks between screens. Prefer `present` and
+`observe`; `show` is part of the deprecated imperative escape hatch.
 
 ### Higher-level pieces
 - `Parameter` (value, range, `sensitivity`, `ValueFormat`, `onChange`) + `ParameterPage` (8 params
   → 8 encoders → displays 1–8, title on display 0) + `ParameterBank` (paged set; `bankNext/Previous`).
-- `TransportState` + `updateTransport` reflect transport state on LEDs (imperative path; the demo
-  now does transport reactively via a `Screen` instead).
+- `TransportState` + `updateTransport` reflect transport state on LEDs for legacy imperative users;
+  product code should do transport reactively via a `Screen`.
 - `GestureRecognizer`: `tap` (immediate on release), `hold`, `secondary(modifier:)` (tap while
   another button held — the held one is the modifier, consumed so it doesn't also tap). **No
   double-tap** — express repeats via state. `SurfaceInput.gesture` carries these.
@@ -143,5 +154,5 @@ Cross-session memory (client + plans) lives outside the repo under the project's
 ## Conventions
 
 Small, well-named files (one concept each). For every new kit API, realize something in
-`SurfaceDemo`. Keep `KontrolProbe` as the untouched baseline. Commit messages are plain (no
-attribution/Co-Authored-By trailers).
+`SurfaceDemo`. Keep `ccd` as the daemon entry point and `KontrolProbe` as the untouched diagnostic
+baseline. Commit messages are plain (no attribution/Co-Authored-By trailers).

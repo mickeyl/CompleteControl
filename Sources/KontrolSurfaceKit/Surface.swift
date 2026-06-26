@@ -2,11 +2,22 @@ import Foundation
 import Observation
 import KompleteKontrol
 
+public enum SurfaceConnectionState: Sendable, Equatable {
+    case stopped
+    case connecting
+    case connected
+    case retrying(message: String)
+}
+
 /// The middleware root. A `Surface` owns the device, a shadow model of the
 /// hardware, the animation clock, and the reconciler. Apps describe what the
-/// surface should show — imperatively via the setters below, or declaratively
-/// via ``present(_:)`` / ``show(_:)`` — and the surface reconciles the hardware
+/// surface should show via declarative ``Screen`` values passed to
+/// ``present(_:)`` or ``observe(_:)`` — and the surface reconciles the hardware
 /// to match on every clock tick, emitting only the reports that changed.
+///
+/// The imperative setters on this type are deprecated for client-facing
+/// application code. They remain as diagnostics and migration escape hatches
+/// while existing tools move to the SwiftUI-like ``Screen`` DSL.
 ///
 /// `Surface` is an `actor`: all surface state is serialized, and the clock and
 /// device callbacks hop onto it.
@@ -36,6 +47,11 @@ public actor Surface {
     private var inputContinuation: AsyncStream<SurfaceInput>.Continuation?
     private let midiStream: AsyncStream<KKMIDIEvent>
     private var midiContinuation: AsyncStream<KKMIDIEvent>.Continuation?
+    private let connectionStream: AsyncStream<SurfaceConnectionState>
+    private var connectionContinuation: AsyncStream<SurfaceConnectionState>.Continuation?
+    private var connectionState: SurfaceConnectionState = .stopped
+    private var nextConnectionProbeNanos: UInt64 = 0
+    private var hasAttemptedDaemonStartup = false
 
     public init(device: KompleteKontrolS25MK1 = KompleteKontrolS25MK1(), options: Options = Options()) {
         self.device = device
@@ -46,6 +62,9 @@ public actor Surface {
         var midiCont: AsyncStream<KKMIDIEvent>.Continuation!
         midiStream = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { midiCont = $0 }
         midiContinuation = midiCont
+        var connectionCont: AsyncStream<SurfaceConnectionState>.Continuation!
+        connectionStream = AsyncStream(bufferingPolicy: .bufferingNewest(16)) { connectionCont = $0 }
+        connectionContinuation = connectionCont
     }
 
     /// Normalized surface input. Single-consumer; iterate it from one `Task`.
@@ -54,12 +73,22 @@ public actor Surface {
     /// USB-MIDI input (keys, pitch, mod, CC). Single-consumer.
     public var midi: AsyncStream<KKMIDIEvent> { midiStream }
 
+    /// Connection lifecycle for the CompleteControl surface. Apps can use this
+    /// to display whether hardware output/input is online while still running
+    /// without a controller attached.
+    public var connectionStates: AsyncStream<SurfaceConnectionState> { connectionStream }
+
+    public func currentConnectionState() -> SurfaceConnectionState {
+        connectionState
+    }
+
     // MARK: Lifecycle
 
     /// Connects to the device and starts the reconcile loop. Idempotent.
     public func start() {
         guard !running else { return }
         running = true
+        publishConnectionState(.connecting)
         device.monitorMode = .changed
         device.onInputReport = { [weak self] report in
             guard let self else { return }
@@ -70,7 +99,7 @@ public actor Surface {
             Task { await self.forwardMIDI(event) }
         }
         device.startInputMonitoring()
-        device.handshakeAsync()
+        probeConnection(force: true)
         lastTickNanos = DispatchTime.now().uptimeNanoseconds
         let intervalMs = max(1, 1000 / max(1, options.tickHz))
         let clock = SurfaceClock(intervalMs: intervalMs) { [weak self] in
@@ -85,6 +114,9 @@ public actor Surface {
     public func stop() {
         guard running else { return }
         running = false
+        publishConnectionState(.stopped)
+        nextConnectionProbeNanos = 0
+        hasAttemptedDaemonStartup = false
         cancelObservation()
         clock?.stop()
         clock = nil
@@ -94,8 +126,9 @@ public actor Surface {
         _ = device.clearButtonLEDs()
     }
 
-    // MARK: Imperative display API
+    // MARK: Deprecated imperative display API
 
+    /// Deprecated: prefer `Cell { Label(...) }` in a declarative ``Screen``.
     /// Sets text on `lcd` (0…8), `row` (1 or 2; row 0 is the bar). Strings longer
     /// than the cell are handled per `overflow`, defaulting to a scrolling marquee.
     public func setText(_ lcd: Int, _ row: Int, _ text: String,
@@ -104,16 +137,19 @@ public actor Surface {
         reconciler.set(display: lcd, row: row, .text(text, alignment, overflow))
     }
 
+    /// Deprecated: prefer `Cell { Glyphs(...) }` in a declarative ``Screen``.
     /// Sets raw 16-segment glyph masks on a text row, one per column.
     public func setGlyphs(_ lcd: Int, _ row: Int, _ glyphs: [UInt16]) {
         reconciler.set(display: lcd, row: row, .glyphs(glyphs))
     }
 
+    /// Deprecated: prefer `Cell { Bar(...) }` in a declarative ``Screen``.
     /// Sets the row-0 progress bar (0…1) of a display.
     public func setBar(_ value: Double, lcd: Int) {
         reconciler.set(display: lcd, row: 0, .bar(value))
     }
 
+    /// Deprecated: prefer `Cell { Spinner(...) }` in a declarative ``Screen``.
     /// Runs a segment around a cell's rectangle perimeter as an activity
     /// indicator, animated on the surface clock (rows 1 and 2 only).
     /// `column == nil` spins every column of the row in sync; `length` lights
@@ -123,13 +159,15 @@ public actor Surface {
         reconciler.set(display: lcd, row: row, .spinner(speed: speed, length: length, reverse: reverse, column: column))
     }
 
-    /// Clears all three rows of a single display.
+    /// Deprecated for app workflows: prefer presenting a new ``Screen`` that
+    /// omits the display. Clears all three rows of a single display.
     public func clearDisplay(_ lcd: Int) {
         for row in 0..<KKDisplayFrame.rowCount {
             reconciler.set(display: lcd, row: row, .empty)
         }
     }
 
+    /// Deprecated for app workflows: prefer presenting a new ``Screen``.
     /// Clears every display.
     public func clearAll() {
         cancelObservation()
@@ -138,12 +176,14 @@ public actor Surface {
 
     // MARK: Display 0 — reserved for global status and page indication
 
+    /// Deprecated: prefer `Status(...)` in a declarative ``Screen``.
     /// Shows a global status line on the status display (display 0), scrolling
     /// if it does not fit.
     public func setStatus(_ text: String) {
         reconciler.set(display: 0, row: 1, .text(text, .center, .marquee))
     }
 
+    /// Deprecated: prefer `PageIndicator(..., of: ...)` in a declarative ``Screen``.
     /// Shows a `page/total` indicator on the status display, with a matching
     /// position bar on row 0.
     public func setPage(_ page: Int, of total: Int) {
@@ -153,21 +193,25 @@ public actor Surface {
 
     // MARK: Keys and button LEDs (coalesced into the tick)
 
+    /// Deprecated: prefer `KeyColors { ... }` in a declarative ``Screen``.
     public func setKey(_ index: Int, color: KKRGB) {
         keyReconciler.set(index, color)
     }
 
-    /// Turns the whole light guide off.
+    /// Deprecated for app workflows: prefer presenting a ``Screen`` whose
+    /// `KeyColors` omits those keys. Turns the whole light guide off.
     public func clearKeys() {
         keyReconciler.clearAll()
     }
 
-    /// Sets a button LED, including animated states (blink/pulse), driven by the
-    /// surface clock and reconciled to minimal LED reports.
+    /// Deprecated: prefer `Lamp(...)` in a declarative ``Screen``. Sets a button
+    /// LED, including animated states (blink/pulse), driven by the surface clock
+    /// and reconciled to minimal LED reports.
     public func setLamp(_ led: KKButtonLED, _ state: LampState) {
         ledReconciler.set(led, state)
     }
 
+    /// Deprecated: prefer `Lamp(...)` in a declarative ``Screen``.
     public func setButtonLED(_ name: String, value: UInt8) {
         guard let led = KKButtonLED.allCases.first(where: { $0.protocolName == name }) else { return }
         ledReconciler.set(led, value == 0 ? .off : .on(value))
@@ -177,7 +221,8 @@ public actor Surface {
 
     public func transportState() -> TransportState { transport }
 
-    /// Mutates transport state and reflects it on the hardware transport LEDs.
+    /// Deprecated for app workflows: model transport state in a declarative
+    /// ``Screen`` and declare `Lamp` elements there.
     public func updateTransport(_ mutate: (inout TransportState) -> Void) {
         mutate(&transport)
         reflectTransport()
@@ -196,8 +241,11 @@ public actor Surface {
     /// Display content is fully redefined (unset cells clear); declared lamps are
     /// merged so transport/interactive LEDs set elsewhere are left untouched.
     public func present(_ screen: some Screen) {
+        surfaceTrace("surface present begin")
         cancelObservation()
-        apply(screen.lowered())
+        let model = screen.lowered()
+        surfaceTrace("surface present lowered \(surfaceTraceSummary(model))")
+        apply(model)
     }
 
     /// Presents a screen and keeps it in sync: whenever any `@Observable` state
@@ -225,7 +273,8 @@ public actor Surface {
         keyReconciler.clearAll()
     }
 
-    /// Replaces the whole surface using an inline builder closure (imperative).
+    /// Deprecated: use ``present(_:)`` or ``observe(_:)`` with a declarative
+    /// ``Screen``. Replaces the whole surface using an inline builder closure.
     public func show(_ build: (isolated Surface) -> Void) {
         cancelObservation()
         reconciler.clearAll()
@@ -233,6 +282,7 @@ public actor Surface {
     }
 
     private func apply(_ model: SurfaceModel) {
+        surfaceTrace("surface apply \(surfaceTraceSummary(model))")
         for display in 0..<KKDisplayFrame.displayCount {
             for row in 0..<KKDisplayFrame.rowCount {
                 reconciler.set(display: display, row: row, model.content(display, row))
@@ -335,9 +385,11 @@ public actor Surface {
         let now = DispatchTime.now().uptimeNanoseconds
         let dt = Double(now &- lastTickNanos) / 1_000_000_000.0
         lastTickNanos = now
+        probeConnectionIfNeeded(now: now)
 
         reconciler.advance(dt: dt)
         for (row, data) in reconciler.render() {
+            surfaceTrace("surface tick display row=\(row) blank=\(data.allSatisfy { $0 == 0 }) nonzero=\(data.filter { $0 != 0 }.count) head=\(surfaceTraceBytes(data))")
             device.sendDisplayRowAsync(row, data: data)
         }
 
@@ -361,5 +413,104 @@ public actor Surface {
             dispatchGesture(gesture.name, gesture.phase)
             inputContinuation?.yield(.gesture(button: gesture.name, phase: gesture.phase))
         }
+    }
+
+    private nonisolated func surfaceTrace(_ message: @autoclosure () -> String) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["PAULINCHE_SURFACE_TRACE"] == "1" || environment["PAULINCHE_SURFACE_TRACE_FILE"] != nil else { return }
+        let line = "[KontrolSurface] \(Date().timeIntervalSince1970) \(message())\n"
+        if let path = environment["PAULINCHE_SURFACE_TRACE_FILE"] {
+            let url = URL(fileURLWithPath: path)
+            let data = Data(line.utf8)
+            if FileManager.default.fileExists(atPath: path),
+               let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                try? data.write(to: url)
+            }
+        } else {
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+    }
+
+    private func surfaceTraceSummary(_ model: SurfaceModel) -> String {
+        var cells: [String] = []
+        for display in 0..<KKDisplayFrame.displayCount {
+            var rows: [String] = []
+            for row in 0..<KKDisplayFrame.rowCount {
+                rows.append(surfaceTraceContent(model.content(display, row)))
+            }
+            cells.append("\(display):\(rows.joined(separator: "|"))")
+        }
+        return "cells[\(cells.joined(separator: " / "))] lamps=\(model.lamps.count) keys=\(model.keys.count)"
+    }
+
+    private func surfaceTraceContent(_ content: CellContent) -> String {
+        switch content {
+            case .empty:
+                return "empty"
+            case let .bar(value):
+                return String(format: "bar(%.2f)", value)
+            case let .text(text, _, _):
+                return "text(\(text))"
+            case let .glyphs(glyphs):
+                return "glyphs(\(glyphs.count))"
+            case .spinner:
+                return "spinner"
+        }
+    }
+
+    private nonisolated func surfaceTraceBytes(_ data: [UInt8]) -> String {
+        data.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+    }
+
+    private func probeConnectionIfNeeded(now: UInt64) {
+        guard running, now >= nextConnectionProbeNanos else { return }
+        if case .connected = connectionState {
+            nextConnectionProbeNanos = now + 60 * 1_000_000_000
+            return
+        }
+        probeConnection(force: false, now: now)
+    }
+
+    private func probeConnection(force: Bool, now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        guard running else { return }
+
+        let intervalSeconds: UInt64
+        switch connectionState {
+            case .connected:
+                intervalSeconds = 5
+            default:
+                intervalSeconds = 2
+        }
+        nextConnectionProbeNanos = now + intervalSeconds * 1_000_000_000
+
+        if device.usesPrivilegedDaemonTransport,
+           !KompleteKontrolLibUSBServer.daemonSocketIsAvailable(),
+           hasAttemptedDaemonStartup,
+           !force {
+            publishConnectionState(.retrying(message: "daemon unavailable"))
+            return
+        }
+
+        if device.usesPrivilegedDaemonTransport {
+            hasAttemptedDaemonStartup = true
+        }
+
+        let result = device.handshake()
+        if result.succeeded {
+            publishConnectionState(.connected)
+        } else {
+            let message = result.message.isEmpty ? "connection unavailable" : result.message
+            publishConnectionState(.retrying(message: message))
+        }
+    }
+
+    private func publishConnectionState(_ state: SurfaceConnectionState) {
+        guard connectionState != state else { return }
+        connectionState = state
+        connectionContinuation?.yield(state)
     }
 }

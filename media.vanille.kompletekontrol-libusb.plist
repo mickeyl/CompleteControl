@@ -6,7 +6,7 @@
     <string>media.vanille.kompletekontrol-libusb</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/KontrolProbe</string>
+        <string>/usr/local/bin/ccd</string>
         <string>--kk-libusb-daemon</string>
         <string>/var/run/kompletekontrol-libusb.sock</string>
     </array>

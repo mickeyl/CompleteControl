@@ -13,10 +13,10 @@ struct InputHandlers {
 
 /// A full, intended snapshot of the surface: content for every LCD row, declared
 /// button LEDs, and the input handlers a screen attached. The declarative DSL
-/// builds one of these and the surface applies it through the reconcilers; the
-/// imperative setters mutate the same underlying state. Keeping both front-ends
-/// lowering to this model is what lets the imperative API be removed later
-/// without touching declarative code.
+/// builds one of these and the surface applies it through the reconcilers. The
+/// deprecated imperative setters also mutate the same underlying state for
+/// diagnostics and migration, but new application integrations should not use
+/// them and the DSL does not depend on them.
 public struct SurfaceModel {
     var cells: [[CellContent]]
     var lamps: [KKButtonLED: LampState]

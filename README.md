@@ -88,7 +88,7 @@ Combined P99:    0.691 ms
 Combined max:    0.713 ms
 ```
 
-These numbers are from `make daemon-release` plus `make run-release` on the development machine. They measure input delivery inside this library, not acoustic or LED perception latency.
+These numbers are from `make daemon-release` plus `make probe-run-release` on the development machine. They measure input delivery inside this library, not acoustic or LED perception latency.
 
 ## Related Work And Credits
 
@@ -118,8 +118,8 @@ brew install libusb
 Build:
 
 ```bash
-swift build --product KontrolProbe
-swift build -c release --product KontrolProbe
+make build
+make build-release
 ```
 
 ## Quick Start
@@ -130,23 +130,29 @@ Install the daemon once:
 make install-daemon
 ```
 
-Run the REPL:
+Run the middleware demo:
 
 ```bash
 make run
 ```
 
-Run the AppKit surface demo:
+Run the old REPL baseline:
 
 ```bash
-make kk-ui
+make probe-run
+```
+
+Run the old AppKit surface demo:
+
+```bash
+make probe-ui
 ```
 
 Run a quiet release daemon and release client for latency work:
 
 ```bash
 make daemon-release
-make run-release
+make probe-run-release
 ```
 
 Useful maintenance targets:
@@ -169,82 +175,97 @@ dependencies: [
 ]
 ```
 
-Add the product to your target:
+Add the middleware product to your target:
 
 ```swift
-.product(name: "CompleteControl", package: "CompleteControl")
+.product(name: "KontrolSurfaceKit", package: "CompleteControl"),
+.product(name: "KompleteKontrol", package: "CompleteControl"), // for shared hardware types such as KKRGB
 ```
 
-The current Swift module name is still `KompleteKontrol`, so client code imports that module name:
+For application code, use `KontrolSurfaceKit`'s SwiftUI-like declarative `Screen`
+DSL. The older imperative setters are deprecated for client-facing code and are
+kept only as a migration and diagnostics escape hatch. New apps should model a
+surface as a value and render it with `present(_:)` or `observe { ... }`.
 
-Basic daemon-backed setup:
+Declarative surface setup:
+
+```swift
+import KontrolSurfaceKit
+import KompleteKontrol
+
+struct PatternScreen: Screen {
+    var row: Int
+    var isPlaying: Bool
+
+    var body: [any ScreenElement] {
+        Status(isPlaying ? "PLAY" : "EDIT")
+        Cell(1) {
+            Bar(Double(row) / 63)
+            Label("ROW", overflow: .clip)
+            Value(row)
+        }
+        Cell(2) {
+            Label("CH1", overflow: .clip)
+            Label("C-4 01", overflow: .clip)
+        }
+        Lamp(.play, isPlaying ? .on : .on(0x14))
+        KeyColors { key in
+            key == 12 ? KKRGB(red: 0x00, green: 0x60, blue: 0x7f) : nil
+        }
+    }
+}
+
+let surface = Surface()
+
+Task {
+    await surface.start()
+    await surface.present(PatternScreen(row: 0, isPlaying: false))
+}
+```
+
+Inputs are consumed from `surface.inputs`; MIDI is consumed from `surface.midi`.
+Prefer attaching behavior inside a `Screen` with `Cell(...).onEncoder`,
+`Lamp(...).onTap`, and `MainEncoder` when the behavior belongs to the active
+screen.
+
+Connection state is consumed from `surface.connectionStates`. A running app
+should treat `.retrying` as non-fatal: keep the normal UI usable, show the state
+to the user, and let `Surface` keep probing/reconnecting in the background.
+
+### Deprecated Imperative Driver Path
+
+The current low-level Swift module name is still `KompleteKontrol`, and the raw
+driver APIs remain available for diagnostics, protocol work, and legacy tools
+such as `KontrolProbe`. Do not build new application workflows around these
+imperative setters:
 
 ```swift
 import KompleteKontrol
 
 let kk = KompleteKontrolS25MK1()
-
-kk.log = { print($0) }
-
-kk.onInputReport = { report in
-    for event in report.events {
-        print(event)
-    }
-}
-
-kk.onMIDIEvent = { event in
-    print(event)
-}
-
 kk.startInputMonitoring()
 kk.handshakeAsync()
-```
 
-Light guide:
-
-```swift
 _ = kk.setKey(0, color: KKRGB(red: 0x7f, green: 0x00, blue: 0x00), flush: false)
-_ = kk.setKey(1, color: KKRGB(red: 0x00, green: 0x7f, blue: 0x00), flush: false)
-kk.sendGuideAsync()
-```
-
-Button LEDs:
-
-```swift
 _ = kk.setButtonLED(name: "play", value: 0x7f, flush: false)
-_ = kk.setButtonLED(name: "stop", value: 0x20, flush: false)
-kk.sendButtonLEDsAsync()
-```
-
-LCD text and progress:
-
-```swift
-_ = kk.setDisplayBar(0.5, display: 0, row: 0, flush: false)
 _ = kk.setDisplayText("FILTER", display: 0, row: 1, alignment: .center, flush: false)
-_ = kk.setDisplayText("64", display: 0, row: 2, alignment: .center, flush: false)
+kk.sendGuideAsync()
+kk.sendButtonLEDsAsync()
 kk.sendDisplaysAsync()
 ```
 
-Raw glyph output:
-
-```swift
-if let glyph = KKDisplayFrame.glyph(at: 65) { // CP437/ASCII 'A'
-    _ = kk.setDisplayGlyph(glyph, display: 8, row: 1, column: 0, flush: false)
-    kk.sendDisplaysAsync()
-}
-```
-
-## KontrolProbe
+## Tools
 
 `KontrolProbe` is the diagnostic executable in `Tools/KontrolProbe`.
+`ccd` is the launchd/foreground daemon executable in `Tools/ccd`.
 
 Modes:
 
-- normal REPL client: `make run`
-- release REPL client: `make run-release`
-- foreground debug daemon: `make daemon-debug`
-- quiet release daemon: `make daemon-release`
-- AppKit demo UI: `make kk-ui`
+- normal REPL client: `make probe-run`
+- release REPL client: `make probe-run-release`
+- foreground debug daemon: `make daemon-debug` (runs `ccd`)
+- quiet release daemon: `make daemon-release` (runs `ccd`)
+- AppKit demo UI: `make probe-ui`
 
 Important REPL commands:
 
@@ -297,9 +318,9 @@ The SVG is generated from the same mask values used by `KKDisplayFrame`. For har
 flowchart LR
     HW["S25 MK1 hardware"]
     USB["libusb session<br/>surface interface + MIDI interface"]
-    D["kk-libusb daemon<br/>kqueue reactor"]
+    D["ccd daemon<br/>kqueue reactor"]
     SOCK["Unix domain socket<br/>/var/run/kompletekontrol-libusb.sock"]
-    APP["Swift app / KontrolProbe"]
+    APP["Swift app / KontrolProbe client"]
 
     HW --> USB
     USB --> D
@@ -317,6 +338,7 @@ Main source files:
 | --- | --- |
 | `Sources/KompleteKontrol/KompleteKontrol.swift` | Public Swift API, display frame model, input decoding, daemon client, daemon server |
 | `Sources/KontrolUSB/KontrolUSB.c` | libusb session, endpoint discovery, async transfers, direct USB diagnostics |
+| `Tools/ccd/main.swift` | CompleteControl daemon entry point |
 | `Tools/KontrolProbe/main.swift` | REPL, benchmark, diagnostics |
 | `Tools/KontrolProbe/TestUI.swift` | AppKit surface demo |
 | `install-daemon.sh` | launchd daemon installer |
@@ -329,11 +351,16 @@ The daemon:
 - refuses to start when another daemon is already active
 - creates `/var/run/kompletekontrol-libusb.sock`
 - claims the libusb surface interface and USB-MIDI streaming interface
+- owns the hardware surface only while no socket client is connected
+- briefly shows the active registered client's name/PID, then leaves surface ownership to the client
+- returns to `NO CLIENT` only after the last socket disconnects and no client remains registered
 - starts async transfers for surface input and MIDI input
 - timestamps push messages at daemon callback time
 - queues input messages for synchronous `daemonread`/`daemonmidi` diagnostics
-- registers clients so the hardware LCD can show connection state
 - keeps debug logging out of release hot paths unless explicitly enabled
+
+Set `KK_DAEMON_DISABLE_SURFACE=1` when you want the daemon to stay completely silent on the
+hardware surface even while idle.
 
 Debug logging is structured on stderr:
 
@@ -358,14 +385,16 @@ make daemon-release
 Useful checks:
 
 ```bash
+swift build --product ccd
 swift build --product KontrolProbe
+swift build -c release --product ccd
 swift build -c release --product KontrolProbe
 git diff --check
 ```
 
 `swift test` currently builds the package and then exits with `no tests found` because the package has no `Tests` target yet.
 
-The current installer installs the built `KontrolProbe` executable to `/usr/local/bin/KontrolProbe` and loads a launchd service under `/Library/LaunchDaemons`. If you are packaging this for users, review the installer, code signing, and notarization before release.
+The current installer installs the built `ccd` executable to `/usr/local/bin/ccd` and loads a launchd service under `/Library/LaunchDaemons`. If you are packaging this for users, review the installer, code signing, and notarization before release.
 
 ## Safety And Compatibility
 

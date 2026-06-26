@@ -10,7 +10,7 @@ DAEMON_LABEL="media.vanille.kompletekontrol-libusb"
 PLIST_FILE="$SCRIPT_DIR/media.vanille.kompletekontrol-libusb.plist"
 LAUNCHD_PLIST="/Library/LaunchDaemons/$DAEMON_LABEL.plist"
 SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
-EXECUTABLE_PATH="$SCRIPT_DIR/.build/debug/KontrolProbe"
+EXECUTABLE_PATH="$SCRIPT_DIR/.build/debug/ccd"
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,7 +33,7 @@ if [ ! -f "$EXECUTABLE_PATH" ]; then
     echo -e "${YELLOW}Warning: Executable not found at $EXECUTABLE_PATH${NC}"
     echo "Building the project first..."
     cd "$SCRIPT_DIR"
-    swift build --product KontrolProbe
+    swift build --product ccd
     if [ ! -f "$EXECUTABLE_PATH" ]; then
         echo -e "${RED}Error: Failed to build executable${NC}"
         exit 1
@@ -63,15 +63,13 @@ fi
 rm -f "$SOCKET_PATH" /var/run/kompletekontrol-libusb.lock
 
 # Copy executable to /usr/local/bin
-echo "Installing executable to /usr/local/bin..."
-cp "$EXECUTABLE_PATH" /usr/local/bin/KontrolProbe
-chmod +x /usr/local/bin/KontrolProbe
+echo "Installing ccd to /usr/local/bin..."
+cp "$EXECUTABLE_PATH" /usr/local/bin/ccd
+chmod +x /usr/local/bin/ccd
 
 # Update plist with correct executable path
 echo "Installing launchd plist..."
-sed "s|/usr/local/bin/KontrolProbe|/usr/local/bin/KontrolProbe|g" "$PLIST_FILE" > /tmp/kk-daemon.plist
-cp /tmp/kk-daemon.plist "$LAUNCHD_PLIST"
-rm /tmp/kk-daemon.plist
+cp "$PLIST_FILE" "$LAUNCHD_PLIST"
 chmod 644 "$LAUNCHD_PLIST"
 
 # Load the daemon
