@@ -10,7 +10,9 @@ DAEMON_LABEL="media.vanille.kompletekontrol-libusb"
 PLIST_FILE="$SCRIPT_DIR/media.vanille.kompletekontrol-libusb.plist"
 LAUNCHD_PLIST="/Library/LaunchDaemons/$DAEMON_LABEL.plist"
 SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
-EXECUTABLE_PATH="$SCRIPT_DIR/.build/debug/ccd"
+DEBUG_DAEMON="${KK_INSTALL_DEBUG_DAEMON:-0}"
+BUILD_CONFIGURATION="${KK_INSTALL_DAEMON_CONFIGURATION:-release}"
+EXECUTABLE_PATH="${KK_INSTALL_DAEMON_EXECUTABLE:-$SCRIPT_DIR/.build/release/ccd}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -20,6 +22,12 @@ NC='\033[0m' # No Color
 
 echo "KompleteKontrol LibUSB Daemon Installer"
 echo "======================================"
+if [ "$DEBUG_DAEMON" = "1" ]; then
+    echo "Mode: debug daemon with trace logging"
+else
+    echo "Mode: normal release daemon"
+fi
+echo "Executable: $EXECUTABLE_PATH"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -33,7 +41,7 @@ if [ ! -f "$EXECUTABLE_PATH" ]; then
     echo -e "${YELLOW}Warning: Executable not found at $EXECUTABLE_PATH${NC}"
     echo "Building the project first..."
     cd "$SCRIPT_DIR"
-    swift build --product ccd
+    swift build -c "$BUILD_CONFIGURATION" --product ccd
     if [ ! -f "$EXECUTABLE_PATH" ]; then
         echo -e "${RED}Error: Failed to build executable${NC}"
         exit 1
@@ -70,6 +78,14 @@ chmod +x /usr/local/bin/ccd
 # Update plist with correct executable path
 echo "Installing launchd plist..."
 cp "$PLIST_FILE" "$LAUNCHD_PLIST"
+if [ "$DEBUG_DAEMON" = "1" ]; then
+    /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:LOGLEVEL string TRACE" "$LAUNCHD_PLIST"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$LAUNCHD_PLIST"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$LAUNCHD_PLIST"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_LOG string 1" "$LAUNCHD_PLIST"
+fi
 chmod 644 "$LAUNCHD_PLIST"
 
 # Load the daemon
@@ -83,7 +99,8 @@ for i in {1..10}; do
     if [ -S "$SOCKET_PATH" ]; then
         echo -e "${GREEN}Daemon started successfully!${NC}"
         echo "Socket: $SOCKET_PATH"
-        echo "Log: /tmp/media.vanille.kompletekontrol-libusb.stdout.log"
+        echo "Stdout log: /tmp/media.vanille.kompletekontrol-libusb.stdout.log"
+        echo "Stderr log: /tmp/media.vanille.kompletekontrol-libusb.stderr.log"
         echo ""
         echo "To control the daemon:"
         echo "  Start:   sudo launchctl bootstrap system $LAUNCHD_PLIST"

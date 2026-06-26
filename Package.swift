@@ -79,6 +79,10 @@ let package = Package(
                 .brew(["libusb"]),
             ]
         ),
+        .testTarget(
+            name: "KompleteKontrolTests",
+            dependencies: ["KompleteKontrol"]
+        ),
     ],
     cxxLanguageStandard: .cxx20
 )

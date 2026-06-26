@@ -476,6 +476,16 @@ public enum KKInputReportDecoder {
         return events
     }
 
+    static func initialEventBaseline(reportID: UInt32, current: [UInt8]) -> [UInt8]? {
+        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID,
+              current.count >= 23 else { return nil }
+        var baseline = current
+        for buttonByte in 1...3 where buttonByte < baseline.count {
+            baseline[buttonByte] = 0
+        }
+        return baseline
+    }
+
     private static func rangeChanged(_ range: Range<Int>, previous: [UInt8], current: [UInt8]) -> Bool {
         guard !range.isEmpty else { return false }
         for index in range where previous[index] != current[index] {
@@ -705,6 +715,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     private var inputBufferLength = 0
     private var lastReports: [UInt32: [UInt8]] = [:]
     private var daemonSurfaceIncludesReportID: Bool?
+    private var daemonSurfaceReceiveSequence: UInt64 = 0
+    private var daemonMIDIReceiveSequence: UInt64 = 0
     private var inputRunLoop: CFRunLoop?
     private var inputThread: Thread?
     private var inputUsesDaemon = false
@@ -1168,6 +1180,31 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         log?("kk-output \(message)")
     }
 
+    private func traceInput(_ message: String) {
+        guard KKTiming.traceEnabled else { return }
+        log?("kk-input \(message)")
+    }
+
+    private func traceMIDI(_ message: String) {
+        guard KKTiming.traceEnabled else { return }
+        log?("kk-midi \(message)")
+    }
+
+    private static func formatChangedIndices(_ indices: [Int]) -> String {
+        if indices.isEmpty { return "[]" }
+        return "[" + indices.map(String.init).joined(separator: ",") + "]"
+    }
+
+    private static func formatInputEvents(_ events: [KKInputEvent]) -> String {
+        if events.isEmpty { return "[]" }
+        return "[" + events.map { String(describing: $0) }.joined(separator: " | ") + "]"
+    }
+
+    fileprivate static func formatMIDIEvents(_ events: [KKMIDIEvent]) -> String {
+        if events.isEmpty { return "[]" }
+        return "[" + events.map(\.description).joined(separator: " | ") + "]"
+    }
+
     private func install(_ opened: OpenedHIDDevice, deallocateExistingBuffer: Bool = true) {
         hidManager = opened.manager
         hidDevice = opened.device
@@ -1215,11 +1252,14 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             current[index] = report[index]
         }
         lastReports[reportID] = current
-        let eventBaseline = previous ?? Self.neutralInputReport(matching: current, reportID: reportID)
+        let eventBaseline = previous ?? KKInputReportDecoder.initialEventBaseline(reportID: reportID, current: current)
         let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
         if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
             return
         }
+        traceInput(
+            "direct-hid report=0x\(KKHex.byte(UInt8(reportID & 0xff))) ts=0x\(String(receptionTimestamp, radix: 16)) bytes=\(KKHex.bytes(current)) changed=\(Self.formatChangedIndices(changedIndices)) events=\(Self.formatInputEvents(events))"
+        )
         onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
     }
 
@@ -1237,11 +1277,14 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             }
         }
         lastReports[reportID] = current
-        let eventBaseline = previous ?? Self.neutralInputReport(matching: current, reportID: reportID)
+        let eventBaseline = previous ?? KKInputReportDecoder.initialEventBaseline(reportID: reportID, current: current)
         let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
         if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
             return
         }
+        traceInput(
+            "daemon-surface parsed report=0x\(KKHex.byte(UInt8(reportID & 0xff))) ts=0x\(String(receptionTimestamp, radix: 16)) bytes=\(KKHex.bytes(current)) changed=\(Self.formatChangedIndices(changedIndices)) events=\(Self.formatInputEvents(events))"
+        )
         onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
     }
 
@@ -1259,15 +1302,6 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             }
         }
         return (timestamp, bytes)
-    }
-
-    private static func neutralInputReport(matching current: [UInt8], reportID: UInt32) -> [UInt8]? {
-        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID, !current.isEmpty else {
-            return nil
-        }
-        var neutral = [UInt8](repeating: 0, count: current.count)
-        neutral[0] = UInt8(reportID & 0xff)
-        return neutral
     }
 
     private func runDaemonInputLoop() {
@@ -1336,6 +1370,10 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         }
         let payload = Self.parseDaemonPushPayload(response.dropFirst(3))
         guard !payload.bytes.isEmpty else { return }
+        daemonSurfaceReceiveSequence &+= 1
+        traceInput(
+            "daemon-surface recv seq=\(daemonSurfaceReceiveSequence) ts=0x\(String(payload.timestamp, radix: 16)) raw=\(KKHex.bytes(payload.bytes))"
+        )
         handleInput(
             reportID: KompleteKontrolS25MK1Protocol.inputReportID,
             bytes: normalizedDaemonSurfaceBytes(payload.bytes),
@@ -1366,12 +1404,17 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         }
         let payload = Self.parseDaemonPushPayload(response.dropFirst(5))
         let receptionTimestamp = payload.timestamp > 0 ? payload.timestamp : KKTiming.now()
-        for event in Self.parseUSBMIDIEvents(payload.bytes, receptionTimestamp: receptionTimestamp) {
+        daemonMIDIReceiveSequence &+= 1
+        let events = Self.parseUSBMIDIEvents(payload.bytes, receptionTimestamp: receptionTimestamp)
+        traceMIDI(
+            "daemon-midi recv seq=\(daemonMIDIReceiveSequence) ts=0x\(String(receptionTimestamp, radix: 16)) raw=\(KKHex.bytes(payload.bytes)) events=\(Self.formatMIDIEvents(events))"
+        )
+        for event in events {
             onMIDIEvent?(event)
         }
     }
 
-    private static func parseUSBMIDIEvents(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
+    fileprivate static func parseUSBMIDIEvents(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
         guard bytes.count >= 4 else { return [] }
         var events: [KKMIDIEvent] = []
         var offset = 0
@@ -2172,6 +2215,8 @@ public enum KompleteKontrolLibUSBServer {
         private var trackedLibusbFds: Set<Int32> = []
         private var queuedInputMessages: [String] = []
         private var queuedMIDIMessages: [String] = []
+        private var inputPushSequence: UInt64 = 0
+        private var midiPushSequence: UInt64 = 0
 
         deinit {
             if let libusbSession {
@@ -2513,6 +2558,12 @@ public enum KompleteKontrolLibUSBServer {
         fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let timestamp = KKTiming.now()
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            let sequence = nextInputPushSequence()
+            daemonDebugLog(
+                "push surface seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex)",
+                group: "surface",
+                level: .info
+            )
             daemonDebugLog("async input len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "surface", level: .info)
             pushToClients("in @\(String(timestamp, radix: 16)) \(hex)", kind: .input)
         }
@@ -2520,8 +2571,30 @@ public enum KompleteKontrolLibUSBServer {
         fileprivate func pushMidiToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let timestamp = KKTiming.now()
             let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            let sequence = nextMIDIPushSequence()
+            daemonDebugLog(
+                "push midi seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex) parsed=\(KompleteKontrolS25MK1.formatMIDIEvents(KompleteKontrolS25MK1.parseUSBMIDIEvents((0..<Int(length)).map { data[$0] }, receptionTimestamp: timestamp)) )",
+                group: "midi",
+                level: .info
+            )
             daemonDebugLog("async midi len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "midi", level: .info)
             pushToClients("midi @\(String(timestamp, radix: 16)) \(hex)", kind: .midi)
+        }
+
+        private func nextInputPushSequence() -> UInt64 {
+            lock.lock()
+            inputPushSequence &+= 1
+            let sequence = inputPushSequence
+            lock.unlock()
+            return sequence
+        }
+
+        private func nextMIDIPushSequence() -> UInt64 {
+            lock.lock()
+            midiPushSequence &+= 1
+            let sequence = midiPushSequence
+            lock.unlock()
+            return sequence
         }
 
         private func pushToClients(_ message: String, kind: PushKind) {
@@ -2810,6 +2883,10 @@ public enum KKHex {
 
     public static func byte(_ value: Int) -> String {
         String(format: "%02x", value & 0xff)
+    }
+
+    public static func bytes(_ values: [UInt8]) -> String {
+        values.map(byte).joined(separator: " ")
     }
 
     public static func utf8(_ value: String) -> String {

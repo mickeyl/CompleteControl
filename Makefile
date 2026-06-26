@@ -8,7 +8,7 @@ PROBE_RELEASE := .build/release/KontrolProbe
 SURFACE_DEMO := .build/debug/SurfaceDemo
 SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
 
-.PHONY: help build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -26,7 +26,7 @@ surface: run ## Run the middleware SurfaceDemo.
 surface-release: run-release ## Run optimized middleware SurfaceDemo.
 
 daemon-build: ## Build the CompleteControl daemon.
-	swift build --product ccd
+	swift build -c debug --product ccd
 
 daemon-build-release: ## Build optimized CompleteControl daemon.
 	swift build -c release --product ccd
@@ -87,8 +87,11 @@ daemon-release: daemon-build-release ## Stop launchd daemon and run quiet optimi
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
 	@sudo "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
 
-install-daemon: daemon-build ## Install daemon as launchd service (requires sudo, one-time setup).
-	sudo ./install-daemon.sh
+install-daemon: daemon-build-release ## Install optimized daemon as launchd service (requires sudo).
+	sudo env KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON_RELEASE)" KK_INSTALL_DAEMON_CONFIGURATION=release ./install-daemon.sh
+
+install-debug-daemon: daemon-build ## Install daemon as launchd service with trace logging enabled.
+	sudo env KK_INSTALL_DEBUG_DAEMON=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
 
 uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	@echo "Stopping and removing daemon service..."
