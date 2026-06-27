@@ -42,6 +42,31 @@ struct InputReportDecoderTests {
         #expect(events == [.button(name: "stop", pressed: true)])
     }
 
+    @Test("Main encoder wraps as a four bit counter")
+    func mainEncoderWrapsAsFourBitCounter() throws {
+        var previous = try #require(Self.report(
+            "01 00 00 00 00 01 0f 8b 01 c0 02 7c 00 78 01 ce 03 7a 00 1e 03 62 02 0d 00 23 b5 00 00 00 00 ba b0 00 00 00 00 30"
+        ))
+        var current = previous
+        current[6] = 0x00
+
+        var events = KKInputReportDecoder.events(
+            reportID: KompleteKontrolS25MK1Protocol.inputReportID,
+            previous: previous,
+            current: current
+        )
+        #expect(events == [.mainEncoder(delta: 1)])
+
+        previous = current
+        current[6] = 0x0f
+        events = KKInputReportDecoder.events(
+            reportID: KompleteKontrolS25MK1Protocol.inputReportID,
+            previous: previous,
+            current: current
+        )
+        #expect(events == [.mainEncoder(delta: -1)])
+    }
+
     private static func report(_ hex: String) -> [UInt8]? {
         let bytes = hex.split(separator: " ").compactMap { UInt8($0, radix: 16) }
         return bytes.count == hex.split(separator: " ").count ? bytes : nil

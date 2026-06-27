@@ -449,7 +449,7 @@ public enum KKInputReportDecoder {
             events.append(.mainEncoderState(current[5]))
         }
         if previous.count > 6, current.count > 6, previous[6] != current[6] {
-            let delta = wrappedDelta(from: Int(previous[6]), to: Int(current[6]), modulo: 256)
+            let delta = wrappedDelta(from: Int(previous[6] & 0x0f), to: Int(current[6] & 0x0f), modulo: 16)
             if delta != 0 {
                 events.append(.mainEncoder(delta: delta))
             }
