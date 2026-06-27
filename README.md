@@ -17,6 +17,7 @@ Supported now:
 - Surface input: buttons, eight rotary encoders, encoder touch, main encoder, pitch strip, mod strip
 - USB-MIDI input through the daemon
 - Foreground debug daemon and quiet release daemon
+- Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
 
 Not supported yet:
@@ -130,6 +131,12 @@ Install the daemon once:
 make install-daemon
 ```
 
+For hardware and protocol debugging, install the debug daemon instead:
+
+```bash
+make install-debug-daemon
+```
+
 Run the middleware demo:
 
 ```bash
@@ -161,6 +168,7 @@ Useful maintenance targets:
 make help
 make daemon-status
 make daemon-debug
+make install-debug-daemon
 make daemon-stop
 make uninstall-daemon
 ```
@@ -352,6 +360,8 @@ The daemon:
 - creates `/var/run/kompletekontrol-libusb.sock`
 - claims the libusb surface interface and USB-MIDI streaming interface
 - owns the hardware surface only while no socket client is connected
+- shows `NO CLIENT` plus the running revision when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
+- lights pressed MIDI keys on the light guide while idle
 - briefly shows the active registered client's name/PID, then leaves surface ownership to the client
 - returns to `NO CLIENT` only after the last socket disconnects and no client remains registered
 - starts async transfers for surface input and MIDI input
@@ -361,6 +371,10 @@ The daemon:
 
 Set `KK_DAEMON_DISABLE_SURFACE=1` when you want the daemon to stay completely silent on the
 hardware surface even while idle.
+
+The installer writes `KK_COMPLETECONTROL_REPOSITORY` into the launchd environment so the idle
+diagnostic can show the running checkout's `git rev-list --count HEAD` and short hash. A `+`
+after the revision count means the installed binary was built from a dirty checkout.
 
 Debug logging is structured on stderr:
 
@@ -372,6 +386,12 @@ Use:
 
 ```bash
 make daemon-debug
+```
+
+or install the debug launchd daemon:
+
+```bash
+make install-debug-daemon
 ```
 
 Release benchmarking should use:
@@ -389,10 +409,11 @@ swift build --product ccd
 swift build --product KontrolProbe
 swift build -c release --product ccd
 swift build -c release --product KontrolProbe
+swift test
 git diff --check
 ```
 
-`swift test` currently builds the package and then exits with `no tests found` because the package has no `Tests` target yet.
+`swift test` currently includes focused decoder coverage for the S25 input report path.
 
 The current installer installs the built `ccd` executable to `/usr/local/bin/ccd` and loads a launchd service under `/Library/LaunchDaemons`. If you are packaging this for users, review the installer, code signing, and notarization before release.
 

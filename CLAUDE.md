@@ -23,21 +23,47 @@ Build / run / test:
 swift build                              # all targets
 swift build --product KontrolSurfaceKit  # just the kit
 swift build --product ccd                # daemon
+swift test                               # focused decoder tests
 swift run SurfaceDemo                     # needs the daemon + hardware to see output
 swift build -c release --product KontrolProbe
 ```
 
 The daemon owns the USB device; a client connects over a Unix socket. `make help` lists daemon
-targets (`make install-daemon`, `make daemon-status`, …). While no socket client is connected the
-daemon may render its idle surface; once a client connects, the client owns all surface rendering
-until the last socket disconnects. The hardware in this workspace is reachable through a running
-daemon.
+targets (`make install-daemon`, `make install-debug-daemon`, `make daemon-status`, …).
+`make install-daemon` builds and installs the release `ccd`; `make install-debug-daemon` builds and
+installs the debug `ccd` with structured trace logging. While no socket client is connected the
+daemon renders its idle diagnostic surface; once a client connects, the client owns all surface
+rendering until the last socket disconnects. The hardware in this workspace is reachable through a
+running daemon.
+
+### Daemon idle diagnostics
+
+When no socket client is connected, `ccd` owns the hardware surface:
+
+- LCDs show `NO CLIENT`, the running git revision (`REV <rev-list count>` plus short hash; a `+`
+  marks a dirty/uncommitted build), and an initial surface/MIDI test prompt.
+- Surface input is decoded and acknowledged on the LCDs.
+- USB-MIDI input is decoded and acknowledged on the LCDs.
+- Pressed MIDI keys light the corresponding light-guide key; note-off clears it.
+
+The launchd installer writes `KK_COMPLETECONTROL_REPOSITORY` into the daemon environment. Keep that
+when changing the plist/installer; without it, an installed `/usr/local/bin/ccd` may not be able to
+resolve the checkout from `#filePath` and will fall back to `REV ?` / `NO GIT`.
+
+Do not write LCDs/light-guide directly from libusb completion callbacks. Callback paths should
+update daemon state and set a pending flush flag; the kqueue reactor flushes the idle diagnostic
+after `handle_events`. Writing from inside the callback can fail with libusb status `-6` and leave
+the LCDs visually stale even though input was received.
 
 ### Verifying without seeing the hardware
 
 You usually can't see the LCDs/LEDs. What works:
 - `swift build` then run `SurfaceDemo` backgrounded for ~3s and check it stays alive + exits
   clean on SIGINT (it blanks displays on `stop()`).
+- For idle daemon diagnostics, install the debug daemon, make sure no client such as Paulinche or
+  SurfaceDemo is connected, and verify the hardware shows `NO CLIENT` plus a `REV` cell. Then press
+  a surface control and a MIDI key and inspect `/tmp/media.vanille.kompletekontrol-libusb.stderr.log`
+  for `push surface` / `push midi` if the hardware display is not visible.
 - `print` is **block-buffered** to a pipe — output only appears after exit/flush.
 - For the docs SVGs there are Python generators in scratch; render with `rsvg-convert` and Read
   the PNG to inspect visually.
@@ -118,6 +144,8 @@ show/stop) resets handlers + clears keys so nothing leaks between screens. Prefe
   128 of 0–127 fit across displays 1–8.
 - **Light-guide base note ≈ 48** (key index = MIDI note − 48; 25 keys, C→C).
 - LED brightness is single-channel 0–0x7f (blink/pulse are synthesized on the clock).
+- libusb output from callback context is fragile. For daemon-owned idle UI, schedule a flush from
+  the reactor rather than writing synchronously in `pushInputToClients` / `pushMidiToClients`.
 
 ## Concurrency notes
 
@@ -155,4 +183,12 @@ Cross-session memory (client + plans) lives outside the repo under the project's
 
 Small, well-named files (one concept each). For every new kit API, realize something in
 `SurfaceDemo`. Keep `ccd` as the daemon entry point and `KontrolProbe` as the untouched diagnostic
-baseline. Commit messages are plain (no attribution/Co-Authored-By trailers).
+baseline. When touching daemon input/output behavior, run at least:
+
+```bash
+swift build --product ccd
+swift build --product KontrolSurfaceKit
+swift test
+```
+
+Commit messages are plain (no attribution/Co-Authored-By trailers).

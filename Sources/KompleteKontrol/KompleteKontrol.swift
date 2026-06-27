@@ -664,6 +664,86 @@ public enum KKTiming {
     }
 }
 
+private enum KKBuildInfo {
+    static let sourceFilePath = #filePath
+
+    static func gitRevisionSummary() -> (count: String, hash: String) {
+        guard let repositoryURL = repositoryURL() else {
+            return ("REV ?", "NO GIT")
+        }
+        let count = runGit(arguments: ["rev-list", "--count", "HEAD"], repositoryURL: repositoryURL) ?? "REV ?"
+        let hash = runGit(arguments: ["rev-parse", "--short", "HEAD"], repositoryURL: repositoryURL) ?? "NO GIT"
+        return (count + (isDirty(repositoryURL: repositoryURL) ? "+" : ""), hash)
+    }
+
+    private static func repositoryURL() -> URL? {
+        let environment = ProcessInfo.processInfo.environment
+        for key in ["KK_COMPLETECONTROL_REPOSITORY", "KK_DAEMON_SOURCE_ROOT"] {
+            if let path = environment[key], !path.isEmpty {
+                let url = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                    return url
+                }
+            }
+        }
+
+        let sourceURL = URL(fileURLWithPath: sourceFilePath)
+        let initialURL: URL
+        if sourceURL.path.hasPrefix("/") {
+            initialURL = sourceURL
+        } else {
+            initialURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(sourceFilePath)
+        }
+
+        var url = initialURL
+        while url.path != "/" {
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                return url
+            }
+            url.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    private static func runGit(arguments: [String], repositoryURL: URL) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", repositoryURL.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func isDirty(repositoryURL: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", repositoryURL.path, "diff", "--quiet", "HEAD", "--"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationStatus != 0
+    }
+}
+
 private enum KKStderrLogLevel: String {
     case error = "ERROR"
     case info = "INFO"
@@ -2217,6 +2297,14 @@ public enum KompleteKontrolLibUSBServer {
         private var queuedMIDIMessages: [String] = []
         private var inputPushSequence: UInt64 = 0
         private var midiPushSequence: UInt64 = 0
+        private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
+        private var idleSurfacePreviousReport: [UInt8]?
+        private var idleSurfaceSummary = "PRESS ANY SURFACE"
+        private var idleMIDISummary = "OR MIDI KEY FOR TEST"
+        private var idleHasReceivedInput = false
+        private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
+        private var idleDiagnosticNeedsFlush = false
+        private var idleDiagnosticNeedsLightGuideFlush = false
 
         deinit {
             if let libusbSession {
@@ -2440,10 +2528,16 @@ public enum KompleteKontrolLibUSBServer {
         private func showNoClient() {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            var frame = KKDisplayFrame()
-            frame.setText("NO", display: 0, row: 1, alignment: .center)
-            frame.setText("CLIENT", display: 0, row: 2, alignment: .center)
-            writeDarkSurface(session: session, displayFrame: frame)
+            resetIdleDiagnosticState()
+            let emptyButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
+            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: emptyButtons)
+            writeIdleDiagnosticSurface(
+                surfaceSummary: "PRESS ANY SURFACE",
+                midiSummary: "OR MIDI KEY FOR TEST",
+                hasInput: false,
+                lightGuide: [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount),
+                writeLightGuide: true
+            )
         }
 
         private func shouldDaemonShowIdleSurface() -> Bool {
@@ -2460,6 +2554,218 @@ public enum KompleteKontrolLibUSBServer {
             for row in 0..<KKDisplayFrame.rowCount {
                 let payload = KompleteKontrolLibUSBServer.displayRowPayload(row, data: displayFrame.rowData(row))
                 writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.displayReportID, payload: payload)
+            }
+        }
+
+        private func resetIdleDiagnosticState() {
+            lock.lock()
+            idleSurfacePreviousReport = nil
+            idleSurfaceSummary = "PRESS ANY SURFACE"
+            idleMIDISummary = "OR MIDI KEY FOR TEST"
+            idleHasReceivedInput = false
+            idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
+            idleDiagnosticNeedsFlush = false
+            idleDiagnosticNeedsLightGuideFlush = false
+            lock.unlock()
+        }
+
+        private func acknowledgeIdleSurfaceInput(_ bytes: [UInt8]) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            let report = normalizedIdleSurfaceReport(bytes)
+
+            lock.lock()
+            let previous = idleSurfacePreviousReport
+            let baseline = previous ?? KKInputReportDecoder.initialEventBaseline(
+                reportID: KompleteKontrolS25MK1Protocol.inputReportID,
+                current: report
+            ) ?? report
+            let events = KKInputReportDecoder.events(
+                reportID: KompleteKontrolS25MK1Protocol.inputReportID,
+                previous: baseline,
+                current: report
+            )
+            idleSurfacePreviousReport = report
+            if events.isEmpty, previous != nil, previous == report {
+                lock.unlock()
+                return
+            }
+            idleHasReceivedInput = true
+            idleSurfaceSummary = events.first.map(idleSurfaceSummary(for:)) ?? idleRawSurfaceSummary(bytes)
+            if idleMIDISummary == "OR MIDI KEY FOR TEST" {
+                idleMIDISummary = "--"
+            }
+            idleDiagnosticNeedsFlush = true
+            lock.unlock()
+        }
+
+        private func acknowledgeIdleMIDIInput(_ bytes: [UInt8], timestamp: UInt64) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            let events = KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)
+            guard !events.isEmpty || !bytes.isEmpty else { return }
+
+            lock.lock()
+            idleHasReceivedInput = true
+            idleMIDISummary = events.first.map(idleMIDISummary(for:)) ?? idleRawMIDISummary(bytes)
+            if idleSurfaceSummary == "PRESS ANY SURFACE" {
+                idleSurfaceSummary = "--"
+            }
+            for event in events {
+                updateIdleLightGuide(for: event)
+            }
+            idleDiagnosticNeedsFlush = true
+            idleDiagnosticNeedsLightGuideFlush = true
+            lock.unlock()
+        }
+
+        private func normalizedIdleSurfaceReport(_ bytes: [UInt8]) -> [UInt8] {
+            guard bytes.first == UInt8(KompleteKontrolS25MK1Protocol.inputReportID) else {
+                return bytes
+            }
+            return Array(bytes.dropFirst())
+        }
+
+        private func idleSurfaceSummary(for event: KKInputEvent) -> String {
+            switch event {
+                case let .button(name, pressed):
+                    return "BTN \(shortIdleName(name)) \(pressed ? "DOWN" : "UP")"
+                case let .touchEncoder(index, touched):
+                    return "TOUCH E\(index) \(touched ? "ON" : "OFF")"
+                case let .mainEncoderState(value):
+                    return String(format: "MAIN STATE %02X", value)
+                case let .mainEncoder(delta):
+                    return "MAIN \(signedIdleDelta(delta))"
+                case let .rotaryEncoder(index, delta, value):
+                    return "ENC \(index) \(signedIdleDelta(delta)) VAL \(value)"
+                case let .touchStrip(name, value):
+                    return "\(shortIdleName(name)) STRIP \(value)"
+            }
+        }
+
+        private func idleMIDISummary(for event: KKMIDIEvent) -> String {
+            switch event.kind {
+                case .noteOn:
+                    return "ON \(idleNoteName(event.note)) V\(event.velocity)"
+                case .noteOff:
+                    return "OFF \(idleNoteName(event.note))"
+                case .controlChange:
+                    return "CC \(event.control) \(event.controlValue)"
+                case .pitchBend:
+                    return "BEND \(event.pitchBendCentered)"
+            }
+        }
+
+        private func idleRawSurfaceSummary(_ bytes: [UInt8]) -> String {
+            "RAW " + bytes.prefix(6).map(KKHex.byte).joined(separator: " ")
+        }
+
+        private func idleRawMIDISummary(_ bytes: [UInt8]) -> String {
+            "RAW " + bytes.prefix(6).map(KKHex.byte).joined(separator: " ")
+        }
+
+        private func shortIdleName(_ name: String) -> String {
+            name.uppercased().replacingOccurrences(of: " ", with: "")
+        }
+
+        private func signedIdleDelta(_ value: Int) -> String {
+            value >= 0 ? "+\(value)" : "\(value)"
+        }
+
+        private func idleNoteName(_ note: UInt8) -> String {
+            let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+            let value = Int(note)
+            let octave = value / 12 - 1
+            return "\(names[value % 12])\(octave)"
+        }
+
+        private func updateIdleLightGuide(for event: KKMIDIEvent) {
+            guard event.kind == .noteOn || event.kind == .noteOff else { return }
+            let keyIndex = Int(event.note) - 48
+            guard (0..<KompleteKontrolS25MK1Protocol.keyCount).contains(keyIndex) else { return }
+            let base = keyIndex * 3
+            if event.kind == .noteOn {
+                let intensity = UInt8(max(16, min(0x7f, Int(event.velocity))))
+                idleLightGuide[base] = 0
+                idleLightGuide[base + 1] = intensity
+                idleLightGuide[base + 2] = 0x7f
+            } else {
+                idleLightGuide[base] = 0
+                idleLightGuide[base + 1] = 0
+                idleLightGuide[base + 2] = 0
+            }
+        }
+
+        private func writeIdleDiagnosticSurface(
+            surfaceSummary: String,
+            midiSummary: String,
+            hasInput: Bool,
+            lightGuide: [UInt8],
+            writeLightGuide: Bool
+        ) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            guard let session = ensureSession() else { return }
+
+            var frame = KKDisplayFrame()
+            frame.setText("NO", display: 0, row: 1, alignment: .center)
+            frame.setText("CLIENT", display: 0, row: 2, alignment: .center)
+            if hasInput {
+                setIdleWideText("SURF \(surfaceSummary)", row: 1, into: &frame)
+                setIdleWideText("MIDI \(midiSummary)", row: 2, into: &frame)
+            } else {
+                setIdleWideText("PRESS ANY SURFACE", row: 1, into: &frame)
+                setIdleWideText("OR MIDI KEY FOR TEST", row: 2, into: &frame)
+            }
+            frame.setText("REV \(idleRevisionSummary.count)", display: KKDisplayFrame.displayCount - 1, row: 1, alignment: .left)
+            frame.setText(idleRevisionSummary.hash, display: KKDisplayFrame.displayCount - 1, row: 2, alignment: .left)
+
+            if writeLightGuide {
+                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
+            }
+            for row in 0..<KKDisplayFrame.rowCount {
+                let payload = KompleteKontrolLibUSBServer.displayRowPayload(row, data: frame.rowData(row))
+                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.displayReportID, payload: payload)
+            }
+        }
+
+        private func flushIdleDiagnosticIfNeeded() {
+            guard shouldDaemonShowIdleSurface() else { return }
+            let surfaceSummary: String
+            let midiSummary: String
+            let hasInput: Bool
+            let guide: [UInt8]
+            let writeLightGuide: Bool
+
+            lock.lock()
+            guard idleDiagnosticNeedsFlush else {
+                lock.unlock()
+                return
+            }
+            idleDiagnosticNeedsFlush = false
+            writeLightGuide = idleDiagnosticNeedsLightGuideFlush
+            idleDiagnosticNeedsLightGuideFlush = false
+            surfaceSummary = idleSurfaceSummary
+            midiSummary = idleMIDISummary
+            hasInput = idleHasReceivedInput
+            guide = idleLightGuide
+            lock.unlock()
+
+            writeIdleDiagnosticSurface(
+                surfaceSummary: surfaceSummary,
+                midiSummary: midiSummary,
+                hasInput: hasInput,
+                lightGuide: guide,
+                writeLightGuide: writeLightGuide
+            )
+        }
+
+        private func setIdleWideText(_ text: String, row: Int, into frame: inout KKDisplayFrame) {
+            let displayRange = 1..<(KKDisplayFrame.displayCount - 1)
+            let capacity = displayRange.count * KKDisplayFrame.characterCount
+            let scalars = Array(text.uppercased().unicodeScalars.prefix(capacity))
+            for display in displayRange {
+                let start = (display - 1) * KKDisplayFrame.characterCount
+                let end = min(start + KKDisplayFrame.characterCount, scalars.count)
+                let chunk = start < end ? String(String.UnicodeScalarView(scalars[start..<end])) : ""
+                frame.setText(chunk, display: display, row: row, alignment: .left)
             }
         }
 
@@ -2525,6 +2831,7 @@ public enum KompleteKontrolLibUSBServer {
             daemonTraceLog("handle_events begin timeoutMs=\(timeoutMs)", group: "usb")
             KontrolUSBLibUSBHandleEventsTimeout(session, Int32(timeoutMs))
             daemonTraceLog("handle_events end timeoutMs=\(timeoutMs)", group: "usb")
+            flushIdleDiagnosticIfNeeded()
         }
 
         func currentLibusbPollFds() -> [KontrolUSBPollFd] {
@@ -2557,7 +2864,8 @@ public enum KompleteKontrolLibUSBServer {
 
         fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let timestamp = KKTiming.now()
-            let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            let bytes = (0..<Int(length)).map { data[$0] }
+            let hex = bytes.map(KKHex.byte).joined(separator: " ")
             let sequence = nextInputPushSequence()
             daemonDebugLog(
                 "push surface seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex)",
@@ -2565,19 +2873,22 @@ public enum KompleteKontrolLibUSBServer {
                 level: .info
             )
             daemonDebugLog("async input len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "surface", level: .info)
+            acknowledgeIdleSurfaceInput(bytes)
             pushToClients("in @\(String(timestamp, radix: 16)) \(hex)", kind: .input)
         }
 
         fileprivate func pushMidiToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let timestamp = KKTiming.now()
-            let hex = (0..<Int(length)).map { KKHex.byte(data[$0]) }.joined(separator: " ")
+            let bytes = (0..<Int(length)).map { data[$0] }
+            let hex = bytes.map(KKHex.byte).joined(separator: " ")
             let sequence = nextMIDIPushSequence()
             daemonDebugLog(
-                "push midi seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex) parsed=\(KompleteKontrolS25MK1.formatMIDIEvents(KompleteKontrolS25MK1.parseUSBMIDIEvents((0..<Int(length)).map { data[$0] }, receptionTimestamp: timestamp)) )",
+                "push midi seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex) parsed=\(KompleteKontrolS25MK1.formatMIDIEvents(KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)) )",
                 group: "midi",
                 level: .info
             )
             daemonDebugLog("async midi len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "midi", level: .info)
+            acknowledgeIdleMIDIInput(bytes, timestamp: timestamp)
             pushToClients("midi @\(String(timestamp, radix: 16)) \(hex)", kind: .midi)
         }
 
