@@ -372,9 +372,10 @@ The daemon:
 Set `KK_DAEMON_DISABLE_SURFACE=1` when you want the daemon to stay completely silent on the
 hardware surface even while idle.
 
-The installer writes `KK_COMPLETECONTROL_REPOSITORY` into the launchd environment so the idle
-diagnostic can show the running checkout's `git rev-list --count HEAD` and short hash. A `+`
-after the revision count means the installed binary was built from a dirty checkout.
+The revision shown by the idle diagnostic is embedded into the binary at SwiftPM build time by
+the `GenerateBuildInfo` build-tool plugin. It records `git rev-list --count HEAD` and the short
+hash from the checkout used for the build. A `+` after the revision count means the binary was
+built from a dirty checkout.
 
 Debug logging is structured on stderr:
 

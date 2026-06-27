@@ -78,10 +78,9 @@ chmod +x /usr/local/bin/ccd
 # Update plist with correct executable path
 echo "Installing launchd plist..."
 cp "$PLIST_FILE" "$LAUNCHD_PLIST"
-/usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
-/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_COMPLETECONTROL_REPOSITORY string $SCRIPT_DIR" "$LAUNCHD_PLIST"
 if [ "$DEBUG_DAEMON" = "1" ]; then
+    /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:LOGLEVEL string TRACE" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$LAUNCHD_PLIST"

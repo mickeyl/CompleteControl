@@ -35,7 +35,8 @@ let package = Package(
             swiftSettings: [
                 .define("KK_DEBUG", .when(configuration: .debug)),
                 .swiftLanguageMode(.v5),
-            ]
+            ],
+            plugins: ["GenerateBuildInfo"]
         ),
         .executableTarget(
             name: "ccd",
@@ -82,6 +83,11 @@ let package = Package(
         .testTarget(
             name: "KompleteKontrolTests",
             dependencies: ["KompleteKontrol"]
+        ),
+        .plugin(
+            name: "GenerateBuildInfo",
+            capability: .buildTool(),
+            path: "Plugins/GenerateBuildInfo"
         ),
     ],
     cxxLanguageStandard: .cxx20

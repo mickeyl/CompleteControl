@@ -46,9 +46,9 @@ When no socket client is connected, `ccd` owns the hardware surface:
 - USB-MIDI input is decoded and acknowledged on the LCDs.
 - Pressed MIDI keys light the corresponding light-guide key; note-off clears it.
 
-The launchd installer writes `KK_COMPLETECONTROL_REPOSITORY` into the daemon environment. Keep that
-when changing the plist/installer; without it, an installed `/usr/local/bin/ccd` may not be able to
-resolve the checkout from `#filePath` and will fall back to `REV ?` / `NO GIT`.
+The revision is embedded at SwiftPM build time by the `GenerateBuildInfo` build-tool plugin. Keep
+that plugin attached to the `KompleteKontrol` target; the installed `/usr/local/bin/ccd` should not
+need runtime access to the checkout or `.git` directory to show its revision.
 
 Do not write LCDs/light-guide directly from libusb completion callbacks. Callback paths should
 update daemon state and set a pending flush flag; the kqueue reactor flushes the idle diagnostic

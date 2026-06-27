@@ -665,82 +665,8 @@ public enum KKTiming {
 }
 
 private enum KKBuildInfo {
-    static let sourceFilePath = #filePath
-
     static func gitRevisionSummary() -> (count: String, hash: String) {
-        guard let repositoryURL = repositoryURL() else {
-            return ("REV ?", "NO GIT")
-        }
-        let count = runGit(arguments: ["rev-list", "--count", "HEAD"], repositoryURL: repositoryURL) ?? "REV ?"
-        let hash = runGit(arguments: ["rev-parse", "--short", "HEAD"], repositoryURL: repositoryURL) ?? "NO GIT"
-        return (count + (isDirty(repositoryURL: repositoryURL) ? "+" : ""), hash)
-    }
-
-    private static func repositoryURL() -> URL? {
-        let environment = ProcessInfo.processInfo.environment
-        for key in ["KK_COMPLETECONTROL_REPOSITORY", "KK_DAEMON_SOURCE_ROOT"] {
-            if let path = environment[key], !path.isEmpty {
-                let url = URL(fileURLWithPath: path)
-                if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) {
-                    return url
-                }
-            }
-        }
-
-        let sourceURL = URL(fileURLWithPath: sourceFilePath)
-        let initialURL: URL
-        if sourceURL.path.hasPrefix("/") {
-            initialURL = sourceURL
-        } else {
-            initialURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent(sourceFilePath)
-        }
-
-        var url = initialURL
-        while url.path != "/" {
-            if FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) {
-                return url
-            }
-            url.deleteLastPathComponent()
-        }
-        return nil
-    }
-
-    private static func runGit(arguments: [String], repositoryURL: URL) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", repositoryURL.path] + arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func isDirty(repositoryURL: URL) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", repositoryURL.path, "diff", "--quiet", "HEAD", "--"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return false
-        }
-        process.waitUntilExit()
-        return process.terminationStatus != 0
+        (KKGeneratedBuildInfo.revisionCount, KKGeneratedBuildInfo.revisionHash)
     }
 }
 
