@@ -663,11 +663,81 @@ public enum KKTiming {
     public static func short(_ payload: [UInt8]) -> String {
         payload.prefix(8).map(KKHex.byte).joined(separator: " ")
     }
+
+    public static func clipped(_ text: String, limit: Int = 512) -> String {
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit)) + " ...[+\(text.count - limit) chars]"
+    }
 }
 
 private enum KKBuildInfo {
     static func gitRevisionSummary() -> (count: String, hash: String) {
         (KKGeneratedBuildInfo.revisionCount, KKGeneratedBuildInfo.revisionHash)
+    }
+}
+
+enum DaemonUSBReadinessAction: Equatable {
+    case pumpOnly
+    case pumpAndReconnect
+}
+
+enum DaemonReactorScheduler {
+    static func usbReadinessAction(flags: UInt16) -> DaemonUSBReadinessAction {
+        // Normal libusb readiness is the input hot path. Health/reconnect work only belongs on error edges.
+        let hasError = (flags & UInt16(EV_ERROR)) != 0 || (flags & UInt16(EV_EOF)) != 0
+        return hasError ? .pumpAndReconnect : .pumpOnly
+    }
+}
+
+struct DaemonIdleDiagnosticFlushDecision: Equatable {
+    var writeDisplay: Bool
+    var writeLightGuide: Bool
+}
+
+struct DaemonIdleDiagnosticFlushGate {
+    var lastDisplayFlushAt: UInt64 = 0
+    var minimumDisplayFlushIntervalNs: UInt64 = 50_000_000
+
+    mutating func decide(
+        now: UInt64,
+        needsDisplay: Bool,
+        needsLightGuide: Bool
+    ) -> DaemonIdleDiagnosticFlushDecision {
+        let displayDue = needsDisplay
+            && (lastDisplayFlushAt == 0 || now &- lastDisplayFlushAt >= minimumDisplayFlushIntervalNs)
+        if displayDue {
+            lastDisplayFlushAt = now
+        }
+        return DaemonIdleDiagnosticFlushDecision(
+            writeDisplay: displayDue,
+            writeLightGuide: needsLightGuide
+        )
+    }
+
+    mutating func reset() {
+        lastDisplayFlushAt = 0
+    }
+}
+
+enum DaemonClientCommandPump {
+    static func processCompleteLines(
+        buffer: inout [UInt8],
+        clientID: Int,
+        handle: (String, Int) -> String,
+        writeResponse: (String) -> Void,
+        pumpUSB: () -> Void
+    ) {
+        while let newline = buffer.firstIndex(of: 0x0a) {
+            let lineBytes = buffer.prefix(upTo: newline)
+            buffer.removeSubrange(...newline)
+            guard let line = String(bytes: lineBytes, encoding: .utf8) else {
+                writeResponse("err utf8")
+                continue
+            }
+            let response = handle(line, clientID)
+            writeResponse(response)
+            pumpUSB()
+        }
     }
 }
 
@@ -680,6 +750,11 @@ private enum KKStderrLogLevel: String {
 
 private enum KKStderrLog {
     private static let lock = NSLock()
+    private static let queue = DispatchQueue(label: "media.vanille.kompletekontrol.log", qos: .background)
+    private static let maxPending = 2_048
+    private static let maxMessageLength = 2_048
+    private static var pending = 0
+    private static var dropped = 0
     private static let formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -687,18 +762,44 @@ private enum KKStderrLog {
     }()
 
     static func write(group: String, level: KKStderrLogLevel, _ message: String) {
-        let cleanMessage = message.replacingOccurrences(of: "\n", with: "\\n")
         lock.lock()
-        let timestamp = formatter.string(from: Date())
-        let line = "timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n"
-        fputs(line, stderr)
-        fflush(stderr)
-        if let path = ProcessInfo.processInfo.environment["KK_DAEMON_LOG_FILE"],
-           let file = fopen(path, "a") {
-            fputs(line, file)
-            fclose(file)
+        guard pending < maxPending else {
+            dropped += 1
+            lock.unlock()
+            return
         }
+        pending += 1
         lock.unlock()
+
+        queue.async {
+            let droppedBefore: Int
+            lock.lock()
+            droppedBefore = dropped
+            dropped = 0
+            lock.unlock()
+
+            var cleanMessage = message.replacingOccurrences(of: "\n", with: "\\n")
+            if cleanMessage.count > maxMessageLength {
+                cleanMessage = String(cleanMessage.prefix(maxMessageLength)) + " ...[truncated]"
+            }
+            if droppedBefore > 0 {
+                cleanMessage = "droppedLogs=\(droppedBefore) " + cleanMessage
+            }
+
+            let timestamp = formatter.string(from: Date())
+            let line = "timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n"
+            fputs(line, stderr)
+            fflush(stderr)
+            if let path = ProcessInfo.processInfo.environment["KK_DAEMON_LOG_FILE"],
+               let file = fopen(path, "a") {
+                fputs(line, file)
+                fclose(file)
+            }
+
+            lock.lock()
+            pending -= 1
+            lock.unlock()
+        }
     }
 }
 
@@ -2124,9 +2225,14 @@ public enum KompleteKontrolLibUSBServer {
                         }
                     }
                 } else if hardware.isLibusbFd(fd) {
-                    daemonDebugLog("libusb fd ready fd=\(fd) filter=\(event.filter)", group: "reactor")
+                    let action = DaemonReactorScheduler.usbReadinessAction(flags: event.flags)
+                    daemonDebugLog("libusb fd ready fd=\(fd) filter=\(event.filter) action=\(action)", group: "reactor")
                     hardware.handleUsbEvents(timeoutMs: 0)
-                    runReconnect(reason: "libusb-fd", forceOpen: true)
+                    if action == .pumpAndReconnect {
+                        runReconnect(reason: "libusb-fd-error", forceOpen: true)
+                    } else {
+                        syncLibUSBRegistrations()
+                    }
                 } else if clientIDs[fd] != nil {
                     let cid = clientIDs[fd]!
                     daemonTraceLog("client fd ready client=\(cid) fd=\(fd)", group: "client")
@@ -2179,17 +2285,20 @@ public enum KompleteKontrolLibUSBServer {
         }
         buffer.append(contentsOf: scratch.prefix(count))
 
-        while let newline = buffer.firstIndex(of: 0x0a) {
-            let lineBytes = buffer.prefix(upTo: newline)
-            buffer.removeSubrange(...newline)
-            guard let line = String(bytes: lineBytes, encoding: .utf8) else {
-                writeDaemonResponse("err utf8", to: fd)
-                continue
+        DaemonClientCommandPump.processCompleteLines(
+            buffer: &buffer,
+            clientID: clientID,
+            handle: { line, clientID in
+                daemonTraceLog("client \(clientID) recv \(KKTiming.clipped(line))")
+                return hardware.handle(line, clientID: clientID)
+            },
+            writeResponse: { response in
+                writeDaemonResponse(response, to: fd)
+            },
+            pumpUSB: {
+                hardware.handleUsbEvents(timeoutMs: 0)
             }
-            daemonTraceLog("client \(clientID) recv \(line)")
-            let response = hardware.handle(line, clientID: clientID)
-            writeDaemonResponse(response, to: fd)
-        }
+        )
         return false
     }
 
@@ -2476,6 +2585,7 @@ public enum KompleteKontrolLibUSBServer {
         private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
         private var idleDiagnosticNeedsFlush = false
         private var idleDiagnosticNeedsLightGuideFlush = false
+        private var idleDiagnosticFlushGate = DaemonIdleDiagnosticFlushGate()
 
         deinit {
             if let libusbSession {
@@ -2896,6 +3006,7 @@ public enum KompleteKontrolLibUSBServer {
             idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
+            idleDiagnosticFlushGate.reset()
             lock.unlock()
         }
 
@@ -3058,33 +3169,52 @@ public enum KompleteKontrolLibUSBServer {
 
         private func flushIdleDiagnosticIfNeeded() {
             guard shouldDaemonShowIdleSurface() else { return }
+            let now = KKTiming.now()
             let surfaceSummary: String
             let midiSummary: String
             let hasInput: Bool
             let guide: [UInt8]
-            let writeLightGuide: Bool
+            let decision: DaemonIdleDiagnosticFlushDecision
 
             lock.lock()
-            guard idleDiagnosticNeedsFlush else {
+            guard idleDiagnosticNeedsFlush || idleDiagnosticNeedsLightGuideFlush else {
                 lock.unlock()
                 return
             }
-            idleDiagnosticNeedsFlush = false
-            writeLightGuide = idleDiagnosticNeedsLightGuideFlush
-            idleDiagnosticNeedsLightGuideFlush = false
+            decision = idleDiagnosticFlushGate.decide(
+                now: now,
+                needsDisplay: idleDiagnosticNeedsFlush,
+                needsLightGuide: idleDiagnosticNeedsLightGuideFlush
+            )
             surfaceSummary = idleSurfaceSummary
             midiSummary = idleMIDISummary
             hasInput = idleHasReceivedInput
             guide = idleLightGuide
+            if decision.writeDisplay {
+                idleDiagnosticNeedsFlush = false
+            }
+            if decision.writeLightGuide {
+                idleDiagnosticNeedsLightGuideFlush = false
+            }
             lock.unlock()
 
-            writeIdleDiagnosticSurface(
-                surfaceSummary: surfaceSummary,
-                midiSummary: midiSummary,
-                hasInput: hasInput,
-                lightGuide: guide,
-                writeLightGuide: writeLightGuide
-            )
+            if decision.writeDisplay {
+                writeIdleDiagnosticSurface(
+                    surfaceSummary: surfaceSummary,
+                    midiSummary: midiSummary,
+                    hasInput: hasInput,
+                    lightGuide: guide,
+                    writeLightGuide: decision.writeLightGuide
+                )
+            } else if decision.writeLightGuide {
+                writeIdleDiagnosticLightGuide(guide)
+            }
+        }
+
+        private func writeIdleDiagnosticLightGuide(_ lightGuide: [UInt8]) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            guard let session = ensureSession() else { return }
+            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
         }
 
         private func setIdleWideText(_ text: String, row: Int, into frame: inout KKDisplayFrame) {

@@ -8,7 +8,7 @@ PROBE_RELEASE := .build/release/KontrolProbe
 SURFACE_DEMO := .build/debug/SurfaceDemo
 SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
 
-.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -82,13 +82,15 @@ daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	sudo env KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
-daemon-release: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
+daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
 	@echo "Stopping installed/foreground daemons..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
 	@sudo "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
+
+daemon-release: daemon ## Alias for daemon.
 
 install-daemon: daemon-build-release ## Install optimized daemon as launchd service (requires sudo).
 	sudo env KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON_RELEASE)" KK_INSTALL_DAEMON_CONFIGURATION=release ./install-daemon.sh

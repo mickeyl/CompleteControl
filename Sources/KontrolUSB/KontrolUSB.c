@@ -8,6 +8,7 @@
 #include <IOKit/usb/USBSpec.h>
 #include <libusb.h>
 #include <mach/mach_error.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +56,89 @@ typedef struct {
 } KontrolLibUSBSession;
 
 #ifdef KK_DEBUG
+#define KK_USB_LOG_QUEUE_CAPACITY 1024
+#define KK_USB_LOG_LINE_MAX 1024
+
+static pthread_mutex_t kk_usb_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t kk_usb_log_cond = PTHREAD_COND_INITIALIZER;
+static char *kk_usb_log_queue[KK_USB_LOG_QUEUE_CAPACITY];
+static int kk_usb_log_head = 0;
+static int kk_usb_log_tail = 0;
+static int kk_usb_log_count = 0;
+static int kk_usb_log_started = 0;
+static unsigned int kk_usb_log_dropped = 0;
+
+static void *kk_usb_log_worker(void *unused) {
+    (void)unused;
+#if defined(__APPLE__)
+    pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0);
+#endif
+    while (1) {
+        pthread_mutex_lock(&kk_usb_log_mutex);
+        while (kk_usb_log_count == 0) {
+            pthread_cond_wait(&kk_usb_log_cond, &kk_usb_log_mutex);
+        }
+        char *line = kk_usb_log_queue[kk_usb_log_head];
+        kk_usb_log_queue[kk_usb_log_head] = NULL;
+        kk_usb_log_head = (kk_usb_log_head + 1) % KK_USB_LOG_QUEUE_CAPACITY;
+        kk_usb_log_count--;
+        pthread_mutex_unlock(&kk_usb_log_mutex);
+
+        if (line != NULL) {
+            fputs(line, stderr);
+            fflush(stderr);
+            free(line);
+        }
+    }
+    return NULL;
+}
+
+static void kk_usb_log_start_locked(void) {
+    if (kk_usb_log_started) {
+        return;
+    }
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, kk_usb_log_worker, NULL) == 0) {
+        pthread_detach(thread);
+        kk_usb_log_started = 1;
+    }
+}
+
+static void kk_usb_log_enqueue(const char *line) {
+    char *copy = strdup(line);
+    if (copy == NULL) {
+        return;
+    }
+
+    pthread_mutex_lock(&kk_usb_log_mutex);
+    kk_usb_log_start_locked();
+    if (!kk_usb_log_started || kk_usb_log_count >= KK_USB_LOG_QUEUE_CAPACITY) {
+        kk_usb_log_dropped++;
+        pthread_mutex_unlock(&kk_usb_log_mutex);
+        free(copy);
+        return;
+    }
+    if (kk_usb_log_dropped > 0) {
+        char droppedLine[160];
+        snprintf(droppedLine,
+                 sizeof(droppedLine),
+                 "timestamp=unknown group=usb-log level=TRACE message=droppedLogs=%u\n",
+                 kk_usb_log_dropped);
+        char *droppedCopy = strdup(droppedLine);
+        if (droppedCopy != NULL && kk_usb_log_count < KK_USB_LOG_QUEUE_CAPACITY - 1) {
+            kk_usb_log_queue[kk_usb_log_tail] = droppedCopy;
+            kk_usb_log_tail = (kk_usb_log_tail + 1) % KK_USB_LOG_QUEUE_CAPACITY;
+            kk_usb_log_count++;
+            kk_usb_log_dropped = 0;
+        }
+    }
+    kk_usb_log_queue[kk_usb_log_tail] = copy;
+    kk_usb_log_tail = (kk_usb_log_tail + 1) % KK_USB_LOG_QUEUE_CAPACITY;
+    kk_usb_log_count++;
+    pthread_cond_signal(&kk_usb_log_cond);
+    pthread_mutex_unlock(&kk_usb_log_mutex);
+}
+
 static int kk_usb_debug_flag_enabled(const char *value) {
     return value != NULL
         && value[0] != '\0'
@@ -93,13 +177,28 @@ static void kk_usb_debug_log(const char *group, const char *level, const char *f
              tm.tm_sec,
              (int)(tv.tv_usec / 1000));
 
-    fprintf(stderr, "timestamp=%s group=%s level=%s message=", timestamp, group, level);
+    char line[KK_USB_LOG_LINE_MAX];
+    int offset = snprintf(line, sizeof(line), "timestamp=%s group=%s level=%s message=", timestamp, group, level);
+    if (offset < 0 || offset >= (int)sizeof(line)) {
+        return;
+    }
+
     va_list args;
     va_start(args, format);
-    vfprintf(stderr, format, args);
+    int written = vsnprintf(line + offset, sizeof(line) - (size_t)offset, format, args);
     va_end(args);
-    fputc('\n', stderr);
-    fflush(stderr);
+    if (written < 0) {
+        return;
+    }
+    size_t used = strnlen(line, sizeof(line));
+    if (used >= sizeof(line) - 2) {
+        used = sizeof(line) - 16;
+        memcpy(line + used, " ...[truncated]", 16);
+        used += 15;
+    }
+    line[used++] = '\n';
+    line[used] = '\0';
+    kk_usb_log_enqueue(line);
 }
 
 static void kk_usb_debug_head(char *out, size_t outLen, const uint8_t *data, int length) {
