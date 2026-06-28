@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 import IOKit
 import IOKit.hid
+import IOKit.pwr_mgt
 import KontrolUSB
 
 public enum KompleteKontrolS25MK1Protocol {
@@ -1321,6 +1322,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
                         self.handleDaemonSurfaceResponse(line)
                     } else if line.hasPrefix("midi ") {
                         self.handleDaemonMIDIResponse(line)
+                    } else if line.hasPrefix("device ") {
+                        self.handleDaemonDeviceResponse(line)
                     }
                 }
             }
@@ -1417,6 +1420,18 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         )
         for event in events {
             onMIDIEvent?(event)
+        }
+    }
+
+    private func handleDaemonDeviceResponse(_ response: String) {
+        guard response.hasPrefix("device reconnected") else { return }
+        log?("Komplete Kontrol daemon device reconnected; replaying surface state.")
+        helperSessionLock.lock()
+        surfaceReplayPending = true
+        let session = helperSession
+        helperSessionLock.unlock()
+        if let session {
+            replaySurfaceState(on: session)
         }
     }
 
@@ -1574,7 +1589,12 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     }
 
     private static func daemonResponseRequiresReconnect(_ response: String) -> Bool {
-        response.hasPrefix("err -4 ") || response.hasPrefix("err -5 ") || response.hasPrefix("err -6 ")
+        response.hasPrefix("err -1 ")
+            || response.hasPrefix("err -4 ")
+            || response.hasPrefix("err -5 ")
+            || response.hasPrefix("err -6 ")
+            || response.hasPrefix("err -9 ")
+            || response.hasPrefix("err -10 ")
     }
 
     private func replaySurfaceState(on session: KKDaemonOutputSession) {
@@ -1684,9 +1704,108 @@ public enum KompleteKontrolLibUSBServer {
     private static let daemonLockPath = "/var/run/kompletekontrol-libusb.lock"
     private static let daemonStartLock = NSLock()
 
+    private enum DaemonControlEvent: UInt8 {
+        case systemSleep = 0x73
+        case systemWake = 0x77
+    }
+
+    private enum IOPowerMessage {
+        // Swift cannot import these IOMessage.h macros directly.
+        static let canSystemSleep: UInt32 = 0xe0000270
+        static let systemWillSleep: UInt32 = 0xe0000280
+        static let systemWillNotSleep: UInt32 = 0xe0000290
+        static let systemWillPowerOn: UInt32 = 0xe0000320
+        static let systemHasPoweredOn: UInt32 = 0xe0000300
+    }
+
     private struct LibUSBKqueueRegistration: Hashable {
         var fd: Int32
         var filter: Int16
+    }
+
+    private final class DaemonPowerObserver: @unchecked Sendable {
+        private let hardware: DaemonHardware
+        private let controlWriteFD: Int32
+        private let queue = DispatchQueue(label: "media.vanille.kompletekontrol.power")
+        private var notifyPort: IONotificationPortRef?
+        private var notifier: io_object_t = 0
+        private var rootPort: io_connect_t = 0
+
+        init(hardware: DaemonHardware, controlWriteFD: Int32) {
+            self.hardware = hardware
+            self.controlWriteFD = controlWriteFD
+        }
+
+        func start() {
+            var localNotifyPort: IONotificationPortRef?
+            var localNotifier: io_object_t = 0
+            let refcon = Unmanaged.passUnretained(self).toOpaque()
+            let root = IORegisterForSystemPower(refcon, &localNotifyPort, Self.callback, &localNotifier)
+            guard root != 0, let localNotifyPort else {
+                daemonLog("power notifications unavailable", group: "power", level: .error)
+                return
+            }
+            rootPort = root
+            notifyPort = localNotifyPort
+            notifier = localNotifier
+            IONotificationPortSetDispatchQueue(localNotifyPort, queue)
+            daemonLog("power notifications registered", group: "power")
+        }
+
+        deinit {
+            if notifier != 0 {
+                var localNotifier = notifier
+                IODeregisterForSystemPower(&localNotifier)
+            }
+            if let notifyPort {
+                IONotificationPortDestroy(notifyPort)
+            }
+            if rootPort != 0 {
+                IOServiceClose(rootPort)
+            }
+        }
+
+        private static let callback: IOServiceInterestCallback = { refcon, _, messageType, messageArgument in
+            guard let refcon else { return }
+            let observer = Unmanaged<DaemonPowerObserver>.fromOpaque(refcon).takeUnretainedValue()
+            observer.handlePowerMessage(messageType, argument: messageArgument)
+        }
+
+        private func handlePowerMessage(_ messageType: UInt32, argument: UnsafeMutableRawPointer?) {
+            let notificationID = argument.map { Int(bitPattern: $0) } ?? 0
+            switch messageType {
+                case IOPowerMessage.canSystemSleep:
+                    daemonDebugLog("system can sleep", group: "power")
+                    allowPowerChange(notificationID)
+                case IOPowerMessage.systemWillSleep:
+                    daemonLog("system will sleep; closing hardware session", group: "power")
+                    hardware.prepareForSystemSleep()
+                    writeControlEvent(.systemSleep)
+                    allowPowerChange(notificationID)
+                case IOPowerMessage.systemWillNotSleep:
+                    daemonDebugLog("system sleep cancelled", group: "power")
+                case IOPowerMessage.systemWillPowerOn:
+                    daemonDebugLog("system will power on", group: "power")
+                case IOPowerMessage.systemHasPoweredOn:
+                    daemonLog("system has powered on; scheduling hardware reconnect", group: "power")
+                    hardware.noteSystemWake()
+                    writeControlEvent(.systemWake)
+                default:
+                    daemonTraceLog("power message type=0x\(String(messageType, radix: 16))", group: "power")
+            }
+        }
+
+        private func allowPowerChange(_ notificationID: Int) {
+            guard rootPort != 0 else { return }
+            IOAllowPowerChange(rootPort, notificationID)
+        }
+
+        private func writeControlEvent(_ event: DaemonControlEvent) {
+            var byte = event.rawValue
+            withUnsafeBytes(of: &byte) { raw in
+                _ = Darwin.write(controlWriteFD, raw.baseAddress, 1)
+            }
+        }
     }
 
     public static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
@@ -1814,10 +1933,27 @@ public enum KompleteKontrolLibUSBServer {
             exit(5)
         }
 
+        var controlPipe = [Int32](repeating: -1, count: 2)
+        guard pipe(&controlPipe) == 0 else {
+            daemonLog("control pipe failed errno=\(errno)")
+            exit(5)
+        }
+        _ = fcntl(controlPipe[0], F_SETFL, O_NONBLOCK)
+        _ = fcntl(controlPipe[1], F_SETFL, O_NONBLOCK)
+        _ = fcntl(controlPipe[0], F_SETFD, FD_CLOEXEC)
+        _ = fcntl(controlPipe[1], F_SETFD, FD_CLOEXEC)
+
         // Register server socket
         var serverKev = kevent(ident: UInt(serverFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
         kevent(kq, &serverKev, 1, nil, 0, nil)
         daemonDebugLog("register server fd=\(serverFD) filter=\(EVFILT_READ)", group: "reactor")
+
+        var controlKev = kevent(ident: UInt(controlPipe[0]), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+        kevent(kq, &controlKev, 1, nil, 0, nil)
+        daemonDebugLog("register control fd=\(controlPipe[0]) filter=\(EVFILT_READ)", group: "reactor")
+
+        let powerObserver = DaemonPowerObserver(hardware: hardware, controlWriteFD: controlPipe[1])
+        powerObserver.start()
 
         // Register libusb poll fds
         let initialUsbRegistrations = kqueueRegistrations(for: hardware.currentLibusbPollFds())
@@ -1834,6 +1970,8 @@ public enum KompleteKontrolLibUSBServer {
         var clientIDs: [Int32: Int] = [:]
         var nextClientID = 0
         var events = Array<kevent>(repeating: kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil), count: 32)
+        let reconnectTimerIdent = UInt.max - 42
+        var reconnectTimerArmed = false
 
         func syncLibUSBRegistrations() {
             let currentRegistrations = kqueueRegistrations(for: hardware.currentLibusbPollFds())
@@ -1856,6 +1994,81 @@ public enum KompleteKontrolLibUSBServer {
             hardware.updateTrackedLibusbFds(Set(currentRegistrations.map(\.fd)))
         }
 
+        func cancelReconnectTimer() {
+            guard reconnectTimerArmed else { return }
+            var kev = kevent(ident: reconnectTimerIdent, filter: Int16(EVFILT_TIMER), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+            kevent(kq, &kev, 1, nil, 0, nil)
+            reconnectTimerArmed = false
+            daemonTraceLog("reconnect timer cancelled", group: "reactor")
+        }
+
+        func armReconnectTimer(afterNs delayNs: UInt64) {
+            let clampedDelay = max(100_000_000, min(delayNs, UInt64(Int.max)))
+            cancelReconnectTimer()
+            var kev = kevent(
+                ident: reconnectTimerIdent,
+                filter: Int16(EVFILT_TIMER),
+                flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+                fflags: UInt32(NOTE_NSECONDS),
+                data: Int(clampedDelay),
+                udata: nil
+            )
+            let status = kevent(kq, &kev, 1, nil, 0, nil)
+            if status == 0 {
+                reconnectTimerArmed = true
+                daemonDebugLog("reconnect timer armed delayNs=\(clampedDelay)", group: "reactor")
+            } else {
+                daemonLog("reconnect timer arm failed errno=\(errno)", group: "reactor", level: .error)
+            }
+        }
+
+        func scheduleReconnectIfNeeded() {
+            guard let delay = hardware.reconnectDelayNs() else {
+                cancelReconnectTimer()
+                return
+            }
+            if !reconnectTimerArmed {
+                armReconnectTimer(afterNs: delay)
+            }
+        }
+
+        func runReconnect(reason: String, forceOpen: Bool) {
+            daemonDebugLog("reconnect attempt reason=\(reason) force=\(forceOpen ? 1 : 0)", group: "reactor")
+            let connected = hardware.maintainConnection(forceOpen: forceOpen)
+            syncLibUSBRegistrations()
+            if connected {
+                cancelReconnectTimer()
+            } else {
+                scheduleReconnectIfNeeded()
+            }
+        }
+
+        func drainControlEvents() -> [DaemonControlEvent] {
+            var result: [DaemonControlEvent] = []
+            var buffer = [UInt8](repeating: 0, count: 32)
+            let bufferCount = buffer.count
+            while true {
+                let count = buffer.withUnsafeMutableBytes { raw in
+                    Darwin.read(controlPipe[0], raw.baseAddress, bufferCount)
+                }
+                if count > 0 {
+                    for byte in buffer.prefix(count) {
+                        if let event = DaemonControlEvent(rawValue: byte) {
+                            result.append(event)
+                        }
+                    }
+                    continue
+                }
+                if count < 0 && errno != EAGAIN && errno != EWOULDBLOCK {
+                    daemonLog("control pipe read failed errno=\(errno)", group: "reactor", level: .error)
+                }
+                break
+            }
+            return result
+        }
+
+        scheduleReconnectIfNeeded()
+
         while true {
             let nReady = events.withUnsafeMutableBufferPointer { buf -> Int32 in
                 kevent(kq, nil, 0, buf.baseAddress, Int32(buf.count), nil)
@@ -1871,8 +2084,19 @@ public enum KompleteKontrolLibUSBServer {
 
             for i in 0..<Int(nReady) {
                 let event = events[i]
+                daemonTraceLog("event ident=\(event.ident) filter=\(event.filter) flags=\(event.flags) fflags=\(event.fflags) data=\(event.data)", group: "reactor")
+
+                if event.filter == Int16(EVFILT_TIMER), event.ident == reconnectTimerIdent {
+                    reconnectTimerArmed = false
+                    runReconnect(reason: "timer", forceOpen: true)
+                    continue
+                }
+
+                guard event.ident <= UInt(Int32.max) else {
+                    daemonLog("unexpected kqueue ident=\(event.ident) filter=\(event.filter)", group: "reactor", level: .error)
+                    continue
+                }
                 let fd = Int32(event.ident)
-                daemonTraceLog("event fd=\(fd) filter=\(event.filter) flags=\(event.flags) fflags=\(event.fflags) data=\(event.data)", group: "reactor")
 
                 if fd == serverFD {
                     daemonTraceLog("server fd ready", group: "reactor")
@@ -1887,10 +2111,22 @@ public enum KompleteKontrolLibUSBServer {
                         kevent(kq, &kev, 1, nil, 0, nil)
                         daemonLog("client \(nextClientID) connected")
                     }
+                } else if fd == controlPipe[0] {
+                    for controlEvent in drainControlEvents() {
+                        switch controlEvent {
+                            case .systemSleep:
+                                daemonDebugLog("reactor received system sleep", group: "reactor")
+                                syncLibUSBRegistrations()
+                            case .systemWake:
+                                daemonDebugLog("reactor received system wake", group: "reactor")
+                                syncLibUSBRegistrations()
+                                armReconnectTimer(afterNs: 750_000_000)
+                        }
+                    }
                 } else if hardware.isLibusbFd(fd) {
                     daemonDebugLog("libusb fd ready fd=\(fd) filter=\(event.filter)", group: "reactor")
                     hardware.handleUsbEvents(timeoutMs: 0)
-                    syncLibUSBRegistrations()
+                    runReconnect(reason: "libusb-fd", forceOpen: true)
                 } else if clientIDs[fd] != nil {
                     let cid = clientIDs[fd]!
                     daemonTraceLog("client fd ready client=\(cid) fd=\(fd)", group: "client")
@@ -1908,6 +2144,8 @@ public enum KompleteKontrolLibUSBServer {
                     }
                 }
             }
+            scheduleReconnectIfNeeded()
+            _ = powerObserver
         }
     }
 
@@ -2207,14 +2445,21 @@ public enum KompleteKontrolLibUSBServer {
         private enum PushKind {
             case input
             case midi
+            case device
         }
 
         private let lock = NSLock()
+        private let sessionIOLock = NSLock()
         private let maxQueuedPushes = 64
         private let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
         private let daemonSurfaceEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_DISABLE_SURFACE"] != "1"
         private var libusbSession: KontrolUSBLibUSBSessionRef?
         private var asyncTransfersStarted = false
+        private let initialOpenRetryDelayNs: UInt64 = 1_000_000_000
+        private let maxOpenRetryDelayNs: UInt64 = 10_000_000_000
+        private var nextSessionOpenAttemptAt: UInt64 = 0
+        private var sessionOpenRetryDelayNs: UInt64 = 1_000_000_000
+        private var systemSleeping = false
         private var registeredClients: [Int: RegisteredClient] = [:]
         private var activeClientID: Int?
         private var clientFDs: [Int: Int32] = [:]
@@ -2272,8 +2517,30 @@ public enum KompleteKontrolLibUSBServer {
                 return "err no session"
             }
 
+            let response = handleDaemonCommand(line, ifCurrentSession: session)
+            guard dropSession(session, after: response) else {
+                return response
+            }
+
+            guard let reconnectedSession = ensureSession(forceOpen: true) else {
+                return response
+            }
+            let retryResponse = handleDaemonCommand(line, ifCurrentSession: reconnectedSession)
+            _ = dropSession(reconnectedSession, after: retryResponse)
+            return retryResponse
+        }
+
+        private func handleDaemonCommand(_ line: String, ifCurrentSession session: KontrolUSBLibUSBSessionRef) -> String {
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return "err no session"
+            }
             let response = KompleteKontrolLibUSBServer.handleDaemonCommand(line, session: session)
-            dropSession(session, after: response)
+            sessionIOLock.unlock()
             return response
         }
 
@@ -2361,11 +2628,38 @@ public enum KompleteKontrolLibUSBServer {
             return "ok unregistered"
         }
 
-        private func ensureSession() -> KontrolUSBLibUSBSessionRef? {
+        private func ensureSession(forceOpen: Bool = false) -> KontrolUSBLibUSBSessionRef? {
             lock.lock()
             if let libusbSession {
                 lock.unlock()
                 return libusbSession
+            }
+            if systemSleeping {
+                lock.unlock()
+                daemonTraceLog("hardware session open skipped: system sleeping", group: "usb")
+                return nil
+            }
+            let now = KKTiming.now()
+            if !forceOpen, nextSessionOpenAttemptAt > now {
+                let remaining = nextSessionOpenAttemptAt - now
+                lock.unlock()
+                daemonTraceLog("hardware session open skipped: backoff remainingNs=\(remaining)", group: "usb")
+                return nil
+            }
+            lock.unlock()
+
+            sessionIOLock.lock()
+            lock.lock()
+            if let libusbSession {
+                lock.unlock()
+                sessionIOLock.unlock()
+                return libusbSession
+            }
+            if systemSleeping {
+                lock.unlock()
+                sessionIOLock.unlock()
+                daemonTraceLog("hardware session open skipped: system sleeping", group: "usb")
+                return nil
             }
             lock.unlock()
 
@@ -2374,6 +2668,8 @@ public enum KompleteKontrolLibUSBServer {
             let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
             daemonLog("hardware session open status=\(result.status) ep=0x\(String(format: "%02x", result.endpointAddress)) \(message)")
             guard result.status == 0, let session else {
+                sessionIOLock.unlock()
+                recordSessionOpenFailure()
                 return nil
             }
 
@@ -2381,21 +2677,43 @@ public enum KompleteKontrolLibUSBServer {
             if let existingSession = libusbSession {
                 lock.unlock()
                 KontrolUSBLibUSBSessionClose(session)
+                sessionIOLock.unlock()
                 return existingSession
             }
             libusbSession = session
+            nextSessionOpenAttemptAt = 0
+            sessionOpenRetryDelayNs = initialOpenRetryDelayNs
             lock.unlock()
+            sessionIOLock.unlock()
 
             startAsyncTransfersIfNeeded(session)
             return session
         }
 
-        private func shouldDropSession(after response: String) -> Bool {
-            response.hasPrefix("err -4 ") || response.hasPrefix("err -5 ") || response.hasPrefix("err -6 ")
+        private func recordSessionOpenFailure() {
+            let now = KKTiming.now()
+            lock.lock()
+            nextSessionOpenAttemptAt = now + sessionOpenRetryDelayNs
+            sessionOpenRetryDelayNs = min(maxOpenRetryDelayNs, sessionOpenRetryDelayNs * 2)
+            let retryAt = nextSessionOpenAttemptAt
+            let nextDelay = sessionOpenRetryDelayNs
+            lock.unlock()
+            daemonDebugLog("hardware session open backoff retryAt=0x\(String(retryAt, radix: 16)) nextDelayNs=\(nextDelay)", group: "usb")
         }
 
-        private func dropSession(_ session: KontrolUSBLibUSBSessionRef, after response: String) {
-            guard shouldDropSession(after: response) else { return }
+        private func shouldDropSession(after response: String) -> Bool {
+            response.hasPrefix("err -1 ")
+                || response.hasPrefix("err -4 ")
+                || response.hasPrefix("err -5 ")
+                || response.hasPrefix("err -6 ")
+                || response.hasPrefix("err -9 ")
+                || response.hasPrefix("err -10 ")
+        }
+
+        @discardableResult
+        private func dropSession(_ session: KontrolUSBLibUSBSessionRef, after response: String) -> Bool {
+            guard shouldDropSession(after: response) else { return false }
+            sessionIOLock.lock()
             lock.lock()
             let shouldClose = libusbSession == session
             if shouldClose {
@@ -2406,6 +2724,92 @@ public enum KompleteKontrolLibUSBServer {
             if shouldClose {
                 KontrolUSBLibUSBSessionClose(session)
             }
+            sessionIOLock.unlock()
+            return shouldClose
+        }
+
+        func maintainConnection(forceOpen: Bool = false) -> Bool {
+            guard !transientClaim else { return true }
+
+            lock.lock()
+            let session = libusbSession
+            let sleeping = systemSleeping
+            lock.unlock()
+            guard !sleeping else { return true }
+
+            if let session {
+                sessionIOLock.lock()
+                lock.lock()
+                let isCurrent = libusbSession == session
+                lock.unlock()
+                guard isCurrent else {
+                    sessionIOLock.unlock()
+                    return false
+                }
+                let health = KontrolUSBLibUSBSessionHealth(session)
+                sessionIOLock.unlock()
+                let message = KKUSBResult(health).message.replacingOccurrences(of: "\n", with: " ")
+                if health.status != 0 {
+                    daemonLog("hardware session health failed status=\(health.status) \(message); reconnecting", group: "usb", level: .error)
+                    if dropSession(session, after: "err \(health.status) \(message)") {
+                        return restoreHardwareAfterReconnect(forceOpen: true)
+                    }
+                    return false
+                }
+                return true
+            }
+
+            return restoreHardwareAfterReconnect(forceOpen: forceOpen)
+        }
+
+        private func restoreHardwareAfterReconnect(forceOpen: Bool = false) -> Bool {
+            guard let session = ensureSession(forceOpen: forceOpen) else { return false }
+            daemonLog("hardware session reconnected", group: "usb")
+            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
+            notifyDeviceReconnected()
+            if shouldDaemonShowIdleSurface() {
+                showNoClient()
+            }
+            return true
+        }
+
+        private func notifyDeviceReconnected() {
+            pushToClients("device reconnected @\(String(KKTiming.now(), radix: 16))", kind: .device)
+        }
+
+        func prepareForSystemSleep() {
+            sessionIOLock.lock()
+            lock.lock()
+            systemSleeping = true
+            nextSessionOpenAttemptAt = 0
+            sessionOpenRetryDelayNs = initialOpenRetryDelayNs
+            let session = libusbSession
+            libusbSession = nil
+            asyncTransfersStarted = false
+            trackedLibusbFds.removeAll()
+            lock.unlock()
+
+            if let session {
+                daemonLog("hardware session closed for system sleep", group: "usb")
+                KontrolUSBLibUSBSessionClose(session)
+            }
+            sessionIOLock.unlock()
+        }
+
+        func noteSystemWake() {
+            lock.lock()
+            systemSleeping = false
+            nextSessionOpenAttemptAt = 0
+            sessionOpenRetryDelayNs = initialOpenRetryDelayNs
+            lock.unlock()
+        }
+
+        func reconnectDelayNs(now: UInt64 = KKTiming.now()) -> UInt64? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !transientClaim, libusbSession == nil, !systemSleeping else { return nil }
+            guard nextSessionOpenAttemptAt > now else { return 0 }
+            return nextSessionOpenAttemptAt - now
         }
 
         private func runStartupAnimation() {
@@ -2699,9 +3103,19 @@ public enum KompleteKontrolLibUSBServer {
             var payload = payload
             daemonTraceLog("write report begin report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) head=\(KKTiming.short(payload))", group: "usb-out")
             let start = KKTiming.now()
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                daemonTraceLog("write report skipped report=0x\(KKHex.byte(reportID)) stale session", group: "usb-out")
+                return
+            }
             let result = payload.withUnsafeMutableBufferPointer { buffer in
                 KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
             }
+            sessionIOLock.unlock()
             daemonTraceLog("write report end report=0x\(KKHex.byte(reportID)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "usb-out")
         }
 
@@ -2737,8 +3151,17 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
 
             let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
             let inputStatus = KontrolUSBLibUSBSessionStartAsyncInput(session, KompleteKontrolLibUSBServer.asyncInputCallback, selfPtr)
             let midiStatus = KontrolUSBLibUSBSessionStartAsyncMIDI(session, KompleteKontrolLibUSBServer.asyncMidiCallback, selfPtr)
+            sessionIOLock.unlock()
 
             lock.lock()
             asyncTransfersStarted = inputStatus == 0 || midiStatus == 0
@@ -2747,24 +3170,29 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func handleUsbEvents(timeoutMs: Int) {
+            sessionIOLock.lock()
             lock.lock()
             let session = libusbSession
             lock.unlock()
             guard let session else {
+                sessionIOLock.unlock()
                 daemonDebugLog("handle_events skipped: no session", group: "usb")
                 return
             }
             daemonTraceLog("handle_events begin timeoutMs=\(timeoutMs)", group: "usb")
             KontrolUSBLibUSBHandleEventsTimeout(session, Int32(timeoutMs))
+            sessionIOLock.unlock()
             daemonTraceLog("handle_events end timeoutMs=\(timeoutMs)", group: "usb")
             flushIdleDiagnosticIfNeeded()
         }
 
         func currentLibusbPollFds() -> [KontrolUSBPollFd] {
+            sessionIOLock.lock()
             lock.lock()
             let session = libusbSession
             lock.unlock()
             guard let session else {
+                sessionIOLock.unlock()
                 daemonTraceLog("pollfds skipped: no session", group: "usb")
                 return []
             }
@@ -2772,6 +3200,7 @@ public enum KompleteKontrolLibUSBServer {
             let count = pollFds.withUnsafeMutableBufferPointer { buf in
                 KontrolUSBLibUSBSessionGetPollFds(session, buf.baseAddress, Int32(buf.count))
             }
+            sessionIOLock.unlock()
             let result = Array(pollFds.prefix(Int(max(0, count))))
             let summary = result
                 .map { "fd=\($0.fd)/events=0x\(String(format: "%04x", Int($0.events)))" }
@@ -2843,6 +3272,8 @@ public enum KompleteKontrolLibUSBServer {
                 case .midi:
                     queuedMIDIMessages.append(message)
                     trimQueuedMessages(&queuedMIDIMessages)
+                case .device:
+                    break
             }
             let fds = Array(clientFDs.values)
             lock.unlock()
@@ -3232,7 +3663,7 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
                 responseBuffer.removeSubrange(...newline)
                 let line = String(bytes: lineBytes, encoding: .utf8)
                 // Dispatch async push messages to handler, keep reading for actual response
-                if let line, (line.hasPrefix("in ") || line.hasPrefix("midi ")) {
+                if let line, (line.hasPrefix("in ") || line.hasPrefix("midi ") || line.hasPrefix("device ")) {
                     asyncPushHandler?(line)
                     continue
                 }
