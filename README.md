@@ -108,12 +108,12 @@ This project builds on the public reverse-engineering work around Native Instrum
 - macOS 15.0 or newer
 - Swift 6.0 toolchain
 - Xcode command line tools
-- libusb 1.0
+- Git submodules
 
-Install libusb with Homebrew:
+libusb is vendored as a pinned submodule under `Vendor/libusb` and is compiled into the SwiftPM build. Homebrew libusb is intentionally not used.
 
 ```bash
-brew install libusb
+git submodule update --init --recursive Vendor/libusb
 ```
 
 Build:

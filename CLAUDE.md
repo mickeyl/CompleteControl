@@ -20,6 +20,7 @@ Two layers, plus a baseline app and a middleware demo:
 Build / run / test:
 
 ```bash
+git submodule update --init --recursive Vendor/libusb
 swift build                              # all targets
 swift build --product KontrolSurfaceKit  # just the kit
 swift build --product ccd                # daemon
@@ -30,6 +31,8 @@ swift build -c release --product KontrolProbe
 
 The daemon owns the USB device; a client connects over a Unix socket. `make help` lists daemon
 targets (`make install-daemon`, `make install-debug-daemon`, `make daemon-status`, …).
+libusb is vendored as the pinned `Vendor/libusb` submodule and compiled through the `CLibUSB`
+SwiftPM C target; do not add Homebrew/pkg-config fallback paths.
 `make install-daemon` builds and installs the release `ccd`; `make install-debug-daemon` builds and
 installs the debug `ccd` with structured trace logging. While no socket client is connected the
 daemon renders its idle diagnostic surface; once a client connects, the client owns all surface

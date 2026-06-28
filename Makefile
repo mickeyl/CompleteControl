@@ -8,15 +8,18 @@ PROBE_RELEASE := .build/release/KontrolProbe
 SURFACE_DEMO := .build/debug/SurfaceDemo
 SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
 
-.PHONY: help build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
-build: ## Build the middleware SurfaceDemo.
+vendor-init: ## Initialize pinned vendored dependencies.
+	git submodule update --init --recursive Vendor/libusb
+
+build: vendor-init ## Build the middleware SurfaceDemo.
 	swift build --product SurfaceDemo
 
-build-release: ## Build optimized middleware SurfaceDemo.
+build-release: vendor-init ## Build optimized middleware SurfaceDemo.
 	swift build -c release --product SurfaceDemo
 
 SurfaceDemo: build ## Build the middleware SurfaceDemo product.
@@ -25,16 +28,16 @@ surface: run ## Run the middleware SurfaceDemo.
 
 surface-release: run-release ## Run optimized middleware SurfaceDemo.
 
-daemon-build: ## Build the CompleteControl daemon.
+daemon-build: vendor-init ## Build the CompleteControl daemon.
 	swift build -c debug --product ccd
 
-daemon-build-release: ## Build optimized CompleteControl daemon.
+daemon-build-release: vendor-init ## Build optimized CompleteControl daemon.
 	swift build -c release --product ccd
 
-probe-build: ## Build the old KontrolProbe baseline.
+probe-build: vendor-init ## Build the old KontrolProbe baseline.
 	swift build --product KontrolProbe
 
-probe-build-release: ## Build optimized old KontrolProbe baseline.
+probe-build-release: vendor-init ## Build optimized old KontrolProbe baseline.
 	swift build -c release --product KontrolProbe
 
 daemon-preflight: ## Refuse stale or duplicate daemon state.
