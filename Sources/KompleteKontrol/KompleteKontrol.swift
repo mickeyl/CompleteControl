@@ -687,6 +687,28 @@ enum DaemonReactorScheduler {
         let hasError = (flags & UInt16(EV_ERROR)) != 0 || (flags & UInt16(EV_EOF)) != 0
         return hasError ? .pumpAndReconnect : .pumpOnly
     }
+
+    static func shouldInvalidateSessionOnSystemWake() -> Bool {
+        true
+    }
+}
+
+enum DaemonClientSessionRole {
+    case outputHelper
+    case inputPush
+}
+
+enum DaemonClientRegistrationPolicy {
+    static func shouldRegister(role: DaemonClientSessionRole) -> Bool {
+        switch role {
+            case .outputHelper, .inputPush:
+                return true
+        }
+    }
+
+    static func shouldTrackHelperRegistration(role: DaemonClientSessionRole) -> Bool {
+        role == .outputHelper
+    }
 }
 
 struct DaemonIdleDiagnosticFlushDecision: Equatable {
@@ -1457,6 +1479,12 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         guard KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(session) else {
             return nil
         }
+        if DaemonClientRegistrationPolicy.shouldRegister(role: .inputPush) {
+            registerClient(
+                on: session,
+                tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .inputPush)
+            )
+        }
         return session
     }
 
@@ -1656,7 +1684,10 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             helperSession = restarted
             sessionConnectionAnnounced = true
             log?("Komplete Kontrol libusb daemon connected.")
-            registerClient(on: restarted)
+            registerClient(
+                on: restarted,
+                tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .outputHelper)
+            )
             replaySurfaceState(on: restarted)
             return restarted
         }
@@ -1666,7 +1697,10 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
             sessionConnectionAnnounced = true
             log?("Komplete Kontrol libusb daemon connected.")
         }
-        registerClient(on: session)
+        registerClient(
+            on: session,
+            tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .outputHelper)
+        )
         replaySurfaceState(on: session)
         return session
     }
@@ -1710,13 +1744,17 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         }
     }
 
-    private func registerClient(on session: KKDaemonOutputSession) {
-        guard !clientRegisteredWithSession else { return }
+    private func registerClient(on session: KKDaemonOutputSession, tracksHelperRegistration: Bool = true) {
+        if tracksHelperRegistration {
+            guard !clientRegisteredWithSession else { return }
+        }
         let name = ProcessInfo.processInfo.processName
         let pid = getpid()
         let response = session.request("register \(pid) \(KKHex.utf8(name))\n", timeoutUsec: 750_000)
         if response == "ok registered" {
-            clientRegisteredWithSession = true
+            if tracksHelperRegistration {
+                clientRegisteredWithSession = true
+            }
             log?("Komplete Kontrol daemon registered client \(name) pid=\(pid).")
         } else if let response {
             log?("Komplete Kontrol daemon client registration returned: \(response)")
@@ -2907,11 +2945,25 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func noteSystemWake() {
+            let shouldInvalidateSession = DaemonReactorScheduler.shouldInvalidateSessionOnSystemWake()
+            sessionIOLock.lock()
             lock.lock()
             systemSleeping = false
             nextSessionOpenAttemptAt = 0
             sessionOpenRetryDelayNs = initialOpenRetryDelayNs
+            let session = shouldInvalidateSession ? libusbSession : nil
+            if shouldInvalidateSession {
+                libusbSession = nil
+                asyncTransfersStarted = false
+                trackedLibusbFds.removeAll()
+            }
             lock.unlock()
+
+            if let session {
+                daemonLog("hardware session invalidated for system wake", group: "usb")
+                KontrolUSBLibUSBSessionClose(session)
+            }
+            sessionIOLock.unlock()
         }
 
         func reconnectDelayNs(now: UInt64 = KKTiming.now()) -> UInt64? {

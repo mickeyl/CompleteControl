@@ -17,6 +17,19 @@ struct DaemonReactorSchedulingTests {
         #expect(DaemonReactorScheduler.usbReadinessAction(flags: UInt16(EV_ERROR | EV_EOF)) == .pumpAndReconnect)
     }
 
+    @Test("System wake invalidates the previous libusb session")
+    func systemWakeInvalidatesPreviousLibusbSession() {
+        #expect(DaemonReactorScheduler.shouldInvalidateSessionOnSystemWake())
+    }
+
+    @Test("Input push sessions register without sharing output helper state")
+    func inputPushSessionsRegisterWithoutSharingOutputHelperState() {
+        #expect(DaemonClientRegistrationPolicy.shouldRegister(role: .inputPush))
+        #expect(!DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .inputPush))
+        #expect(DaemonClientRegistrationPolicy.shouldRegister(role: .outputHelper))
+        #expect(DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .outputHelper))
+    }
+
     @Test("Client command bursts yield to libusb after each command")
     func clientCommandBurstsYieldToLibusbAfterEachCommand() {
         var buffer = Array("write-one\nwrite-two\npartial".utf8)
