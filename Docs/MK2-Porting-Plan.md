@@ -5,10 +5,14 @@ Actionable plan for adding **Komplete Kontrol S49/S61/S88 MK2** support to Compl
 **fully reverse-engineered by the community and pixel-based** — this is a bounded engineering
 job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling generations".
 
-> Status: **plan, pre-hardware.** All protocol constants below are sourced from working
-> open-source MK2 drivers (`GoaSkin/qKontrol`, `tillt/KompleteSynthesia`). The remaining
-> unknowns are integration-level (interface-claim strategy on macOS, exact light-guide byte
-> width, real device framebuffer ingest rate) and are listed in §6 as the bench checklist.
+> Status: **plan, pre-hardware — protocol constants verified against source.** Every §2
+> constant below was checked verbatim against the actual source of the two working open-source
+> MK2 drivers (`GoaSkin/qKontrol` `source/qkontrol.cpp`, `tillt/KompleteSynthesia`
+> `HIDController.m`); the device identity (PIDs `0x1610/20/30`, VID `0x17cc`) was additionally
+> cross-checked against NI's own `KKS_MK2_Firmware_Updater` binary. The remaining unknowns are
+> now purely integration-level — interface-claim strategy on macOS and real device framebuffer
+> ingest rate — and are listed in §6 as the bench checklist. (The light-guide byte width, an
+> earlier unknown, is **resolved**: 1 byte/key palette index — see §2.)
 
 ## TL;DR
 
@@ -49,35 +53,55 @@ IF/EP 4 and carries msgpack, not pixels.
 
 ## 2. Protocol constants (sourced, verify on hardware)
 
-### Displays — `GoaSkin/qKontrol` `source/qkontrol.cpp` (`drawImage`)
-- Two screens, **480×272**, **RGB565** (`QImage::Format_RGB16`, 16-bit LE).
-- **USB bulk, interface 3 / endpoint 3.**
+### Displays — `GoaSkin/qKontrol` `source/qkontrol.cpp` (`drawImage`, verified :1042–1089)
+- Two screens, **480×272**, **RGB565** (`QImage::Format_RGB16`).
+- **USB bulk, interface 3 / endpoint 3** (`libusb_claim_interface(h, 3)`, `libusb_bulk_transfer(h, 3, …)`).
 - Blit command, per screen:
   `84 00` · `<screen 0|1>` · `60 00 00 00 00` · `x`(u16) · `y`(u16) · `w`(u16) · `h`(u16) ·
   `02 00 00 00 00 00` · `<w*h/2>`(u16) · **`w*h` RGB565 halfwords** ·
   trailer `02 00 00 00 03 00 00 00 40 00 00 00`.
+- **Endianness — wire format is BIG-endian.** qKontrol serialises x/y/w/h, the `w*h/2` count,
+  and every pixel halfword via `QByteArray::number(v,16)` → each u16 is emitted MSB-first. So
+  although `QImage::Format_RGB16` is host-native (LE on x86), the bytes that reach the device
+  are **byte-swapped to BE**. Build the RGB565 buffer big-endian (or byte-swap before blitting);
+  getting this wrong paints a colour-swapped/garbled screen. Confirm on hardware.
 - Arbitrary **(x,y,w,h) partial updates** — the basis for high frame rates (§5).
 
-### Light guide — `tillt/KompleteSynthesia` `HIDController.m`
-- HID output report, command **`0x81`** (MK1 is `0x82`), key colour bytes from offset 1.
-- Colour is an **indexed palette** (`kMK2Palette`, 17 base colours × 4 intensity levels via
-  the `kKompleteKontrolColor*`/`kKompleteKontrolIntensity*` codes), *not* arbitrary RGB.
-- Message buffer ~250 bytes. **Exact bytes-per-key (1-byte palette index vs other) is the one
-  field to confirm on hardware** — it changes how `KeyReconciler` maps `KKRGB` → MK2 colour.
+### Light guide — `tillt/KompleteSynthesia` `HIDController.m` (verified :44–58, :138–139)
+- HID output report, command **`0x81`** (`kCommandLightGuideUpdateMK2`; MK1 is `0x82`), key
+  colour bytes from offset 1 (`_keys = &lightGuideUpdateMessage[1]`).
+- Colour is an **indexed palette** (`kMK2Palette[17][3]`, 17 base colours × 4 intensity levels),
+  *not* arbitrary RGB.
+- **Bytes-per-key resolved: exactly 1 byte/key.** The byte packs `(colorIndex << 2) | intensity`
+  — colour mask `0xFC`, intensity mask `0x03`, `kKompleteKontrolColorCount = 17`,
+  `…IntensityLevelCount = 4`. Message size **250** (`kKompleteKontrolLightGuideMessageSize`),
+  key map = 249 bytes. So `KeyReconciler` maps `KKRGB` → nearest `kMK2Palette` index, then ORs
+  the intensity level into the low 2 bits.
 
-### Button LEDs — `HIDController.m`
-- HID output report, command **`0x80`** (`kCommandButtonLightsUpdate`). MK2 buttons are RGB.
+### Init handshake — `HIDController.m` (verified :37–38)
+- KompleteSynthesia sends a one-shot init HID report **`0xA0`** (`kCommandInit`), payload
+  `{0xA0, 0x00, 0x00}`, before driving the surface. qKontrol does **not** — it does a bare
+  interface-claim + blit — so the handshake is likely optional for displays. Treat `0xA0`
+  as the documented bring-up command; confirm on hardware whether it's required (§6 step 5).
+
+### Button LEDs — `HIDController.m` (verified :62–63)
+- HID output report, command **`0x80`** (`kCommandButtonLightsUpdate`), message size **80**
+  (`kKompleteKontrolButtonsMessageSize`; 79-byte button map from offset 1). MK2 buttons are RGB.
 - KompleteSynthesia carries a full, named button-id map (`kKompleteKontrolButtonId*`:
-  transport, page L/R, browser, plugin, mixer, the 8 function buttons, jog, etc.) — directly
-  reusable as the MK2 button table.
+  transport, page L/R, browser, plugin, mixer, the function buttons, jog, scene, clear, etc.) —
+  directly reusable as the MK2 button table.
 
-### Surface input — `HIDController.m` + qKontrol
-- Input report id **`0x01`**; KompleteSynthesia parses a `{byte, mask, buttonId}` bit-table
-  (e.g. `{3,0x80,PageLeft}`, `{3,0x20,PageRight}`). qKontrol reads 51/32-byte reports, knob
-  values at `report[17 + i*2]` for the 8 knobs, transport bits at bytes 2–5.
+### Surface input — `HIDController.m` + qKontrol (verified)
+- Input report id **`0x01`** (`if (report[0] != 0x01) …ignore`, HIDController.m:308). Both drivers
+  parse a `{byte, mask, buttonId}` bit-table — confirmed entries: `{1,0x10}=Function1` …
+  `{1,0x80}=Function4`, `{2,0x10}=Play`, `{3,0x80}=PageLeft`, `{3,0x20}=PageRight`,
+  `{4,0x20}=Clear`, `{5,0x02}=Plugin`, `{5,0x08}=Setup`, jog at byte 6 (HIDController.m:320–328).
+  qKontrol agrees independently: report `0x01`, transport/nav bits in bytes 2–5 (play `[2]&0x10`,
+  record `[3]&0x02`, page± `[3]&0x80`/`0x20`, mute `[4]&0x01`, plugin `[5]&0x02`; qkontrol.cpp:436–488).
+- qKontrol reads **51-byte** reports (32-byte variant on older builds), knob values at
+  `report[17 + i*2]` for the 8 knobs.
 - Encoders, encoder-touch, the 4-D jog wheel, pitch/mod/touch strips all arrive in report
-  `0x01` — exact offsets to be tabulated on hardware (qKontrol/KompleteSynthesia give the
-  starting points).
+  `0x01` — exact offsets to be tabulated on hardware (the bit-table above is the starting point).
 
 ### Ownership
 - macOS: NI background services (Hardware Agent / Host Integration) must release the device
@@ -143,12 +167,15 @@ Do these before writing the reconciler — they resolve every remaining unknown:
    claim the MK2 HID surface interface (as MK1's IF 2, after detaching the kernel driver), or
    must surface I/O go through IOHIDManager while libusb owns only the bulk display? This
    determines whether the daemon stays single-transport or grows a HID path.
-3. **Confirm light-guide encoding:** command `0x81`, bytes-per-key, palette vs RGB, and the
-   per-model note offset (S49 = −36).
+3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
+   250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
+   and a quick palette-index sanity sweep against `kMK2Palette`.
 4. **Tabulate input report `0x01`** offsets for encoders, encoder-touch, 4-D jog, pitch/mod/
    touch strips (KompleteSynthesia/qKontrol give the starting layout).
-5. **Verify display init:** whether any handshake precedes `0x84` blits (qKontrol does a bare
-   claim + blit; confirm nothing else is needed).
+5. **Verify display init:** the candidate handshake is the `0xA0 00 00` init HID report (§2);
+   qKontrol skips it and does a bare claim + blit, so confirm whether `0x84` blits work without
+   it or whether `0xA0` is required first. Also confirm the **BE pixel/coord endianness** (§2) —
+   blit one known-colour rect and check it isn't byte-swapped.
 
 ## 7. Suggested build order
 
@@ -163,9 +190,20 @@ Do these before writing the reconciler — they resolve every remaining unknown:
 
 ## Sources
 
-- `GoaSkin/qKontrol` — `source/qkontrol.cpp` (display `0x84`/RGB565/480×272, bulk IF3/EP3,
-  PIDs `0x1610/20/30`, input report `0x01`, service-stop): https://github.com/GoaSkin/qKontrol
-- `tillt/KompleteSynthesia` — `HIDController.{h,m}`, `USBController.m` (light guide `0x81`,
-  buttons `0x80`, device table keys/offset, MK2 colour palette, bulk IF/EP MK2=3 / MK3=4):
-  https://github.com/tillt/KompleteSynthesia
+All §2 constants were read verbatim from the source below (line numbers cited inline in §2),
+not paraphrased from memory or third-hand notes.
+
+- `GoaSkin/qKontrol` — `source/qkontrol.cpp` (display `0x84`/RGB565/480×272 **BE on the wire**,
+  bulk IF3/EP3, PIDs `0x1610/20/30`, input report `0x01`, service-stop):
+  https://github.com/GoaSkin/qKontrol
+- `tillt/KompleteSynthesia` — `HIDController.{h,m}`, `USBController.m` (init `0xA0`, light guide
+  `0x81` 1-byte/key palette, buttons `0x80`, device table keys/offset, MK2 colour palette,
+  bulk IF/EP MK2=3 / MK3=4): https://github.com/tillt/KompleteSynthesia
+- **NI `KKS_MK2_Firmware_Updater.app` v1.4.0 (R205)** — device identity cross-check only:
+  confirms VID `0x17cc` + PIDs `0x1610/20/30` in NI's own device table, and that the MK2 USB
+  controller is **XMOS** (firmware is composite USB-DFU on the same PID). Carries no operational
+  surface/display protocol — it's a DFU `writeImage` tool; the embedded firmware image (~1.17 MB
+  in `__TEXT.__const`) is **compressed, not encrypted** (chi-square ≫ uniform; non-stationary
+  entropy), but reversing it (NI GP-resource unpack → XMOS XCore disasm) buys nothing the source
+  above doesn't already give.
 - Generational context + pixel-vs-model spectrum: `Docs/MK3-ODR-Protocol-Findings.md`.
