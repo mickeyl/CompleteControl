@@ -2010,6 +2010,8 @@ public enum KompleteKontrolLibUSBServer {
 
     public static func runDaemon(socketPath: String = defaultDaemonSocketPath) -> Never {
         signal(SIGPIPE, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
         daemonDebugLog("process start pid=\(getpid()) socket=\(socketPath)", group: "daemon")
         daemonDebugLog("process scan begin", group: "daemon")
         let otherPIDs = runningDaemonPIDs().filter { $0 != getpid() }
@@ -2070,6 +2072,12 @@ public enum KompleteKontrolLibUSBServer {
         guard kq >= 0 else {
             daemonLog("kqueue() failed errno=\(errno)")
             exit(5)
+        }
+
+        for signalNumber in [SIGINT, SIGTERM] {
+            var signalKev = kevent(ident: UInt(signalNumber), filter: Int16(EVFILT_SIGNAL), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+            kevent(kq, &signalKev, 1, nil, 0, nil)
+            daemonDebugLog("register signal \(signalNumber)", group: "reactor")
         }
 
         var controlPipe = [Int32](repeating: -1, count: 2)
@@ -2224,6 +2232,20 @@ public enum KompleteKontrolLibUSBServer {
             for i in 0..<Int(nReady) {
                 let event = events[i]
                 daemonTraceLog("event ident=\(event.ident) filter=\(event.filter) flags=\(event.flags) fflags=\(event.fflags) data=\(event.data)", group: "reactor")
+
+                if event.filter == Int16(EVFILT_SIGNAL) {
+                    daemonLog("signal \(event.ident) received; shutting down", group: "daemon")
+                    hardware.shutdown()
+                    for fd in clientIDs.keys {
+                        close(fd)
+                    }
+                    close(controlPipe[0])
+                    close(controlPipe[1])
+                    close(serverFD)
+                    close(kq)
+                    unlink(socketPath)
+                    exit(0)
+                }
 
                 if event.filter == Int16(EVFILT_TIMER), event.ident == reconnectTimerIdent {
                     reconnectTimerArmed = false
@@ -2626,9 +2648,22 @@ public enum KompleteKontrolLibUSBServer {
         private var idleDiagnosticFlushGate = DaemonIdleDiagnosticFlushGate()
 
         deinit {
-            if let libusbSession {
-                KontrolUSBLibUSBSessionClose(libusbSession)
+            shutdown()
+        }
+
+        func shutdown() {
+            sessionIOLock.lock()
+            lock.lock()
+            let session = libusbSession
+            libusbSession = nil
+            asyncTransfersStarted = false
+            trackedLibusbFds.removeAll()
+            lock.unlock()
+            if let session {
+                daemonLog("hardware session closed for daemon shutdown", group: "usb")
+                KontrolUSBLibUSBSessionClose(session)
             }
+            sessionIOLock.unlock()
         }
 
         func handle(_ line: String, clientID: Int) -> String {
@@ -2663,6 +2698,15 @@ public enum KompleteKontrolLibUSBServer {
 
             guard let session = ensureSession() else {
                 return "err no session"
+            }
+
+            if command == "mk2test" {
+                guard isMK2(session) else { return "err not mk2" }
+                runMK2StartupAnimation(session: session)
+                if shouldDaemonShowIdleSurface() {
+                    showNoClient()
+                }
+                return "ok"
             }
 
             let response = handleDaemonCommand(line, ifCurrentSession: session)
@@ -2834,6 +2878,9 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
             sessionIOLock.unlock()
 
+            if isMK2(session) {
+                daemonLog("MK2 session ready: persistent libusb display + surface + MIDI", group: "mk2")
+            }
             startAsyncTransfersIfNeeded(session)
             return session
         }
@@ -2913,7 +2960,11 @@ public enum KompleteKontrolLibUSBServer {
         private func restoreHardwareAfterReconnect(forceOpen: Bool = false) -> Bool {
             guard let session = ensureSession(forceOpen: forceOpen) else { return false }
             daemonLog("hardware session reconnected", group: "usb")
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
+            if isMK2(session) {
+                writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: [0x00, 0x00])
+            } else {
+                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
+            }
             notifyDeviceReconnected()
             if shouldDaemonShowIdleSurface() {
                 showNoClient()
@@ -2976,6 +3027,10 @@ public enum KompleteKontrolLibUSBServer {
 
         private func runStartupAnimation() {
             guard let session = ensureSession() else { return }
+            if isMK2(session) {
+                runMK2StartupAnimation(session: session)
+                return
+            }
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
 
             var allButtons = [UInt8](repeating: 0x7f, count: KKButtonLED.protocolNames.count)
@@ -3005,9 +3060,255 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
+        private func isMK2(_ session: KontrolUSBLibUSBSessionRef) -> Bool {
+            KontrolUSBLibUSBSessionGeneration(session) == 2
+        }
+
+        private func runMK2StartupAnimation(session: KontrolUSBLibUSBSessionRef) {
+            daemonLog("MK2 startup animation begin", group: "mk2")
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: [0x00, 0x00])
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x7f))
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2RainbowLightGuidePayload(session: session))
+
+            writeMK2Solid(session: session, screen: 0, color: 0xf800)
+            writeMK2Solid(session: session, screen: 1, color: 0x001f)
+            usleep(160_000)
+
+            clearMK2SurfaceLights(session: session)
+            writeMK2IdleSurface(
+                session: session,
+                screen0: ["NO CLIENT", "MK2 DAEMON"],
+                screen1: ["PRESS SURFACE", "FOR HID TEST"],
+                accent0: 0xf800,
+                accent1: 0x001f
+            )
+            daemonLog("MK2 startup animation end", group: "mk2")
+        }
+
+        private func clearMK2SurfaceLights(session: KontrolUSBLibUSBSessionRef) {
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x00))
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2LightGuidePayload(fill: 0x00))
+        }
+
+        private func mk2ButtonLEDPayload(fill: UInt8) -> [UInt8] {
+            [UInt8](repeating: fill, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        }
+
+        private func mk2LightGuidePayload(fill: UInt8) -> [UInt8] {
+            [UInt8](repeating: fill, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+        }
+
+        private func mk2RainbowLightGuidePayload(session: KontrolUSBLibUSBSessionRef) -> [UInt8] {
+            var payload = mk2LightGuidePayload(fill: 0x00)
+            let keyCount = max(0, min(Int(KontrolUSBLibUSBSessionKeyCount(session)), payload.count))
+            guard keyCount > 0 else { return payload }
+            for index in 0..<keyCount {
+                let colorIndex = UInt8(index % 17)
+                payload[index] = (colorIndex << 2) | 0x03
+            }
+            return payload
+        }
+
+        private func shortMK2IdleSummary(_ report: KKMK2InputReport) -> String {
+            if let event = report.events.first {
+                switch event {
+                    case let .button(name, pressed):
+                        return "\(name.uppercased()) \(pressed ? "DOWN" : "UP")"
+                    case let .knob(index, delta, _):
+                        return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
+                    case let .jog(direction):
+                        return "JOG \(direction.uppercased())"
+                    case let .jogScroll(delta, _):
+                        return "JOG \(delta >= 0 ? "+" : "")\(delta)"
+                    case let .rawChanged(indices):
+                        return "RAW \(indices.prefix(4).map(String.init).joined(separator: " "))"
+                }
+            }
+            return "INPUT"
+        }
+
+        private func writeMK2Solid(session: KontrolUSBLibUSBSessionRef, screen: UInt8, color: UInt16) {
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
+            let start = KKTiming.now()
+            let result = KontrolUSBLibUSBSessionFillMK2Display(
+                session,
+                screen,
+                0,
+                0,
+                UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                color,
+                1_000
+            )
+            sessionIOLock.unlock()
+            daemonLog("MK2 display fill screen=\(screen) color=0x\(String(format: "%04x", color)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+        }
+
+        private func writeMK2IdleSurface(
+            session: KontrolUSBLibUSBSessionRef,
+            screen0: [String],
+            screen1: [String],
+            accent0: UInt16,
+            accent1: UInt16
+        ) {
+            let left = makeMK2Frame(lines: screen0, background: 0x0000, foreground: 0xffff, accent: accent0)
+            let right = makeMK2Frame(lines: screen1, background: 0x0000, foreground: 0xffff, accent: accent1)
+            writeMK2Frame(session: session, screen: 0, pixels: left)
+            writeMK2Frame(session: session, screen: 1, pixels: right)
+        }
+
+        private func writeMK2Frame(session: KontrolUSBLibUSBSessionRef, screen: UInt8, pixels: [UInt16]) {
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
+            let start = KKTiming.now()
+            let result = pixels.withUnsafeBufferPointer { buffer in
+                KontrolUSBLibUSBSessionWriteMK2Display(
+                    session,
+                    screen,
+                    0,
+                    0,
+                    UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                    UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                    buffer.baseAddress,
+                    UInt32(buffer.count),
+                    1_000
+                )
+            }
+            sessionIOLock.unlock()
+            daemonLog("MK2 display frame screen=\(screen) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+        }
+
+        private func makeMK2Frame(lines: [String], background: UInt16, foreground: UInt16, accent: UInt16) -> [UInt16] {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            var pixels = [UInt16](repeating: background, count: width * height)
+
+            for y in 0..<height {
+                let inTop = y < 10
+                let inBottom = y >= height - 10
+                if inTop || inBottom {
+                    for x in 0..<width {
+                        pixels[y * width + x] = accent
+                    }
+                }
+            }
+
+            let sanitized = lines.prefix(2).map { $0.uppercased() }
+            let maxUnits = sanitized
+                .map { line in
+                    Array(line).reduce(0) { units, char in
+                        units + (char == " " ? 5 : 7)
+                    }
+                }
+                .max() ?? 1
+            let scale = max(4, min(8, (width - 32) / max(1, maxUnits)))
+            let glyphWidth = 5 * scale
+            let glyphHeight = 7 * scale
+            let spacing = 2 * scale
+            let lineGap = 22
+            let totalHeight = sanitized.isEmpty ? 0 : sanitized.count * glyphHeight + max(0, sanitized.count - 1) * lineGap
+            var y = max(24, (height - totalHeight) / 2)
+            for line in sanitized {
+                let chars = Array(line)
+                let lineWidth = chars.reduce(0) { width, char in
+                    width + (char == " " ? 3 * scale : glyphWidth) + spacing
+                } - spacing
+                var x = max(12, (KompleteKontrolMK2Protocol.displayWidth - max(0, lineWidth)) / 2)
+                for char in chars {
+                    if char == " " {
+                        x += 3 * scale + spacing
+                        continue
+                    }
+                    drawMK2Glyph(char, x: x, y: y, scale: scale, color: foreground, pixels: &pixels)
+                    x += glyphWidth + spacing
+                }
+                y += glyphHeight + lineGap
+            }
+            return pixels
+        }
+
+        private func drawMK2Glyph(_ char: Character, x originX: Int, y originY: Int, scale: Int, color: UInt16, pixels: inout [UInt16]) {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            let rows = mk2GlyphRows(char)
+            for row in 0..<rows.count {
+                let bits = rows[row]
+                for column in 0..<5 where (bits & (1 << (4 - column))) != 0 {
+                    let x0 = originX + column * scale
+                    let y0 = originY + row * scale
+                    for py in y0..<(y0 + scale) where py >= 0 && py < height {
+                        for px in x0..<(x0 + scale) where px >= 0 && px < width {
+                            pixels[py * width + px] = color
+                        }
+                    }
+                }
+            }
+        }
+
+        private func mk2GlyphRows(_ char: Character) -> [UInt8] {
+            switch char {
+                case "0": return [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e]
+                case "1": return [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e]
+                case "2": return [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f]
+                case "3": return [0x1e, 0x01, 0x01, 0x0e, 0x01, 0x01, 0x1e]
+                case "4": return [0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02]
+                case "5": return [0x1f, 0x10, 0x10, 0x1e, 0x01, 0x01, 0x1e]
+                case "6": return [0x0e, 0x10, 0x10, 0x1e, 0x11, 0x11, 0x0e]
+                case "7": return [0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08]
+                case "8": return [0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e]
+                case "9": return [0x0e, 0x11, 0x11, 0x0f, 0x01, 0x01, 0x0e]
+                case "A": return [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11]
+                case "B": return [0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e]
+                case "C": return [0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e]
+                case "D": return [0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e]
+                case "E": return [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x1f]
+                case "F": return [0x1f, 0x10, 0x10, 0x1e, 0x10, 0x10, 0x10]
+                case "G": return [0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f]
+                case "H": return [0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11]
+                case "I": return [0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e]
+                case "K": return [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11]
+                case "L": return [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f]
+                case "M": return [0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11]
+                case "N": return [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11]
+                case "O": return [0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e]
+                case "P": return [0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10]
+                case "R": return [0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11]
+                case "S": return [0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e]
+                case "T": return [0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04]
+                case "U": return [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e]
+                case "V": return [0x11, 0x11, 0x11, 0x11, 0x11, 0x0a, 0x04]
+                case "W": return [0x11, 0x11, 0x11, 0x15, 0x15, 0x1b, 0x11]
+                case "Y": return [0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04]
+                default: return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            }
+        }
+
         private func showConnectedClient(_ client: RegisteredClient) {
             guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
+            if isMK2(session) {
+                writeMK2IdleSurface(
+                    session: session,
+                    screen0: ["CLIENT", String(client.name.prefix(12)).uppercased()],
+                    screen1: ["CONNECTED", "PID \(client.pid)"],
+                    accent0: 0x07ff,
+                    accent1: 0x07e0
+                )
+                return
+            }
             let name = String(client.name.prefix(8)).uppercased()
             let pid = "PID \(client.pid)"
             var frame = KKDisplayFrame()
@@ -3020,6 +3321,17 @@ public enum KompleteKontrolLibUSBServer {
         private func showNoClient() {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
+            if isMK2(session) {
+                clearMK2SurfaceLights(session: session)
+                writeMK2IdleSurface(
+                    session: session,
+                    screen0: ["NO CLIENT", "MK2 DAEMON"],
+                    screen1: ["PRESS SURFACE", "FOR HID TEST"],
+                    accent0: 0xf800,
+                    accent1: 0x001f
+                )
+                return
+            }
             resetIdleDiagnosticState()
             let emptyButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: emptyButtons)
@@ -3039,6 +3351,17 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func writeDarkSurface(session: KontrolUSBLibUSBSessionRef, displayFrame: KKDisplayFrame) {
+            if isMK2(session) {
+                clearMK2SurfaceLights(session: session)
+                writeMK2IdleSurface(
+                    session: session,
+                    screen0: ["CLIENT", "ACTIVE"],
+                    screen1: ["MK2", "READY"],
+                    accent0: 0x07ff,
+                    accent1: 0x07e0
+                )
+                return
+            }
             let emptyGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: emptyGuide)
             let emptyButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
@@ -3064,6 +3387,10 @@ public enum KompleteKontrolLibUSBServer {
 
         private func acknowledgeIdleSurfaceInput(_ bytes: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
+            if currentSessionIsMK2() {
+                acknowledgeIdleMK2SurfaceInput(bytes)
+                return
+            }
             let report = normalizedIdleSurfaceReport(bytes)
 
             lock.lock()
@@ -3084,6 +3411,35 @@ public enum KompleteKontrolLibUSBServer {
             }
             idleHasReceivedInput = true
             idleSurfaceSummary = events.first.map(idleSurfaceSummary(for:)) ?? idleRawSurfaceSummary(bytes)
+            if idleMIDISummary == "OR MIDI KEY FOR TEST" {
+                idleMIDISummary = "--"
+            }
+            idleDiagnosticNeedsFlush = true
+            lock.unlock()
+        }
+
+        private func currentSessionIsMK2() -> Bool {
+            lock.lock()
+            let session = libusbSession
+            lock.unlock()
+            guard let session else { return false }
+            return isMK2(session)
+        }
+
+        private func acknowledgeIdleMK2SurfaceInput(_ bytes: [UInt8]) {
+            let previous: [UInt8]?
+            let events: [KKMK2InputEvent]
+            lock.lock()
+            previous = idleSurfacePreviousReport
+            events = KKMK2InputReportDecoder.events(previous: previous, current: bytes)
+            idleSurfacePreviousReport = bytes
+            if events.isEmpty, previous != nil, previous == bytes {
+                lock.unlock()
+                return
+            }
+            idleHasReceivedInput = true
+            let report = KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: KKTiming.now())
+            idleSurfaceSummary = events.isEmpty ? idleRawSurfaceSummary(bytes) : shortMK2IdleSummary(report)
             if idleMIDISummary == "OR MIDI KEY FOR TEST" {
                 idleMIDISummary = "--"
             }
@@ -3196,6 +3552,16 @@ public enum KompleteKontrolLibUSBServer {
         ) {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
+            if isMK2(session) {
+                writeMK2IdleSurface(
+                    session: session,
+                    screen0: hasInput ? ["SURFACE", surfaceSummary] : ["NO CLIENT", "MK2 DAEMON"],
+                    screen1: hasInput ? ["MIDI", midiSummary] : ["PRESS SURFACE", "FOR HID TEST"],
+                    accent0: hasInput ? 0x07ff : 0xf800,
+                    accent1: hasInput ? 0x07e0 : 0x001f
+                )
+                return
+            }
 
             var frame = KKDisplayFrame()
             frame.setText("NO", display: 0, row: 1, alignment: .center)
@@ -3266,6 +3632,7 @@ public enum KompleteKontrolLibUSBServer {
         private func writeIdleDiagnosticLightGuide(_ lightGuide: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
+            guard !isMK2(session) else { return }
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
         }
 
@@ -3560,6 +3927,37 @@ public enum KompleteKontrolLibUSBServer {
                 return "err \(result.status) \(message)"
             }
             return (["midi"] + bytes.prefix(Int(transferred)).map(KKHex.byte)).joined(separator: " ")
+        }
+
+        if command == "mk2fill" {
+            guard let session else { return "err no session" }
+            guard tokens.count >= 8,
+                  let screen = KKHex.parse(tokens[1]),
+                  let x = KKHex.parse(tokens[2]),
+                  let y = KKHex.parse(tokens[3]),
+                  let width = KKHex.parse(tokens[4]),
+                  let height = KKHex.parse(tokens[5]),
+                  let color = KKHex.parse(tokens[6]) else {
+                return "err parse"
+            }
+            let timeoutMs = tokens.dropFirst(7).first.flatMap(KKHex.parse).map { UInt32(max(1, min($0, 10_000))) } ?? 1_000
+            let writeStart = KKTiming.now()
+            let result = KontrolUSBLibUSBSessionFillMK2Display(
+                session,
+                UInt8(screen & 0xff),
+                UInt16(x & 0xffff),
+                UInt16(y & 0xffff),
+                UInt16(width & 0xffff),
+                UInt16(height & 0xffff),
+                UInt16(color & 0xffff),
+                timeoutMs
+            )
+            daemonTraceLog("mk2fill screen=\(screen) rect=\(x),\(y) \(width)x\(height) color=0x\(String(format: "%04x", color & 0xffff)) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))")
+            if result.status == 0 {
+                return "ok"
+            }
+            let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
+            return "err \(result.status) \(message)"
         }
 
         guard command == "write", tokens.count >= 2, let reportID = KKHex.parse(tokens[1]) else {

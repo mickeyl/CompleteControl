@@ -13,7 +13,7 @@ typedef struct {
     uint8_t pipeRef;
     uint8_t endpointAddress;
     uint8_t numEndpoints;
-    char message[512];
+    char message[2048];
 } KontrolUSBResult;
 
 typedef void *KontrolUSBLibUSBSessionRef;
@@ -23,9 +23,15 @@ KontrolUSBResult KontrolUSBWriteReport(uint8_t reportID, const uint8_t *payload,
 KontrolUSBResult KontrolUSBRunDemo(void);
 KontrolUSBResult KontrolUSBLibUSBWriteReport(uint8_t reportID, const uint8_t *payload, uint32_t payloadLen);
 KontrolUSBResult KontrolUSBLibUSBSessionOpen(KontrolUSBLibUSBSessionRef *sessionOut);
+KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, KontrolUSBLibUSBSessionRef *sessionOut);
+uint8_t KontrolUSBLibUSBSessionGeneration(KontrolUSBLibUSBSessionRef session);
+uint16_t KontrolUSBLibUSBSessionProductID(KontrolUSBLibUSBSessionRef session);
+uint8_t KontrolUSBLibUSBSessionKeyCount(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionStatus(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionHealth(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionWrite(KontrolUSBLibUSBSessionRef session, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen);
+KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionRef session, uint8_t screen, uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint16_t *pixelsRGB565, uint32_t pixelCount, uint32_t timeoutMs);
+KontrolUSBResult KontrolUSBLibUSBSessionFillMK2Display(KontrolUSBLibUSBSessionRef session, uint8_t screen, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t rgb565, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionRead(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionReadMIDI(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);
 void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef session);

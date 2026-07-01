@@ -12,6 +12,7 @@ let package = Package(
         .executable(name: "ccd", targets: ["ccd"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
         .executable(name: "SurfaceDemo", targets: ["SurfaceDemo"]),
+        .executable(name: "MK2SurfaceDemo", targets: ["MK2SurfaceDemo"]),
     ],
     dependencies: [],
     targets: [
@@ -96,6 +97,14 @@ let package = Package(
             name: "SurfaceDemo",
             dependencies: ["KontrolSurfaceKit", "KompleteKontrol"],
             path: "Tools/SurfaceDemo",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "MK2SurfaceDemo",
+            dependencies: ["KompleteKontrol"],
+            path: "Tools/MK2SurfaceDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

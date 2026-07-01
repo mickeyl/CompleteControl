@@ -5,14 +5,13 @@ Actionable plan for adding **Komplete Kontrol S49/S61/S88 MK2** support to Compl
 **fully reverse-engineered by the community and pixel-based** — this is a bounded engineering
 job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling generations".
 
-> Status: **plan, pre-hardware — protocol constants verified against source.** Every §2
-> constant below was checked verbatim against the actual source of the two working open-source
-> MK2 drivers (`GoaSkin/qKontrol` `source/qkontrol.cpp`, `tillt/KompleteSynthesia`
-> `HIDController.m`); the device identity (PIDs `0x1610/20/30`, VID `0x17cc`) was additionally
-> cross-checked against NI's own `KKS_MK2_Firmware_Updater` binary. The remaining unknowns are
-> now purely integration-level — interface-claim strategy on macOS and real device framebuffer
-> ingest rate — and are listed in §6 as the bench checklist. (The light-guide byte width, an
-> earlier unknown, is **resolved**: 1 byte/key palette index — see §2.)
+> Status: **hardware milestone reached on S61 MK2.** The protocol constants below were checked
+> against the community driver sources, and the first real-device bench confirmed that
+> CompleteControl can drive an S61 MK2 without NI software through the privileged `ccd`
+> daemon: persistent libusb ownership, bulk display blits, HID button/light-guide output,
+> surface input, and USB-MIDI input all work. Remaining work is now narrower: complete the MK2
+> input offset map (some controls still surface as `raw`) and identify why the ribbon/touch
+> strip is not yet producing daemon input.
 
 ## TL;DR
 
@@ -157,21 +156,32 @@ full-double-frame ≈ 17 ms (~59 fps), a 480×40 row band ≈ 1.3 ms (hundreds f
 
 ## 6. Bench checklist (first session with the hardware)
 
-Do these before writing the reconciler — they resolve every remaining unknown:
+Initial hardware bench status:
 
-1. **FPS reality check (do this first).** Claim IF 3, repeatedly blit a full 480×272 frame,
-   measure the sustained accept rate → the true full-frame ceiling. Then measure a 480×40
-   strip. This is the go/no-go for "smooth".
-2. **Enumerate interfaces/endpoints** on the real unit; confirm IF 3 / EP 3 for the bulk
-   display and identify the HID surface interface. **Decide the claim strategy:** can libusb
-   claim the MK2 HID surface interface (as MK1's IF 2, after detaching the kernel driver), or
-   must surface I/O go through IOHIDManager while libusb owns only the bulk display? This
-   determines whether the daemon stays single-transport or grows a HID path.
+- **Done:** real S61 MK2 (`0x1620`) is auto-detected.
+- **Done:** `ccd` claims the MK2 persistently through libusb; no per-frame open/claim/release.
+- **Done:** display bulk blits on IF 3 / EP 3 work; the idle daemon renders `NO CLIENT`.
+- **Done:** button LEDs and light guide accept HID output reports through the daemon.
+- **Done:** surface input and USB-MIDI input arrive as daemon push messages.
+- **Open:** a number of surface controls are still named `raw`; their byte/bit offsets need to
+  be added to `KKMK2InputReportDecoder`.
+- **Open:** the ribbon/touch strip currently produces no observed daemon input; verify whether
+  it is a second HID endpoint/interface, a MIDI controller stream, or requires an additional
+  device-mode/init report.
+
+Remaining bench items:
+
+1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept rate.
+   Then measure a 480×40 strip. This is the go/no-go for "smooth".
+2. **Finish interface/endpoint inventory.** Display, primary HID surface, and USB-MIDI are
+   confirmed through persistent libusb. If the ribbon is absent from the current input stream,
+   enumerate and claim any additional HID interrupt-IN endpoint/interface before falling back
+   to protocol-level hypotheses.
 3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
    250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
    and a quick palette-index sanity sweep against `kMK2Palette`.
-4. **Tabulate input report `0x01`** offsets for encoders, encoder-touch, 4-D jog, pitch/mod/
-   touch strips (KompleteSynthesia/qKontrol give the starting layout).
+4. **Tabulate input report `0x01`** offsets for all still-raw controls, encoder-touch, 4-D jog,
+   and pitch/mod/touch strips (KompleteSynthesia/qKontrol give the starting layout).
 5. **Verify display init:** the candidate handshake is the `0xA0 00 00` init HID report (§2);
    qKontrol skips it and does a bare claim + blit, so confirm whether `0x84` blits work without
    it or whether `0xA0` is required first. Also confirm the **BE pixel/coord endianness** (§2) —
