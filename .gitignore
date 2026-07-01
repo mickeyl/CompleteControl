@@ -1,5 +1,6 @@
 .build/
 .swiftpm/
+.DS*
 
 # NI firmware image + RE artifacts (large, do not commit)
 NI/
