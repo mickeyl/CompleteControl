@@ -7,8 +7,12 @@ PROBE := .build/debug/KontrolProbe
 PROBE_RELEASE := .build/release/KontrolProbe
 SURFACE_DEMO := .build/debug/SurfaceDemo
 SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
+MK2_USB_SPY := .build/debug/MK2USBSpy
+MK2_USB_SPY_SECONDS ?= 0
+MK2_USB_SPY_PID ?=
+MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -39,6 +43,17 @@ probe-build: vendor-init ## Build the old KontrolProbe baseline.
 
 probe-build-release: vendor-init ## Build optimized old KontrolProbe baseline.
 	swift build -c release --product KontrolProbe
+
+mk2-usb-spy-build: vendor-init ## Build the MK2 low-level USB descriptor/input spy.
+	swift build --product MK2USBSpy
+
+mk2-usb-spy: mk2-usb-spy-build ## Stop daemon and run MK2 USB descriptor/input spy (requires sudo).
+	@echo "Stopping installed/foreground daemons..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Starting MK2 USB spy. Press Ctrl-C to stop."
+	sudo "$$(pwd)/$(MK2_USB_SPY)" $(MK2_USB_SPY_ARGS)
 
 daemon-preflight: ## Refuse stale or duplicate daemon state.
 	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \

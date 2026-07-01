@@ -185,6 +185,8 @@ Initial hardware bench status:
   are mapped from the 2026-07-01 S61 MK2 daemon session.
 - **Open:** the ribbon/touch strip currently produces no observed daemon input; verify whether
   it is a hidden mode, a MIDI-template dependency, or requires an additional init report.
+- **Done:** `MK2USBSpy` can dump the full MK2 USB topology, HID report descriptor, claim all
+  interfaces, and print packets from every readable IN endpoint.
 
 Remaining bench items:
 
@@ -195,6 +197,10 @@ Remaining bench items:
    endpoint (`0x82`) plus one HID interrupt-OUT endpoint (`0x02`) on interface 2 and USB-MIDI
    input `0x81` on interface 1; no aux HID input endpoint was present. If the touch strip stays
    absent, investigate mode/init reports before falling back to NI MIDI-template assumptions.
+   A full `MK2USBSpy` run confirmed that claiming all interfaces still exposes only readable
+   endpoints `0x81` and `0x82`; ribbon-only movement produced no packet on either endpoint.
+   The HID report descriptor does advertise several non-`0x01` input/feature reports, so the
+   next probe should read/set feature reports rather than look for another pipe.
 3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
    250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
    and a quick palette-index sanity sweep against `kMK2Palette`.

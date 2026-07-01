@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
         .executable(name: "SurfaceDemo", targets: ["SurfaceDemo"]),
         .executable(name: "MK2SurfaceDemo", targets: ["MK2SurfaceDemo"]),
+        .executable(name: "MK2USBSpy", targets: ["MK2USBSpy"]),
     ],
     dependencies: [],
     targets: [
@@ -108,6 +109,11 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
+        ),
+        .executableTarget(
+            name: "MK2USBSpy",
+            dependencies: ["CLibUSB"],
+            path: "Tools/MK2USBSpy"
         ),
         .testTarget(
             name: "KompleteKontrolTests",
