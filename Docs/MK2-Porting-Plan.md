@@ -9,9 +9,9 @@ job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling ge
 > against the community driver sources, and the first real-device bench confirmed that
 > CompleteControl can drive an S61 MK2 without NI software through the privileged `ccd`
 > daemon: persistent libusb ownership, bulk display blits, HID button/light-guide output,
-> surface input, and USB-MIDI input all work. Remaining work is now narrower: complete the MK2
-> input offset map (some controls still surface as `raw`) and identify why the ribbon/touch
-> strip is not yet producing daemon input.
+> surface input, and USB-MIDI input all work. Remaining work is now narrower: finish validating
+> the MK2 input bit table and identify why the ribbon/touch strip is not yet producing daemon
+> input.
 
 ## TL;DR
 
@@ -98,9 +98,27 @@ IF/EP 4 and carries msgpack, not pixels.
   qKontrol agrees independently: report `0x01`, transport/nav bits in bytes 2–5 (play `[2]&0x10`,
   record `[3]&0x02`, page± `[3]&0x80`/`0x20`, mute `[4]&0x01`, plugin `[5]&0x02`; qkontrol.cpp:436–488).
 - qKontrol reads **51-byte** reports (32-byte variant on older builds), knob values at
-  `report[17 + i*2]` for the 8 knobs.
-- Encoders, encoder-touch, the 4-D jog wheel, pitch/mod/touch strips all arrive in report
-  `0x01` — exact offsets to be tabulated on hardware (the bit-table above is the starting point).
+  `report[17 + i*2]` for the 8 knobs. The live S61 MK2 daemon session on 2026-07-01 showed the
+  32-byte HID report used by CompleteControl has its encoder values earlier: knob 1 starts at
+  bytes `10/11`, then the remaining knobs continue as 16-bit little-endian pairs through
+  bytes `24/25`.
+- The regular encoders report wrapped absolute counters rather than signed step bytes. The
+  observed S61 MK2 counter range wraps around `0x0000`/`0x03ff`; e.g. encoder 8 moved left
+  from `0x0002` to `0x03e6` and right from `0x03af` to `0x03b2`. Decode with wrapped deltas,
+  and show the signed delta separately from the raw absolute value in diagnostics.
+- Encoder touch is byte `7`, with the mask order reversed from the natural index order:
+  knob 1 = `0x80`, knob 2 = `0x40`, knob 3 = `0x20`, knob 4 = `0x10`, continuing downward.
+- The 4-D encoder rotation uses byte `30` as a low-nibble counter. Byte `6=0x04` marks the
+  rotation-active edge and can coincide with a counter jump that should be ignored; the next
+  byte-30 transition carries the actual direction (`3 -> 4` = right/+1, `4 -> 3` = left/-1).
+- The first hardware pass resolved these additional button swaps: browser = byte `5`/`0x04`,
+  mixer = byte `5`/`0x01`, octave down = byte `8`/`0x01`, octave up = byte `8`/`0x02`,
+  fixed velocity = byte `8`/`0x04`.
+- Encoders, encoder-touch, and the 4-D jog wheel arrive in report `0x01`. Pitch bend and CC1
+  also emit HID mirror bytes at offsets `33` and `35` respectively in addition to USB-MIDI.
+  The touch strip did not produce a dedicated HID or USB-MIDI event in the live daemon session,
+  even after pressing the hardware MIDI button; only unrelated encoder value drift appeared.
+  The strip may require an additional device-mode/init report or a not-yet-claimed input path.
 
 ### Ownership
 - macOS: NI background services (Hardware Agent / Host Integration) must release the device
@@ -163,20 +181,20 @@ Initial hardware bench status:
 - **Done:** display bulk blits on IF 3 / EP 3 work; the idle daemon renders `NO CLIENT`.
 - **Done:** button LEDs and light guide accept HID output reports through the daemon.
 - **Done:** surface input and USB-MIDI input arrive as daemon push messages.
-- **Open:** a number of surface controls are still named `raw`; their byte/bit offsets need to
-  be added to `KKMK2InputReportDecoder`.
+- **Done/in validation:** main surface button bits, encoder value pairs, and encoder touch masks
+  are mapped from the 2026-07-01 S61 MK2 daemon session.
 - **Open:** the ribbon/touch strip currently produces no observed daemon input; verify whether
-  it is a second HID endpoint/interface, a MIDI controller stream, or requires an additional
-  device-mode/init report.
+  it is a hidden mode, a MIDI-template dependency, or requires an additional init report.
 
 Remaining bench items:
 
 1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept rate.
    Then measure a 480×40 strip. This is the go/no-go for "smooth".
-2. **Finish interface/endpoint inventory.** Display, primary HID surface, and USB-MIDI are
-   confirmed through persistent libusb. If the ribbon is absent from the current input stream,
-   enumerate and claim any additional HID interrupt-IN endpoint/interface before falling back
-   to protocol-level hypotheses.
+2. **Finish touch-strip investigation.** Display, primary HID surface, and USB-MIDI are
+   confirmed through persistent libusb. The S61 MK2 descriptor exposed one HID interrupt-IN
+   endpoint (`0x82`) plus one HID interrupt-OUT endpoint (`0x02`) on interface 2 and USB-MIDI
+   input `0x81` on interface 1; no aux HID input endpoint was present. If the touch strip stays
+   absent, investigate mode/init reports before falling back to NI MIDI-template assumptions.
 3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
    250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
    and a quick palette-index sanity sweep against `kMK2Palette`.

@@ -3116,12 +3116,20 @@ public enum KompleteKontrolLibUSBServer {
                         return "\(name.uppercased()) \(pressed ? "DOWN" : "UP")"
                     case let .knob(index, delta, _):
                         return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
+                    case let .touchStrip(name, value):
+                        return "\(name.uppercased()) \(value)"
                     case let .jog(direction):
                         return "JOG \(direction.uppercased())"
-                    case let .jogScroll(delta, _):
-                        return "JOG \(delta >= 0 ? "+" : "")\(delta)"
+                    case let .jogScroll(delta, value):
+                        return "JOG \(delta >= 0 ? "+" : "")\(delta) V\(value)"
+                    case let .touchEncoder(index, touched):
+                        return "TOUCH E\(index) \(touched ? "ON" : "OFF")"
                     case let .rawChanged(indices):
-                        return "RAW \(indices.prefix(4).map(String.init).joined(separator: " "))"
+                        let values = indices.prefix(3).map { index -> String in
+                            guard report.bytes.indices.contains(index) else { return "\(index)=??" }
+                            return "\(index)=\(KKHex.byte(report.bytes[index]))"
+                        }.joined(separator: " ")
+                        return "RAW \(values)"
                 }
             }
             return "INPUT"
@@ -3285,13 +3293,16 @@ public enum KompleteKontrolLibUSBServer {
                 case "N": return [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11]
                 case "O": return [0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e]
                 case "P": return [0x1e, 0x11, 0x11, 0x1e, 0x10, 0x10, 0x10]
+                case "Q": return [0x0e, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0d]
                 case "R": return [0x1e, 0x11, 0x11, 0x1e, 0x14, 0x12, 0x11]
                 case "S": return [0x0f, 0x10, 0x10, 0x0e, 0x01, 0x01, 0x1e]
                 case "T": return [0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04]
                 case "U": return [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e]
                 case "V": return [0x11, 0x11, 0x11, 0x11, 0x11, 0x0a, 0x04]
                 case "W": return [0x11, 0x11, 0x11, 0x15, 0x15, 0x1b, 0x11]
+                case "X": return [0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11]
                 case "Y": return [0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04]
+                case "Z": return [0x1f, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1f]
                 default: return [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
             }
         }

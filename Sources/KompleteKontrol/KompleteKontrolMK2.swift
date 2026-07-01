@@ -140,21 +140,27 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
 
 public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     case button(name: String, pressed: Bool)
+    case touchEncoder(index: Int, touched: Bool)
     case jog(direction: String)
     case jogScroll(delta: Int, value: Int)
     case knob(index: Int, delta: Int, value: Int)
+    case touchStrip(name: String, value: Int)
     case rawChanged(indices: [Int])
 
     public var description: String {
         switch self {
             case let .button(name, pressed):
                 "button \(name) \(pressed ? "down" : "up")"
+            case let .touchEncoder(index, touched):
+                "touch encoder \(index) \(touched ? "on" : "off")"
             case let .jog(direction):
                 "jog \(direction)"
             case let .jogScroll(delta, value):
                 "jog scroll \(delta > 0 ? "+" : "")\(delta) value=\(value)"
             case let .knob(index, delta, value):
                 "knob \(index) \(delta > 0 ? "+" : "")\(delta) value=\(value)"
+            case let .touchStrip(name, value):
+                "\(name) strip value=\(value)"
             case let .rawChanged(indices):
                 "raw changed \(indices.map(String.init).joined(separator: ","))"
         }
@@ -169,6 +175,9 @@ public struct KKMK2InputReport: Sendable {
 }
 
 public enum KKMK2InputReportDecoder {
+    private static let knobBaseOffset = 10
+    private static let encoderTouchOffset = 7
+
     private struct ButtonBit {
         let byte: Int
         let mask: UInt8
@@ -177,14 +186,24 @@ public enum KKMK2InputReportDecoder {
 
     private static let buttonBits: [ButtonBit] = [
         ButtonBit(byte: 1, mask: 0x01, name: "function5"),
+        ButtonBit(byte: 1, mask: 0x02, name: "function6"),
+        ButtonBit(byte: 1, mask: 0x04, name: "function7"),
+        ButtonBit(byte: 1, mask: 0x08, name: "function8"),
         ButtonBit(byte: 1, mask: 0x10, name: "function1"),
         ButtonBit(byte: 1, mask: 0x20, name: "function2"),
         ButtonBit(byte: 1, mask: 0x40, name: "function3"),
         ButtonBit(byte: 1, mask: 0x80, name: "function4"),
+        ButtonBit(byte: 2, mask: 0x01, name: "auto"),
+        ButtonBit(byte: 2, mask: 0x02, name: "quantize"),
+        ButtonBit(byte: 2, mask: 0x04, name: "arp"),
+        ButtonBit(byte: 2, mask: 0x08, name: "scale"),
         ButtonBit(byte: 2, mask: 0x10, name: "play"),
         ButtonBit(byte: 2, mask: 0x20, name: "loop"),
+        ButtonBit(byte: 2, mask: 0x40, name: "undoredo"),
+        ButtonBit(byte: 2, mask: 0x80, name: "shift"),
         ButtonBit(byte: 3, mask: 0x01, name: "stop"),
         ButtonBit(byte: 3, mask: 0x02, name: "record"),
+        ButtonBit(byte: 3, mask: 0x04, name: "tempo"),
         ButtonBit(byte: 3, mask: 0x08, name: "metro"),
         ButtonBit(byte: 3, mask: 0x10, name: "presetup"),
         ButtonBit(byte: 3, mask: 0x20, name: "pageright"),
@@ -193,10 +212,19 @@ public enum KKMK2InputReportDecoder {
         ButtonBit(byte: 4, mask: 0x01, name: "mute"),
         ButtonBit(byte: 4, mask: 0x02, name: "solo"),
         ButtonBit(byte: 4, mask: 0x04, name: "scene"),
+        ButtonBit(byte: 4, mask: 0x08, name: "pattern"),
+        ButtonBit(byte: 4, mask: 0x10, name: "track"),
         ButtonBit(byte: 4, mask: 0x20, name: "clear"),
+        ButtonBit(byte: 4, mask: 0x40, name: "keymode"),
+        ButtonBit(byte: 5, mask: 0x01, name: "mixer"),
         ButtonBit(byte: 5, mask: 0x02, name: "plugin"),
+        ButtonBit(byte: 5, mask: 0x04, name: "browser"),
         ButtonBit(byte: 5, mask: 0x08, name: "setup"),
+        ButtonBit(byte: 5, mask: 0x10, name: "instance"),
         ButtonBit(byte: 5, mask: 0x20, name: "midi"),
+        ButtonBit(byte: 8, mask: 0x01, name: "octavedown"),
+        ButtonBit(byte: 8, mask: 0x02, name: "octaveup"),
+        ButtonBit(byte: 8, mask: 0x04, name: "fixedvel"),
     ]
 
     private static let jogStates: [UInt8: String] = [
@@ -214,7 +242,7 @@ public enum KKMK2InputReportDecoder {
     public static func summary(_ bytes: [UInt8]) -> String {
         let head = bytes.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
         let knobs = (0..<8).compactMap { index -> String? in
-            let offset = 17 + index * 2
+            let offset = knobBaseOffset + index * 2
             guard let value = word(bytes, offset) else { return nil }
             return "k\(index + 1):\(value)"
         }.joined(separator: " ")
@@ -225,35 +253,70 @@ public enum KKMK2InputReportDecoder {
         guard let previous, previous.count == current.count else { return [] }
         var events: [KKMK2InputEvent] = []
 
+        var explained = Set<Int>()
+
         for bit in buttonBits {
             let was = state(previous, bit)
             let now = state(current, bit)
             if was != now {
                 events.append(.button(name: bit.name, pressed: now))
+                explained.insert(bit.byte)
             }
         }
 
-        if current.indices.contains(6), previous[6] != current[6], let direction = jogStates[current[6]] {
-            events.append(.jog(direction: direction))
+        let jogStateChanged = current.indices.contains(6) && previous[6] != current[6]
+        if jogStateChanged {
+            if let direction = jogStates[current[6]] {
+                events.append(.jog(direction: direction))
+            }
+            explained.insert(6)
         }
 
         if current.indices.contains(30), previous[30] != current[30] {
-            let delta = KKInputReportDecoder.wrappedDelta(from: Int(previous[30] & 0x0f), to: Int(current[30] & 0x0f), modulo: 16)
-            if delta != 0 {
-                events.append(.jogScroll(delta: delta, value: Int(current[30] & 0x0f)))
+            if jogStateChanged && current.indices.contains(6) && current[6] == 0x04 {
+                explained.insert(30)
+            } else {
+                let delta = KKInputReportDecoder.wrappedDelta(from: Int(previous[30] & 0x0f), to: Int(current[30] & 0x0f), modulo: 16)
+                if delta != 0 {
+                    events.append(.jogScroll(delta: delta, value: Int(current[30] & 0x0f)))
+                    explained.insert(30)
+                }
             }
         }
 
         for index in 0..<8 {
-            let offset = 17 + index * 2
+            let offset = knobBaseOffset + index * 2
             guard let old = word(previous, offset), let new = word(current, offset), old != new else { continue }
             let delta = KKInputReportDecoder.wrappedDelta(from: old, to: new)
             if delta != 0 {
                 events.append(.knob(index: index + 1, delta: delta, value: new))
+                explained.insert(offset)
+                explained.insert(offset + 1)
             }
         }
 
-        let changed = current.indices.filter { previous[$0] != current[$0] }
+        if previous.indices.contains(encoderTouchOffset), current.indices.contains(encoderTouchOffset), previous[encoderTouchOffset] != current[encoderTouchOffset] {
+            for index in 0..<8 {
+                let mask = UInt8(0x80 >> index)
+                let wasTouched = (previous[encoderTouchOffset] & mask) != 0
+                let isTouched = (current[encoderTouchOffset] & mask) != 0
+                if wasTouched != isTouched {
+                    events.append(.touchEncoder(index: index + 1, touched: isTouched))
+                }
+            }
+            explained.insert(encoderTouchOffset)
+        }
+
+        if current.indices.contains(33), previous[33] != current[33] {
+            events.append(.touchStrip(name: "pitch", value: Int(current[33])))
+            explained.insert(33)
+        }
+        if current.indices.contains(35), previous[35] != current[35] {
+            events.append(.touchStrip(name: "mod", value: Int(current[35])))
+            explained.insert(35)
+        }
+
+        let changed = current.indices.filter { previous[$0] != current[$0] && !explained.contains($0) }
         if !changed.isEmpty {
             events.append(.rawChanged(indices: changed))
         }

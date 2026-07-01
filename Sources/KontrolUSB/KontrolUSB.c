@@ -76,7 +76,10 @@ typedef struct {
     uint8_t claimedInterface;
     uint8_t surfaceInterface;
     uint8_t surfaceClaimed;
+    uint8_t auxSurfaceInterface;
+    uint8_t auxSurfaceClaimed;
     uint8_t inputEndpoint;
+    uint8_t auxInputEndpoint;
     uint8_t outputEndpoint;
     uint8_t displayInterface;
     uint8_t displayOutputEndpoint;
@@ -85,17 +88,21 @@ typedef struct {
     uint8_t midiClaimed;
     /* Async state */
     struct libusb_transfer *inputTransfer;
+    struct libusb_transfer *auxInputTransfer;
     struct libusb_transfer *midiTransfer;
     KontrolUSBInputCallback inputCallback;
     void *inputUserData;
     KontrolUSBInputCallback midiCallback;
     void *midiUserData;
     int inputTransferStatus;
+    int auxInputTransferStatus;
     int midiTransferStatus;
     int inputTransferPending;
+    int auxInputTransferPending;
     int midiTransferPending;
     int closing;
     uint8_t inputBuffer[256];
+    uint8_t auxInputBuffer[256];
     uint8_t midiBuffer[256];
 } KontrolLibUSBSession;
 
@@ -766,12 +773,24 @@ static void libusb_find_bulk_display_endpoint(libusb_device_handle *handle, cons
     }
 }
 
-static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle, uint8_t *interfaceOut, uint8_t *inputOut, uint8_t *outputOut, KontrolUSBResult *result) {
+static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle,
+                                              uint8_t *interfaceOut,
+                                              uint8_t *inputOut,
+                                              uint8_t *outputOut,
+                                              uint8_t *auxInterfaceOut,
+                                              uint8_t *auxInputOut,
+                                              KontrolUSBResult *result) {
     if (interfaceOut != NULL) {
         *interfaceOut = 0xff;
     }
+    if (auxInterfaceOut != NULL) {
+        *auxInterfaceOut = 0xff;
+    }
     if (inputOut != NULL) {
         *inputOut = 0;
+    }
+    if (auxInputOut != NULL) {
+        *auxInputOut = 0;
     }
     if (outputOut != NULL) {
         *outputOut = 0;
@@ -789,6 +808,12 @@ static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle, uint
         return;
     }
 
+    uint8_t primaryInterface = 0xff;
+    uint8_t primaryInput = 0;
+    uint8_t primaryOutput = 0;
+    uint8_t auxInterface = 0xff;
+    uint8_t auxInput = 0;
+
     for (uint8_t interfaceIndex = 0; interfaceIndex < config->bNumInterfaces; interfaceIndex++) {
         const struct libusb_interface *interface = &config->interface[interfaceIndex];
         for (int altIndex = 0; altIndex < interface->num_altsetting; altIndex++) {
@@ -805,7 +830,8 @@ static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle, uint
                 continue;
             }
 
-            uint8_t selectedInput = 0;
+            uint8_t firstInput = 0;
+            uint8_t secondInput = 0;
             uint8_t selectedOutput = 0;
             for (uint8_t endpointIndex = 0; endpointIndex < alt->bNumEndpoints; endpointIndex++) {
                 const struct libusb_endpoint_descriptor *endpoint = &alt->endpoint[endpointIndex];
@@ -821,35 +847,60 @@ static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle, uint
                     continue;
                 }
                 if ((address & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN) {
-                    selectedInput = address;
+                    if (firstInput == 0) {
+                        firstInput = address;
+                    } else if (secondInput == 0) {
+                        secondInput = address;
+                    }
                 } else {
                     selectedOutput = address;
                 }
             }
 
-            if (selectedInput != 0) {
-                if (interfaceOut != NULL) {
-                    *interfaceOut = alt->bInterfaceNumber;
-                }
-                if (inputOut != NULL) {
-                    *inputOut = selectedInput;
-                }
-                if (outputOut != NULL) {
-                    *outputOut = selectedOutput;
-                }
-                libusb_free_config_descriptor(config);
-                result_append(result,
-                              "selected hid interface=%u in=0x%02x out=0x%02x; ",
-                              alt->bInterfaceNumber,
-                              selectedInput,
-                              selectedOutput);
-                return;
+            if (firstInput != 0 && primaryInput == 0) {
+                primaryInterface = alt->bInterfaceNumber;
+                primaryInput = firstInput;
+                primaryOutput = selectedOutput;
+            } else if (firstInput != 0 && auxInput == 0) {
+                auxInterface = alt->bInterfaceNumber;
+                auxInput = firstInput;
+            }
+            if (secondInput != 0 && auxInput == 0) {
+                auxInterface = alt->bInterfaceNumber;
+                auxInput = secondInput;
             }
         }
     }
 
     libusb_free_config_descriptor(config);
-    result_append(result, "no HID interrupt-IN surface endpoint; ");
+    if (primaryInput == 0) {
+        result_append(result, "no HID interrupt-IN surface endpoint; ");
+        return;
+    }
+
+    if (interfaceOut != NULL) {
+        *interfaceOut = primaryInterface;
+    }
+    if (inputOut != NULL) {
+        *inputOut = primaryInput;
+    }
+    if (outputOut != NULL) {
+        *outputOut = primaryOutput;
+    }
+    if (auxInterfaceOut != NULL) {
+        *auxInterfaceOut = auxInterface;
+    }
+    if (auxInputOut != NULL) {
+        *auxInputOut = auxInput;
+    }
+    result_append(result,
+                  "selected hid primary interface=%u in=0x%02x out=0x%02x; ",
+                  primaryInterface,
+                  primaryInput,
+                  primaryOutput);
+    if (auxInput != 0) {
+        result_append(result, "selected hid aux interface=%u in=0x%02x; ", auxInterface, auxInput);
+    }
 }
 
 static int libusb_claim_interface_detaching(libusb_device_handle *handle, uint8_t interfaceNumber, const char *label, KontrolUSBResult *result) {
@@ -873,24 +924,53 @@ static int libusb_claim_interface_detaching(libusb_device_handle *handle, uint8_
 static int libusb_claim_hid_surface(KontrolLibUSBSession *session, KontrolUSBResult *result) {
     session->surfaceInterface = 0xff;
     session->surfaceClaimed = 0;
+    session->auxSurfaceInterface = 0xff;
+    session->auxSurfaceClaimed = 0;
     session->inputEndpoint = 0;
+    session->auxInputEndpoint = 0;
     session->outputEndpoint = 0;
 
-    libusb_find_hid_surface_endpoints(session->handle, &session->surfaceInterface, &session->inputEndpoint, &session->outputEndpoint, result);
+    libusb_find_hid_surface_endpoints(
+        session->handle,
+        &session->surfaceInterface,
+        &session->inputEndpoint,
+        &session->outputEndpoint,
+        &session->auxSurfaceInterface,
+        &session->auxInputEndpoint,
+        result
+    );
     if (session->surfaceInterface == 0xff || session->inputEndpoint == 0) {
         return LIBUSB_ERROR_NOT_FOUND;
     }
 
+    int status = 0;
     if (session->surfaceInterface == session->claimedInterface) {
         session->surfaceClaimed = 1;
-        return 0;
+    } else {
+        status = libusb_claim_interface_detaching(session->handle, session->surfaceInterface, "surface", result);
+        if (status == 0) {
+            session->surfaceClaimed = 1;
+        } else {
+            return status;
+        }
     }
 
-    int status = libusb_claim_interface_detaching(session->handle, session->surfaceInterface, "surface", result);
-    if (status == 0) {
-        session->surfaceClaimed = 1;
+    if (session->auxInputEndpoint != 0 && session->auxSurfaceInterface != 0xff) {
+        if (session->auxSurfaceInterface == session->claimedInterface || session->auxSurfaceInterface == session->surfaceInterface) {
+            session->auxSurfaceClaimed = 1;
+        } else {
+            status = libusb_claim_interface_detaching(session->handle, session->auxSurfaceInterface, "surfaceAux", result);
+            if (status == 0) {
+                session->auxSurfaceClaimed = 1;
+            } else {
+                result_append(result, "MK2 aux HID claim unavailable status=%d (%s); ",
+                              status,
+                              status < 0 ? libusb_error_name(status) : "OK");
+                session->auxInputEndpoint = 0;
+            }
+        }
     }
-    return status;
+    return 0;
 }
 
 static void libusb_find_midi_streaming_endpoint(libusb_device_handle *handle, uint8_t *interfaceOut, uint8_t *inputOut, KontrolUSBResult *result) {
@@ -1104,6 +1184,9 @@ KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, Kontr
     session->claimedInterface = device != NULL ? device->claimInterface : KONTROL_INTERFACE;
     session->surfaceInterface = 0xff;
     session->surfaceClaimed = 0;
+    session->auxSurfaceInterface = 0xff;
+    session->auxSurfaceClaimed = 0;
+    session->auxInputEndpoint = 0;
     session->displayInterface = device != NULL ? device->displayInterface : KONTROL_NO_INTERFACE;
     session->displayOutputEndpoint = 0;
 
@@ -1170,14 +1253,17 @@ KontrolUSBResult KontrolUSBLibUSBSessionStatus(KontrolUSBLibUSBSessionRef sessio
     result.opened = 1;
     result.pipeRef = 1;
     result.endpointAddress = session->outputEndpoint != 0 ? session->outputEndpoint : session->displayOutputEndpoint;
-    result_append(&result, "session device=%s pid=0x%04x generation=mk%d claimedInterface=%u surfaceInterface=%u surfaceClaimed=%u endpoints in=0x%02x out=0x%02x displayInterface=%u displayOut=0x%02x midiInterface=%u midiIn=0x%02x midiClaimed=%u; ",
+    result_append(&result, "session device=%s pid=0x%04x generation=mk%d claimedInterface=%u surfaceInterface=%u surfaceClaimed=%u auxSurfaceInterface=%u auxSurfaceClaimed=%u endpoints in=0x%02x auxIn=0x%02x out=0x%02x displayInterface=%u displayOut=0x%02x midiInterface=%u midiIn=0x%02x midiClaimed=%u; ",
                   session->device != NULL ? session->device->name : "unknown",
                   session->device != NULL ? session->device->productID : 0,
                   session->device != NULL ? session->device->generation : 0,
                   session->claimedInterface,
                   session->surfaceInterface,
                   session->surfaceClaimed,
+                  session->auxSurfaceInterface,
+                  session->auxSurfaceClaimed,
                   session->inputEndpoint,
+                  session->auxInputEndpoint,
                   session->outputEndpoint,
                   session->displayInterface,
                   session->displayOutputEndpoint,
@@ -1205,6 +1291,13 @@ KontrolUSBResult KontrolUSBLibUSBSessionHealth(KontrolUSBLibUSBSessionRef sessio
     if (inputError != 0) {
         result.status = inputError;
         result_append(&result, "async input transfer status=%d; ", session->inputTransferStatus);
+        return result;
+    }
+
+    int auxInputError = libusb_async_status_to_error(session->auxInputTransferStatus);
+    if (auxInputError != 0) {
+        result.status = auxInputError;
+        result_append(&result, "async aux input transfer status=%d; ", session->auxInputTransferStatus);
         return result;
     }
 
@@ -1478,6 +1571,10 @@ void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef sessionRef) {
         libusb_free_transfer(session->inputTransfer);
         session->inputTransfer = NULL;
     }
+    if (session->auxInputTransfer != NULL) {
+        libusb_free_transfer(session->auxInputTransfer);
+        session->auxInputTransfer = NULL;
+    }
     if (session->midiTransfer != NULL) {
         libusb_free_transfer(session->midiTransfer);
         session->midiTransfer = NULL;
@@ -1491,6 +1588,14 @@ void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef sessionRef) {
         libusb_release_interface(session->handle, session->surfaceInterface);
         libusb_attach_kernel_driver(session->handle, session->surfaceInterface);
         session->surfaceClaimed = 0;
+    }
+    if (session->handle != NULL
+        && session->auxSurfaceClaimed
+        && session->auxSurfaceInterface != session->claimedInterface
+        && session->auxSurfaceInterface != session->surfaceInterface) {
+        libusb_release_interface(session->handle, session->auxSurfaceInterface);
+        libusb_attach_kernel_driver(session->handle, session->auxSurfaceInterface);
+        session->auxSurfaceClaimed = 0;
     }
     KontrolUSBResult result;
     memset(&result, 0, sizeof(result));
@@ -1602,7 +1707,12 @@ KontrolUSBResult KontrolUSBLibUSBRunHoldDemo(uint32_t steps, uint32_t intervalUs
 static void input_transfer_callback(struct libusb_transfer *transfer) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)transfer->user_data;
     if (session == NULL) return;
-    session->inputTransferStatus = transfer->status;
+    int isAux = session->auxInputTransfer == transfer;
+    if (isAux) {
+        session->auxInputTransferStatus = transfer->status;
+    } else {
+        session->inputTransferStatus = transfer->status;
+    }
 
 #ifdef KK_DEBUG
     char head[96];
@@ -1622,16 +1732,26 @@ static void input_transfer_callback(struct libusb_transfer *transfer) {
         }
     }
 
-    if (transfer->status == LIBUSB_TRANSFER_COMPLETED && session->inputTransfer == transfer && !session->closing) {
+    if (transfer->status == LIBUSB_TRANSFER_COMPLETED
+        && (session->inputTransfer == transfer || session->auxInputTransfer == transfer)
+        && !session->closing) {
         int submitStatus = libusb_submit_transfer(transfer);
-        session->inputTransferStatus = submitStatus == 0 ? LIBUSB_TRANSFER_COMPLETED : submitStatus;
-        session->inputTransferPending = submitStatus == 0;
+        if (isAux) {
+            session->auxInputTransferStatus = submitStatus == 0 ? LIBUSB_TRANSFER_COMPLETED : submitStatus;
+            session->auxInputTransferPending = submitStatus == 0;
+        } else {
+            session->inputTransferStatus = submitStatus == 0 ? LIBUSB_TRANSFER_COMPLETED : submitStatus;
+            session->inputTransferPending = submitStatus == 0;
+        }
         kk_usb_debug_log("usb-surface",
                          submitStatus == 0 ? "TRACE" : "ERROR",
-                         "resubmit status=%d",
+                         "resubmit endpoint=0x%02x status=%d",
+                         transfer->endpoint,
                          submitStatus);
     } else if (session->inputTransfer == transfer) {
         session->inputTransferPending = 0;
+    } else if (session->auxInputTransfer == transfer) {
+        session->auxInputTransferPending = 0;
     }
 }
 
@@ -1750,7 +1870,41 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
                      session->inputEndpoint,
                      sizeof(session->inputBuffer),
                      status);
-    return status;
+
+    int auxStatus = 0;
+    if (session->auxInputEndpoint != 0) {
+        if (session->auxInputTransfer == NULL) {
+            session->auxInputTransfer = libusb_alloc_transfer(0);
+            if (session->auxInputTransfer == NULL) {
+                kk_usb_debug_log("usb-surface", "ERROR", "alloc aux transfer failed");
+                session->auxInputEndpoint = 0;
+                return status == 0 ? 0 : status;
+            }
+            libusb_fill_interrupt_transfer(session->auxInputTransfer,
+                                           session->handle,
+                                           session->auxInputEndpoint,
+                                           session->auxInputBuffer,
+                                           sizeof(session->auxInputBuffer),
+                                           input_transfer_callback,
+                                           session,
+                                           0);
+        }
+        auxStatus = libusb_submit_transfer(session->auxInputTransfer);
+        session->auxInputTransferStatus = auxStatus == 0 ? LIBUSB_TRANSFER_COMPLETED : auxStatus;
+        session->auxInputTransferPending = auxStatus == 0;
+        kk_usb_debug_log("usb-surface",
+                         auxStatus == 0 ? "INFO" : "ERROR",
+                         "start async aux input endpoint=0x%02x buffer=%zu status=%d",
+                         session->auxInputEndpoint,
+                         sizeof(session->auxInputBuffer),
+                         auxStatus);
+        if (auxStatus != 0) {
+            session->auxInputEndpoint = 0;
+            session->auxInputTransferStatus = LIBUSB_TRANSFER_COMPLETED;
+            session->auxInputTransferPending = 0;
+        }
+    }
+    return status == 0 ? 0 : status;
 }
 
 int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
@@ -1807,12 +1961,15 @@ void KontrolUSBLibUSBSessionStopAsync(KontrolUSBLibUSBSessionRef sessionRef) {
     if (session->inputTransfer != NULL && session->inputTransferPending) {
         libusb_cancel_transfer(session->inputTransfer);
     }
+    if (session->auxInputTransfer != NULL && session->auxInputTransferPending) {
+        libusb_cancel_transfer(session->auxInputTransfer);
+    }
     if (session->midiTransfer != NULL && session->midiTransferPending) {
         libusb_cancel_transfer(session->midiTransfer);
     }
 
     if (session->ctx != NULL) {
-        for (int i = 0; i < 100 && (session->inputTransferPending || session->midiTransferPending); i++) {
+        for (int i = 0; i < 100 && (session->inputTransferPending || session->auxInputTransferPending || session->midiTransferPending); i++) {
             struct timeval tv = {0, 10000};
             libusb_handle_events_timeout(session->ctx, &tv);
         }

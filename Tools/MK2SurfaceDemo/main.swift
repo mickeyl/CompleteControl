@@ -103,6 +103,7 @@ private final class MK2DemoController: @unchecked Sendable {
     var lastInput = "No input yet"
     var rawBytes: [UInt8] = []
     var knobValues = [Int](repeating: 0, count: 8)
+    var knobDeltas = [Int](repeating: 0, count: 8)
     var jogValue = 0
     var keyCount: Int { device.model?.keyCount ?? 61 }
 
@@ -237,11 +238,16 @@ private final class MK2DemoController: @unchecked Sendable {
                 case let .jogScroll(_, value):
                     jogValue = value
                     view?.pulse("jog:scroll")
-                case let .knob(index, _, value):
+                case let .knob(index, delta, value):
                     if knobValues.indices.contains(index - 1) {
                         knobValues[index - 1] = value
+                        knobDeltas[index - 1] = delta
                     }
                     view?.pulse("knob:\(index)")
+                case let .touchEncoder(index, touched):
+                    view?.setActive("knobtouch:\(index)", active: touched)
+                case .touchStrip:
+                    view?.pulse("strip")
                 case .rawChanged:
                     break
             }
@@ -352,12 +358,16 @@ private final class MK2SurfaceView: NSView {
         for index in 0..<8 {
             let rect = knobRect(index)
             let fresh = isFresh("knob:\(index + 1)")
-            (fresh ? NSColor.systemCyan.withAlphaComponent(0.70) : NSColor.white.withAlphaComponent(0.10)).setFill()
+            let touched = active.contains("knobtouch:\(index + 1)")
+            let fill = touched ? NSColor.systemYellow.withAlphaComponent(0.74) : (fresh ? NSColor.systemCyan.withAlphaComponent(0.70) : NSColor.white.withAlphaComponent(0.10))
+            fill.setFill()
             NSBezierPath(ovalIn: rect).fill()
-            NSColor.white.withAlphaComponent(fresh ? 0.9 : 0.28).setStroke()
+            NSColor.white.withAlphaComponent((fresh || touched) ? 0.9 : 0.28).setStroke()
             NSBezierPath(ovalIn: rect).stroke()
             drawString("\(index + 1)", in: rect.insetBy(dx: 0, dy: rect.height * 0.30), size: 13, alignment: .center, color: .white)
-            drawString("\(controller.knobValues[index])", in: NSRect(x: rect.minX - 8, y: rect.minY - 22, width: rect.width + 16, height: 18), size: 10, alignment: .center, color: .secondaryLabelColor)
+            let delta = controller.knobDeltas[index]
+            let deltaText = delta == 0 ? "0" : String(format: "%+d", delta)
+            drawString("\(deltaText)  \(controller.knobValues[index])", in: NSRect(x: rect.minX - 18, y: rect.minY - 22, width: rect.width + 36, height: 18), size: 10, alignment: .center, color: .secondaryLabelColor)
         }
         let jog = NSRect(x: bounds.width - 160, y: bounds.height - 240, width: 86, height: 86)
         (isFresh("jog:scroll") ? NSColor.systemCyan.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.10)).setFill()
