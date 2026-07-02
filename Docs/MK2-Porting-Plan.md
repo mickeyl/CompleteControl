@@ -323,9 +323,13 @@ scatter frame.
 
 ## Path forward (updated 2026-07-02)
 
-1. **`PixelDisplayReconciler` + minimal pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`) with
-   dirty-span diffing straight into the jnlive scatter-blit format — the one substantial build
-   left. Gate the granularity on the FPS bench (item 1 above).
+Structure: `ccd` stays one binary for both generations; `KontrolSurfaceKit` is frozen (MK1);
+new work lands in **`KontrolSurfaceKit2`** — see CLAUDE.md "Structure decision".
+
+1. **`KontrolSurfaceKit2` skeleton**, then **`PixelDisplayReconciler` + minimal pixel DSL**
+   (`Canvas`, `BitmapLabel`, `Meter`) with dirty-span diffing straight into the jnlive
+   scatter-blit format — the one substantial build left. One full-width multi-span transfer
+   per screen per flush, dirty-only, ~30–50 Hz cap (see FPS bench above).
 2. **Kit input surfacing**: strip (`.strip` position/release), jog gestures, encoder deltas
    (modulo 1000) through `Surface.inputs`; per-screen strip LED control via the 0x80 map
    (indices 44–68).

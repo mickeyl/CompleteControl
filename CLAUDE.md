@@ -220,6 +220,21 @@ keybed is too small for tracker entry.
 as the regression baseline for the shared middleware, but no new kit features get ported to the
 16-segment display pipeline.
 
+**Structure decision (2026-07-02): split the middleware, keep the daemon unified.**
+- `ccd` stays **one** binary for both generations — its value is the generation-agnostic
+  machinery (libusb session ownership, reactor, device-loss/reconnect lifecycle, socket
+  protocol, standalone handover); forking would mean fixing every lifecycle bug twice. The
+  MK1 code inside it is inert and cheap. (Deserved refactor, not fork: split the 4000-line
+  `KompleteKontrol.swift` into small files per convention.)
+- `KontrolSurfaceKit` is **frozen** — no more changes; a freeze only works if the module
+  literally stops changing.
+- **`KontrolSurfaceKit2`** (new target, same package) is the new major: pixel HIG,
+  `PixelDisplayReconciler`, pixel DSL, strip/jog/encoder inputs. Paulinche imports only this.
+  Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)
+  get extracted into a small shared core where the seam is clean, or copied once where
+  extraction would contort the frozen kit. This also keeps eventual MK1 deletion a
+  mechanical excision.
+
 MK2 kit work Paulinche will pull, in rough priority (protocol side is done — see
 `Docs/MK2-Porting-Plan.md` "Path forward"):
 
