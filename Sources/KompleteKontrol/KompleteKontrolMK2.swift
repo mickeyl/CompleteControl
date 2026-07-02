@@ -351,7 +351,7 @@ public enum KKMK2InputReportDecoder {
     }
 
     public static func events(previous: [UInt8]?, current: [UInt8]) -> [KKMK2InputEvent] {
-        guard let previous, previous.count == current.count else { return [] }
+        let previous = (previous?.count == current.count) ? previous! : initialEventBaseline(current: current)
         var events: [KKMK2InputEvent] = []
 
         var explained = Set<Int>()
@@ -425,6 +425,14 @@ public enum KKMK2InputReportDecoder {
             events.append(.rawChanged(indices: changed))
         }
         return events
+    }
+
+    public static func initialEventBaseline(current: [UInt8]) -> [UInt8] {
+        var baseline = current
+        for bit in buttonBits where baseline.indices.contains(bit.byte) {
+            baseline[bit.byte] &= ~bit.mask
+        }
+        return baseline
     }
 
     private static func state(_ bytes: [UInt8], _ bit: ButtonBit) -> Bool {
@@ -593,6 +601,58 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
             String(format: "%04x", Int(timeoutMs)),
         ].joined(separator: " ") + "\n"
         guard let response = client.request(line, timeoutUsec: 3_000_000) else {
+            return KKUSBResult(status: -1, message: "Komplete Kontrol daemon timed out")
+        }
+        if response == "ok" {
+            return KKUSBResult(status: 0, message: response)
+        }
+        return KKUSBResult(status: -1, message: response)
+    }
+
+    @discardableResult
+    public func blitDisplay(
+        screen: Int,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        pixelsRGB565: [UInt16],
+        timeoutMs: UInt32 = 1_000
+    ) -> KKUSBResult {
+        guard (0...1).contains(screen) else {
+            return KKUSBResult(status: -1, message: "display screen out of range")
+        }
+        guard width > 0, height > 0, x >= 0, y >= 0,
+              x + width <= KompleteKontrolMK2Protocol.displayWidth,
+              y + height <= KompleteKontrolMK2Protocol.displayHeight else {
+            return KKUSBResult(status: -1, message: "display rect out of range")
+        }
+        guard pixelsRGB565.count == width * height else {
+            return KKUSBResult(status: -1, message: "pixel count mismatch expected \(width * height) actual \(pixelsRGB565.count)")
+        }
+        guard ensureDaemonAvailable() else {
+            return KKUSBResult(status: -1, message: "Komplete Kontrol daemon unavailable")
+        }
+        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+            return KKUSBResult(status: -1, message: "Komplete Kontrol daemon socket unavailable")
+        }
+        var data: [UInt8] = []
+        data.reserveCapacity(pixelsRGB565.count * 2)
+        for pixel in pixelsRGB565 {
+            data.append(UInt8((pixel >> 8) & 0xff))
+            data.append(UInt8(pixel & 0xff))
+        }
+        let header = [
+            "mk2blitbin",
+            KKHex.byte(UInt8(screen & 0xff)),
+            String(format: "%04x", x & 0xffff),
+            String(format: "%04x", y & 0xffff),
+            String(format: "%04x", width & 0xffff),
+            String(format: "%04x", height & 0xffff),
+            String(format: "%04x", Int(timeoutMs)),
+            String(format: "%08x", data.count),
+        ].joined(separator: " ") + "\n"
+        guard let response = client.request(headerLine: header, payload: data, timeoutUsec: 5_000_000) else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon timed out")
         }
         if response == "ok" {

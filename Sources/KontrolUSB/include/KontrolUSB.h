@@ -32,6 +32,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionHealth(KontrolUSBLibUSBSessionRef sessio
 int KontrolUSBLibUSBSessionDeviceLost(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionWrite(KontrolUSBLibUSBSessionRef session, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen);
 KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionRef session, uint8_t screen, uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint16_t *pixelsRGB565, uint32_t pixelCount, uint32_t timeoutMs);
+KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayBytes(KontrolUSBLibUSBSessionRef session, uint8_t screen, uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *pixelsRGB565BE, uint32_t byteCount, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionFillMK2Display(KontrolUSBLibUSBSessionRef session, uint8_t screen, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t rgb565, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionRead(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionReadMIDI(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);

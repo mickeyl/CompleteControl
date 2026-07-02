@@ -8,8 +8,8 @@ job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling ge
 > Status (2026-07-02): **protocol mapping complete.** CompleteControl drives the S61 MK2
 > without NI software through `ccd`: persistent libusb ownership, display blits, all LEDs,
 > full surface input (buttons, encoders, 4-D, raw ribbon), USB-MIDI, robust device lifecycle
-> (auto-reconnect, standalone handover on quit), plus the `MK2Calibrate` workbench that
-> produced the verified tables. The device runs in host-control mode `A0 00 10`; the onboard
+> (auto-reconnect, standalone handover on quit), with verified tables from the now-removed
+> calibration workbench. The device runs in host-control mode `A0 00 10`; the onboard
 > MIDI mapping engine (`A0 93 00` + templates) is armed only when handing the device back.
 > What remains is **building, not researching**: the pixel display reconciler and the kit
 > input surface — see "Path forward".
@@ -167,8 +167,7 @@ completely dead — no HID, no MIDI. Verified live on the S61 MK2 through the `c
   probe are wiped instantly when the probe disconnects (last-client-disconnect repaints the
   idle surface) — hold the connection while judging LED state.
 - `mk2text` accepts 8 optional label tokens rendered in a small font directly under the
-  physical function buttons (120px slots, scale-2 glyphs) — used by MK2Calibrate to label its
-  command buttons.
+  physical function buttons (120px slots, scale-2 glyphs) for legacy socket clients.
 
 ### jnlive cross-check (local clone `~/Documents/late/misc/jnlive`, `source/komplete.{h,cpp}`)
 
@@ -282,7 +281,7 @@ Initial hardware bench status:
 - **Done:** `MK2USBSpy` can dump the full MK2 USB topology, HID report descriptor, claim all
   interfaces, and print packets from every readable IN endpoint.
 
-### Calibration complete (2026-07-02, via `Tools/MK2Calibrate`)
+### Calibration Complete (2026-07-02, via removed workbench)
 
 The protocol-mapping phase is **finished**. Input report `0x01` is fully tabulated (buttons,
 encoders 0…999 wrap, encoder touch, 4-D byte-6 bits + byte-30 detents), the raw strip report
@@ -290,7 +289,7 @@ encoders 0…999 wrap, encoder touch, 4-D byte-6 bits + byte-30 detents), the ra
 index-by-index (only 42/43 = octave are firmware-owned). Display init needs no handshake for
 blits (mode `A0 00 10` at bring-up), BE pixel endianness confirmed in daily use.
 
-### FPS reality check (2026-07-02, MK2Calibrate flow 6 — debug daemon, via socket)
+### FPS Reality Check (2026-07-02, removed workbench flow 6 — debug daemon, via socket)
 
 | rect | ms/frame | fps | effective MB/s |
 | --- | --- | --- | --- |
@@ -313,6 +312,11 @@ Design consequences for `PixelDisplayReconciler`:
 - The 7.7 ms floor makes always-dirty 60 Hz × both screens unsustainable if serialized
   (2 × 10 ms > 16.7 ms). Flush dirty-only at a ~30–50 Hz cap; a tracker's real update rates
   (row steps, meters) sit far below saturation. Full-surface refresh tops out at 20.7 Hz.
+- **Backlog:** `PixelDisplayReconciler2` currently sends a full frame for each changed screen
+  to stay correct with the daemon's "latest wins" display queue. This is intentionally
+  temporary. Before a 30 fps live tracker UI, replace it with presentation-complete display
+  acknowledgements and full-width dirty-span/scatter blits so dropped intermediate work cannot
+  desynchronise the client framebuffer from the physical displays.
 
 Remaining bench item: once the reconciler exists, test whether async transfer pipelining can
 overlap the 7.7 ms fixed cost (occupancy vs completion latency), and measure a true multi-span

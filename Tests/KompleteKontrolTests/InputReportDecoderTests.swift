@@ -162,6 +162,18 @@ struct InputReportDecoderTests {
         #expect(events == [.button(name: "browser", pressed: true)])
     }
 
+    @Test("MK2 initial baseline preserves first function button press")
+    func mk2InitialBaselinePreservesFirstFunctionButtonPress() throws {
+        var current = try #require(Self.report(
+            "01 00 00 00 00 00 00 00 00 00 6c 01 5a 01 8d 03 c3 01 63 00 01 01 57 03 5d 02 00 00 00 00 06 24"
+        ))
+        current[1] = 0x02
+
+        let events = KKMK2InputReportDecoder.eventsForReport(previous: nil, current: current)
+
+        #expect(events == [.button(name: "function6", pressed: true)])
+    }
+
     @Test("MK2 pitch and mod HID mirrors do not remain raw")
     func mk2EncoderDeltaWrapsAtOneThousand() throws {
         var previous = try #require(Self.report(

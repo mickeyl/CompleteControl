@@ -1508,6 +1508,115 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionR
     return result;
 }
 
+KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayBytes(KontrolUSBLibUSBSessionRef sessionRef,
+                                                             uint8_t screen,
+                                                             uint16_t x,
+                                                             uint16_t y,
+                                                             uint16_t width,
+                                                             uint16_t height,
+                                                             const uint8_t *pixelsRGB565BE,
+                                                             uint32_t byteCount,
+                                                             uint32_t timeoutMs) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || pixelsRGB565BE == NULL) {
+        return result;
+    }
+    result.opened = 1;
+    result.pipeRef = 1;
+    result.endpointAddress = session->displayOutputEndpoint;
+
+    if (session->device == NULL || session->device->generation != KONTROL_DEVICE_MK2) {
+        result_append(&result, "session is not an MK2 display device; ");
+        result.status = LIBUSB_ERROR_NOT_SUPPORTED;
+        return result;
+    }
+    if (session->displayOutputEndpoint == 0) {
+        result_append(&result, "no MK2 bulk display endpoint discovered; ");
+        result.status = LIBUSB_ERROR_NOT_FOUND;
+        return result;
+    }
+    if (screen > 1 || width == 0 || height == 0 || x > 479 || y > 271 || (uint32_t)x + (uint32_t)width > 480 || (uint32_t)y + (uint32_t)height > 272) {
+        result_append(&result, "invalid display rect screen=%u x=%u y=%u w=%u h=%u; ", screen, x, y, width, height);
+        result.status = LIBUSB_ERROR_INVALID_PARAM;
+        return result;
+    }
+    uint32_t expectedPixels = (uint32_t)width * (uint32_t)height;
+    uint32_t expectedBytes = expectedPixels * 2;
+    if (expectedBytes != byteCount) {
+        result_append(&result, "byte count mismatch expected=%u actual=%u; ", expectedBytes, byteCount);
+        result.status = LIBUSB_ERROR_INVALID_PARAM;
+        return result;
+    }
+    if ((expectedPixels % 2) != 0) {
+        result_append(&result, "MK2 display protocol requires an even pixel count pixels=%u; ", expectedPixels);
+        result.status = LIBUSB_ERROR_INVALID_PARAM;
+        return result;
+    }
+    if ((expectedPixels / 2) > 0xffff) {
+        result_append(&result, "rect too large for MK2 count field pixels=%u; ", expectedPixels);
+        result.status = LIBUSB_ERROR_OVERFLOW;
+        return result;
+    }
+
+    const size_t headerLen = 24;
+    const size_t trailerLen = 12;
+    size_t totalLen = headerLen + (size_t)byteCount + trailerLen;
+    uint8_t *buffer = malloc(totalLen);
+    if (buffer == NULL) {
+        result.status = LIBUSB_ERROR_NO_MEM;
+        return result;
+    }
+
+    size_t offset = 0;
+    buffer[offset++] = 0x84;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = screen;
+    buffer[offset++] = 0x60;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    put_be16(buffer, &offset, x);
+    put_be16(buffer, &offset, y);
+    put_be16(buffer, &offset, width);
+    put_be16(buffer, &offset, height);
+    buffer[offset++] = 0x02;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    buffer[offset++] = 0x00;
+    put_be16(buffer, &offset, (uint16_t)(expectedPixels / 2));
+
+    memcpy(buffer + offset, pixelsRGB565BE, byteCount);
+    offset += byteCount;
+
+    const uint8_t trailer[] = {0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00};
+    memcpy(buffer + offset, trailer, sizeof(trailer));
+    offset += sizeof(trailer);
+
+    int transferred = 0;
+    uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
+    int status = libusb_bulk_transfer(session->handle, session->displayOutputEndpoint, buffer, (int)offset, &transferred, timeout);
+    result_append(&result, "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u bytes=%zu -> %d (%s) transferred=%d; ",
+                  session->displayOutputEndpoint,
+                  screen,
+                  x,
+                  y,
+                  width,
+                  height,
+                  offset,
+                  status,
+                  status < 0 ? libusb_error_name(status) : "OK",
+                  transferred);
+    result.status = status;
+    free(buffer);
+    return result;
+}
+
 KontrolUSBResult KontrolUSBLibUSBSessionFillMK2Display(KontrolUSBLibUSBSessionRef sessionRef,
                                                        uint8_t screen,
                                                        uint16_t x,

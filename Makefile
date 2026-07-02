@@ -7,12 +7,14 @@ PROBE := .build/debug/KontrolProbe
 PROBE_RELEASE := .build/release/KontrolProbe
 SURFACE_DEMO := .build/debug/SurfaceDemo
 SURFACE_DEMO_RELEASE := .build/release/SurfaceDemo
+MK2_SURFACE_DEMO := .build/debug/MK2SurfaceDemo
+MK2_SURFACE_DEMO_RELEASE := .build/release/MK2SurfaceDemo
 MK2_USB_SPY := .build/debug/MK2USBSpy
 MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -31,6 +33,12 @@ SurfaceDemo: build ## Build the middleware SurfaceDemo product.
 surface: run ## Run the middleware SurfaceDemo.
 
 surface-release: run-release ## Run optimized middleware SurfaceDemo.
+
+mk2-surface-demo-build: vendor-init ## Build the MK2 hardware-only SurfaceKit2 feature demo.
+	swift build --product MK2SurfaceDemo
+
+mk2-surface-demo-build-release: vendor-init ## Build optimized MK2 hardware-only SurfaceKit2 feature demo.
+	swift build -c release --product MK2SurfaceDemo
 
 daemon-build: vendor-init ## Build the CompleteControl daemon.
 	swift build -c debug --product ccd
@@ -143,6 +151,14 @@ run: build daemon-build probe-build ## Run the middleware SurfaceDemo.
 run-release: build-release daemon-build-release probe-build-release ## Run optimized middleware SurfaceDemo.
 	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
 	$(SURFACE_DEMO_RELEASE)
+
+mk2-surface-demo: mk2-surface-demo-build daemon-build ## Run the MK2 hardware-only SurfaceKit2 feature demo.
+	@$(MAKE) daemon-preflight
+	$(MK2_SURFACE_DEMO)
+
+mk2-surface-demo-release: mk2-surface-demo-build-release daemon-build-release ## Run optimized MK2 hardware-only SurfaceKit2 feature demo.
+	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+	$(MK2_SURFACE_DEMO_RELEASE)
 
 probe-run: daemon-build probe-build daemon-preflight ## Run the old KontrolProbe REPL baseline.
 	$(PROBE)

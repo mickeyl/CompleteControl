@@ -746,17 +746,36 @@ enum DaemonClientCommandPump {
         buffer: inout [UInt8],
         clientID: Int,
         handle: (String, Int) -> String,
+        handleBinary: (String, [UInt8], Int) -> String = { _, _, _ in "err binary unsupported" },
         writeResponse: (String) -> Void,
         pumpUSB: () -> Void
     ) {
         while let newline = buffer.firstIndex(of: 0x0a) {
             let lineBytes = buffer.prefix(upTo: newline)
-            buffer.removeSubrange(...newline)
             guard let line = String(bytes: lineBytes, encoding: .utf8) else {
+                buffer.removeSubrange(...newline)
                 writeResponse("err utf8")
                 continue
             }
-            let response = handle(line, clientID)
+            let response: String
+            if line.hasPrefix("mk2blitbin ") {
+                let tokens = line.split(separator: " ").map(String.init)
+                guard tokens.count >= 8, let byteCount = Int(tokens[7], radix: 16), byteCount >= 0 else {
+                    buffer.removeSubrange(...newline)
+                    writeResponse("err binary parse")
+                    pumpUSB()
+                    continue
+                }
+                let payloadStart = newline + 1
+                let totalLength = payloadStart + byteCount
+                guard buffer.count >= totalLength else { return }
+                let payload = Array(buffer[payloadStart..<totalLength])
+                buffer.removeSubrange(0..<totalLength)
+                response = handleBinary(line, payload, clientID)
+            } else {
+                buffer.removeSubrange(...newline)
+                response = handle(line, clientID)
+            }
             writeResponse(response)
             pumpUSB()
         }
@@ -1839,9 +1858,20 @@ public enum KompleteKontrolLibUSBServer {
     public static let daemonLabel = "media.vanille.kompletekontrol-libusb"
     public static let defaultDaemonSocketPath = "/var/run/kompletekontrol-libusb.sock"
     public static let daemonLogPath = "/tmp/media.vanille.kompletekontrol-libusb.foreground.log"
-    public static let protocolVersion = 3
+    public static let protocolVersion = 4
     private static let daemonLockPath = "/var/run/kompletekontrol-libusb.lock"
     private static let daemonStartLock = NSLock()
+
+    public static func daemonSocketPath(
+        base socketPath: String = defaultDaemonSocketPath,
+        channel: KKDaemonBinaryChannel
+    ) -> String {
+        switch channel {
+            case .control: return socketPath
+            case .event: return socketPath + ".events"
+            case .display: return socketPath + ".display"
+        }
+    }
 
     private enum DaemonControlEvent: UInt8 {
         case systemSleep = 0x73
@@ -2008,6 +2038,41 @@ public enum KompleteKontrolLibUSBServer {
         hardware.pushMidiToClients(data, length: length)
     }
 
+    private static func makeDaemonServerSocket(socketPath: String) -> Int32? {
+        let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard serverFD >= 0 else {
+            daemonLog("socket() failed path=\(socketPath) errno=\(errno)")
+            return nil
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        guard fillSunPath(&addr, socketPath: socketPath) else {
+            daemonLog("socket path too long path=\(socketPath)")
+            close(serverFD)
+            return nil
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(serverFD, sockaddrPointer, sockaddrLength(for: socketPath))
+            }
+        }
+        guard bindResult == 0 else {
+            daemonLog("bind failed path=\(socketPath) errno=\(errno)")
+            close(serverFD)
+            return nil
+        }
+        chmod(socketPath, 0o666)
+        guard listen(serverFD, 16) == 0 else {
+            daemonLog("listen failed path=\(socketPath) errno=\(errno)")
+            close(serverFD)
+            return nil
+        }
+        _ = fcntl(serverFD, F_SETFL, O_NONBLOCK)
+        return serverFD
+    }
+
     public static func runDaemon(socketPath: String = defaultDaemonSocketPath) -> Never {
         signal(SIGPIPE, SIG_IGN)
         signal(SIGINT, SIG_IGN)
@@ -2032,37 +2097,25 @@ public enum KompleteKontrolLibUSBServer {
             exit(6)
         }
         daemonDebugLog("lock acquire complete", group: "daemon")
-        unlink(socketPath)
-        daemonLog("starting kqueue daemon socket=\(socketPath)")
-
-        let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard serverFD >= 0 else {
-            daemonLog("socket() failed errno=\(errno)")
-            exit(1)
+        let socketPaths = [
+            KKDaemonBinaryChannel.control: daemonSocketPath(base: socketPath, channel: .control),
+            KKDaemonBinaryChannel.event: daemonSocketPath(base: socketPath, channel: .event),
+            KKDaemonBinaryChannel.display: daemonSocketPath(base: socketPath, channel: .display),
+        ]
+        for path in socketPaths.values {
+            unlink(path)
         }
+        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-")")
 
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        guard fillSunPath(&addr, socketPath: socketPath) else {
-            daemonLog("socket path too long")
-            exit(2)
-        }
-
-        let bindResult = withUnsafePointer(to: &addr) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                Darwin.bind(serverFD, sockaddrPointer, sockaddrLength(for: socketPath))
+        var serverFDs: [Int32: KKDaemonBinaryChannel] = [:]
+        for channel in [KKDaemonBinaryChannel.control, .event, .display] {
+            guard let path = socketPaths[channel] else { continue }
+            guard let fd = makeDaemonServerSocket(socketPath: path) else {
+                exit(channel == .control ? 1 : 4)
             }
+            serverFDs[fd] = channel
         }
-        guard bindResult == 0 else {
-            daemonLog("bind failed errno=\(errno)")
-            exit(3)
-        }
-        chmod(socketPath, 0o666)
-        guard listen(serverFD, 8) == 0 else {
-            daemonLog("listen failed errno=\(errno)")
-            exit(4)
-        }
-        daemonLog("listening")
+        daemonLog("listening control/event/display")
 
         let hardware = DaemonHardware()
         hardware.runStartupAnimationThenIdle()
@@ -2090,10 +2143,11 @@ public enum KompleteKontrolLibUSBServer {
         _ = fcntl(controlPipe[0], F_SETFD, FD_CLOEXEC)
         _ = fcntl(controlPipe[1], F_SETFD, FD_CLOEXEC)
 
-        // Register server socket
-        var serverKev = kevent(ident: UInt(serverFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
-        kevent(kq, &serverKev, 1, nil, 0, nil)
-        daemonDebugLog("register server fd=\(serverFD) filter=\(EVFILT_READ)", group: "reactor")
+        for (serverFD, channel) in serverFDs {
+            var serverKev = kevent(ident: UInt(serverFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
+            kevent(kq, &serverKev, 1, nil, 0, nil)
+            daemonDebugLog("register \(channel) server fd=\(serverFD) filter=\(EVFILT_READ)", group: "reactor")
+        }
 
         var controlKev = kevent(ident: UInt(controlPipe[0]), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
         kevent(kq, &controlKev, 1, nil, 0, nil)
@@ -2115,6 +2169,7 @@ public enum KompleteKontrolLibUSBServer {
 
         var clientBuffers: [Int32: [UInt8]] = [:]
         var clientIDs: [Int32: Int] = [:]
+        var clientChannels: [Int32: KKDaemonBinaryChannel] = [:]
         var nextClientID = 0
         var events = Array<kevent>(repeating: kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil), count: 32)
         let reconnectTimerIdent = UInt.max - 42
@@ -2241,9 +2296,13 @@ public enum KompleteKontrolLibUSBServer {
                     }
                     close(controlPipe[0])
                     close(controlPipe[1])
-                    close(serverFD)
+                    for fd in serverFDs.keys {
+                        close(fd)
+                    }
                     close(kq)
-                    unlink(socketPath)
+                    for path in socketPaths.values {
+                        unlink(path)
+                    }
                     exit(0)
                 }
 
@@ -2259,18 +2318,19 @@ public enum KompleteKontrolLibUSBServer {
                 }
                 let fd = Int32(event.ident)
 
-                if fd == serverFD {
-                    daemonTraceLog("server fd ready", group: "reactor")
-                    let clientFD = accept(serverFD, nil, nil)
+                if let channel = serverFDs[fd] {
+                    daemonTraceLog("\(channel) server fd ready", group: "reactor")
+                    let clientFD = accept(fd, nil, nil)
                     if clientFD >= 0 {
                         nextClientID += 1
                         _ = fcntl(clientFD, F_SETFL, O_NONBLOCK)
                         clientIDs[clientFD] = nextClientID
+                        clientChannels[clientFD] = channel
                         clientBuffers[clientFD] = []
-                        hardware.addClient(fd: clientFD, clientID: nextClientID)
+                        hardware.addClient(fd: clientFD, clientID: nextClientID, channel: channel)
                         var kev = kevent(ident: UInt(clientFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD), fflags: 0, data: 0, udata: nil)
                         kevent(kq, &kev, 1, nil, 0, nil)
-                        daemonLog("client \(nextClientID) connected")
+                        daemonLog("client \(nextClientID) connected channel=\(channel)")
                     }
                 } else if fd == controlPipe[0] {
                     for controlEvent in drainControlEvents() {
@@ -2297,8 +2357,9 @@ public enum KompleteKontrolLibUSBServer {
                     }
                 } else if clientIDs[fd] != nil {
                     let cid = clientIDs[fd]!
+                    let channel = clientChannels[fd] ?? .control
                     daemonTraceLog("client fd ready client=\(cid) fd=\(fd)", group: "client")
-                    let shouldClose = processClientCommands(fd, clientID: cid, hardware: hardware, buffer: &clientBuffers[fd, default: []])
+                    let shouldClose = processClientCommands(fd, clientID: cid, channel: channel, hardware: hardware, buffer: &clientBuffers[fd, default: []])
                     syncLibUSBRegistrations()
                     if shouldClose {
                         hardware.removeClient(clientID: cid)
@@ -2307,6 +2368,7 @@ public enum KompleteKontrolLibUSBServer {
                         kevent(kq, &kev, 1, nil, 0, nil)
                         close(fd)
                         clientIDs.removeValue(forKey: fd)
+                        clientChannels.removeValue(forKey: fd)
                         clientBuffers.removeValue(forKey: fd)
                         daemonLog("client \(cid) disconnected")
                     }
@@ -2336,8 +2398,14 @@ public enum KompleteKontrolLibUSBServer {
         return registrations
     }
 
-    private static func processClientCommands(_ fd: Int32, clientID: Int, hardware: DaemonHardware, buffer: inout [UInt8]) -> Bool {
-        var scratch = [UInt8](repeating: 0, count: 512)
+    private static func processClientCommands(
+        _ fd: Int32,
+        clientID: Int,
+        channel: KKDaemonBinaryChannel,
+        hardware: DaemonHardware,
+        buffer: inout [UInt8]
+    ) -> Bool {
+        var scratch = [UInt8](repeating: 0, count: 64 * 1024)
         let scratchCount = scratch.count
         let count = scratch.withUnsafeMutableBytes { raw in
             Darwin.read(fd, raw.baseAddress!, scratchCount)
@@ -2347,12 +2415,33 @@ public enum KompleteKontrolLibUSBServer {
         }
         buffer.append(contentsOf: scratch.prefix(count))
 
+        let isBinaryConnection = channel != .control || buffer.readUInt32LEIfAvailable(at: 0) == KKDaemonBinaryFrame.magic
+        if isBinaryConnection {
+            guard let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer) else {
+                writeBinaryFrame(
+                    KKDaemonBinaryFrame(channel: channel, type: .ack, sequence: 0, payload: KKDaemonBinaryCodec.ackPayload(status: -1, message: "binary parse")),
+                    to: fd
+                )
+                return true
+            }
+            for frame in frames {
+                let response = hardware.handleBinaryFrame(frame, clientID: clientID, channel: channel)
+                writeBinaryFrame(response, to: fd)
+                hardware.handleUsbEvents(timeoutMs: 0)
+            }
+            return false
+        }
+
         DaemonClientCommandPump.processCompleteLines(
             buffer: &buffer,
             clientID: clientID,
             handle: { line, clientID in
                 daemonTraceLog("client \(clientID) recv \(KKTiming.clipped(line))")
                 return hardware.handle(line, clientID: clientID)
+            },
+            handleBinary: { line, payload, clientID in
+                daemonTraceLog("client \(clientID) recv \(KKTiming.clipped(line)) payloadBytes=\(payload.count)")
+                return hardware.handleBinary(line, payload: payload, clientID: clientID)
             },
             writeResponse: { response in
                 writeDaemonResponse(response, to: fd)
@@ -2613,6 +2702,18 @@ public enum KompleteKontrolLibUSBServer {
             var name: String
         }
 
+        private struct PendingDisplayBlit {
+            var sequence: UInt32
+            var clientID: Int
+            var screen: UInt8
+            var x: UInt16
+            var y: UInt16
+            var width: UInt16
+            var height: UInt16
+            var timeoutMs: UInt32
+            var pixels: [UInt8]
+        }
+
         private enum PushKind {
             case input
             case midi
@@ -2634,11 +2735,15 @@ public enum KompleteKontrolLibUSBServer {
         private var registeredClients: [Int: RegisteredClient] = [:]
         private var activeClientID: Int?
         private var clientFDs: [Int: Int32] = [:]
+        private var eventClientFDs: [Int: Int32] = [:]
         private var trackedLibusbFds: Set<Int32> = []
         private var queuedInputMessages: [String] = []
         private var queuedMIDIMessages: [String] = []
         private var inputPushSequence: UInt64 = 0
         private var midiPushSequence: UInt64 = 0
+        private let displayQueue = DispatchQueue(label: "media.vanille.kompletekontrol.display", qos: .userInitiated)
+        private var pendingDisplayBlits: [UInt8: PendingDisplayBlit] = [:]
+        private var displayDrainScheduled = false
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
@@ -2737,19 +2842,9 @@ public enum KompleteKontrolLibUSBServer {
                 return "err no session"
             }
 
-            if command == "mk2test" {
-                guard isMK2(session) else { return "err not mk2" }
-                runMK2StartupAnimation(session: session)
-                if shouldDaemonShowIdleSurface() {
-                    showNoClient()
-                }
-                return "ok"
-            }
-
             // mk2text <line0a> <line0b> <line1a> <line1b> [accent0] [accent1] [label0…label7]
             // Lines/labels are UTF8-hex ("-" = empty); accents are RGB565. Labels render in a
-            // small font under the eight physical function buttons. Interim text path for
-            // socket clients (e.g. MK2Calibrate) until a pixel blit command exists.
+            // small font under the eight physical function buttons for legacy socket clients.
             if command == "mk2text" {
                 guard isMK2(session) else { return "err not mk2" }
                 guard tokens.count >= 5 else { return "err parse" }
@@ -2783,6 +2878,252 @@ public enum KompleteKontrolLibUSBServer {
             return retryResponse
         }
 
+        func handleBinary(_ line: String, payload: [UInt8], clientID: Int) -> String {
+            let tokens = line.split(separator: " ").map(String.init)
+            guard tokens.first == "mk2blitbin",
+                  tokens.count >= 8,
+                  let screen = KKHex.parse(tokens[1]),
+                  let x = KKHex.parse(tokens[2]),
+                  let y = KKHex.parse(tokens[3]),
+                  let width = KKHex.parse(tokens[4]),
+                  let height = KKHex.parse(tokens[5]),
+                  let timeout = KKHex.parse(tokens[6]),
+                  let byteCount = KKHex.parse(tokens[7]) else {
+                return "err binary parse"
+            }
+            guard payload.count == byteCount, payload.count.isMultiple(of: 2) else {
+                return "err binary byte-count expected \(byteCount) actual \(payload.count)"
+            }
+            guard (0...1).contains(screen),
+                  (0..<480).contains(x),
+                  (0..<272).contains(y),
+                  (1...480).contains(width),
+                  (1...272).contains(height),
+                  x + width <= 480,
+                  y + height <= 272 else {
+                return "err binary rect screen=\(screen) x=\(x) y=\(y) w=\(width) h=\(height)"
+            }
+            let pixelCount = width * height
+            guard payload.count == pixelCount * 2 else {
+                return "err pixel-count expected \(pixelCount * 2) actual \(payload.count)"
+            }
+            guard let session = ensureSession(), isMK2(session) else {
+                return "err no mk2 session"
+            }
+
+            let writeStart = KKTiming.now()
+            let result = payload.withUnsafeBufferPointer { buffer in
+                KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
+                    session,
+                    UInt8(screen & 0xff),
+                    UInt16(x & 0xffff),
+                    UInt16(y & 0xffff),
+                    UInt16(width & 0xffff),
+                    UInt16(height & 0xffff),
+                    buffer.baseAddress,
+                    UInt32(buffer.count),
+                    UInt32(max(1, min(timeout, 10_000)))
+                )
+            }
+            daemonTraceLog("mk2blitbin client=\(clientID) screen=\(screen) rect=\(x),\(y) \(width)x\(height) bytes=\(payload.count) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))", group: "mk2")
+            if result.status == 0 {
+                return "ok"
+            }
+            let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
+            return "err \(result.status) \(message)"
+        }
+
+        func handleBinaryFrame(
+            _ frame: KKDaemonBinaryFrame,
+            clientID: Int,
+            channel: KKDaemonBinaryChannel
+        ) -> KKDaemonBinaryFrame {
+            func ack(_ status: Int32 = 0, _ message: String = "ok") -> KKDaemonBinaryFrame {
+                KKDaemonBinaryFrame(
+                    channel: channel,
+                    type: .ack,
+                    sequence: frame.sequence,
+                    payload: KKDaemonBinaryCodec.ackPayload(status: status, message: message)
+                )
+            }
+
+            switch frame.type {
+                case .version:
+                    return ack(0, "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)")
+                case .register:
+                    guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
+                        return ack(-1, "register parse")
+                    }
+                    let status = binaryRegister(pid: registration.pid, name: registration.name, clientID: clientID, channel: channel)
+                    return ack(status, status == 0 ? "registered" : "register failed")
+                case .unregister:
+                    return ack(binaryUnregister(clientID: clientID), "unregistered")
+                case .writeReport:
+                    guard channel == .control,
+                          let command = KKDaemonBinaryCodec.parseWriteReportPayload(frame.payload) else {
+                        return ack(-1, "write parse")
+                    }
+                    return ack(binaryWriteReport(reportID: command.reportID, payload: command.payload))
+                case .displayBlit:
+                    guard channel == .display,
+                          let command = KKDaemonBinaryCodec.parseDisplayBlitPayload(frame.payload) else {
+                        return ack(-1, "display parse")
+                    }
+                    return ack(enqueueDisplayBlit(command, sequence: frame.sequence, clientID: clientID), "display queued")
+                case .ack, .input, .midi, .device:
+                    return ack(-1, "unexpected type")
+            }
+        }
+
+        private func binaryRegister(pid: Int32, name: String, clientID: Int, channel: KKDaemonBinaryChannel) -> Int32 {
+            let client = RegisteredClient(pid: pid, name: name)
+            lock.lock()
+            registeredClients[clientID] = client
+            if channel == .control {
+                activeClientID = clientID
+                queuedInputMessages.removeAll()
+                queuedMIDIMessages.removeAll()
+            }
+            lock.unlock()
+
+            daemonLog("client \(clientID) binary registered channel=\(channel) name=\(name) pid=\(pid)")
+            if channel == .control {
+                showConnectedClient(client)
+            }
+            return 0
+        }
+
+        private func binaryUnregister(clientID: Int) -> Int32 {
+            lock.lock()
+            let removed = registeredClients.removeValue(forKey: clientID)
+            if activeClientID == clientID {
+                activeClientID = registeredClients.keys.sorted().last
+            }
+            let shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            lock.unlock()
+            if removed != nil {
+                daemonLog("client \(clientID) binary unregistered")
+            }
+            if shouldShowNoClient {
+                showNoClient()
+            }
+            return 0
+        }
+
+        private func binaryWriteReport(reportID: UInt8, payload: [UInt8]) -> Int32 {
+            guard let session = ensureSession() else { return -1 }
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return -1
+            }
+            var payload = payload
+            let result = payload.withUnsafeMutableBufferPointer { buffer in
+                KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+            }
+            sessionIOLock.unlock()
+            return result.status
+        }
+
+        private func enqueueDisplayBlit(
+            _ command: (screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16, timeoutMs: UInt32, pixels: [UInt8]),
+            sequence: UInt32,
+            clientID: Int
+        ) -> Int32 {
+            guard command.screen <= 1,
+                  command.width > 0,
+                  command.height > 0,
+                  command.x < 480,
+                  command.y < 272,
+                  UInt32(command.x) + UInt32(command.width) <= 480,
+                  UInt32(command.y) + UInt32(command.height) <= 272 else {
+                return -1
+            }
+            let expectedBytes = Int(command.width) * Int(command.height) * 2
+            guard command.pixels.count == expectedBytes, command.pixels.count.isMultiple(of: 2) else {
+                return -1
+            }
+            let blit = PendingDisplayBlit(
+                sequence: sequence,
+                clientID: clientID,
+                screen: command.screen,
+                x: command.x,
+                y: command.y,
+                width: command.width,
+                height: command.height,
+                timeoutMs: command.timeoutMs,
+                pixels: command.pixels
+            )
+            var shouldSchedule = false
+            lock.lock()
+            pendingDisplayBlits[command.screen] = blit
+            if !displayDrainScheduled {
+                displayDrainScheduled = true
+                shouldSchedule = true
+            }
+            lock.unlock()
+            if shouldSchedule {
+                displayQueue.async { [weak self] in
+                    self?.drainDisplayBlits()
+                }
+            }
+            return 0
+        }
+
+        private func drainDisplayBlits() {
+            while true {
+                let blits: [PendingDisplayBlit]
+                lock.lock()
+                blits = pendingDisplayBlits.values.sorted { $0.screen < $1.screen }
+                pendingDisplayBlits.removeAll(keepingCapacity: true)
+                if blits.isEmpty {
+                    displayDrainScheduled = false
+                    lock.unlock()
+                    return
+                }
+                lock.unlock()
+
+                for blit in blits {
+                    performDisplayBlit(blit)
+                }
+            }
+        }
+
+        private func performDisplayBlit(_ blit: PendingDisplayBlit) {
+            guard let session = ensureSession(), isMK2(session) else { return }
+            let start = KKTiming.now()
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
+            let result = blit.pixels.withUnsafeBufferPointer { buffer in
+                KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
+                    session,
+                    blit.screen,
+                    blit.x,
+                    blit.y,
+                    blit.width,
+                    blit.height,
+                    buffer.baseAddress,
+                    UInt32(buffer.count),
+                    max(1, min(blit.timeoutMs, 10_000))
+                )
+            }
+            sessionIOLock.unlock()
+            daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+            if result.status != 0 {
+                let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
+                daemonLog("display worker failed status=\(result.status) \(message)", group: "mk2", level: .error)
+            }
+        }
+
         private func handleDaemonCommand(_ line: String, ifCurrentSession session: KontrolUSBLibUSBSessionRef) -> String {
             sessionIOLock.lock()
             lock.lock()
@@ -2814,7 +3155,7 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) registration removed on disconnect")
@@ -2869,7 +3210,7 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
@@ -3104,7 +3445,7 @@ public enum KompleteKontrolLibUSBServer {
         private func runStartupAnimation() {
             guard let session = ensureSession() else { return }
             if isMK2(session) {
-                runMK2StartupAnimation(session: session)
+                prepareMK2IdleSurface(session: session)
                 return
             }
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
@@ -3147,16 +3488,9 @@ public enum KompleteKontrolLibUSBServer {
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: KompleteKontrolMK2Protocol.initModeHostControl)
         }
 
-        private func runMK2StartupAnimation(session: KontrolUSBLibUSBSessionRef) {
-            daemonLog("MK2 startup animation begin", group: "mk2")
+        private func prepareMK2IdleSurface(session: KontrolUSBLibUSBSessionRef) {
+            daemonLog("MK2 idle surface prepare", group: "mk2")
             configureMK2HostControl(session: session)
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x7f))
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2RainbowLightGuidePayload(session: session))
-
-            writeMK2Solid(session: session, screen: 0, color: 0xf800)
-            writeMK2Solid(session: session, screen: 1, color: 0x001f)
-            usleep(160_000)
-
             clearMK2SurfaceLights(session: session)
             writeMK2IdleSurface(
                 session: session,
@@ -3165,7 +3499,6 @@ public enum KompleteKontrolLibUSBServer {
                 accent0: 0xf800,
                 accent1: 0x001f
             )
-            daemonLog("MK2 startup animation end", group: "mk2")
         }
 
         private func clearMK2SurfaceLights(session: KontrolUSBLibUSBSessionRef) {
@@ -3470,7 +3803,7 @@ public enum KompleteKontrolLibUSBServer {
         private func shouldDaemonShowIdleSurface() -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty
+            return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
         }
 
         private func writeDarkSurface(session: KontrolUSBLibUSBSessionRef, displayFrame: KKDisplayFrame) {
@@ -3803,9 +4136,16 @@ public enum KompleteKontrolLibUSBServer {
             daemonTraceLog("write report end report=0x\(KKHex.byte(reportID)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "usb-out")
         }
 
-        func addClient(fd: Int32, clientID: Int) {
+        func addClient(fd: Int32, clientID: Int, channel: KKDaemonBinaryChannel) {
             lock.lock()
-            clientFDs[clientID] = fd
+            switch channel {
+                case .event:
+                    eventClientFDs[clientID] = fd
+                case .control:
+                    clientFDs[clientID] = fd
+                case .display:
+                    break
+            }
             lock.unlock()
         }
 
@@ -3813,7 +4153,8 @@ public enum KompleteKontrolLibUSBServer {
             let shouldShowNoClient: Bool
             lock.lock()
             clientFDs.removeValue(forKey: clientID)
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty
+            eventClientFDs.removeValue(forKey: clientID)
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
             lock.unlock()
             if shouldShowNoClient {
                 showNoClient()
@@ -3948,26 +4289,50 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func pushToClients(_ message: String, kind: PushKind) {
+            let eventType: KKDaemonBinaryMessageType
+            let eventPayload: [UInt8]
             lock.lock()
             switch kind {
                 case .input:
                     queuedInputMessages.append(message)
                     trimQueuedMessages(&queuedInputMessages)
+                    eventType = .input
+                    eventPayload = binaryEventPayload(fromTextPush: message)
                 case .midi:
                     queuedMIDIMessages.append(message)
                     trimQueuedMessages(&queuedMIDIMessages)
+                    eventType = .midi
+                    eventPayload = binaryEventPayload(fromTextPush: message)
                 case .device:
-                    break
+                    eventType = .device
+                    eventPayload = Array(message.utf8)
             }
             let fds = Array(clientFDs.values)
+            let eventFDs = Array(eventClientFDs.values)
             lock.unlock()
-            daemonTraceLog("push clients=\(fds.count) message=\(message)", group: "client")
+            daemonTraceLog("push clients=\(fds.count) eventClients=\(eventFDs.count) message=\(message)", group: "client")
             let bytes = Array((message + "\n").utf8)
             for fd in fds {
                 bytes.withUnsafeBytes { raw in
                     _ = Darwin.write(fd, raw.baseAddress, bytes.count)
                 }
             }
+            guard !eventFDs.isEmpty else { return }
+            let sequence = UInt32(truncatingIfNeeded: kind == .midi ? midiPushSequence : inputPushSequence)
+            let frame = KKDaemonBinaryFrame(channel: .event, type: eventType, sequence: sequence, payload: eventPayload)
+            for fd in eventFDs {
+                KompleteKontrolLibUSBServer.writeBinaryFrameBestEffort(frame, to: fd)
+            }
+        }
+
+        private func binaryEventPayload(fromTextPush message: String) -> [UInt8] {
+            let parts = message.split(separator: " ")
+            let timestamp = parts.dropFirst().first.flatMap { token -> UInt64? in
+                guard token.hasPrefix("@") else { return nil }
+                return UInt64(token.dropFirst(), radix: 16)
+            } ?? KKTiming.now()
+            let bytes = parts.dropFirst(2).compactMap { UInt8($0, radix: 16) }
+            return KKDaemonBinaryCodec.eventPayload(timestamp: timestamp, bytes: bytes)
         }
 
         private func dequeueQueuedInputMessage() -> String? {
@@ -4132,6 +4497,31 @@ public enum KompleteKontrolLibUSBServer {
         }
     }
 
+    private static func writeBinaryFrame(_ frame: KKDaemonBinaryFrame, to fd: Int32) {
+        let bytes = frame.encoded()
+        var written = 0
+        while written < bytes.count {
+            let count = bytes.withUnsafeBytes { raw in
+                Darwin.write(fd, raw.baseAddress!.advanced(by: written), bytes.count - written)
+            }
+            if count > 0 {
+                written += count
+                continue
+            }
+            if errno == EINTR {
+                continue
+            }
+            return
+        }
+    }
+
+    private static func writeBinaryFrameBestEffort(_ frame: KKDaemonBinaryFrame, to fd: Int32) {
+        let bytes = frame.encoded()
+        bytes.withUnsafeBytes { raw in
+            _ = Darwin.write(fd, raw.baseAddress, bytes.count)
+        }
+    }
+
     private static func logDaemonCommand(_ line: String, response: String, clientID: Int) {
         let command = line.trimmingCharacters(in: .whitespacesAndNewlines)
         if command.hasPrefix("read ") && response == "timeout" {
@@ -4189,7 +4579,7 @@ public enum KompleteKontrolLibUSBServer {
         #endif
     }
 
-    fileprivate static func fillSunPath(_ addr: inout sockaddr_un, socketPath: String) -> Bool {
+    static func fillSunPath(_ addr: inout sockaddr_un, socketPath: String) -> Bool {
         let path = Array(socketPath.utf8CString)
         let capacity = MemoryLayout.size(ofValue: addr.sun_path)
         guard path.count <= capacity else { return false }
@@ -4206,7 +4596,7 @@ public enum KompleteKontrolLibUSBServer {
         return true
     }
 
-    fileprivate static func sockaddrLength(for socketPath: String) -> socklen_t {
+    static func sockaddrLength(for socketPath: String) -> socklen_t {
         socklen_t(MemoryLayout<sa_family_t>.size + Array(socketPath.utf8CString).count)
     }
 
@@ -4341,7 +4731,7 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         lock.lock()
         let lockedAt = KKTiming.now()
         defer { lock.unlock() }
-        guard sendLine(line) else {
+        guard sendLine(line, timeoutUsec: timeoutUsec) else {
             trace("request send failed command=\(command) lockWait=\(String(format: "%.3fms", Double(lockedAt - start) / 1_000_000.0))")
             return nil
         }
@@ -4352,6 +4742,23 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         return response
     }
 
+    public func request(headerLine: String, payload: [UInt8], timeoutUsec: useconds_t = 250_000) -> String? {
+        let start = KKTiming.now()
+        let command = headerLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        lock.lock()
+        let lockedAt = KKTiming.now()
+        defer { lock.unlock() }
+        var bytes = Array(headerLine.utf8)
+        bytes.append(contentsOf: payload)
+        guard sendBytes(bytes, timeoutUsec: timeoutUsec) else {
+            trace("binary request send failed command=\(command) payload=\(payload.count) lockWait=\(String(format: "%.3fms", Double(lockedAt - start) / 1_000_000.0))")
+            return nil
+        }
+        let response = readResponse(timeoutUsec: timeoutUsec)
+        trace("binary request command=\(command) payload=\(payload.count) response=\(response ?? "nil") lockWait=\(String(format: "%.3fms", Double(lockedAt - start) / 1_000_000.0)) elapsed=\(KKTiming.msSince(start))")
+        return response
+    }
+
     private func trace(_ message: @autoclosure () -> String) {
         #if KK_DEBUG
         guard KKTiming.traceEnabled else { return }
@@ -4359,17 +4766,32 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         #endif
     }
 
-    private func sendLine(_ line: String) -> Bool {
-        let bytes = Array(line.utf8)
+    private func sendLine(_ line: String, timeoutUsec: useconds_t = 250_000) -> Bool {
+        sendBytes(Array(line.utf8), timeoutUsec: timeoutUsec)
+    }
+
+    private func sendBytes(_ bytes: [UInt8], timeoutUsec: useconds_t = 250_000) -> Bool {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
         var written = 0
         while written < bytes.count {
             let count = bytes.withUnsafeBytes { raw in
                 Darwin.write(fd, raw.baseAddress!.advanced(by: written), bytes.count - written)
             }
-            if count <= 0 {
+            if count > 0 {
+                written += count
+                continue
+            }
+            if count == 0 {
                 return false
             }
-            written += count
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                guard waitForWritable(until: deadline) else { return false }
+                continue
+            }
+            if errno == EINTR {
+                continue
+            }
+            return false
         }
         return true
     }
@@ -4449,6 +4871,17 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         guard result > 0 else { return false }
         let readableEvents = Int16(POLLIN | POLLERR | POLLHUP)
         return (descriptor.revents & readableEvents) != 0
+    }
+
+    private func waitForWritable(until deadline: Date) -> Bool {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { return false }
+        let timeoutMs = Int32(max(1, min(remaining * 1000.0, Double(Int32.max))))
+        var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        let result = poll(&descriptor, 1, timeoutMs)
+        guard result > 0 else { return false }
+        let writableEvents = Int16(POLLOUT | POLLERR | POLLHUP)
+        return (descriptor.revents & writableEvents) != 0
     }
 }
 

@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import Testing
 @testable import KompleteKontrol
 
@@ -59,6 +60,72 @@ struct DaemonReactorSchedulingTests {
             "pump",
         ])
         #expect(String(bytes: buffer, encoding: .utf8) == "partial")
+    }
+
+    @Test("Binary blit waits for complete payload")
+    func binaryBlitWaitsForCompletePayload() {
+        var buffer = Array("mk2blitbin 00 0000 0000 0002 0001 03e8 00000004\n".utf8)
+        buffer.append(contentsOf: [0x12, 0x34])
+        var calls: [String] = []
+
+        DaemonClientCommandPump.processCompleteLines(
+            buffer: &buffer,
+            clientID: 3,
+            handle: { line, _ in
+                calls.append("line:\(line)")
+                return "ok"
+            },
+            handleBinary: { line, payload, _ in
+                calls.append("binary:\(line):\(payload.count)")
+                return "ok"
+            },
+            writeResponse: { response in
+                calls.append("response:\(response)")
+            },
+            pumpUSB: {
+                calls.append("pump")
+            }
+        )
+
+        #expect(calls.isEmpty)
+        #expect(buffer.count == "mk2blitbin 00 0000 0000 0002 0001 03e8 00000004\n".utf8.count + 2)
+    }
+
+    @Test("Binary blit consumes exact payload")
+    func binaryBlitConsumesExactPayload() {
+        var buffer = Array("mk2blitbin 00 0000 0000 0002 0001 03e8 00000004\n".utf8)
+        buffer.append(contentsOf: [0x12, 0x34, 0xab, 0xcd])
+        buffer.append(contentsOf: Array("write-next\n".utf8))
+        var calls: [String] = []
+
+        DaemonClientCommandPump.processCompleteLines(
+            buffer: &buffer,
+            clientID: 3,
+            handle: { line, _ in
+                calls.append("line:\(line)")
+                return "ok \(line)"
+            },
+            handleBinary: { line, payload, _ in
+                calls.append("binary:\(line):\(payload.map { String(format: "%02x", $0) }.joined())")
+                return "ok binary"
+            },
+            writeResponse: { response in
+                calls.append("response:\(response)")
+            },
+            pumpUSB: {
+                calls.append("pump")
+            }
+        )
+
+        #expect(calls == [
+            "binary:mk2blitbin 00 0000 0000 0002 0001 03e8 00000004:1234abcd",
+            "response:ok binary",
+            "pump",
+            "line:write-next",
+            "response:ok write-next",
+            "pump",
+        ])
+        #expect(buffer.isEmpty)
     }
 
     @Test("Idle diagnostic display flushes are rate limited")

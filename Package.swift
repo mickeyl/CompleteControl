@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "CompleteControl", targets: ["KompleteKontrol"]),
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
         .library(name: "KontrolSurfaceKit", targets: ["KontrolSurfaceKit"]),
+        .library(name: "KontrolSurfaceKit2", targets: ["KontrolSurfaceKit2"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
         .executable(name: "ccd", targets: ["ccd"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
@@ -94,6 +95,14 @@ let package = Package(
                 .swiftLanguageMode(.v5),
             ]
         ),
+        .target(
+            name: "KontrolSurfaceKit2",
+            dependencies: ["KompleteKontrol"],
+            path: "Sources/KontrolSurfaceKit2",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
         .executableTarget(
             name: "SurfaceDemo",
             dependencies: ["KontrolSurfaceKit", "KompleteKontrol"],
@@ -104,7 +113,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MK2SurfaceDemo",
-            dependencies: ["KompleteKontrol"],
+            dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
             path: "Tools/MK2SurfaceDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
@@ -115,17 +124,9 @@ let package = Package(
             dependencies: ["CLibUSB"],
             path: "Tools/MK2USBSpy"
         ),
-        .executableTarget(
-            name: "MK2Calibrate",
-            dependencies: ["KompleteKontrol"],
-            path: "Tools/MK2Calibrate",
-            swiftSettings: [
-                .swiftLanguageMode(.v5),
-            ]
-        ),
         .testTarget(
             name: "KompleteKontrolTests",
-            dependencies: ["KompleteKontrol"]
+            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2"]
         ),
         .plugin(
             name: "GenerateBuildInfo",

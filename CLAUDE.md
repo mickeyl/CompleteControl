@@ -190,9 +190,9 @@ The short version:
   guide writes. Lifecycle: device loss → `sessionDeviceLost` reactor check → drop + timed
   reconnect + re-init + `device reconnected` push (clients re-establish their state); daemon
   shutdown → `restoreMK2StandaloneState` (factory knob CCs, LEDs/guide/displays cleared).
-- `Tools/MK2Calibrate` is the protocol workbench (socket client; flows for LED↔button binding,
-  encoders, 4-D byte-6 capture, function-button backlights, live monitor; answers via lit
-  command keys on the bottom octave). Findings land in `mk2-calibration-session.md`.
+- The old MK2 calibration workbench has been removed. Its protocol findings remain in git
+  history and the MK2 tests/docs; new validation should go through `MK2SurfaceDemo`,
+  `MK2USBSpy`, and focused tests.
 
 ## Concurrency notes
 
@@ -240,7 +240,7 @@ MK2 kit work Paulinche will pull, in rough priority (protocol side is done — s
 
 1. **`PixelDisplayReconciler` + pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`, `PatternGrid`)
    with dirty-span diffing into the jnlive scatter-blit format; granularity gated on the
-   MK2Calibrate display benchmark (flow 6).
+   recorded MK2 display benchmarks.
 2. **Input surfacing through the kit**: raw strip (`.strip` position 0…1024 + release), jog
    gestures (byte-6 touch/click/pushes + detents), encoder deltas (modulo 1000).
 3. **Strip LED control** as a DSL element (0x80 indices 44–68, host-owned in `A0 00 10`).

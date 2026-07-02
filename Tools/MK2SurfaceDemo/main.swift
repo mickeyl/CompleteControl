@@ -1,525 +1,509 @@
-import AppKit
 import Foundation
 import KompleteKontrol
+import KontrolSurfaceKit2
 
 @main
-final class MK2SurfaceDemoApp: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
-    private let controller = MK2DemoController()
-
-    static func main() {
-        if CommandLine.arguments.contains("--smoke-hid") {
-            MK2Smoke.run()
-            return
-        }
-        let app = NSApplication.shared
-        let delegate = MK2SurfaceDemoApp()
-        app.delegate = delegate
-        app.setActivationPolicy(.regular)
-        app.run()
-    }
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        let view = MK2SurfaceView(controller: controller)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Komplete Kontrol MK2 Protocol Demo"
-        window.minSize = NSSize(width: 980, height: 640)
-        window.contentView = view
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        controller.attach(view: view)
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-}
-
-private enum MK2Smoke {
-    static func run() {
-        let device = KompleteKontrolSSeriesMK2(seizeHID: false)
-        device.log = { message in
-            print(message)
-        }
-        do {
-            try device.open()
-            print("mounted \(device.model?.name ?? "unknown MK2")")
-            print(String(format: "init -> 0x%08x", device.handshake()))
-            _ = device.setAllKeys(color: KKRGB(red: 0xff, green: 0x7f, blue: 0x00), flush: false)
-            _ = device.setAllButtonLEDs(color: KKRGB(red: 0xff, green: 0xff, blue: 0xff), flush: false)
-            print(String(format: "guide -> 0x%08x", device.sendGuide()))
-            print(String(format: "buttons -> 0x%08x", device.sendButtonLEDs()))
-            usleep(350_000)
-            _ = device.setAllKeys(color: .off, flush: false)
-            _ = device.setAllButtonLEDs(color: .off, flush: false)
-            print(String(format: "guide clear -> 0x%08x", device.sendGuide()))
-            print(String(format: "buttons clear -> 0x%08x", device.sendButtonLEDs()))
-            device.close()
-        } catch {
-            fputs("MK2 HID smoke failed: \(error)\n", stderr)
-            exit(1)
+struct MK2SurfaceDemo {
+    static func main() async {
+        let surface = MK2Surface2(options: .init(tickHz: 24))
+        let demo = MK2FeatureDemo(surface: surface)
+        await surface.start()
+        await demo.show(.overview)
+        print("MK2SurfaceDemo running. Use the eight function buttons on the hardware. Ctrl-C quits.")
+        while true {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
         }
     }
 }
 
-private final class MK2DemoController: @unchecked Sendable {
-    private let device = KompleteKontrolSSeriesMK2(seizeHID: false)
-    private weak var view: MK2SurfaceView?
-    private var keyColors: [Int: KKRGB] = [:]
-    private var buttonColors: [Int: KKRGB] = [:]
-    private var displayColors: [Int: UInt16] = [:]
-    private let palette: [KKRGB] = [
-        .off,
-        KKRGB(red: 0xff, green: 0x00, blue: 0x00),
-        KKRGB(red: 0xff, green: 0x7f, blue: 0x00),
-        KKRGB(red: 0xff, green: 0xff, blue: 0x00),
-        KKRGB(red: 0x00, green: 0xff, blue: 0x00),
-        KKRGB(red: 0x00, green: 0xff, blue: 0xff),
-        KKRGB(red: 0x00, green: 0x00, blue: 0xff),
-        KKRGB(red: 0xff, green: 0x00, blue: 0xff),
-        KKRGB(red: 0xff, green: 0xff, blue: 0xff),
-    ]
-    private let displayPalette: [UInt16] = [
-        0x0000,
-        0xf800,
-        0xfd20,
-        0xffe0,
-        0x07e0,
-        0x07ff,
-        0x001f,
-        0xf81f,
-        0xffff,
-    ]
+private enum Feature: Int, CaseIterable, Sendable {
+    case overview
+    case lightGuide
+    case ribbon
+    case encoders
+    case fourD
+    case midiKeys
+    case buttons
+    case display
 
-    var status = "Starting..."
-    var modelLabel = "No MK2 mounted"
-    var lastInput = "No input yet"
-    var rawBytes: [UInt8] = []
-    var knobValues = [Int](repeating: 0, count: 8)
-    var knobDeltas = [Int](repeating: 0, count: 8)
-    var jogValue = 0
-    var keyCount: Int { device.model?.keyCount ?? 61 }
+    var title: String {
+        switch self {
+            case .overview: "OVERVIEW"
+            case .lightGuide: "LIGHT GUIDE"
+            case .ribbon: "RIBBON"
+            case .encoders: "ENCODERS"
+            case .fourD: "4D ENCODER"
+            case .midiKeys: "MIDI KEYS"
+            case .buttons: "RGB BUTTONS"
+            case .display: "DISPLAY"
+        }
+    }
 
-    func attach(view: MK2SurfaceView) {
-        self.view = view
-        device.log = { [weak self] message in
-            DispatchQueue.main.async {
-                self?.status = message
-                self?.view?.needsDisplay = true
+    var short: String {
+        switch self {
+            case .overview: "HOME"
+            case .lightGuide: "LIGHT"
+            case .ribbon: "RIB"
+            case .encoders: "ENC"
+            case .fourD: "4D"
+            case .midiKeys: "MIDI"
+            case .buttons: "BTN"
+            case .display: "DISP"
+        }
+    }
+
+    var functionLED: KKMK2ButtonLED {
+        KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
+    }
+}
+
+private actor MK2FeatureDemo {
+    private let surface: MK2Surface2
+    private var feature: Feature = .overview
+    private var hue = 28.0
+    private var spread = 7
+    private var ribbonPosition: Int?
+    private var ribbonMode = 0
+    private var encoderValues = [Int](repeating: 500, count: 8)
+    private var encoderTouched: Set<Int> = []
+    private var jogValue = 0
+    private var jogLast = "CENTER"
+    private var notes: [UInt8: UInt8] = [:]
+    private var buttonColors: [KKMK2ButtonLED: KKRGB] = [:]
+    private var displayMeter = 0.35
+    private var homeSelection: Feature = .lightGuide
+    private var lastEvent = "READY"
+
+    init(surface: MK2Surface2) {
+        self.surface = surface
+    }
+
+    func show(_ next: Feature) async {
+        feature = next
+        if next != .overview {
+            homeSelection = next
+        }
+        await render()
+    }
+
+    private func render() async {
+        await surface.present(scene())
+    }
+
+    private func scene() -> MK2SurfaceScene2 {
+        var lamps = functionLamps()
+        var bindings = MK2InputBindings2()
+        bindFeatureKeys(&bindings)
+
+        switch feature {
+            case .overview:
+                lamps[.play] = .green
+                lamps[.stop] = .white
+                lamps[.jogLeft] = .amber
+                lamps[.jogRight] = .amber
+                lamps[.jogDown] = .green
+                bindings.jogScroll = { delta, _ in Task { await self.moveHomeSelection(delta) } }
+                bindings.jog = { direction in Task { await self.homeJog(direction) } }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "SURFACEKIT2", lines: ["4D SELECT \(homeSelection.short)", "FUNCTION KEYS DIRECT"], stripStart: 0),
+                    right: menuFrame(),
+                    lamps: lamps,
+                    keyColors: overviewKeys(),
+                    bindings: bindings
+                )
+
+            case .lightGuide:
+                lamps[.pageLeft] = .amber
+                lamps[.pageRight] = .amber
+                lamps[.clear] = .red
+                bindings.encoder[1] = { delta, _ in Task { await self.adjustHue(delta) } }
+                bindings.encoder[2] = { delta, _ in Task { await self.adjustSpread(delta) } }
+                bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "LIGHT GUIDE LAB", lines: ["ENC1 HUE \(Int(hue))", "ENC2 SPREAD \(spread)"], stripStart: 0),
+                    right: meterFrame(title: "KEY PALETTE", value: Double(spread) / 24, footer: lastEvent, stripStart: 4),
+                    lamps: lamps,
+                    keyColors: lightGuideKeys(),
+                    bindings: bindings
+                )
+
+            case .ribbon:
+                for led in KKMK2ButtonLED.strip1.rawValue...KKMK2ButtonLED.strip25.rawValue {
+                    lamps[KKMK2ButtonLED(rawValue: led)!] = .blue
+                }
+                lamps[.pageLeft] = .amber
+                lamps[.pageRight] = .amber
+                bindings.strip = { position, time in Task { await self.ribbon(position: position, time: time) } }
+                bindings.encoder[1] = { delta, _ in Task { await self.changeRibbonMode(delta) } }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "RIBBON LAB", lines: ["MODE \(ribbonModeName)", "TOUCH STRIP STREAM"], stripStart: 0),
+                    right: meterFrame(title: "POSITION", value: Double(ribbonPosition ?? 0) / 1024, footer: lastEvent, stripStart: 4),
+                    lamps: lamps,
+                    keyColors: ribbonKeys(),
+                    bindings: bindings
+                )
+
+            case .encoders:
+                for index in 1...8 {
+                    bindings.encoder[index] = { delta, value in Task { await self.encoder(index, delta: delta, value: value) } }
+                    bindings.encoderTouch[index] = { touched in Task { await self.encoderTouch(index, touched: touched) } }
+                }
+                return MK2SurfaceScene2(
+                    left: encoderFrame(0..<4),
+                    right: encoderFrame(4..<8),
+                    lamps: lamps,
+                    keyColors: overviewKeys(),
+                    bindings: bindings
+                )
+
+            case .fourD:
+                lamps[.jogLeft] = .amber
+                lamps[.jogRight] = .amber
+                lamps[.jogUp] = .amber
+                lamps[.jogDown] = .amber
+                bindings.jog = { direction in Task { await self.jog(direction) } }
+                bindings.jogScroll = { delta, value in Task { await self.jogScroll(delta: delta, value: value) } }
+                bindings.jogTouch = { touched in Task { await self.jogTouch(touched) } }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "4D ENCODER", lines: ["LAST \(jogLast)", "VALUE \(jogValue)"], stripStart: 0),
+                    right: meterFrame(title: "SCROLL", value: Double(jogValue) / 15, footer: lastEvent, stripStart: 4),
+                    lamps: lamps,
+                    keyColors: overviewKeys(),
+                    bindings: bindings
+                )
+
+            case .midiKeys:
+                lamps[.record] = .red
+                lamps[.play] = .green
+                bindings.midi = { event in Task { await self.midi(event) } }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "MIDI KEYS", lines: ["PLAY THE KEYBED", "\(notes.count) NOTES HELD"], stripStart: 0),
+                    right: midiFrame(),
+                    lamps: lamps,
+                    keyColors: midiKeyColors(),
+                    bindings: bindings
+                )
+
+            case .buttons:
+                for led in KKMK2ButtonLED.allCases where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
+                    lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(KKRGB(red: 0x30, green: 0x90, blue: 0xff), period: 1.4)
+                    bindings.onPress(led) { Task { await self.toggleButton(led) } }
+                }
+                return MK2SurfaceScene2(
+                    left: baseFrame(title: "RGB BUTTONS", lines: ["PRESS LIT BUTTONS", "\(buttonColors.count) ASSIGNED"], stripStart: 0),
+                    right: buttonFrame(),
+                    lamps: lamps,
+                    keyColors: overviewKeys(),
+                    bindings: bindings
+                )
+
+            case .display:
+                lamps[.pageLeft] = .amber
+                lamps[.pageRight] = .amber
+                lamps[.loop] = .blue
+                bindings.encoder[1] = { delta, _ in Task { await self.adjustDisplayMeter(delta) } }
+                bindings.jogScroll = { delta, _ in Task { await self.adjustDisplayMeter(delta * 2) } }
+                return MK2SurfaceScene2(
+                    left: displayLabFrame(screen: 0),
+                    right: displayLabFrame(screen: 1),
+                    lamps: lamps,
+                    keyColors: overviewKeys(),
+                    bindings: bindings
+                )
+        }
+    }
+
+    private func functionLamps() -> [KKMK2ButtonLED: MK2LampState2] {
+        var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
+        for item in Feature.allCases {
+            lamps[item.functionLED] = item == feature ? .green : .white
+        }
+        return lamps
+    }
+
+    private func bindFeatureKeys(_ bindings: inout MK2InputBindings2) {
+        for item in Feature.allCases {
+            bindings.onPress(item.functionLED) {
+                Task { await self.show(item) }
             }
         }
-        device.onInputReport = { [weak self] report in
-            DispatchQueue.main.async {
-                self?.handle(report: report)
-            }
-        }
-        device.startInputMonitoring()
-        do {
-            try device.open()
-            modelLabel = device.model?.name ?? "MK2 mounted"
-            status = "HID mounted, sending init"
-            _ = device.handshake()
-            runStartupPattern()
-        } catch {
-            status = "Open failed: \(error)"
-        }
-        view.needsDisplay = true
     }
 
-    func keyColor(_ index: Int) -> KKRGB {
-        keyColors[index] ?? .off
+    private func moveHomeSelection(_ delta: Int) async {
+        let features = Feature.allCases
+        guard let index = features.firstIndex(of: homeSelection) else { return }
+        let nextIndex = (index + delta + features.count * 4) % features.count
+        homeSelection = features[nextIndex]
+        lastEvent = "SELECT \(homeSelection.short)"
+        await render()
     }
 
-    func buttonColor(_ index: Int) -> KKRGB {
-        buttonColors[index] ?? .off
-    }
-
-    func displayColor(_ index: Int) -> UInt16 {
-        displayColors[index] ?? 0x0000
-    }
-
-    func toggleKey(_ index: Int) {
-        guard index < keyCount else { return }
-        let next = nextPaletteColor(after: keyColors[index] ?? .off)
-        keyColors[index] = next
-        _ = device.setKey(index, color: next, flush: false)
-        _ = device.sendGuide()
-        status = "Light guide key \(index) -> \(colorName(next))"
-        view?.pulse("key:\(index)")
-        view?.needsDisplay = true
-    }
-
-    func toggleButton(_ index: Int) {
-        guard let led = KKMK2ButtonLED(rawValue: index) else { return }
-        let next = nextPaletteColor(after: buttonColors[index] ?? .off)
-        buttonColors[index] = next
-        _ = device.setButtonLED(led, color: next, flush: false)
-        _ = device.sendButtonLEDs()
-        status = "Button LED \(index) \(led.protocolName) -> \(colorName(next))"
-        view?.pulse("button:\(led.protocolName)")
-        view?.needsDisplay = true
-    }
-
-    func fillDisplay(_ index: Int) {
-        guard (0...1).contains(index) else { return }
-        let current = displayColors[index] ?? 0x0000
-        let currentIndex = displayPalette.firstIndex(of: current) ?? 0
-        let next = displayPalette[(currentIndex + 1) % displayPalette.count]
-        displayColors[index] = next
-        status = "Display \(index) bulk fill queued"
-        view?.needsDisplay = true
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let result = self.device.fillDisplay(screen: index, color565: next)
-            DispatchQueue.main.async {
-                self.status = result.succeeded ? "Display \(index) fill ok" : "Display \(index) fill failed: \(result.message)"
-                self.view?.pulse("display:\(index)")
-                self.view?.needsDisplay = true
-            }
+    private func homeJog(_ direction: String) async {
+        switch direction {
+            case "press":
+                await show(homeSelection)
+            case "left":
+                await moveHomeSelection(-1)
+            case "right":
+                await moveHomeSelection(1)
+            case "up":
+                await moveHomeSelection(-2)
+            case "down":
+                await moveHomeSelection(2)
+            default:
+                break
         }
     }
 
-    func clearAll() {
-        keyColors.removeAll()
-        buttonColors.removeAll()
-        displayColors.removeAll()
-        _ = device.setAllKeys(color: .off, flush: false)
-        _ = device.setAllButtonLEDs(color: .off, flush: false)
-        _ = device.sendGuide()
-        _ = device.sendButtonLEDs()
-        for screen in 0...1 {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                _ = self?.device.fillDisplay(screen: screen, color565: 0x0000)
-            }
-        }
-        status = "Cleared HID lights and displays"
-        view?.needsDisplay = true
+    private func adjustHue(_ delta: Int) async {
+        hue = fmod(hue + Double(delta * 4) + 360, 360)
+        lastEvent = "HUE \(Int(hue))"
+        await render()
     }
 
-    private func runStartupPattern() {
-        let modelKeys = device.model?.keyCount ?? 0
-        for index in 0..<modelKeys {
-            let color = palette[(index % (palette.count - 1)) + 1]
-            keyColors[index] = color
-            _ = device.setKey(index, color: color, flush: false)
-        }
-        for led in KKMK2ButtonLED.allCases where led.rawValue < KompleteKontrolMK2Protocol.buttonLEDMapSize {
-            let color = led.rawValue % 3 == 0 ? KKRGB(red: 0xff, green: 0x7f, blue: 0x00) : KKRGB(red: 0xff, green: 0xff, blue: 0xff)
-            buttonColors[led.rawValue] = color
-            _ = device.setButtonLED(led, color: color, flush: false)
-        }
-        _ = device.sendGuide()
-        _ = device.sendButtonLEDs()
-        fillDisplay(0)
-        fillDisplay(1)
-        status = "Startup pattern sent"
+    private func adjustSpread(_ delta: Int) async {
+        spread = max(1, min(24, spread + delta))
+        lastEvent = "SPREAD \(spread)"
+        await render()
     }
 
-    private func handle(report: KKMK2InputReport) {
-        rawBytes = report.bytes
-        if report.events.isEmpty {
-            lastInput = KKMK2InputReportDecoder.summary(report.bytes)
+    private func resetLightGuide() async {
+        hue = 28
+        spread = 7
+        lastEvent = "LIGHT RESET"
+        await render()
+    }
+
+    private func ribbon(position: Int?, time: Int) async {
+        ribbonPosition = position
+        lastEvent = position.map { "RIB \($0) T \(time)" } ?? "RIB RELEASE"
+        await render()
+    }
+
+    private func changeRibbonMode(_ delta: Int) async {
+        ribbonMode = (ribbonMode + delta + 3) % 3
+        lastEvent = "RIBBON \(ribbonModeName)"
+        await render()
+    }
+
+    private func encoder(_ index: Int, delta: Int, value: Int) async {
+        guard encoderValues.indices.contains(index - 1) else { return }
+        encoderValues[index - 1] = value
+        lastEvent = "ENC \(index) \(delta >= 0 ? "+" : "")\(delta)"
+        await render()
+    }
+
+    private func encoderTouch(_ index: Int, touched: Bool) async {
+        if touched {
+            encoderTouched.insert(index)
         } else {
-            lastInput = report.events.map(\.description).joined(separator: " | ")
+            encoderTouched.remove(index)
         }
-        for event in report.events {
-            switch event {
-                case let .button(name, pressed):
-                    view?.setActive("button:\(name)", active: pressed)
-                case let .jog(direction):
-                    view?.pulse("jog:\(direction)")
-                case let .jogTouch(touched):
-                    view?.setActive("jog:touch", active: touched)
-                case .strip:
-                    view?.pulse("strip")
-                case let .jogScroll(_, value):
-                    jogValue = value
-                    view?.pulse("jog:scroll")
-                case let .knob(index, delta, value):
-                    if knobValues.indices.contains(index - 1) {
-                        knobValues[index - 1] = value
-                        knobDeltas[index - 1] = delta
-                    }
-                    view?.pulse("knob:\(index)")
-                case let .touchEncoder(index, touched):
-                    view?.setActive("knobtouch:\(index)", active: touched)
-                case .rawChanged:
-                    break
-            }
-        }
-        view?.needsDisplay = true
+        lastEvent = "TOUCH \(index) \(touched ? "ON" : "OFF")"
+        await render()
     }
 
-    private func nextPaletteColor(after current: KKRGB) -> KKRGB {
-        let index = palette.firstIndex(of: current) ?? 0
+    private func jog(_ direction: String) async {
+        jogLast = direction.uppercased()
+        lastEvent = "JOG \(jogLast)"
+        await render()
+    }
+
+    private func jogScroll(delta: Int, value: Int) async {
+        jogValue = value
+        lastEvent = "SCROLL \(delta >= 0 ? "+" : "")\(delta)"
+        await render()
+    }
+
+    private func jogTouch(_ touched: Bool) async {
+        lastEvent = touched ? "JOG TOUCH" : "JOG RELEASE"
+        await render()
+    }
+
+    private func midi(_ event: KKMIDIEvent) async {
+        switch event.kind {
+            case .noteOn:
+                notes[event.data1] = event.data2
+                lastEvent = "NOTE \(event.data1) VEL \(event.data2)"
+            case .noteOff:
+                notes.removeValue(forKey: event.data1)
+                lastEvent = "NOTE OFF \(event.data1)"
+            case .controlChange:
+                lastEvent = "CC \(event.data1) \(event.data2)"
+            case .pitchBend:
+                lastEvent = "BEND \(event.data1) \(event.data2)"
+        }
+        await render()
+    }
+
+    private func toggleButton(_ led: KKMK2ButtonLED) async {
+        let next = nextColor(after: buttonColors[led] ?? .off)
+        buttonColors[led] = next == .off ? nil : next
+        lastEvent = "\(led.protocolName.uppercased()) \(colorName(next))"
+        await render()
+    }
+
+    private func adjustDisplayMeter(_ delta: Int) async {
+        displayMeter = max(0, min(1, displayMeter + Double(delta) / 100))
+        lastEvent = "METER \(Int(displayMeter * 100))"
+        await render()
+    }
+
+    private var ribbonModeName: String {
+        ["CC11", "PITCH", "ABS"][ribbonMode]
+    }
+
+    private func baseFrame(title: String, lines: [String], stripStart: Int) -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: 0x0841)
+        drawFunctionStrip(into: &frame, start: stripStart)
+        frame.fill(MK2PixelRect(x: 0, y: 38, width: 480, height: 34), 0x01bf)
+        frame.drawText(title, x: 16, y: 46, scale: 3, color: 0xffff, maxWidth: 448)
+        for (index, line) in lines.prefix(3).enumerated() {
+            frame.drawText(line, x: 22, y: 94 + index * 42, scale: 4, color: index == 0 ? 0xffe0 : 0xffff, maxWidth: 430)
+        }
+        return frame
+    }
+
+    private func menuFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: 0x0000)
+        drawFunctionStrip(into: &frame, start: 4)
+        for item in Feature.allCases {
+            let row = item.rawValue / 2
+            let column = item.rawValue % 2
+            let rect = MK2PixelRect(x: 20 + column * 230, y: 50 + row * 50, width: 205, height: 36)
+            let selected = item == homeSelection
+            let current = item == feature
+            frame.fill(rect, selected ? 0xffe0 : (current ? 0x07e0 : 0x2104))
+            frame.stroke(rect, selected ? 0x0000 : 0xffff, width: 2)
+            frame.drawText("\(item.rawValue + 1) \(item.short)", x: rect.x + 10, y: rect.y + 9, scale: 3, color: selected ? 0x0000 : 0xffff, maxWidth: rect.width - 18)
+        }
+        return frame
+    }
+
+    private func meterFrame(title: String, value: Double, footer: String, stripStart: Int) -> MK2PixelFrame {
+        var frame = baseFrame(title: title, lines: [footer], stripStart: stripStart)
+        frame.horizontalBar(MK2PixelRect(x: 30, y: 142, width: 420, height: 54), value: value, fill: 0x07ff, track: 0x2104)
+        frame.stroke(MK2PixelRect(x: 30, y: 142, width: 420, height: 54), 0xffff, width: 2)
+        return frame
+    }
+
+    private func encoderFrame(_ range: Range<Int>) -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: 0x0000)
+        drawFunctionStrip(into: &frame, start: range.lowerBound >= 4 ? 4 : 0)
+        frame.drawText("ENCODER LAB", x: 20, y: 46, scale: 4, color: 0xffff)
+        for (slot, index) in range.enumerated() {
+            let rect = MK2PixelRect(x: 28 + slot * 112, y: 104, width: 84, height: 104)
+            frame.stroke(rect, encoderTouched.contains(index + 1) ? 0xffe0 : 0x07ff, width: 3)
+            frame.horizontalBar(MK2PixelRect(x: rect.x + 12, y: rect.y + 72, width: 60, height: 18), value: Double(encoderValues[index]) / 999, fill: 0x07e0, track: 0x2104)
+            frame.drawText("E\(index + 1)", x: rect.x + 14, y: rect.y + 12, scale: 4, color: 0xffff)
+            frame.drawText("\(encoderValues[index])", x: rect.x + 8, y: rect.y + 48, scale: 2, color: 0xffe0)
+        }
+        return frame
+    }
+
+    private func midiFrame() -> MK2PixelFrame {
+        var frame = baseFrame(title: "MIDI MONITOR", lines: [lastEvent], stripStart: 4)
+        let sorted = notes.keys.sorted().prefix(8)
+        for (index, note) in sorted.enumerated() {
+            frame.drawText("\(note)", x: 34 + index * 52, y: 150, scale: 3, color: 0x07e0)
+        }
+        return frame
+    }
+
+    private func buttonFrame() -> MK2PixelFrame {
+        var frame = baseFrame(title: "BUTTON LED MAP", lines: [lastEvent], stripStart: 4)
+        var index = 0
+        for led in KKMK2ButtonLED.allCases.prefix(36) {
+            let x = 20 + (index % 6) * 74
+            let y = 126 + (index / 6) * 22
+            frame.drawText("\(led.rawValue)", x: x, y: y, scale: 2, color: buttonColors[led] == nil ? 0x8410 : 0xffff)
+            index += 1
+        }
+        return frame
+    }
+
+    private func displayLabFrame(screen: Int) -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: screen == 0 ? 0x1008 : 0x0010)
+        drawFunctionStrip(into: &frame, start: screen == 0 ? 0 : 4)
+        let barY = screen == 0 ? 96 : 144
+        frame.drawText("DISPLAY RECONCILER2", x: 18, y: 46, scale: 3, color: 0xffff)
+        frame.drawText("ONE BLIT PER DIRTY SCREEN", x: 18, y: 78, scale: 2, color: 0xffe0)
+        frame.horizontalBar(MK2PixelRect(x: 34, y: barY, width: 410, height: 52), value: displayMeter, fill: screen == 0 ? 0x07e0 : 0xf81f, track: 0x2104)
+        frame.stroke(MK2PixelRect(x: 34, y: barY, width: 410, height: 52), 0xffff, width: 2)
+        frame.drawText(lastEvent, x: 24, y: 212, scale: 2, color: 0xffff, maxWidth: 430)
+        return frame
+    }
+
+    private func drawFunctionStrip(into frame: inout MK2PixelFrame, start: Int) {
+        for item in Feature.allCases.dropFirst(start).prefix(4) {
+            let screenSlot = item.rawValue - start
+            let x = 8 + screenSlot * 118
+            let y = 6
+            let color: UInt16 = item == feature ? 0x07e0 : 0x39e7
+            frame.fill(MK2PixelRect(x: x, y: y, width: 106, height: 24), color)
+            frame.drawText(item.short, x: x + 8, y: y + 6, scale: 2, color: 0x0000, maxWidth: 94)
+        }
+    }
+
+    private func overviewKeys() -> [Int: KKRGB] {
+        var keys: [Int: KKRGB] = [:]
+        for index in 0..<88 where index % 12 == 0 {
+            keys[index] = KKRGB(red: 0x00, green: 0x80, blue: 0xff)
+        }
+        return keys
+    }
+
+    private func lightGuideKeys() -> [Int: KKRGB] {
+        var keys: [Int: KKRGB] = [:]
+        for index in 0..<88 {
+            keys[index] = KKRGB.hsv(fmod(hue + Double(index * spread), 360), 0.9, 1.0)
+        }
+        return keys
+    }
+
+    private func ribbonKeys() -> [Int: KKRGB] {
+        var keys: [Int: KKRGB] = [:]
+        let lit = Int((Double(ribbonPosition ?? 0) / 1024.0) * 60.0)
+        for index in 0...lit {
+            keys[index] = KKRGB(red: 0xff, green: 0x7f, blue: 0x00)
+        }
+        return keys
+    }
+
+    private func midiKeyColors() -> [Int: KKRGB] {
+        var keys: [Int: KKRGB] = [:]
+        for (note, velocity) in notes {
+            let index = Int(note) - 36
+            keys[index] = KKRGB.hsv(Double(note % 12) * 30, 0.9, max(0.2, Double(velocity) / 127))
+        }
+        return keys
+    }
+
+    private func nextColor(after color: KKRGB) -> KKRGB {
+        let palette: [KKRGB] = [
+            .off,
+            KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+            KKRGB(red: 0xff, green: 0x7f, blue: 0x00),
+            KKRGB(red: 0xff, green: 0xff, blue: 0x00),
+            KKRGB(red: 0x00, green: 0xff, blue: 0x00),
+            KKRGB(red: 0x00, green: 0x7f, blue: 0xff),
+            KKRGB(red: 0xff, green: 0x00, blue: 0xff),
+            KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+        ]
+        let index = palette.firstIndex(of: color) ?? 0
         return palette[(index + 1) % palette.count]
     }
 
     private func colorName(_ color: KKRGB) -> String {
         switch color {
-            case .off: "off"
-            case KKRGB(red: 0xff, green: 0x00, blue: 0x00): "red"
-            case KKRGB(red: 0xff, green: 0x7f, blue: 0x00): "orange"
-            case KKRGB(red: 0xff, green: 0xff, blue: 0x00): "yellow"
-            case KKRGB(red: 0x00, green: 0xff, blue: 0x00): "green"
-            case KKRGB(red: 0x00, green: 0xff, blue: 0xff): "cyan"
-            case KKRGB(red: 0x00, green: 0x00, blue: 0xff): "blue"
-            case KKRGB(red: 0xff, green: 0x00, blue: 0xff): "magenta"
-            default: "white"
+            case .off: "OFF"
+            case KKRGB(red: 0xff, green: 0x00, blue: 0x00): "RED"
+            case KKRGB(red: 0xff, green: 0x7f, blue: 0x00): "ORANGE"
+            case KKRGB(red: 0xff, green: 0xff, blue: 0x00): "YELLOW"
+            case KKRGB(red: 0x00, green: 0xff, blue: 0x00): "GREEN"
+            case KKRGB(red: 0x00, green: 0x7f, blue: 0xff): "BLUE"
+            case KKRGB(red: 0xff, green: 0x00, blue: 0xff): "MAGENTA"
+            default: "WHITE"
         }
-    }
-}
-
-private final class MK2SurfaceView: NSView {
-    private let controller: MK2DemoController
-    private var pulses: [String: Date] = [:]
-    private var active: Set<String> = []
-
-    init(controller: MK2DemoController) {
-        self.controller = controller
-        super.init(frame: .zero)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    func pulse(_ id: String) {
-        pulses[id] = Date()
-        needsDisplay = true
-    }
-
-    func setActive(_ id: String, active: Bool) {
-        if active {
-            self.active.insert(id)
-        } else {
-            self.active.remove(id)
-        }
-        pulse(id)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if clearRect.contains(point) {
-            controller.clearAll()
-            return
-        }
-        for index in 0..<2 where displayRect(index).contains(point) {
-            controller.fillDisplay(index)
-            return
-        }
-        for index in 0..<controller.keyCount where keyRect(index).contains(point) {
-            controller.toggleKey(index)
-            return
-        }
-        for led in KKMK2ButtonLED.allCases where buttonRect(led.rawValue).contains(point) {
-            controller.toggleButton(led.rawValue)
-            return
-        }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor(calibratedWhite: 0.075, alpha: 1).setFill()
-        dirtyRect.fill()
-        drawHeader()
-        drawDisplays()
-        drawEncoders()
-        drawButtonGrid()
-        drawKeybed()
-        drawRawReport()
-        drawFooter()
-    }
-
-    private func drawHeader() {
-        drawString("Komplete Kontrol MK2 Protocol Demo", in: NSRect(x: 22, y: bounds.height - 42, width: 440, height: 24), size: 18, weight: .semibold, color: .white)
-        drawString(controller.modelLabel, in: NSRect(x: 22, y: bounds.height - 68, width: 440, height: 20), size: 13, color: .secondaryLabelColor)
-        drawButtonShell(clearRect, label: "Clear", color: .systemRed, active: false)
-    }
-
-    private func drawDisplays() {
-        for index in 0..<2 {
-            let rect = displayRect(index)
-            let color = nsColor(rgb565: controller.displayColor(index))
-            color.withAlphaComponent(0.82).setFill()
-            rounded(rect, radius: 7).fill()
-            (isFresh("display:\(index)") ? NSColor.systemCyan : NSColor.white.withAlphaComponent(0.32)).setStroke()
-            rounded(rect, radius: 7).stroke()
-            drawString("SCREEN \(index) 480x272 RGB565 BULK", in: rect.insetBy(dx: 12, dy: 10), size: 13, weight: .medium, color: color.isDark ? .white : .black)
-        }
-    }
-
-    private func drawEncoders() {
-        for index in 0..<8 {
-            let rect = knobRect(index)
-            let fresh = isFresh("knob:\(index + 1)")
-            let touched = active.contains("knobtouch:\(index + 1)")
-            let fill = touched ? NSColor.systemYellow.withAlphaComponent(0.74) : (fresh ? NSColor.systemCyan.withAlphaComponent(0.70) : NSColor.white.withAlphaComponent(0.10))
-            fill.setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            NSColor.white.withAlphaComponent((fresh || touched) ? 0.9 : 0.28).setStroke()
-            NSBezierPath(ovalIn: rect).stroke()
-            drawString("\(index + 1)", in: rect.insetBy(dx: 0, dy: rect.height * 0.30), size: 13, alignment: .center, color: .white)
-            let delta = controller.knobDeltas[index]
-            let deltaText = delta == 0 ? "0" : String(format: "%+d", delta)
-            drawString("\(deltaText)  \(controller.knobValues[index])", in: NSRect(x: rect.minX - 18, y: rect.minY - 22, width: rect.width + 36, height: 18), size: 10, alignment: .center, color: .secondaryLabelColor)
-        }
-        let jog = NSRect(x: bounds.width - 160, y: bounds.height - 240, width: 86, height: 86)
-        (isFresh("jog:scroll") ? NSColor.systemCyan.withAlphaComponent(0.55) : NSColor.white.withAlphaComponent(0.10)).setFill()
-        NSBezierPath(ovalIn: jog).fill()
-        NSColor.white.withAlphaComponent(0.35).setStroke()
-        NSBezierPath(ovalIn: jog).stroke()
-        drawString("JOG \(controller.jogValue)", in: jog.insetBy(dx: 4, dy: 32), size: 12, alignment: .center, color: .white)
-    }
-
-    private func drawButtonGrid() {
-        drawString("Button LEDs / Input Bits", in: NSRect(x: 22, y: bounds.height - 290, width: 260, height: 20), size: 14, weight: .semibold, color: .white)
-        for led in KKMK2ButtonLED.allCases {
-            let rect = buttonRect(led.rawValue)
-            let id = "button:\(led.protocolName)"
-            let inputActive = active.contains(id) || isFresh(id)
-            let fill = inputActive ? NSColor.systemCyan : nsColor(controller.buttonColor(led.rawValue))
-            fill.withAlphaComponent(inputActive ? 0.78 : 0.50).setFill()
-            rounded(rect, radius: 4).fill()
-            NSColor.white.withAlphaComponent(inputActive ? 0.9 : 0.22).setStroke()
-            rounded(rect, radius: 4).stroke()
-            drawString("\(led.rawValue)", in: rect.insetBy(dx: 2, dy: 3), size: 9, alignment: .center, color: .white)
-        }
-    }
-
-    private func drawKeybed() {
-        let rect = keybedRect
-        NSColor(calibratedWhite: 0.14, alpha: 1).setFill()
-        rounded(rect, radius: 6).fill()
-        let count = max(1, controller.keyCount)
-        let keyWidth = rect.width / CGFloat(count)
-        for index in 0..<count {
-            let key = NSRect(x: rect.minX + CGFloat(index) * keyWidth, y: rect.minY, width: max(3, keyWidth - 1), height: rect.height)
-            let color = controller.keyColor(index)
-            if color == .off {
-                (index % 12 == 1 || index % 12 == 3 || index % 12 == 6 || index % 12 == 8 || index % 12 == 10 ? NSColor(calibratedWhite: 0.04, alpha: 1) : NSColor(calibratedWhite: 0.92, alpha: 1)).setFill()
-            } else {
-                nsColor(color).withAlphaComponent(0.88).setFill()
-            }
-            rounded(key, radius: 2).fill()
-            NSColor.black.withAlphaComponent(0.25).setStroke()
-            rounded(key, radius: 2).stroke()
-        }
-        drawString("Light Guide \(count) keys", in: NSRect(x: rect.minX, y: rect.maxY + 8, width: rect.width, height: 18), size: 13, color: .white)
-    }
-
-    private func drawRawReport() {
-        let rect = rawReportRect
-        NSColor.black.withAlphaComponent(0.35).setFill()
-        rounded(rect, radius: 6).fill()
-        drawString("Raw Report 0x01", in: NSRect(x: rect.minX + 12, y: rect.maxY - 28, width: rect.width - 24, height: 18), size: 13, weight: .semibold, color: .white)
-        let bytes = controller.rawBytes
-        let columns = 17
-        for index in 0..<min(bytes.count, 51) {
-            let col = index % columns
-            let row = index / columns
-            let cell = NSRect(x: rect.minX + 12 + CGFloat(col) * 36, y: rect.maxY - 58 - CGFloat(row) * 28, width: 32, height: 22)
-            NSColor.white.withAlphaComponent(bytes[index] == 0 ? 0.08 : 0.22).setFill()
-            rounded(cell, radius: 3).fill()
-            drawString(String(format: "%02x", bytes[index]), in: cell.insetBy(dx: 2, dy: 4), size: 10, alignment: .center, color: .white)
-        }
-    }
-
-    private func drawFooter() {
-        drawString("Status: \(controller.status)", in: NSRect(x: 22, y: 34, width: bounds.width - 44, height: 22), size: 13, color: .white)
-        drawString("Input: \(controller.lastInput)", in: NSRect(x: 22, y: 12, width: bounds.width - 44, height: 20), size: 12, color: .secondaryLabelColor)
-    }
-
-    private var clearRect: NSRect {
-        NSRect(x: bounds.width - 120, y: bounds.height - 48, width: 92, height: 30)
-    }
-
-    private var keybedRect: NSRect {
-        NSRect(x: 22, y: 82, width: bounds.width - 44, height: 90)
-    }
-
-    private var rawReportRect: NSRect {
-        NSRect(x: bounds.width - 660, y: 205, width: 638, height: 138)
-    }
-
-    private func displayRect(_ index: Int) -> NSRect {
-        let width = min(470, (bounds.width - 72) / 2)
-        return NSRect(x: 22 + CGFloat(index) * (width + 28), y: bounds.height - 206, width: width, height: width * 272 / 480)
-    }
-
-    private func knobRect(_ index: Int) -> NSRect {
-        NSRect(x: 42 + CGFloat(index) * 72, y: bounds.height - 260, width: 46, height: 46)
-    }
-
-    private func buttonRect(_ index: Int) -> NSRect {
-        let columns = 14
-        let col = index % columns
-        let row = index / columns
-        return NSRect(x: 22 + CGFloat(col) * 44, y: bounds.height - 326 - CGFloat(row) * 34, width: 36, height: 25)
-    }
-
-    private func keyRect(_ index: Int) -> NSRect {
-        let count = max(1, controller.keyCount)
-        let width = keybedRect.width / CGFloat(count)
-        return NSRect(x: keybedRect.minX + CGFloat(index) * width, y: keybedRect.minY, width: max(3, width - 1), height: keybedRect.height)
-    }
-
-    private func drawButtonShell(_ rect: NSRect, label: String, color: NSColor, active: Bool) {
-        color.withAlphaComponent(active ? 0.42 : 0.22).setFill()
-        rounded(rect, radius: 6).fill()
-        color.withAlphaComponent(0.85).setStroke()
-        rounded(rect, radius: 6).stroke()
-        drawString(label, in: rect.insetBy(dx: 8, dy: 6), size: 13, alignment: .center, color: .white)
-    }
-
-    private func rounded(_ rect: NSRect, radius: CGFloat) -> NSBezierPath {
-        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-    }
-
-    private func isFresh(_ id: String) -> Bool {
-        guard let date = pulses[id] else { return false }
-        let fresh = Date().timeIntervalSince(date) < 0.24
-        if fresh {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { [weak self] in
-                self?.needsDisplay = true
-            }
-        }
-        return fresh
-    }
-
-    private func nsColor(_ color: KKRGB) -> NSColor {
-        NSColor(calibratedRed: CGFloat(color.red) / 255, green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
-    }
-
-    private func nsColor(rgb565: UInt16) -> NSColor {
-        let r = CGFloat((rgb565 >> 11) & 0x1f) / 31
-        let g = CGFloat((rgb565 >> 5) & 0x3f) / 63
-        let b = CGFloat(rgb565 & 0x1f) / 31
-        return NSColor(calibratedRed: r, green: g, blue: b, alpha: 1)
-    }
-
-    private func drawString(_ text: String, in rect: NSRect, size: CGFloat, weight: NSFont.Weight = .regular, alignment: NSTextAlignment = .left, color: NSColor) {
-        let style = NSMutableParagraphStyle()
-        style.alignment = alignment
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size, weight: weight),
-            .foregroundColor: color,
-            .paragraphStyle: style,
-        ]
-        NSString(string: text).draw(in: rect, withAttributes: attributes)
-    }
-}
-
-private extension NSColor {
-    var isDark: Bool {
-        guard let rgb = usingColorSpace(.deviceRGB) else { return true }
-        return (rgb.redComponent * 0.299 + rgb.greenComponent * 0.587 + rgb.blueComponent * 0.114) < 0.5
     }
 }
