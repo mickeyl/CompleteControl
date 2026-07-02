@@ -56,7 +56,15 @@ final class FlowInputQueue {
     }
 
     private func ingest(_ raw: [UInt8]) {
-        guard raw.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) else { return }
+        guard raw.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) else {
+            // 0xAA mirrors flood at input rate — everything else (e.g. the raw strip
+            // report 0x02) is protocol news and worth surfacing verbatim.
+            if raw.first != KompleteKontrolMK2Protocol.controllerMirrorReportID {
+                let hex = raw.map { String(format: "%02x", $0) }.joined(separator: " ")
+                push(.midi("hid report \(hex)"))
+            }
+            return
+        }
         let previous = previousReport
         previousReport = raw
         let events = KKMK2InputReportDecoder.events(previous: previous, current: raw)
