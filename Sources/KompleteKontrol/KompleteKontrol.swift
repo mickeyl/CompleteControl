@@ -2372,6 +2372,18 @@ public enum KompleteKontrolLibUSBServer {
                         clientBuffers.removeValue(forKey: fd)
                         daemonLog("client \(cid) disconnected")
                     }
+                    // A register may have evicted the previous session; its notices are
+                    // already written, so tear the connections down here.
+                    for evictedFD in hardware.drainPendingEvictionFDs() {
+                        var kev = kevent(ident: UInt(evictedFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE), fflags: 0, data: 0, udata: nil)
+                        kevent(kq, &kev, 1, nil, 0, nil)
+                        close(evictedFD)
+                        if let evictedID = clientIDs.removeValue(forKey: evictedFD) {
+                            clientChannels.removeValue(forKey: evictedFD)
+                            clientBuffers.removeValue(forKey: evictedFD)
+                            daemonLog("client \(evictedID) connection closed after eviction")
+                        }
+                    }
                 }
             }
             scheduleReconnectIfNeeded()
@@ -2736,6 +2748,8 @@ public enum KompleteKontrolLibUSBServer {
         private var activeClientID: Int?
         private var clientFDs: [Int: Int32] = [:]
         private var eventClientFDs: [Int: Int32] = [:]
+        private var displayClientFDs: [Int: Int32] = [:]
+        private var pendingEvictionFDs: [Int32] = []
         private var trackedLibusbFds: Set<Int32> = []
         private var queuedInputMessages: [String] = []
         private var queuedMIDIMessages: [String] = []
@@ -2978,6 +2992,7 @@ public enum KompleteKontrolLibUSBServer {
         private func binaryRegister(pid: Int32, name: String, clientID: Int, channel: KKDaemonBinaryChannel) -> Int32 {
             let client = RegisteredClient(pid: pid, name: name)
             lock.lock()
+            evictOtherSessionsLocked(newClientID: clientID, newPID: pid)
             registeredClients[clientID] = client
             if channel == .control {
                 activeClientID = clientID
@@ -2999,7 +3014,7 @@ public enum KompleteKontrolLibUSBServer {
             if activeClientID == clientID {
                 activeClientID = registeredClients.keys.sorted().last
             }
-            let shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            let shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
             lock.unlock()
             if removed != nil {
                 daemonLog("client \(clientID) binary unregistered")
@@ -3155,7 +3170,7 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) registration removed on disconnect")
@@ -3182,6 +3197,7 @@ public enum KompleteKontrolLibUSBServer {
             }
             let client = RegisteredClient(pid: pidValue, name: name)
             lock.lock()
+            evictOtherSessionsLocked(newClientID: clientID, newPID: pidValue)
             registeredClients[clientID] = client
             activeClientID = clientID
             queuedInputMessages.removeAll()
@@ -3210,7 +3226,7 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
@@ -3803,7 +3819,7 @@ public enum KompleteKontrolLibUSBServer {
         private func shouldDaemonShowIdleSurface() -> Bool {
             lock.lock()
             defer { lock.unlock() }
-            return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
         }
 
         private func writeDarkSurface(session: KontrolUSBLibUSBSessionRef, displayFrame: KKDisplayFrame) {
@@ -4144,9 +4160,56 @@ public enum KompleteKontrolLibUSBServer {
                 case .control:
                     clientFDs[clientID] = fd
                 case .display:
-                    break
+                    displayClientFDs[clientID] = fd
             }
             lock.unlock()
+        }
+
+        // Called with `lock` held. Queues every connection of other sessions (pids) for
+        // closing by the reactor and tells them why: event channels get a binary device
+        // frame, legacy text control channels a text push — both before the fd closes.
+        private func evictOtherSessionsLocked(newClientID: Int, newPID: Int32) {
+            let victims = KKDaemonSessionPolicy.evictionVictims(
+                registeredPIDs: registeredClients.mapValues(\.pid),
+                newClientID: newClientID,
+                newPID: newPID
+            )
+            for victim in victims {
+                let name = registeredClients[victim]?.name ?? "?"
+                registeredClients.removeValue(forKey: victim)
+                if activeClientID == victim {
+                    activeClientID = nil
+                }
+                if let fd = eventClientFDs.removeValue(forKey: victim) {
+                    let frame = KKDaemonBinaryFrame(
+                        channel: .event,
+                        type: .device,
+                        sequence: 0,
+                        payload: Array(KKDaemonSessionPolicy.evictionNotice.utf8)
+                    )
+                    KompleteKontrolLibUSBServer.writeBinaryFrameBestEffort(frame, to: fd)
+                    pendingEvictionFDs.append(fd)
+                }
+                if let fd = clientFDs.removeValue(forKey: victim) {
+                    let notice = Array("device \(KKDaemonSessionPolicy.evictionNotice) @\(String(KKTiming.now(), radix: 16))\n".utf8)
+                    notice.withUnsafeBytes { raw in
+                        _ = Darwin.write(fd, raw.baseAddress, notice.count)
+                    }
+                    pendingEvictionFDs.append(fd)
+                }
+                if let fd = displayClientFDs.removeValue(forKey: victim) {
+                    pendingEvictionFDs.append(fd)
+                }
+                daemonLog("client \(victim) (\(name)) evicted by pid \(newPID)")
+            }
+        }
+
+        func drainPendingEvictionFDs() -> [Int32] {
+            lock.lock()
+            defer { lock.unlock() }
+            let fds = pendingEvictionFDs
+            pendingEvictionFDs.removeAll()
+            return fds
         }
 
         func removeClient(clientID: Int) {
@@ -4154,7 +4217,8 @@ public enum KompleteKontrolLibUSBServer {
             lock.lock()
             clientFDs.removeValue(forKey: clientID)
             eventClientFDs.removeValue(forKey: clientID)
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty
+            displayClientFDs.removeValue(forKey: clientID)
+            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
             lock.unlock()
             if shouldShowNoClient {
                 showNoClient()

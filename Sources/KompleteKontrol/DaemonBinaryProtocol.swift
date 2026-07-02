@@ -165,6 +165,25 @@ public enum KKDaemonBinaryCodec {
     }
 }
 
+/// The daemon owns exactly one surface, so exactly one client session may own it.
+/// A session is every registered connection of one process (pid) across the three
+/// channels; a registration from a new pid evicts all connections of other pids
+/// ("last one wins" — the human who just launched an app is the authority).
+public enum KKDaemonSessionPolicy {
+    public static let evictionNotice = "evicted"
+
+    public static func evictionVictims(
+        registeredPIDs: [Int: Int32],
+        newClientID: Int,
+        newPID: Int32
+    ) -> [Int] {
+        registeredPIDs
+            .filter { $0.key != newClientID && $0.value != newPID }
+            .keys
+            .sorted()
+    }
+}
+
 extension Array where Element == UInt8 {
     mutating func appendUInt16LE(_ value: UInt16) {
         append(UInt8(value & 0xff))

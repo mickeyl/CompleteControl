@@ -97,11 +97,11 @@ private actor MK2FeatureDemo {
 
         switch feature {
             case .overview:
-                lamps[.play] = .green
-                lamps[.stop] = .white
+                // Lit means bound: all four 4-D directions and the click act on the menu.
                 lamps[.jogLeft] = .amber
                 lamps[.jogRight] = .amber
-                lamps[.jogDown] = .green
+                lamps[.jogUp] = .amber
+                lamps[.jogDown] = .amber
                 bindings.jogScroll = { delta, _ in Task { await self.moveHomeSelection(delta) } }
                 bindings.jog = { direction in Task { await self.homeJog(direction) } }
                 return MK2SurfaceScene2(
@@ -113,8 +113,6 @@ private actor MK2FeatureDemo {
                 )
 
             case .lightGuide:
-                lamps[.pageLeft] = .amber
-                lamps[.pageRight] = .amber
                 lamps[.clear] = .red
                 bindings.encoder[1] = { delta, _ in Task { await self.adjustHue(delta) } }
                 bindings.encoder[2] = { delta, _ in Task { await self.adjustSpread(delta) } }
@@ -128,11 +126,14 @@ private actor MK2FeatureDemo {
                 )
 
             case .ribbon:
-                for led in KKMK2ButtonLED.strip1.rawValue...KKMK2ButtonLED.strip25.rawValue {
-                    lamps[KKMK2ButtonLED(rawValue: led)!] = .blue
+                // The strip LEDs are the ribbon's feedback channel: they follow the finger
+                // instead of being decoratively lit.
+                if let position = ribbonPosition {
+                    let litIndex = min(24, position * 25 / 1025)
+                    for offset in 0...litIndex {
+                        lamps[KKMK2ButtonLED(rawValue: KKMK2ButtonLED.strip1.rawValue + offset)!] = .blue
+                    }
                 }
-                lamps[.pageLeft] = .amber
-                lamps[.pageRight] = .amber
                 bindings.strip = { position, time in Task { await self.ribbon(position: position, time: time) } }
                 bindings.encoder[1] = { delta, _ in Task { await self.changeRibbonMode(delta) } }
                 return MK2SurfaceScene2(
@@ -173,8 +174,6 @@ private actor MK2FeatureDemo {
                 )
 
             case .midiKeys:
-                lamps[.record] = .red
-                lamps[.play] = .green
                 bindings.midi = { event in Task { await self.midi(event) } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "MIDI KEYS", lines: ["PLAY THE KEYBED", "\(notes.count) NOTES HELD"], stripStart: 0),
@@ -198,9 +197,6 @@ private actor MK2FeatureDemo {
                 )
 
             case .display:
-                lamps[.pageLeft] = .amber
-                lamps[.pageRight] = .amber
-                lamps[.loop] = .blue
                 bindings.encoder[1] = { delta, _ in Task { await self.adjustDisplayMeter(delta) } }
                 bindings.jogScroll = { delta, _ in Task { await self.adjustDisplayMeter(delta * 2) } }
                 return MK2SurfaceScene2(

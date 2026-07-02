@@ -51,3 +51,27 @@ struct DaemonBinaryProtocolTests {
         #expect(parsed?.pixels == pixels)
     }
 }
+
+@Suite("Daemon session policy")
+struct DaemonSessionPolicyTests {
+    @Test("new pid evicts every connection of other sessions")
+    func newPIDEvictsOtherSessions() {
+        // old session pid 100 holds control(1), event(2), display(3)
+        let registered: [Int: Int32] = [1: 100, 2: 100, 3: 100]
+        let victims = KKDaemonSessionPolicy.evictionVictims(registeredPIDs: registered, newClientID: 4, newPID: 200)
+        #expect(victims == [1, 2, 3])
+    }
+
+    @Test("same pid joins its session without eviction")
+    func samePIDJoinsWithoutEviction() {
+        let registered: [Int: Int32] = [1: 100]
+        let victims = KKDaemonSessionPolicy.evictionVictims(registeredPIDs: registered, newClientID: 2, newPID: 100)
+        #expect(victims.isEmpty)
+    }
+
+    @Test("first registration has no victims")
+    func firstRegistrationHasNoVictims() {
+        let victims = KKDaemonSessionPolicy.evictionVictims(registeredPIDs: [:], newClientID: 1, newPID: 100)
+        #expect(victims.isEmpty)
+    }
+}

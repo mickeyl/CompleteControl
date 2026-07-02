@@ -5,6 +5,9 @@ public enum MK2SurfaceConnection2: Sendable, Equatable {
     case stopped
     case connected(String)
     case retrying(String)
+    /// Another client took over the surface. The kit tears down and stays down —
+    /// auto-reconnecting here would make two instances fight over the hardware.
+    case evicted
 }
 
 /// Bounds the number of in-flight tick tasks to one. Without it a tick that runs longer
@@ -170,10 +173,33 @@ public actor MK2Surface2 {
                 }
             case .device:
                 let message = String(bytes: frame.payload, encoding: .utf8) ?? "device"
-                publish(.retrying(message))
+                if message == KKDaemonSessionPolicy.evictionNotice {
+                    evict()
+                } else {
+                    publish(.retrying(message))
+                }
             default:
                 break
         }
+    }
+
+    private func evict() {
+        guard running else { return }
+        running = false
+        timer?.cancel()
+        timer = nil
+        controlClient = nil
+        eventClient = nil
+        displayClient = nil
+        daemonThread?.cancel()
+        daemonThread = nil
+        eventContinuation?.finish()
+        eventContinuation = nil
+        eventTask?.cancel()
+        eventTask = nil
+        previousSurfaceReport = nil
+        displayReconciler.reset()
+        publish(.evicted)
     }
 
     private func setEventClient(_ client: KompleteKontrolDaemonBinaryClient) {
