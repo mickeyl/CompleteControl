@@ -79,7 +79,30 @@ private actor MK2FeatureDemo {
     private var encoderScaler = MK2EncoderScaler()
     private var ribbonPosition: Int?
     private var ribbonMode = 0
-    private var encoderValues = [Int](repeating: 500, count: 8)
+    private struct LabParameter {
+        let name: String
+        let range: ClosedRange<Double>
+        let bipolar: Bool
+        let discrete: Bool
+        var value: Double
+
+        var span: Double { range.upperBound - range.lowerBound }
+        var normalized: Double { (value - range.lowerBound) / span }
+        var centered: Double { (value - (range.lowerBound + span / 2)) / (span / 2) }
+        var display: String { discrete ? "\(Int(value.rounded()))" : String(format: "%.2f", value) }
+    }
+
+    // One slot per range shape worth testing: fine/coarse, uni/bipolar, tiny/huge.
+    private var labParameters: [LabParameter] = [
+        LabParameter(name: "LEVEL", range: 0...1, bipolar: false, discrete: false, value: 0.5),
+        LabParameter(name: "PAN", range: -1...1, bipolar: true, discrete: false, value: 0),
+        LabParameter(name: "CC", range: 0...127, bipolar: false, discrete: true, value: 64),
+        LabParameter(name: "FINE", range: -64...63, bipolar: true, discrete: true, value: 0),
+        LabParameter(name: "14BIT", range: 0...16383, bipolar: false, discrete: true, value: 8192),
+        LabParameter(name: "BEND", range: -8192...8191, bipolar: true, discrete: true, value: 0),
+        LabParameter(name: "STEP", range: 1...16, bipolar: false, discrete: true, value: 1),
+        LabParameter(name: "TRANS", range: -24...24, bipolar: true, discrete: true, value: 0),
+    ]
     private var encoderTouched: Set<Int> = []
     private var jogValue = 0
     private var jogLast = "CENTER"
@@ -307,9 +330,12 @@ private actor MK2FeatureDemo {
     }
 
     private func encoder(_ index: Int, delta: Int, value: Int) async {
-        guard encoderValues.indices.contains(index - 1) else { return }
-        encoderValues[index - 1] = value
-        lastEvent = "ENC \(index) \(delta >= 0 ? "+" : "")\(delta)"
+        guard labParameters.indices.contains(index - 1) else { return }
+        var parameter = labParameters[index - 1]
+        let step = encoderScaler.step(encoder: index, delta: delta, span: parameter.span)
+        parameter.value = max(parameter.range.lowerBound, min(parameter.range.upperBound, parameter.value + step))
+        labParameters[index - 1] = parameter
+        lastEvent = "\(parameter.name) \(parameter.display) RAW \(value)"
         await render()
     }
 
@@ -419,11 +445,19 @@ private actor MK2FeatureDemo {
         drawFunctionStrip(into: &frame, start: range.lowerBound >= 4 ? 4 : 0)
         frame.drawText("ENCODER LAB", x: 20, y: 46, scale: 4, color: 0xffff)
         for (slot, index) in range.enumerated() {
-            let rect = MK2PixelRect(x: 28 + slot * 112, y: 104, width: 84, height: 104)
+            let parameter = labParameters[index]
+            let rect = MK2PixelRect(x: 28 + slot * 112, y: 104, width: 84, height: 116)
             frame.stroke(rect, encoderTouched.contains(index + 1) ? 0xffe0 : 0x07ff, width: 3)
-            frame.horizontalBar(MK2PixelRect(x: rect.x + 12, y: rect.y + 72, width: 60, height: 18), value: Double(encoderValues[index]) / 999, fill: 0x07e0, track: 0x2104)
-            frame.drawText("E\(index + 1)", x: rect.x + 14, y: rect.y + 12, scale: 4, color: 0xffff)
-            frame.drawText("\(encoderValues[index])", x: rect.x + 8, y: rect.y + 48, scale: 2, color: 0xffe0)
+            frame.drawText(parameter.name, x: rect.x + 8, y: rect.y + 10, scale: 2, color: 0xffff)
+            frame.drawText(parameter.display, x: rect.x + 8, y: rect.y + 36, scale: 2, color: 0xffe0)
+            let barRect = MK2PixelRect(x: rect.x + 12, y: rect.y + 66, width: 60, height: 18)
+            if parameter.bipolar {
+                frame.centeredBar(barRect, value: parameter.centered, fill: 0x07e0, track: 0x2104)
+            } else {
+                frame.horizontalBar(barRect, value: parameter.normalized, fill: 0x07e0, track: 0x2104)
+            }
+            let shape = parameter.bipolar ? "BI" : "UNI"
+            frame.drawText(shape, x: rect.x + 12, y: rect.y + 92, scale: 2, color: 0x8410)
         }
         return frame
     }

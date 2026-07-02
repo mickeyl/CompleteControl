@@ -82,6 +82,20 @@ public struct MK2PixelFrame: Sendable, Equatable {
         self.fill(MK2PixelRect(x: rect.x, y: rect.y, width: fillWidth, height: rect.height), fill)
     }
 
+    /// Bipolar bar: grows from the horizontal center, `value` in -1…+1; the center
+    /// tick stays visible at value 0.
+    public mutating func centeredBar(_ rect: MK2PixelRect, value: Double, fill: UInt16, track: UInt16) {
+        let clamped = max(-1, min(1, value))
+        self.fill(rect, track)
+        let center = rect.x + rect.width / 2
+        let extent = Int((Double(rect.width / 2) * abs(clamped)).rounded())
+        if clamped >= 0 {
+            self.fill(MK2PixelRect(x: center, y: rect.y, width: max(1, extent), height: rect.height), fill)
+        } else {
+            self.fill(MK2PixelRect(x: center - extent, y: rect.y, width: max(1, extent), height: rect.height), fill)
+        }
+    }
+
     public mutating func drawText(
         _ text: String,
         x: Int,
