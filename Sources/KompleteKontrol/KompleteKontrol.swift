@@ -2436,10 +2436,12 @@ public enum KompleteKontrolLibUSBServer {
                 )
                 return true
             }
+            // No USB pump here: kqueue already watches the libusb fds and wakes the
+            // reactor on actual activity — pumping inline only adds latency to the ack.
+            // (The text protocol's read/midiread pumps are different: those are polls.)
             for frame in frames {
                 let response = hardware.handleBinaryFrame(frame, clientID: clientID, channel: channel)
                 writeBinaryFrame(response, to: fd)
-                hardware.handleUsbEvents(timeoutMs: 0)
             }
             return false
         }
