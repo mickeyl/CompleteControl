@@ -17,7 +17,10 @@ public enum MK2LampState2: Sendable, Equatable {
 public struct MK2InputBindings2: Sendable {
     public var buttonDown: [String: @Sendable () -> Void] = [:]
     public var buttonUp: [String: @Sendable () -> Void] = [:]
-    public var encoder: [Int: @Sendable (_ delta: Int, _ value: Int) -> Void] = [:]
+    /// `timestampNanos` is the daemon-side reception time (KKTiming clock): velocity-
+    /// sensitive consumers must measure from it, not from processing time — handler
+    /// invocations bunch up behind rendering and would fake fast turns otherwise.
+    public var encoder: [Int: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void] = [:]
     public var encoderTouch: [Int: @Sendable (_ touched: Bool) -> Void] = [:]
     /// Two touch-downs on the same encoder within the double-touch window; the pro-audio
     /// "reset to default" gesture — what "default" means is the client's decision.

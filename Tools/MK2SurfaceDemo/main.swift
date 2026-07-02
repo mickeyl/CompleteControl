@@ -165,8 +165,8 @@ private actor MK2FeatureDemo {
 
             case .lightGuide:
                 lamps[.clear] = .red
-                bindings.encoder[1] = { delta, _ in Task { await self.adjustHue(delta) } }
-                bindings.encoder[2] = { delta, _ in Task { await self.adjustSpread(delta) } }
+                bindings.encoder[1] = { delta, _, time in Task { await self.adjustHue(delta, time: time) } }
+                bindings.encoder[2] = { delta, _, time in Task { await self.adjustSpread(delta, time: time) } }
                 bindings.encoderDoubleTouch[1] = { Task { await self.resetLightGuide() } }
                 bindings.encoderDoubleTouch[2] = { Task { await self.resetLightGuide() } }
                 bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
@@ -188,7 +188,7 @@ private actor MK2FeatureDemo {
                     }
                 }
                 bindings.strip = { position, time in Task { await self.ribbon(position: position, time: time) } }
-                bindings.encoder[1] = { delta, _ in Task { await self.changeRibbonMode(delta) } }
+                bindings.encoder[1] = { delta, _, time in Task { await self.changeRibbonMode(delta, time: time) } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "RIBBON LAB", lines: ["MODE \(ribbonModeName)", "TOUCH STRIP STREAM"], stripStart: 0),
                     right: meterFrame(title: "POSITION", value: Double(ribbonPosition ?? 0) / 1024, footer: lastEvent, stripStart: 4),
@@ -199,7 +199,7 @@ private actor MK2FeatureDemo {
 
             case .encoders:
                 for index in 1...8 {
-                    bindings.encoder[index] = { delta, value in Task { await self.encoder(index, delta: delta, value: value) } }
+                    bindings.encoder[index] = { delta, value, time in Task { await self.encoder(index, delta: delta, value: value, time: time) } }
                     bindings.encoderTouch[index] = { touched in Task { await self.encoderTouch(index, touched: touched) } }
                     bindings.encoderDoubleTouch[index] = { Task { await self.resetLabParameter(index) } }
                 }
@@ -257,7 +257,7 @@ private actor MK2FeatureDemo {
                 )
 
             case .display:
-                bindings.encoder[1] = { delta, _ in Task { await self.adjustDisplayMeter(delta) } }
+                bindings.encoder[1] = { delta, _, time in Task { await self.adjustDisplayMeter(delta, time: time) } }
                 bindings.jogScroll = { delta, _ in Task { await self.nudgeDisplayMeter(detents: delta) } }
                 return MK2SurfaceScene2(
                     left: displayLabFrame(screen: 0),
@@ -311,16 +311,16 @@ private actor MK2FeatureDemo {
         }
     }
 
-    private func adjustHue(_ delta: Int) async {
+    private func adjustHue(_ delta: Int, time: UInt64) async {
         // Slow full sweep = full colour circle; acceleration covers it quickly.
-        let step = encoderScaler.step(encoder: 1, delta: delta, span: 360)
+        let step = encoderScaler.step(encoder: 1, delta: delta, span: 360, now: time)
         hue = fmod(hue + step + 360, 360)
         lastEvent = "HUE \(Int(hue))"
         await render()
     }
 
-    private func adjustSpread(_ delta: Int) async {
-        let step = encoderScaler.step(encoder: 2, delta: delta, span: 23)
+    private func adjustSpread(_ delta: Int, time: UInt64) async {
+        let step = encoderScaler.step(encoder: 2, delta: delta, span: 23, now: time)
         spreadValue = max(1, min(24, spreadValue + step))
         lastEvent = "SPREAD \(spread)"
         await render()
@@ -339,10 +339,10 @@ private actor MK2FeatureDemo {
         await render()
     }
 
-    private func changeRibbonMode(_ delta: Int) async {
+    private func changeRibbonMode(_ delta: Int, time: UInt64) async {
         // Discrete steps out of a high-resolution stream: accumulate the scaled value
         // and only act on whole units (span 6 = six mode steps per slow full sweep).
-        ribbonModeAccumulator += encoderScaler.step(encoder: 1, delta: delta, span: 6)
+        ribbonModeAccumulator += encoderScaler.step(encoder: 1, delta: delta, span: 6, now: time)
         let steps = Int(ribbonModeAccumulator)
         guard steps != 0 else { return }
         ribbonModeAccumulator -= Double(steps)
@@ -351,10 +351,10 @@ private actor MK2FeatureDemo {
         await render()
     }
 
-    private func encoder(_ index: Int, delta: Int, value: Int) async {
+    private func encoder(_ index: Int, delta: Int, value: Int, time: UInt64) async {
         guard labParameters.indices.contains(index - 1) else { return }
         var parameter = labParameters[index - 1]
-        let step = encoderScaler.step(encoder: index, delta: delta, span: parameter.span)
+        let step = encoderScaler.step(encoder: index, delta: delta, span: parameter.span, now: time)
         parameter.value = max(parameter.range.lowerBound, min(parameter.range.upperBound, parameter.value + step))
         labParameters[index - 1] = parameter
         lastEvent = "\(parameter.name) \(parameter.display) RAW \(value)"
@@ -425,8 +425,8 @@ private actor MK2FeatureDemo {
         await render()
     }
 
-    private func adjustDisplayMeter(_ delta: Int) async {
-        displayMeter = max(0, min(1, displayMeter + encoderScaler.step(encoder: 1, delta: delta, span: 1)))
+    private func adjustDisplayMeter(_ delta: Int, time: UInt64) async {
+        displayMeter = max(0, min(1, displayMeter + encoderScaler.step(encoder: 1, delta: delta, span: 1, now: time)))
         lastEvent = "METER \(Int(displayMeter * 100))"
         await render()
     }

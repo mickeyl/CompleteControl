@@ -325,10 +325,10 @@ public actor MK2Surface2 {
         if event.bytes.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) {
             previousSurfaceReport = event.bytes
         }
-        handle(events)
+        handle(events, timestampNanos: event.timestamp)
     }
 
-    private func handle(_ events: [KKMK2InputEvent]) {
+    private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {
             switch event {
                 case let .button(name, pressed):
@@ -338,7 +338,7 @@ public actor MK2Surface2 {
                         scene.bindings.buttonUp[name]?()
                     }
                 case let .knob(index, delta, value):
-                    scene.bindings.encoder[index]?(delta, value)
+                    scene.bindings.encoder[index]?(delta, value, timestampNanos)
                 case let .touchEncoder(index, touched):
                     scene.bindings.encoderTouch[index]?(touched)
                     if touched, lastEncoderTouchNanos.indices.contains(index) {
