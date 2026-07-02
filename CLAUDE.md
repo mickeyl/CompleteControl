@@ -17,6 +17,14 @@ Two layers, plus a baseline app and a middleware demo:
 | `KontrolProbe` (exe) | `Tools/KontrolProbe/` | **Baseline** REPL + AppKit test UI. Leave as-is unless asked. |
 | `SurfaceDemo` (exe) | `Tools/SurfaceDemo/` | Console demo exercising every `KontrolSurfaceKit` feature. |
 
+**Platform floor: macOS 26** (decision 2026-07-02) — the pixel hot paths use Swift 6.2
+facilities (`Span.isIdentical`, `InlineArray`); do not lower the deployment target. Hot-path
+rules for `KontrolSurfaceKit2`: bulk libc ops (`memset_pattern4`/`memcmp`/`memcpy`) for pixel
+work — they keep full speed at `-Onone`, per-element Swift loops do not; frame storage is
+wire byte order (blit = memcpy); `MK2PixelFrame` stays copyable on purpose (the reconciler's
+O(1) unchanged-frame check is CoW buffer identity). Regressions are caught by
+`swift test --filter PixelPipelinePerfTests` (prints stage timings).
+
 Build / run / test:
 
 ```bash

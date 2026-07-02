@@ -52,8 +52,8 @@ public struct MK2PixelFrame: Sendable, Equatable {
     public static let height = KompleteKontrolMK2Protocol.displayHeight
     public static let bounds = MK2PixelRect(x: 0, y: 0, width: width, height: height)
 
-    /// Storage in wire byte order — feed it to a blit verbatim; use the subscript for
-    /// host-order pixel values.
+    /// Storage in wire byte order — feed it to a blit verbatim (`pixels.span` for a
+    /// borrowed zero-copy view); use the subscript for host-order pixel values.
     public private(set) var pixels: [UInt16]
 
     public init(fill color: UInt16 = 0x0000) {
@@ -185,11 +185,13 @@ public struct MK2PixelFrame: Sendable, Equatable {
 }
 
 enum MK2PixelFont {
-    static func rows(for char: Character) -> [UInt8] {
+    // Glyph rows live inline (7 bytes, no heap allocation or reference counting on
+    // lookup) — one of the macOS 26 facilities this hot path exists for.
+    static func rows(for char: Character) -> InlineArray<7, UInt8> {
         table[char] ?? table["?"]!
     }
 
-    private static let table: [Character: [UInt8]] = [
+    private static let table: [Character: InlineArray<7, UInt8>] = [
         "0": [0b11111, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b11111],
         "1": [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
         "2": [0b11110, 0b00001, 0b00001, 0b11110, 0b10000, 0b10000, 0b11111],

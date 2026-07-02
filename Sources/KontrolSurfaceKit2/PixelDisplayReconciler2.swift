@@ -36,14 +36,7 @@ public struct PixelDisplayReconciler2: Sendable {
             }
             // Unchanged scenes keep their CoW buffer — O(1) identity check; never an
             // element-wise Array == (that cost milliseconds per tick in debug builds).
-            // Span.isIdentical(to:) is the idiomatic form once the deployment target
-            // reaches macOS 26; Array.span is unavailable below that.
-            let identical = previous.withUnsafeBufferPointer { prev in
-                frame.pixels.withUnsafeBufferPointer { cur in
-                    prev.baseAddress == cur.baseAddress && prev.count == cur.count
-                }
-            }
-            if identical {
+            if previous.span.isIdentical(to: frame.pixels.span) {
                 continue
             }
             guard let band = Self.dirtyRowBand(previous: previous, current: frame.pixels) else {

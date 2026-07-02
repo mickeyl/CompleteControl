@@ -1,9 +1,11 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
+// macOS 26 minimum (decision 2026-07-02): unlocks Span/MutableSpan/InlineArray in the
+// pixel hot paths; this software will not run on older systems.
 let package = Package(
     name: "CompleteControl",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "CompleteControl", targets: ["KompleteKontrol"]),
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
