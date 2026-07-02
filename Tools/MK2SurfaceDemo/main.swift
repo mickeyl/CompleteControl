@@ -125,7 +125,19 @@ private actor MK2FeatureDemo {
         await render()
     }
 
+    private var renderScheduled = false
+
+    // Coalesced: high-rate handlers (the ~100 Hz ribbon stream) only mutate state; one
+    // pending render drains the burst and always draws the latest state. Rendering per
+    // event queued frame builds behind each other and the surface lagged the finger.
     private func render() async {
+        guard !renderScheduled else { return }
+        renderScheduled = true
+        Task { await self.performScheduledRender() }
+    }
+
+    private func performScheduledRender() async {
+        renderScheduled = false
         await surface.present(scene())
     }
 

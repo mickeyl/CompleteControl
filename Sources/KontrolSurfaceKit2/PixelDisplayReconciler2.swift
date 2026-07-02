@@ -2,10 +2,14 @@ import Foundation
 
 /// Diffs MK2 pixel framebuffers and emits USB-friendly blits.
 ///
-/// The reconciler uses tile scanning to detect changes, but emits a full frame for
-/// each changed screen. The daemon display queue is "latest wins"; full-frame
-/// payloads are therefore the only correct baseline until display acknowledgements
-/// become presentation-complete rather than queue-accepted.
+/// Changed screens are diffed at full-width row-band granularity (memcmp per row, so
+/// the scan costs microseconds even in unoptimized builds) and only the band between
+/// the first and last dirty row is blitted — a meter update costs a ~40-row band, not
+/// a 24 ms full frame. Full-width bands are also what the panel ingests fastest (the
+/// narrow-window penalty, see the porting plan benchmark). The daemon display queue is
+/// newest-wins per screen; band replacement is only possible when blits are produced
+/// faster than the worker drains them, which band-sized payloads avoid by construction.
+/// Multi-span scatter frames return with the jnlive transfer format.
 public struct PixelDisplayReconciler2: Sendable {
     public var tileWidth: Int
     public var tileHeight: Int
@@ -25,16 +29,47 @@ public struct PixelDisplayReconciler2: Sendable {
         var blits: [MK2PixelBlit] = []
         for screen in 0..<min(2, frames.count) {
             guard let frame = frames[screen] else { continue }
-            // Whole-array equality instead of a hand-rolled per-pixel scan: an unchanged
-            // scene keeps the same CoW buffer, making this an O(1) identity check, and the
-            // stdlib comparison runs optimized even in debug builds — the manual tile loop
-            // cost tens of ms per tick and stalled the surface actor. Tile-granular spans
-            // return with the scatter-transfer format.
-            if force || lastSent[screen] != frame.pixels {
+            guard !force, let previous = lastSent[screen] else {
                 blits.append(MK2PixelBlit(screen: screen, rect: MK2PixelFrame.bounds, pixels: frame.pixels))
                 lastSent[screen] = frame.pixels
+                continue
             }
+            // Unchanged scenes keep their CoW buffer — this is an O(1) identity check.
+            if previous == frame.pixels {
+                continue
+            }
+            if let band = Self.dirtyRowBand(previous: previous, current: frame.pixels) {
+                let width = MK2PixelFrame.width
+                let pixels = Array(frame.pixels[(band.lowerBound * width)..<((band.upperBound + 1) * width)])
+                let rect = MK2PixelRect(x: 0, y: band.lowerBound, width: width, height: band.count)
+                blits.append(MK2PixelBlit(screen: screen, rect: rect, pixels: pixels))
+            }
+            lastSent[screen] = frame.pixels
         }
         return blits
+    }
+
+    private static func dirtyRowBand(previous: [UInt16], current: [UInt16]) -> ClosedRange<Int>? {
+        guard previous.count == current.count else { return 0...(MK2PixelFrame.height - 1) }
+        let width = MK2PixelFrame.width
+        let height = MK2PixelFrame.height
+        let rowBytes = width * MemoryLayout<UInt16>.size
+        return previous.withUnsafeBufferPointer { prev in
+            current.withUnsafeBufferPointer { cur in
+                guard let prevBase = prev.baseAddress, let curBase = cur.baseAddress else { return nil }
+                var first = -1
+                for row in 0..<height where memcmp(prevBase + row * width, curBase + row * width, rowBytes) != 0 {
+                    first = row
+                    break
+                }
+                guard first >= 0 else { return nil }
+                var last = first
+                for row in stride(from: height - 1, through: first, by: -1) where memcmp(prevBase + row * width, curBase + row * width, rowBytes) != 0 {
+                    last = row
+                    break
+                }
+                return first...last
+            }
+        }
     }
 }
