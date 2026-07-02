@@ -2290,6 +2290,8 @@ public enum KompleteKontrolLibUSBServer {
                     hardware.handleUsbEvents(timeoutMs: 0)
                     if action == .pumpAndReconnect {
                         runReconnect(reason: "libusb-fd-error", forceOpen: true)
+                    } else if hardware.sessionDeviceLost() {
+                        runReconnect(reason: "device-lost", forceOpen: true)
                     } else {
                         syncLibUSBRegistrations()
                     }
@@ -2660,10 +2662,42 @@ public enum KompleteKontrolLibUSBServer {
             trackedLibusbFds.removeAll()
             lock.unlock()
             if let session {
+                restoreMK2StandaloneState(session)
                 daemonLog("hardware session closed for daemon shutdown", group: "usb")
                 KontrolUSBLibUSBSessionClose(session)
             }
             sessionIOLock.unlock()
+        }
+
+        // Called with sessionIOLock held (must not use writeReport, which re-locks).
+        // Hands the keyboard back as a standalone controller: factory knob CCs restored,
+        // our LED/guide state cleared, displays blanked instead of frozen on stale frames.
+        private func restoreMK2StandaloneState(_ session: KontrolUSBLibUSBSessionRef) {
+            guard KontrolUSBLibUSBSessionGeneration(session) == 2 else { return }
+            func write(_ reportID: UInt8, _ payload: [UInt8]) {
+                var bytes = payload
+                _ = bytes.withUnsafeMutableBufferPointer { buffer in
+                    KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+                }
+            }
+            write(KompleteKontrolMK2Protocol.buttonKnobMapReportID, KompleteKontrolMK2Protocol.standaloneButtonKnobMapPayload)
+            write(KompleteKontrolMK2Protocol.wheelStripMapReportID, KompleteKontrolMK2Protocol.defaultWheelStripMapPayload)
+            write(KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload)
+            write(KompleteKontrolMK2Protocol.buttonLEDReportID, [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize))
+            write(KompleteKontrolMK2Protocol.lightGuideReportID, [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize))
+            for screen: UInt8 in [0, 1] {
+                _ = KontrolUSBLibUSBSessionFillMK2Display(
+                    session,
+                    screen,
+                    0,
+                    0,
+                    UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                    UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                    0x0000,
+                    1_000
+                )
+            }
+            daemonLog("MK2 handed back to standalone controller state", group: "mk2")
         }
 
         func handle(_ line: String, clientID: Int) -> String {
@@ -2706,6 +2740,27 @@ public enum KompleteKontrolLibUSBServer {
                 if shouldDaemonShowIdleSurface() {
                     showNoClient()
                 }
+                return "ok"
+            }
+
+            // mk2text <line0a> <line0b> <line1a> <line1b> [accent0] [accent1]
+            // Lines are UTF8-hex ("-" = empty); accents are RGB565. Interim text path for
+            // socket clients (e.g. MK2Calibrate) until a pixel blit command exists.
+            if command == "mk2text" {
+                guard isMK2(session) else { return "err not mk2" }
+                guard tokens.count >= 5 else { return "err parse" }
+                func text(_ token: String) -> String {
+                    token == "-" ? "" : (KKHex.decodeUTF8Hex(token) ?? "")
+                }
+                let accent0 = UInt16((tokens.count > 5 ? KKHex.parse(tokens[5]) ?? 0x001f : 0x001f) & 0xffff)
+                let accent1 = UInt16((tokens.count > 6 ? KKHex.parse(tokens[6]) ?? 0xf800 : 0xf800) & 0xffff)
+                writeMK2IdleSurface(
+                    session: session,
+                    screen0: [text(tokens[1]), text(tokens[2])],
+                    screen1: [text(tokens[3]), text(tokens[4])],
+                    accent0: accent0,
+                    accent1: accent1
+                )
                 return "ok"
             }
 
@@ -2946,6 +3001,7 @@ public enum KompleteKontrolLibUSBServer {
                 let message = KKUSBResult(health).message.replacingOccurrences(of: "\n", with: " ")
                 if health.status != 0 {
                     daemonLog("hardware session health failed status=\(health.status) \(message); reconnecting", group: "usb", level: .error)
+                    notifyDeviceDisconnected()
                     if dropSession(session, after: "err \(health.status) \(message)") {
                         return restoreHardwareAfterReconnect(forceOpen: true)
                     }
@@ -2955,6 +3011,10 @@ public enum KompleteKontrolLibUSBServer {
             }
 
             return restoreHardwareAfterReconnect(forceOpen: forceOpen)
+        }
+
+        private func notifyDeviceDisconnected() {
+            pushToClients("device disconnected @\(String(KKTiming.now(), radix: 16))", kind: .device)
         }
 
         private func restoreHardwareAfterReconnect(forceOpen: Bool = false) -> Bool {
@@ -3023,6 +3083,16 @@ public enum KompleteKontrolLibUSBServer {
             guard !transientClaim, libusbSession == nil, !systemSleeping else { return nil }
             guard nextSessionOpenAttemptAt > now else { return 0 }
             return nextSessionOpenAttemptAt - now
+        }
+
+        // Async transfers stop resubmitting on device loss, but nothing else drops the
+        // session — without this check a dead session blocks the reconnect timer forever.
+        func sessionDeviceLost() -> Bool {
+            lock.lock()
+            let session = libusbSession
+            lock.unlock()
+            guard let session else { return false }
+            return KontrolUSBLibUSBSessionDeviceLost(session) != 0
         }
 
         private func runStartupAnimation() {
@@ -3127,6 +3197,8 @@ public enum KompleteKontrolLibUSBServer {
                         return "\(name.uppercased()) \(value)"
                     case let .jog(direction):
                         return "JOG \(direction.uppercased())"
+                    case let .jogTouch(touched):
+                        return "JOG TOUCH \(touched ? "ON" : "OFF")"
                     case let .jogScroll(delta, value):
                         return "JOG \(delta >= 0 ? "+" : "")\(delta) V\(value)"
                     case let .touchEncoder(index, touched):

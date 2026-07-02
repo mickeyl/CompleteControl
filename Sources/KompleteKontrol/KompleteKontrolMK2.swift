@@ -20,6 +20,19 @@ public enum KompleteKontrolMK2Protocol {
     // active as soon as the mapping engine is on; HID report 0x01 is unaffected.
     public static let buttonKnobMapReportID: UInt8 = 0xa1
     public static let allOffButtonKnobMapPayload = [UInt8](repeating: 0x00, count: 203)
+    // Factory MIDI-mode knob template (rotaries CC14-21, ch 1): written back on daemon
+    // shutdown so the keyboard stays usable as a standalone controller.
+    public static let standaloneButtonKnobMapPayload: [UInt8] = {
+        var payload = [UInt8](repeating: 0x00, count: 203)
+        for knob in 0..<8 {
+            let base = 96 + knob * 12
+            payload[base] = 0x03
+            payload[base + 1] = UInt8(14 + knob)
+            payload[base + 3] = 0x3c
+            payload[base + 6] = 0x7f
+        }
+        return payload
+    }()
     public static let mapCommitReportID: UInt8 = 0xaf
     public static let mapCommitPayload: [UInt8] = [0x00, 0x02]
 
@@ -197,6 +210,7 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     case button(name: String, pressed: Bool)
     case touchEncoder(index: Int, touched: Bool)
     case jog(direction: String)
+    case jogTouch(touched: Bool)
     case jogScroll(delta: Int, value: Int)
     case knob(index: Int, delta: Int, value: Int)
     case touchStrip(name: String, value: Int)
@@ -210,6 +224,8 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
                 "touch encoder \(index) \(touched ? "on" : "off")"
             case let .jog(direction):
                 "jog \(direction)"
+            case let .jogTouch(touched):
+                "jog touch \(touched ? "on" : "off")"
             case let .jogScroll(delta, value):
                 "jog scroll \(delta > 0 ? "+" : "")\(delta) value=\(value)"
             case let .knob(index, delta, value):
@@ -319,8 +335,15 @@ public enum KKMK2InputReportDecoder {
             }
         }
 
+        // Byte 6 layout (bench 2026-07-02): 0x04 = cap touched, 0x08 = click,
+        // 0x10/0x20/0x40/0x80 = push left/up/down/right — pushes arrive OR'd with touch.
         let jogStateChanged = current.indices.contains(6) && previous[6] != current[6]
         if jogStateChanged {
+            let wasTouched = (previous[6] & 0x04) != 0
+            let isTouched = (current[6] & 0x04) != 0
+            if wasTouched != isTouched {
+                events.append(.jogTouch(touched: isTouched))
+            }
             if let direction = jogStates[current[6]] {
                 events.append(.jog(direction: direction))
             }

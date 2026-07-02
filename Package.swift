@@ -115,6 +115,14 @@ let package = Package(
             dependencies: ["CLibUSB"],
             path: "Tools/MK2USBSpy"
         ),
+        .executableTarget(
+            name: "MK2Calibrate",
+            dependencies: ["KompleteKontrol"],
+            path: "Tools/MK2Calibrate",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
         .testTarget(
             name: "KompleteKontrolTests",
             dependencies: ["KompleteKontrol"]

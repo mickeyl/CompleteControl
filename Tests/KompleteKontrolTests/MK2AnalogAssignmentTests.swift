@@ -31,3 +31,28 @@ struct MK2AnalogAssignmentTests {
         #expect(Array(payload[36...]) == [UInt8](repeating: 0x00, count: 8))
     }
 }
+
+// Byte-6 semantics from the 2026-07-02 calibration session: 0x04 = cap touched,
+// pushes are 0x08/0x10/0x20/0x40/0x80 OR'd with the touch bit.
+@Suite("MK2 4-D input decode")
+struct MK2FourDDecodeTests {
+    private func report(byte6: UInt8) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        bytes[0] = 0x01
+        bytes[6] = byte6
+        return bytes
+    }
+
+    @Test("touch edge surfaces as jogTouch")
+    func touchEdges() {
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x00), current: report(byte6: 0x04)) == [.jogTouch(touched: true)])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x00)) == [.jogTouch(touched: false)])
+    }
+
+    @Test("pushes decode as directions while touched")
+    func pushes() {
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x24)) == [.jog(direction: "up")])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x0c)) == [.jog(direction: "press")])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [])
+    }
+}

@@ -148,13 +148,56 @@ completely dead — no HID, no MIDI. Verified live on the S61 MK2 through the `c
   33/34 — `0x2000` center, strip CC value at 37). `0xAA` only streams while the engine is on.
 - **Strip LEDs are firmware-animated** — follow-finger in CC mode (left origin), bidirectional
   from center with spring-back in pitch mode. No per-LED host writes needed.
-- The declared HID input report `0x02` (2×u16 @11-bit + 3×u16) never appeared in any tested
-  mode; on sibling devices it carries the high-rate touch stream (JAM strips, MK3 pads). Not
-  needed — pitch-bend mode already gives 14-bit — but it may hide behind an untested `0xA0` flag.
+- **Raw strip streaming on HID report `0x02` is unlocked by `A0 00 10`** (flag in the *second*
+  payload byte — our sweep only tried `A0 10 00`). Source: jnlive (below) uses exactly
+  `{0xa0, 0x00, 0x10}` as its only init and receives the strip on report `0x02`: signed 32-bit
+  LE at bytes 5–8, encoded as `100000 + position`; values below 100000 mean touch release.
+  This explains the original unreproducible `0x02` sighting. Untested: whether `A0 93 10`
+  combines the mapping engine with the raw stream.
+
+### jnlive cross-check (local clone `~/Documents/late/misc/jnlive`, `source/komplete.{h,cpp}`)
+
+A working Linux controller app for the same S61 MK2; hidapi + libusb, init = `A0 00 10` only
+(no templates, no `AF`, no `93`). Independently confirms and extends our bench results:
+
+- **Byte-6 bitmask confirmed bit-for-bit** (touch 0x04, click 0x08, left/up/down/right =
+  0x10/0x20/0x40/0x80). Report `0x01` extras we don't decode yet: byte 30 *high* nibble is a
+  second 4-bit counter, byte 31 an 8-bit counter (wrap 256) — semantics unknown.
+- The 8 function/menu buttons read their bits with the low three index bits XOR'd by 3
+  (matches our function1–8 mask table from KompleteSynthesia).
+- **Button-LED (0x80) map confirmed 1:1 against our calibration sweep** (mute=0 … fixedvel=41),
+  and it fills our gaps: **menu/function buttons = LED indices 2–9**, `42/43 = octave` (their
+  guess), **44–68 = touch strip (25 LEDs, one more than our enum)**. jnlive actively drives
+  the menu LEDs through `0x80` — so those LEDs *do* work via `0x80` in mode `00 10` with no
+  `0xA1` ever written. Prime suspect for our dark function buttons: our all-off `0xA1`
+  (whose 8 backlight bytes, logical max 31, plausibly gate the same LEDs) or the engine mode.
+- LED byte encoding identical to ours (`(colorIndex+1)<<2 | intensity`), with a named palette:
+  1=red, 2=brown, 3=orange, 4=amber, 5=yellow, 6=lime, 7=green, 8=mint, 9=cyan, 10=azure,
+  11=blue, 12=violet, 13=magenta, 14=purple, 15/16=pink, 17=white.
+- **Display protocol is a span/scatter command stream, not a single rect**: header
+  `84 00 [screen] 60 00000000 [x:be16] [y:be16] [hstride=480:be16] [0001]`, then *repeated*
+  span headers `02 00 [skip:be16] 00 00 [numwords:be16]` + BE pixel words (skip/numwords in
+  32-bit words, seeking within the device framebuffer), then footer `02… 03… 40…`. One bulk
+  transfer can carry all dirty spans of a frame — exactly what `PixelDisplayReconciler` wants.
+- lsusb detail: the MIDI interface is **bulk** (512-byte EPs) with **two virtual cables** —
+  cable 0 = keybed, cable 1 = the physical DIN "EXT" MIDI in/out ports. Keep the cable nibble
+  when decoding USB-MIDI. Interface 4 is a standard USB-DFU (firmware) interface.
 - The config survives a daemon restart (device stays powered), but the engine must be re-enabled
   after every `A0 00 00`. `ccd`'s `enableMK2MappingEngine` (bring-up + reconnect) sends
   `A0 93 00`, all-off `0xA1` (knob/button CC suppression), the default `0xA2` map (pitch
   wheel = PB ch 1, mod = CC1, strip = CC11), then `AF 00 02`.
+- **`0xA4` (keyzones) is dangerous to write blind.** A malformed zone map (observed: zone 0 at
+  start 0 followed by "off" zones also at start 0) silences the entire keybed and darkens the
+  light guide until power cycle — with the engine on, the zone state also drives the guide
+  (a latched zone colour paints all keys, overriding host `0x81` writes). Leave `0xA4` alone
+  until zone-boundary semantics are characterized on hardware.
+- **Lifecycle:** device loss is detected via fatal async-transfer status
+  (`KontrolUSBLibUSBSessionDeviceLost`) → the reactor drops the session and the reconnect
+  timer retries until replug; reconnect re-runs `enableMK2MappingEngine` and pushes
+  `device reconnected` to socket clients (which must then re-establish their LED/display
+  state). On daemon shutdown, `restoreMK2StandaloneState` hands the keyboard back as a
+  standalone controller: factory knob template (CC14–21), default wheels/strip, LEDs/guide
+  cleared, displays blanked.
 
 ### Ownership
 - macOS: NI background services (Hardware Agent / Host Integration) must release the device
@@ -269,8 +312,10 @@ not paraphrased from memory or third-hand notes.
   bulk IF/EP MK2=3 / MK3=4): https://github.com/tillt/KompleteSynthesia
 - `joostn/jnlive` — `test1/komplete.md`: full S61 MK2 HID report descriptor dump + a captured
   init sequence of NI's Komplete Kontrol software (`A0 93 00`, template block `A4/A1/A2/A3`,
-  `AF 00 02`, `A0 10 00`) — the source of the mapping-engine mode flags:
-  https://github.com/joostn/jnlive/blob/master/test1/komplete.md
+  `AF 00 02`, `A0 10 00`) — the source of the mapping-engine mode flags. Additionally
+  `source/komplete.{h,cpp}` (see §2 "jnlive cross-check"): raw strip via `A0 00 10` → report
+  `0x02`, the verified `0x80` LED index map, and the span/scatter display protocol.
+  Local clone: `~/Documents/late/misc/jnlive`. https://github.com/joostn/jnlive
 - **NI `KKS_MK2_Firmware_Updater.app` v1.4.0 (R205)** — device identity cross-check only:
   confirms VID `0x17cc` + PIDs `0x1610/20/30` in NI's own device table, and that the MK2 USB
   controller is **XMOS** (firmware is composite USB-DFU on the same PID). Carries no operational

@@ -168,11 +168,24 @@ The short version:
   center, `decay` 0–8). Runtime switch: `KompleteKontrolSSeriesMK2.configureAnalogControls`.
   Strip LEDs are firmware-animated — no per-LED writes exist or are needed.
 - Engine output arrives as USB-MIDI on EP `0x81` and mirrors in HID report `0xAA` (51 bytes:
-  knobs at `17+2i`, pitch wheel u16le at 33/34, strip CC at 37). The declared HID input report
-  `0x02` never streams in any tested mode. The full HID report descriptor is readable without
+  knobs at `17+2i`, pitch wheel u16le at 33/34, strip CC at 37). `A0 00 10` (per jnlive)
+  instead streams the strip *raw* on HID report `0x02` (i32le at bytes 5–8, `100000 +
+  position`, below 100000 = release). The full HID report descriptor is readable without
   claiming the device: `ioreg -l` → `ReportDescriptor`.
+- jnlive (`~/Documents/late/misc/jnlive`, `source/komplete.{h,cpp}`) is the best single
+  cross-reference: verified `0x80` LED index map (menu buttons 2–9, octave 42/43?, strip
+  44–68) and the span/scatter display command stream — see the porting plan's
+  "jnlive cross-check" section.
 - Byte layouts are pinned in `Tests/KompleteKontrolTests/MK2AnalogAssignmentTests.swift` —
   changing them means re-benching on hardware.
+- **Never write `0xA4` (keyzones) blind** — a malformed zone map silences the keybed and darkens
+  the light guide until power cycle; with the engine on, zone state also overrides host `0x81`
+  guide writes. Lifecycle: device loss → `sessionDeviceLost` reactor check → drop + timed
+  reconnect + re-init + `device reconnected` push (clients re-establish their state); daemon
+  shutdown → `restoreMK2StandaloneState` (factory knob CCs, LEDs/guide/displays cleared).
+- `Tools/MK2Calibrate` is the protocol workbench (socket client; flows for LED↔button binding,
+  encoders, 4-D byte-6 capture, function-button backlights, live monitor; answers via lit
+  command keys on the bottom octave). Findings land in `mk2-calibration-session.md`.
 
 ## Concurrency notes
 

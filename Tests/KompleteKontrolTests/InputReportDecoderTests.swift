@@ -188,7 +188,7 @@ struct InputReportDecoderTests {
         current[6] = 0x04
         current[30] = 0x03
         var events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events.isEmpty)
+        #expect(events == [.jogTouch(touched: true)])
 
         previous = current
         current[30] = 0x04
@@ -199,7 +199,7 @@ struct InputReportDecoderTests {
         previous = current
         current[6] = 0x04
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events.isEmpty)
+        #expect(events == [.jogTouch(touched: true)])
 
         previous = current
         current[30] = 0x03

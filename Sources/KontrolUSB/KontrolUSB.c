@@ -1233,6 +1233,40 @@ uint16_t KontrolUSBLibUSBSessionProductID(KontrolUSBLibUSBSessionRef sessionRef)
     return session->device->productID;
 }
 
+/* Async transfers are only resubmitted on LIBUSB_TRANSFER_COMPLETED, so any other final
+ * status means the input/MIDI stream is dead and the session must be reopened. CANCELLED
+ * and TIMED_OUT are excluded: they occur during orderly close, not device loss. */
+static int transfer_status_is_fatal(int status) {
+    if (status < 0) {
+        return status != LIBUSB_ERROR_TIMEOUT;
+    }
+    switch (status) {
+        case LIBUSB_TRANSFER_COMPLETED:
+        case LIBUSB_TRANSFER_CANCELLED:
+        case LIBUSB_TRANSFER_TIMED_OUT:
+            return 0;
+        default:
+            return 1;
+    }
+}
+
+int KontrolUSBLibUSBSessionDeviceLost(KontrolUSBLibUSBSessionRef sessionRef) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->closing) {
+        return 0;
+    }
+    if (transfer_status_is_fatal(session->inputTransferStatus)) {
+        return 1;
+    }
+    if (session->auxInputTransfer != NULL && transfer_status_is_fatal(session->auxInputTransferStatus)) {
+        return 1;
+    }
+    if (session->midiTransfer != NULL && transfer_status_is_fatal(session->midiTransferStatus)) {
+        return 1;
+    }
+    return 0;
+}
+
 uint8_t KontrolUSBLibUSBSessionKeyCount(KontrolUSBLibUSBSessionRef sessionRef) {
     KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
     if (session == NULL || session->device == NULL) {

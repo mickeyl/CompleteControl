@@ -235,6 +235,8 @@ private final class MK2DemoController: @unchecked Sendable {
                     view?.setActive("button:\(name)", active: pressed)
                 case let .jog(direction):
                     view?.pulse("jog:\(direction)")
+                case let .jogTouch(touched):
+                    view?.setActive("jog:touch", active: touched)
                 case let .jogScroll(_, value):
                     jogValue = value
                     view?.pulse("jog:scroll")
