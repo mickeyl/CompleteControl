@@ -2757,6 +2757,8 @@ public enum KompleteKontrolLibUSBServer {
         private var midiPushSequence: UInt64 = 0
         private let displayQueue = DispatchQueue(label: "media.vanille.kompletekontrol.display", qos: .userInitiated)
         private var pendingDisplayBlits: [UInt8: PendingDisplayBlit] = [:]
+        private var pendingStateReports: [UInt8: [UInt8]] = [:]
+        private var pendingStateReportOrder: [UInt8] = []
         private var displayDrainScheduled = false
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
@@ -3026,6 +3028,30 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func binaryWriteReport(reportID: UInt8, payload: [UInt8]) -> Int32 {
+            // Full-state maps at animation rate go through the async output worker like
+            // display blits (latest-wins per report): a synchronous write here would wait
+            // on sessionIOLock behind an in-flight 10-20 ms blit and stall the client's
+            // surface actor. Config reports keep the synchronous path — they are rare and
+            // their relative ordering matters.
+            if reportID == KompleteKontrolMK2Protocol.buttonLEDReportID || reportID == KompleteKontrolMK2Protocol.lightGuideReportID {
+                var shouldSchedule = false
+                lock.lock()
+                if pendingStateReports[reportID] == nil {
+                    pendingStateReportOrder.append(reportID)
+                }
+                pendingStateReports[reportID] = payload
+                if !displayDrainScheduled {
+                    displayDrainScheduled = true
+                    shouldSchedule = true
+                }
+                lock.unlock()
+                if shouldSchedule {
+                    displayQueue.async { [weak self] in
+                        self?.drainDisplayBlits()
+                    }
+                }
+                return 0
+            }
             guard let session = ensureSession() else { return -1 }
             sessionIOLock.lock()
             lock.lock()
@@ -3091,19 +3117,49 @@ public enum KompleteKontrolLibUSBServer {
         private func drainDisplayBlits() {
             while true {
                 let blits: [PendingDisplayBlit]
+                let reports: [(UInt8, [UInt8])]
                 lock.lock()
                 blits = pendingDisplayBlits.values.sorted { $0.screen < $1.screen }
                 pendingDisplayBlits.removeAll(keepingCapacity: true)
-                if blits.isEmpty {
+                reports = pendingStateReportOrder.compactMap { id in
+                    pendingStateReports[id].map { (id, $0) }
+                }
+                pendingStateReports.removeAll(keepingCapacity: true)
+                pendingStateReportOrder.removeAll(keepingCapacity: true)
+                if blits.isEmpty && reports.isEmpty {
                     displayDrainScheduled = false
                     lock.unlock()
                     return
                 }
                 lock.unlock()
 
+                // LEDs before pixels: they are tiny and feel-critical.
+                for (reportID, payload) in reports {
+                    performStateReportWrite(reportID: reportID, payload: payload)
+                }
                 for blit in blits {
                     performDisplayBlit(blit)
                 }
+            }
+        }
+
+        private func performStateReportWrite(reportID: UInt8, payload: [UInt8]) {
+            guard let session = ensureSession() else { return }
+            sessionIOLock.lock()
+            lock.lock()
+            let isCurrent = libusbSession == session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
+            var payload = payload
+            let result = payload.withUnsafeMutableBufferPointer { buffer in
+                KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+            }
+            sessionIOLock.unlock()
+            if result.status != 0 {
+                daemonLog("state report worker failed report=0x\(KKHex.byte(reportID)) status=\(result.status)", group: "mk2", level: .error)
             }
         }
 

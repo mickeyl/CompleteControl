@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import KompleteKontrol
 @testable import KontrolSurfaceKit2
 
 // Not assertions — a measurement harness for the per-event pixel pipeline cost in
@@ -60,6 +61,42 @@ struct PixelPipelinePerfTests {
         let fullPixels = [UInt16](repeating: 0x1234, count: 480 * 272)
         measure("wire bytes full frame (memcpy)") {
             _ = fullPixels.withUnsafeBytes { Array($0) }
+        }
+
+        // The light-guide page's extra work per change: 88 HSV key colours (demo side)
+        // and 88 nearest-palette searches + payload build (kit side).
+        var hue = 0.0
+        measure("HSV key colours x88 (demo)") {
+            hue += 1
+            for key in 0..<88 {
+                let keyHue = fmod(hue + Double(key) * 4, 360) / 60
+                let sector = Int(keyHue)
+                let fraction = keyHue - Double(sector)
+                let q = UInt8((1 - fraction) * 255)
+                let t = UInt8(fraction * 255)
+                switch sector % 6 {
+                    case 0: _ = KKRGB(red: 255, green: t, blue: 0)
+                    case 1: _ = KKRGB(red: q, green: 255, blue: 0)
+                    case 2: _ = KKRGB(red: 0, green: 255, blue: t)
+                    case 3: _ = KKRGB(red: 0, green: q, blue: 255)
+                    case 4: _ = KKRGB(red: t, green: 0, blue: 255)
+                    default: _ = KKRGB(red: 255, green: 0, blue: q)
+                }
+            }
+        }
+
+        var keyColors: [KKRGB] = []
+        for index in 0..<88 {
+            let red = UInt8((index * 3) % 256)
+            let green = UInt8((index * 7) % 256)
+            let blue = UInt8((index * 11) % 256)
+            keyColors.append(KKRGB(red: red, green: green, blue: blue))
+        }
+        measure("palette map x88 + payload (kit)") {
+            var payload = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+            for (index, color) in keyColors.enumerated() {
+                payload[index] = KompleteKontrolSSeriesMK2.paletteCode(for: color)
+            }
         }
     }
 }

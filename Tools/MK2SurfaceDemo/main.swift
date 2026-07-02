@@ -171,7 +171,9 @@ private actor MK2FeatureDemo {
                 bindings.encoderDoubleTouch[2] = { Task { await self.resetLightGuide() } }
                 bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
                 return MK2SurfaceScene2(
-                    left: baseFrame(title: "LIGHT GUIDE LAB", lines: ["ENC1 HUE \(Int(hue))", "ENC2 SPREAD \(spread)"], stripStart: 0),
+                    // Static instructions: live values render on the right screen only,
+                    // so a hue sweep dirties one screen per tick, not two.
+                    left: baseFrame(title: "LIGHT GUIDE LAB", lines: ["ENC1 HUE ENC2 SPREAD", "DBL TOUCH RESETS"], stripStart: 0),
                     right: lightGuideStatusFrame(),
                     lamps: lamps,
                     keyColors: lightGuideKeys(),
