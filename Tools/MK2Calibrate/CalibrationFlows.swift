@@ -369,7 +369,99 @@ enum CalibrationFlows {
                 log.add("encoder \(encoder) \(direction): \(deltas.count) events sign \(sign) (\(consistency)% consistent) |delta| avg \(deltas.map { abs($0) }.reduce(0, +) / deltas.count) raw \(values.min() ?? 0)…\(values.max() ?? 0)\(crossNote)")
             }
         }
+        for wheel in [(name: "PITCH WHEEL", offset: 26), (name: "MOD WHEEL", offset: 28)] {
+            link.showText(wheel.name, "FULL RANGE SLOW", "DONE WHEN READY")
+            print("\(wheel.name): move through its full range, then DONE …")
+            inputs.drain()
+            var minValue = Int.max
+            var maxValue = Int.min
+            var samples = 0
+            var changedElsewhere = Set<Int>()
+            collecting: while true {
+                guard let item = inputs.next() else { continue }
+                switch item {
+                    case let .surface(raw, events, _):
+                        guard raw.first == UInt8(KompleteKontrolMK2Protocol.inputReportID), raw.count > wheel.offset + 1 else { continue }
+                        let value = Int(raw[wheel.offset]) | (Int(raw[wheel.offset + 1]) << 8)
+                        minValue = min(minValue, value)
+                        maxValue = max(maxValue, value)
+                        samples += 1
+                        for event in events {
+                            if case let .rawChanged(indices) = event {
+                                changedElsewhere.formUnion(indices.filter { $0 < wheel.offset || $0 > wheel.offset + 1 })
+                            }
+                        }
+                    case let .console(command):
+                        if command == "q" { return }
+                        break collecting
+                    case .midi:
+                        continue
+                }
+            }
+            guard samples > 0 else {
+                log.add("\(wheel.name): NO REPORTS")
+                continue
+            }
+            log.add("\(wheel.name) @bytes \(wheel.offset)/\(wheel.offset + 1): raw \(minValue)…\(maxValue) over \(samples) reports; other changed bytes \(changedElsewhere.sorted())")
+        }
         link.showText("ENCODERS DONE", "")
+    }
+
+    // MARK: LED remainder — indices with no pressable button underneath
+
+    static func ledRemainderCheck(link: DaemonLink, inputs: FlowInputQueue, log: SessionLog) {
+        log.section("LED remainder check")
+        print("""
+
+        LED REMAINDER: each step lights one LED index and names the expected location.
+        DONE = lit exactly there · NONE = nothing lit · NO BTN = something else lit
+        (then type where in the console).
+        """)
+        let expectations: [(index: Int, name: String)] = [
+            (10, "4D ARROW LEFT"),
+            (11, "4D ARROW UP"),
+            (12, "4D ARROW DOWN"),
+            (13, "4D ARROW RIGHT"),
+            (14, "SHIFT"),
+            (42, "OCTAVE DOWN"),
+            (43, "OCTAVE UP"),
+            (68, "STRIP LED 25"),
+        ]
+        for expectation in expectations {
+            var map = commandLEDBaseMap
+            map[expectation.index] = KompleteKontrolSSeriesMK2.paletteCode(for: KKRGB(red: 0xff, green: 0xff, blue: 0xff))
+            link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, map)
+            link.showText("LED \(expectation.index)", expectation.name)
+            print("LED \(expectation.index): expected at \(expectation.name) — DONE / NONE / NO BTN?")
+            inputs.drain()
+            waiting: while true {
+                guard let item = inputs.next() else { continue }
+                guard case let .console(command) = item else { continue }
+                switch command {
+                    case "":
+                        log.add("LED \(expectation.index) = \(expectation.name) CONFIRMED")
+                        break waiting
+                    case "n":
+                        log.add("LED \(expectation.index): nothing lit (expected \(expectation.name))")
+                        break waiting
+                    case "s":
+                        print("  where did it light? (type + Enter)")
+                        location: while true {
+                            guard let answer = inputs.next(), case let .console(text) = answer else { continue }
+                            log.add("LED \(expectation.index): lit at '\(text)' (expected \(expectation.name))")
+                            break location
+                        }
+                        break waiting
+                    case "q":
+                        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, commandLEDBaseMap)
+                        return
+                    default:
+                        continue
+                }
+            }
+        }
+        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, commandLEDBaseMap)
+        link.showText("REMAINDER DONE", "")
     }
 
     // MARK: 4-D encoder / byte-6 characterization
@@ -428,79 +520,6 @@ enum CalibrationFlows {
             log.add("\(title): byte6 [\(sequence6.isEmpty ? "unchanged" : sequence6)] byte30 [\(sequence30.isEmpty ? "unchanged" : sequence30)]\(stray)")
         }
         link.showText("4D CAPTURE", "DONE")
-    }
-
-    // MARK: Function-button backlights
-
-    /// The eight touch-buttons above the displays are absent from the 0x80 map; qKontrol
-    /// sets their backlights via 8 colour bytes at offset 192 of the 0xA1 template.
-    /// Assignment bytes stay zero so the knob/button CC suppression is preserved.
-    static func softButtonBacklightProbe(link: DaemonLink, inputs: FlowInputQueue, log: SessionLog) {
-        log.section("Function-button backlights (0xA1 offset 192)")
-        print("""
-
-        BACKLIGHT PROBE: one backlight position lights at a time — press the button that lit,
-        or answer with the lit keys (red = nothing lit, orange = lit but unpressable, white = quit).
-        """)
-        func write(backlights: [UInt8]) {
-            var payload = [UInt8](repeating: 0, count: 203)
-            for (offset, value) in backlights.enumerated() where offset < 8 {
-                payload[192 + offset] = value
-            }
-            link.writeReport(KompleteKontrolMK2Protocol.buttonKnobMapReportID, payload)
-        }
-        position: for position in 0..<8 {
-            var backlights = [UInt8](repeating: 0, count: 8)
-            backlights[position] = 0x1f
-            write(backlights: backlights)
-            link.showText("BACKLIGHT \(position)", "PRESS LIT BUTTON", "OR RED KEY", "IF NOTHING LIT")
-            print("backlight position \(position): press the lit button …")
-            inputs.drain()
-            waiting: while true {
-                guard let item = inputs.next() else { continue }
-                switch item {
-                    case let .surface(_, events, rising):
-                        guard let first = rising.first else { continue }
-                        let name = buttonName(in: events)
-                        log.add("backlight \(position): byte \(first.byte) mask 0x\(DaemonLink.hex(first.mask)) decoder=\(name ?? "UNKNOWN")")
-                        break waiting
-                    case let .console(command):
-                        switch command {
-                            case "n":
-                                log.add("backlight \(position): nothing lit")
-                                break waiting
-                            case "s":
-                                log.add("backlight \(position): lit, but no pressable button")
-                                break waiting
-                            case "q":
-                                break position
-                            default:
-                                continue
-                        }
-                    case .midi:
-                        continue
-                }
-            }
-        }
-        for code: UInt8 in [0x01, 0x06, 0x0a, 0x10, 0x1e, 0x1f] {
-            write(backlights: [UInt8](repeating: code, count: 8))
-            link.showText("CODE 0x\(DaemonLink.hex(code))", "TYPE THE COLOUR", "GREEN KEY", "TO SKIP")
-            print("all backlights set to 0x\(DaemonLink.hex(code)) — type the colour you see (green key = skip):")
-            inputs.drain()
-            while true {
-                guard let item = inputs.next() else { continue }
-                if case let .console(answer) = item {
-                    if answer == "q" {
-                        write(backlights: [UInt8](repeating: 0, count: 8))
-                        return
-                    }
-                    log.add("backlight code 0x\(DaemonLink.hex(code)): \(answer.isEmpty ? "(skipped)" : answer)")
-                    break
-                }
-            }
-        }
-        write(backlights: [UInt8](repeating: 0, count: 8))
-        link.showText("BACKLIGHTS", "DONE")
     }
 
     // MARK: Live event monitor

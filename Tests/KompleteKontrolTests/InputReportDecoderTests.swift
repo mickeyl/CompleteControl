@@ -100,8 +100,9 @@ struct InputReportDecoderTests {
         current = previous
         current[24] = 0xe6
         current[25] = 0x03
+        // 0x0002 -> 0x03e6 wraps through the bench-verified 0…999 counter range: -4.
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.knob(index: 8, delta: -28, value: 0x03e6)])
+        #expect(events == [.knob(index: 8, delta: -4, value: 0x03e6)])
 
         previous = current
         previous[24] = 0xaf
@@ -162,20 +163,21 @@ struct InputReportDecoderTests {
     }
 
     @Test("MK2 pitch and mod HID mirrors do not remain raw")
-    func mk2PitchAndModHIDMirrorsDoNotRemainRaw() throws {
+    func mk2EncoderDeltaWrapsAtOneThousand() throws {
         var previous = try #require(Self.report(
-            "01 00 00 00 00 00 00 00 00 00 6c 01 5a 01 8d 03 c3 01 63 00 01 01 57 03 5d 02 00 00 00 00 06 24"
+            "01 00 00 00 00 00 00 00 00 00 e7 03 5a 01 8d 03 c3 01 63 00 01 01 57 03 5d 02 00 00 00 00 06 24"
         ))
-        previous += [0x00, 0x00, 0x00, 0x00]
         var current = previous
-        current[33] = 0x40
-        current[35] = 0x7f
+        current[10] = 0x02
+        current[11] = 0x00
 
         let events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [
-            .touchStrip(name: "pitch", value: 0x40),
-            .touchStrip(name: "mod", value: 0x7f),
-        ])
+        #expect(events == [.knob(index: 1, delta: 3, value: 2)])
+
+        previous = current
+        current[10] = 0xe7
+        current[11] = 0x03
+        #expect(KKMK2InputReportDecoder.events(previous: previous, current: current) == [.knob(index: 1, delta: -3, value: 999)])
     }
 
     @Test("MK2 jog scroll ignores activation edge")

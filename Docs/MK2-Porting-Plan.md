@@ -103,10 +103,14 @@ IF/EP 4 and carries msgpack, not pixels.
   32-byte HID report used by CompleteControl has its encoder values earlier: knob 1 starts at
   bytes `10/11`, then the remaining knobs continue as 16-bit little-endian pairs through
   bytes `24/25`.
-- The regular encoders report wrapped absolute counters rather than signed step bytes. The
-  observed S61 MK2 counter range wraps around `0x0000`/`0x03ff`; e.g. encoder 8 moved left
-  from `0x0002` to `0x03e6` and right from `0x03af` to `0x03b2`. Decode with wrapped deltas,
-  and show the signed delta separately from the raw absolute value in diagnostics.
+- The regular encoders report wrapped absolute counters rather than signed step bytes.
+  Calibrated 2026-07-02 across all 8 encoders: range is **0…999 (wrap modulo 1000**, matching
+  the descriptor's logical max — not 1024), CW = +, CCW = −, ~3-4 counts per slow-turn report.
+  Decode with wrapped deltas (modulo 1000), and show the signed delta separately from the raw
+  absolute value in diagnostics.
+- **The pitch/mod wheels are MIDI-only** (pitch bend ch 1 / CC1). Report `0x01` declares wheel
+  fields at bytes 26–29 but the firmware never populates them, in either mode; the "mirror at
+  offsets 33/35" from early notes was the `0xAA` report, which only streams in engine mode.
 - Encoder touch is byte `7`, with the mask order reversed from the natural index order:
   knob 1 = `0x80`, knob 2 = `0x40`, knob 3 = `0x20`, knob 4 = `0x10`, continuing downward.
 - The 4-D encoder rotation uses byte `30` as a low-nibble counter. Byte `6=0x04` marks the
@@ -176,12 +180,12 @@ A working Linux controller app for the same S61 MK2; hidapi + libusb, init = `A0
   second 4-bit counter, byte 31 an 8-bit counter (wrap 256) — semantics unknown.
 - The 8 function/menu buttons read their bits with the low three index bits XOR'd by 3
   (matches our function1–8 mask table from KompleteSynthesia).
-- **Button-LED (0x80) map confirmed 1:1 against our calibration sweep** (mute=0 … fixedvel=41),
-  and it fills our gaps: **menu/function buttons = LED indices 2–9**, `42/43 = octave` (their
-  guess), **44–68 = touch strip (25 LEDs, one more than our enum)**. jnlive actively drives
-  the menu LEDs through `0x80` — so those LEDs *do* work via `0x80` in mode `00 10` with no
-  `0xA1` ever written. Prime suspect for our dark function buttons: our all-off `0xA1`
-  (whose 8 backlight bytes, logical max 31, plausibly gate the same LEDs) or the engine mode.
+- **Button-LED (0x80) map now fully bench-verified** (2026-07-02 remainder check): mute=0,
+  solo=1, function buttons 2–9, 4-D arrows 10–13, shift=14, scaleedit=15 … fixedvel=41,
+  strip LEDs 44–68 (25). The only host-dark indices are 42/43 (octave down/up) — most likely
+  firmware state indicators for the keybed's own octave transposition (untested: whether they
+  light by themselves when octave is shifted in host mode). `KKMK2ButtonLED` matches this
+  table case-for-case.
 - LED byte encoding identical to ours (`(colorIndex+1)<<2 | intensity`), with a named palette:
   1=red, 2=brown, 3=orange, 4=amber, 5=yellow, 6=lime, 7=green, 8=mint, 9=cyan, 10=azure,
   11=blue, 12=violet, 13=magenta, 14=purple, 15/16=pink, 17=white.

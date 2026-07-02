@@ -57,7 +57,7 @@ func menu() {
       2) Encoder capture
       3) Live event monitor
       4) 4-D encoder / byte-6 capture
-      5) Function-button backlight probe
+      5) LED remainder check (arrows, shift, octave, strip 25)
       q) quit (writes session log)
     """)
 }
@@ -97,8 +97,8 @@ running: while true {
             CalibrationFlows.liveMonitor(link: link, inputs: inputs, log: log)
         case "4", "fourd", "4d":
             CalibrationFlows.fourDCapture(link: link, inputs: inputs, log: log)
-        case "5", "softkeys", "backlights":
-            CalibrationFlows.softButtonBacklightProbe(link: link, inputs: inputs, log: log)
+        case "5", "remainder", "leds2":
+            CalibrationFlows.ledRemainderCheck(link: link, inputs: inputs, log: log)
         case "q", "quit":
             break running
         default:

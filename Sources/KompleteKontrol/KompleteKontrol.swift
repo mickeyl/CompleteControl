@@ -3198,8 +3198,6 @@ public enum KompleteKontrolLibUSBServer {
                         return "\(name.uppercased()) \(pressed ? "DOWN" : "UP")"
                     case let .knob(index, delta, _):
                         return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
-                    case let .touchStrip(name, value):
-                        return "\(name.uppercased()) \(value)"
                     case let .jog(direction):
                         return "JOG \(direction.uppercased())"
                     case let .jogTouch(touched):

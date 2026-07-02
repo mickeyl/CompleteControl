@@ -250,8 +250,6 @@ private final class MK2DemoController: @unchecked Sendable {
                     view?.pulse("knob:\(index)")
                 case let .touchEncoder(index, touched):
                     view?.setActive("knobtouch:\(index)", active: touched)
-                case .touchStrip:
-                    view?.pulse("strip")
                 case .rawChanged:
                     break
             }

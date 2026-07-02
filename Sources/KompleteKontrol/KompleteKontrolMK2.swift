@@ -132,11 +132,14 @@ public enum KompleteKontrolDeviceModel: CaseIterable, Sendable {
     }
 }
 
+// Index map fully bench-verified 2026-07-02 (host-control mode) except octaveDown/Up,
+// which never lit from the host — most likely firmware state indicators for the keybed's
+// own octave transposition.
 public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     case m = 0, s, function1, function2, function3, function4, function5, function6, function7, function8
-    case jogLeft = 10, jogUp, jogDown, jogRight
-    case scaleEdit = 15, arpEdit, scene, undoRedo, quantize, auto, pattern, presetUp, track, loop, metro, tempo, presetDown, keyMode, play, record, stop, pageLeft, pageRight, clear, browser, plugin, mixer, instance, midi, setup, fixedVel, unused1, unused2
-    case strip1 = 44, strip2, strip3, strip4, strip5, strip6, strip7, strip8, strip9, strip10, strip11, strip12, strip13, strip14, strip15, strip16, strip17, strip18, strip19, strip20, strip21, strip22, strip23, strip24
+    case jogLeft = 10, jogUp, jogDown, jogRight, shift
+    case scaleEdit = 15, arpEdit, scene, undoRedo, quantize, auto, pattern, presetUp, track, loop, metro, tempo, presetDown, keyMode, play, record, stop, pageLeft, pageRight, clear, browser, plugin, mixer, instance, midi, setup, fixedVel, octaveDown, octaveUp
+    case strip1 = 44, strip2, strip3, strip4, strip5, strip6, strip7, strip8, strip9, strip10, strip11, strip12, strip13, strip14, strip15, strip16, strip17, strip18, strip19, strip20, strip21, strip22, strip23, strip24, strip25
 
     public var protocolName: String {
         switch self {
@@ -154,6 +157,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .jogUp: "jogup"
             case .jogDown: "jogdown"
             case .jogRight: "jogright"
+            case .shift: "shift"
             case .scaleEdit: "scaleedit"
             case .arpEdit: "arpedit"
             case .scene: "scene"
@@ -181,8 +185,8 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .midi: "midi"
             case .setup: "setup"
             case .fixedVel: "fixedvel"
-            case .unused1: "unused1"
-            case .unused2: "unused2"
+            case .octaveDown: "octavedown"
+            case .octaveUp: "octaveup"
             case .strip1: "strip1"
             case .strip2: "strip2"
             case .strip3: "strip3"
@@ -207,6 +211,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .strip22: "strip22"
             case .strip23: "strip23"
             case .strip24: "strip24"
+            case .strip25: "strip25"
         }
     }
 }
@@ -220,7 +225,6 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     /// Raw ribbon stream (host-control mode, report 0x02): position 0…1024, nil = release.
     case strip(position: Int?, time: Int)
     case knob(index: Int, delta: Int, value: Int)
-    case touchStrip(name: String, value: Int)
     case rawChanged(indices: [Int])
 
     public var description: String {
@@ -239,8 +243,6 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
                 "jog scroll \(delta > 0 ? "+" : "")\(delta) value=\(value)"
             case let .knob(index, delta, value):
                 "knob \(index) \(delta > 0 ? "+" : "")\(delta) value=\(value)"
-            case let .touchStrip(name, value):
-                "\(name) strip value=\(value)"
             case let .rawChanged(indices):
                 "raw changed \(indices.map(String.init).joined(separator: ","))"
         }
@@ -393,7 +395,9 @@ public enum KKMK2InputReportDecoder {
         for index in 0..<8 {
             let offset = knobBaseOffset + index * 2
             guard let old = word(previous, offset), let new = word(current, offset), old != new else { continue }
-            let delta = KKInputReportDecoder.wrappedDelta(from: old, to: new)
+            // Encoder counters run 0…999 (bench 2026-07-02); a 1024 modulo misdecodes
+            // deltas at the wrap point.
+            let delta = KKInputReportDecoder.wrappedDelta(from: old, to: new, modulo: 1000)
             if delta != 0 {
                 events.append(.knob(index: index + 1, delta: delta, value: new))
                 explained.insert(offset)
@@ -413,14 +417,8 @@ public enum KKMK2InputReportDecoder {
             explained.insert(encoderTouchOffset)
         }
 
-        if current.indices.contains(33), previous[33] != current[33] {
-            events.append(.touchStrip(name: "pitch", value: Int(current[33])))
-            explained.insert(33)
-        }
-        if current.indices.contains(35), previous[35] != current[35] {
-            events.append(.touchStrip(name: "mod", value: Int(current[35])))
-            explained.insert(35)
-        }
+        // The wheels are MIDI-only (pitch bend / CC1): report 0x01 declares fields for
+        // them at bytes 26-29 but the firmware never populates them (bench 2026-07-02).
 
         let changed = current.indices.filter { previous[$0] != current[$0] && !explained.contains($0) }
         if !changed.isEmpty {
