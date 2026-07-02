@@ -172,7 +172,7 @@ private actor MK2FeatureDemo {
                 bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "LIGHT GUIDE LAB", lines: ["ENC1 HUE \(Int(hue))", "ENC2 SPREAD \(spread)"], stripStart: 0),
-                    right: meterFrame(title: "KEY PALETTE", value: Double(spread) / 24, footer: lastEvent, stripStart: 4),
+                    right: lightGuideStatusFrame(),
                     lamps: lamps,
                     keyColors: lightGuideKeys(),
                     bindings: bindings
@@ -459,6 +459,19 @@ private actor MK2FeatureDemo {
             frame.stroke(rect, selected ? 0x0000 : 0xffff, width: 2)
             frame.drawText("\(item.rawValue + 1) \(item.short)", x: rect.x + 10, y: rect.y + 9, scale: 3, color: selected ? 0x0000 : 0xffff, maxWidth: rect.width - 18)
         }
+        return frame
+    }
+
+    // Both encoder targets as labelled bars: hue is circular (360 wraps to 0 — the bar
+    // wraps with it), spread is a plain 1…24 range.
+    private func lightGuideStatusFrame() -> MK2PixelFrame {
+        var frame = baseFrame(title: "HUE + SPREAD", lines: [lastEvent], stripStart: 4)
+        frame.drawText("HUE \(Int(hue))", x: 30, y: 116, scale: 2, color: 0xffff)
+        frame.horizontalBar(MK2PixelRect(x: 30, y: 136, width: 420, height: 26), value: hue / 360, fill: 0x07ff, track: 0x2104)
+        frame.stroke(MK2PixelRect(x: 30, y: 136, width: 420, height: 26), 0xffff, width: 2)
+        frame.drawText("SPREAD \(spread)", x: 30, y: 176, scale: 2, color: 0xffff)
+        frame.horizontalBar(MK2PixelRect(x: 30, y: 196, width: 420, height: 26), value: Double(spread - 1) / 23, fill: 0x07e0, track: 0x2104)
+        frame.stroke(MK2PixelRect(x: 30, y: 196, width: 420, height: 26), 0xffff, width: 2)
         return frame
     }
 
