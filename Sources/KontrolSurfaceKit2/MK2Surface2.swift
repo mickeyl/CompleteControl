@@ -404,18 +404,8 @@ public actor MK2Surface2 {
         pixelsRGB565: [UInt16],
         timeoutMs: UInt32
     ) -> String? {
-        // Preallocated big-endian conversion — appending 260k bytes one at a time was a
-        // measurable part of the per-tick actor stall in unoptimized builds.
-        let data = [UInt8](unsafeUninitializedCapacity: pixelsRGB565.count * 2) { buffer, initializedCount in
-            pixelsRGB565.withUnsafeBufferPointer { source in
-                for index in 0..<source.count {
-                    let pixel = source[index]
-                    buffer[index * 2] = UInt8(truncatingIfNeeded: pixel >> 8)
-                    buffer[index * 2 + 1] = UInt8(truncatingIfNeeded: pixel)
-                }
-            }
-            initializedCount = pixelsRGB565.count * 2
-        }
+        // Frame storage is already wire byte order (see MK2PixelFrame) — one memcpy.
+        let data = pixelsRGB565.withUnsafeBytes { Array($0) }
         let ok = displayClient?.sendDisplayBlit(
             screen: UInt8(screen & 0xff),
             x: UInt16(x & 0xffff),

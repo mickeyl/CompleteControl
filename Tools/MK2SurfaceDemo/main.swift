@@ -5,7 +5,7 @@ import KontrolSurfaceKit2
 @main
 struct MK2SurfaceDemo {
     static func main() async {
-        let surface = MK2Surface2(options: .init(tickHz: 24))
+        let surface = MK2Surface2(options: .init(tickHz: 60))
         let demo = MK2FeatureDemo(surface: surface)
         await surface.start()
         await demo.show(.overview)

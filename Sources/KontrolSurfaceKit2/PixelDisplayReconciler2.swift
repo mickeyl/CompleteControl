@@ -34,16 +34,26 @@ public struct PixelDisplayReconciler2: Sendable {
                 lastSent[screen] = frame.pixels
                 continue
             }
-            // Unchanged scenes keep their CoW buffer — this is an O(1) identity check.
-            if previous == frame.pixels {
+            // Unchanged scenes keep their CoW buffer — O(1) identity check; never an
+            // element-wise Array == (that cost milliseconds per tick in debug builds).
+            // Span.isIdentical(to:) is the idiomatic form once the deployment target
+            // reaches macOS 26; Array.span is unavailable below that.
+            let identical = previous.withUnsafeBufferPointer { prev in
+                frame.pixels.withUnsafeBufferPointer { cur in
+                    prev.baseAddress == cur.baseAddress && prev.count == cur.count
+                }
+            }
+            if identical {
                 continue
             }
-            if let band = Self.dirtyRowBand(previous: previous, current: frame.pixels) {
-                let width = MK2PixelFrame.width
-                let pixels = Array(frame.pixels[(band.lowerBound * width)..<((band.upperBound + 1) * width)])
-                let rect = MK2PixelRect(x: 0, y: band.lowerBound, width: width, height: band.count)
-                blits.append(MK2PixelBlit(screen: screen, rect: rect, pixels: pixels))
+            guard let band = Self.dirtyRowBand(previous: previous, current: frame.pixels) else {
+                lastSent[screen] = frame.pixels
+                continue
             }
+            let width = MK2PixelFrame.width
+            let pixels = Array(frame.pixels[(band.lowerBound * width)..<((band.upperBound + 1) * width)])
+            let rect = MK2PixelRect(x: 0, y: band.lowerBound, width: width, height: band.count)
+            blits.append(MK2PixelBlit(screen: screen, rect: rect, pixels: pixels))
             lastSent[screen] = frame.pixels
         }
         return blits

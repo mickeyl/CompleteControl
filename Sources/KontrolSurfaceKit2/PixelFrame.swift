@@ -40,31 +40,49 @@ public struct MK2PixelBlit: Sendable, Equatable {
     }
 }
 
+/// A drawing surface whose pixel storage is kept in wire byte order (big-endian
+/// RGB565): colours are swapped once per draw call instead of once per pixel per
+/// blit, so shipping a frame to the daemon is a plain memcpy. The hot paths use
+/// bulk libc operations (memset_pattern4/memcmp/memcpy) deliberately — they keep
+/// their speed in unoptimized builds, where per-element Swift loops do not.
+/// Deliberately copyable: the reconciler's O(1) unchanged-frame detection relies
+/// on CoW buffer identity across copies.
 public struct MK2PixelFrame: Sendable, Equatable {
     public static let width = KompleteKontrolMK2Protocol.displayWidth
     public static let height = KompleteKontrolMK2Protocol.displayHeight
     public static let bounds = MK2PixelRect(x: 0, y: 0, width: width, height: height)
 
+    /// Storage in wire byte order — feed it to a blit verbatim; use the subscript for
+    /// host-order pixel values.
     public private(set) var pixels: [UInt16]
 
     public init(fill color: UInt16 = 0x0000) {
-        pixels = Array(repeating: color, count: Self.width * Self.height)
+        pixels = Array(repeating: color.bigEndian, count: Self.width * Self.height)
     }
 
     public subscript(x: Int, y: Int) -> UInt16 {
-        get { pixels[y * Self.width + x] }
+        get { UInt16(bigEndian: pixels[y * Self.width + x]) }
         set {
             guard (0..<Self.width).contains(x), (0..<Self.height).contains(y) else { return }
-            pixels[y * Self.width + x] = newValue
+            pixels[y * Self.width + x] = newValue.bigEndian
         }
     }
 
     public mutating func fill(_ rect: MK2PixelRect, _ color: UInt16) {
         guard let clipped = rect.clipped(to: Self.bounds) else { return }
-        for y in clipped.y..<clipped.maxY {
-            let start = y * Self.width + clipped.x
-            pixels.replaceSubrange(start..<(start + clipped.width), with: repeatElement(color, count: clipped.width))
+        var pattern = patternPair(color.bigEndian)
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for y in clipped.y..<clipped.maxY {
+                memset_pattern4(base + y * Self.width + clipped.x, &pattern, clipped.width * 2)
+            }
         }
+    }
+
+    // A 4-byte pattern of the same stored pixel twice: any 2-byte-aligned offset into
+    // the repeated pattern still yields that pixel, so memset_pattern4 works at odd x.
+    private func patternPair(_ stored: UInt16) -> UInt32 {
+        UInt32(stored) | (UInt32(stored) << 16)
     }
 
     public mutating func stroke(_ rect: MK2PixelRect, _ color: UInt16, width: Int = 1) {
@@ -105,35 +123,57 @@ public struct MK2PixelFrame: Sendable, Equatable {
         maxWidth: Int? = nil
     ) {
         let scale = max(1, scale)
+        var pattern = patternPair(color.bigEndian)
         var cursor = x
         let limit = maxWidth.map { x + $0 } ?? Self.width
-        for char in text.uppercased() {
-            if cursor >= limit { break }
-            if char == " " {
-                cursor += 4 * scale
-                continue
-            }
-            let rows = MK2PixelFont.rows(for: char)
-            for row in 0..<rows.count {
-                let bits = rows[row]
-                for column in 0..<5 where (bits & (1 << (4 - column))) != 0 {
-                    fill(
-                        MK2PixelRect(
-                            x: cursor + column * scale,
-                            y: y + row * scale,
-                            width: scale,
-                            height: scale
-                        ),
-                        color
-                    )
+        let chars = Array(text.uppercased())
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for char in chars {
+                if cursor >= limit { break }
+                if char == " " {
+                    cursor += 4 * scale
+                    continue
                 }
+                let rows = MK2PixelFont.rows(for: char)
+                for row in 0..<rows.count {
+                    let bits = rows[row]
+                    // Adjacent set bits merge into one horizontal run per glyph row.
+                    var column = 0
+                    while column < 5 {
+                        guard (bits & (1 << (4 - column))) != 0 else {
+                            column += 1
+                            continue
+                        }
+                        var runEnd = column
+                        while runEnd + 1 < 5, (bits & (1 << (4 - (runEnd + 1)))) != 0 {
+                            runEnd += 1
+                        }
+                        let runX = cursor + column * scale
+                        let runWidth = (runEnd - column + 1) * scale
+                        let clippedX = max(0, runX)
+                        let clippedWidth = min(runX + runWidth, min(limit, Self.width)) - clippedX
+                        if clippedWidth > 0 {
+                            for subRow in 0..<scale {
+                                let py = y + row * scale + subRow
+                                guard py >= 0, py < Self.height else { continue }
+                                memset_pattern4(base + py * Self.width + clippedX, &pattern, clippedWidth * 2)
+                            }
+                        }
+                        column = runEnd + 1
+                    }
+                }
+                cursor += 6 * scale
             }
-            cursor += 6 * scale
         }
     }
 
     public func pixels(in rect: MK2PixelRect) -> [UInt16] {
         guard let clipped = rect.clipped(to: Self.bounds) else { return [] }
+        // Full-width rects are contiguous storage: a single memcpy.
+        if clipped.x == 0, clipped.width == Self.width {
+            return Array(pixels[(clipped.y * Self.width)..<(clipped.maxY * Self.width)])
+        }
         var result: [UInt16] = []
         result.reserveCapacity(clipped.width * clipped.height)
         for y in clipped.y..<clipped.maxY {
