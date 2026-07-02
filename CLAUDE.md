@@ -150,6 +150,30 @@ show/stop) resets handlers + clears keys so nothing leaks between screens. Prefe
 - libusb output from callback context is fragile. For daemon-owned idle UI, schedule a flush from
   the reactor rather than writing synchronously in `pushInputToClients` / `pushMidiToClients`.
 
+## MK2 (S49/S61/S88) essentials — don't relearn these either
+
+Full protocol findings live in `Docs/MK2-Porting-Plan.md` §2; the bench hardware is an S61 MK2.
+The short version:
+
+- Surface HID input report `0x01` (buttons/encoders/wheels/4-D) streams unconditionally. The
+  analog controls (wheels, **touch strip**, pedals) and any knob/button **MIDI** go through an
+  **onboard mapping engine**: enable with `0xA0 93 00` (`0xA0 00 00` leaves it off — this was
+  the "dead ribbon" bug), configure via template reports `0xA1` (buttons+knobs), `0xA2`
+  (wheels+strip), `0xA3` (pedals), `0xA4` (keyzones), then `0xAF 00 02`.
+- Engine-on also wakes the factory rotary template (CC14–21); `ccd`'s `enableMK2MappingEngine`
+  writes an all-zero `0xA1` to keep the MIDI stream clean, plus the default `0xA2`
+  (strip = CC11 unipolar) at bring-up and reconnect.
+- Strip modes via `KompleteKontrolMK2Protocol.AnalogAssignment`: `.cc` = unipolar (holds value,
+  LEDs fill from left), `.pitchBend` = bipolar 14-bit (springs back to center, LEDs fan from
+  center, `decay` 0–8). Runtime switch: `KompleteKontrolSSeriesMK2.configureAnalogControls`.
+  Strip LEDs are firmware-animated — no per-LED writes exist or are needed.
+- Engine output arrives as USB-MIDI on EP `0x81` and mirrors in HID report `0xAA` (51 bytes:
+  knobs at `17+2i`, pitch wheel u16le at 33/34, strip CC at 37). The declared HID input report
+  `0x02` never streams in any tested mode. The full HID report descriptor is readable without
+  claiming the device: `ioreg -l` → `ReportDescriptor`.
+- Byte layouts are pinned in `Tests/KompleteKontrolTests/MK2AnalogAssignmentTests.swift` —
+  changing them means re-benching on hardware.
+
 ## Concurrency notes
 
 The kit target is **Swift language mode v5** (relaxed strict-concurrency). The reactive path shares

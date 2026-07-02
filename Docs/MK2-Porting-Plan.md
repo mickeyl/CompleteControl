@@ -9,9 +9,10 @@ job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling ge
 > against the community driver sources, and the first real-device bench confirmed that
 > CompleteControl can drive an S61 MK2 without NI software through the privileged `ccd`
 > daemon: persistent libusb ownership, bulk display blits, HID button/light-guide output,
-> surface input, and USB-MIDI input all work. Remaining work is now narrower: finish validating
-> the MK2 input bit table and identify why the ribbon/touch strip is not yet producing daemon
-> input.
+> surface input, and USB-MIDI input all work. **The ribbon/touch strip mystery is solved**
+> (2026-07-02 hardware session): the strip is driven by an onboard MIDI mapping engine that
+> must be enabled with `0xA0 93 00` and configured via output report `0xA2` — see
+> §2 "Onboard MIDI mapping engine". `ccd` now does both at session bring-up.
 
 ## TL;DR
 
@@ -114,11 +115,46 @@ IF/EP 4 and carries msgpack, not pixels.
 - The first hardware pass resolved these additional button swaps: browser = byte `5`/`0x04`,
   mixer = byte `5`/`0x01`, octave down = byte `8`/`0x01`, octave up = byte `8`/`0x02`,
   fixed velocity = byte `8`/`0x04`.
-- Encoders, encoder-touch, and the 4-D jog wheel arrive in report `0x01`. Pitch bend and CC1
-  also emit HID mirror bytes at offsets `33` and `35` respectively in addition to USB-MIDI.
-  The touch strip did not produce a dedicated HID or USB-MIDI event in the live daemon session,
-  even after pressing the hardware MIDI button; only unrelated encoder value drift appeared.
-  The strip may require an additional device-mode/init report or a not-yet-claimed input path.
+- Encoders, encoder-touch, and the 4-D jog wheel arrive in report `0x01` (32 bytes incl. ID:
+  9 button-bit bytes, 8×u16le knobs @10, 2×u16le wheels @26, 4-D nibbles @30, 1 aux byte).
+  The "pitch mirror at offset 33" seen earlier is **not** report `0x01` — it is report `0xAA`.
+
+### Onboard MIDI mapping engine — wheels, touch strip, pedals (verified on hardware 2026-07-02)
+
+The analog controls are driven by a mapping engine inside the firmware; the host writes
+templates, the firmware emits USB-MIDI itself. With the engine off (our old init) the strip is
+completely dead — no HID, no MIDI. Verified live on the S61 MK2 through the `ccd` socket:
+
+- **`0xA0` takes mode flags.** `A0 00 00` (SynthesiaKontrol heritage) leaves the mapping engine
+  *off*; **`A0 93 00`** (from a captured NI init, jnlive) switches it *on* — the strip started
+  emitting 1.4 s after this single write, with the `0xA2` config already latched. NI's full init
+  also uses `A0 10 00` at the end (semantics unknown). LEDs/light-guide/displays keep working in
+  mode `93`.
+- **Turning the engine on also activates the factory MIDI-mode template for the rotaries**
+  (CC14–21) and potentially the buttons. Those live in their own template, **`0xA1`**
+  (203-byte payload: 8 buttons ×12 + 8 knobs ×12 + 8 backlight + 3 trailer); an **all-zero
+  `0xA1` suppresses them** without affecting the HID `0x01` stream. `ccd` writes this at
+  bring-up so the DAW-mode MIDI stream stays clean.
+- **`0xA2` (44-byte payload)** = three 12-byte slots — pitch wheel, mod wheel, touch strip — plus
+  an 8-byte trailer. Slot types: `0x00` off, `0x03` CC (`03 cc# ch 20 min 00 max 00 …`), `0x06`
+  14-bit pitch bend (`06 00 ch 00 00 00 ff 3f 00 00 01 00`), `0x08` "host-only" (qKontrol;
+  behaved like `0x03` in our bench). Trailer: byte 0 = pitch-bend decay (8−n), byte 3 = strip LED
+  zero point (`0x00` left origin, `0x02` center origin). `0xA1`/`0xA3`/`0xA4` are the sibling
+  templates (buttons+knobs / pedals / keyzones, qKontrol layouts); `0xAF 00 02` follows the
+  template block in NI's init (commit-ish; not required for `0xA2`+`A0 93 00` to take effect).
+- **Strip data arrives as regular USB-MIDI** on EP `0x81` (CC 7-bit or pitch-bend 14-bit on the
+  configured channel — prefer pitch bend on a dedicated channel for resolution) **and mirrors in
+  HID input report `0xAA`** (51 bytes; knob values at `17+2i` per qKontrol, pitch wheel u16le at
+  33/34 — `0x2000` center, strip CC value at 37). `0xAA` only streams while the engine is on.
+- **Strip LEDs are firmware-animated** — follow-finger in CC mode (left origin), bidirectional
+  from center with spring-back in pitch mode. No per-LED host writes needed.
+- The declared HID input report `0x02` (2×u16 @11-bit + 3×u16) never appeared in any tested
+  mode; on sibling devices it carries the high-rate touch stream (JAM strips, MK3 pads). Not
+  needed — pitch-bend mode already gives 14-bit — but it may hide behind an untested `0xA0` flag.
+- The config survives a daemon restart (device stays powered), but the engine must be re-enabled
+  after every `A0 00 00`. `ccd`'s `enableMK2MappingEngine` (bring-up + reconnect) sends
+  `A0 93 00`, all-off `0xA1` (knob/button CC suppression), the default `0xA2` map (pitch
+  wheel = PB ch 1, mod = CC1, strip = CC11), then `AF 00 02`.
 
 ### Ownership
 - macOS: NI background services (Hardware Agent / Host Integration) must release the device
@@ -183,8 +219,8 @@ Initial hardware bench status:
 - **Done:** surface input and USB-MIDI input arrive as daemon push messages.
 - **Done/in validation:** main surface button bits, encoder value pairs, and encoder touch masks
   are mapped from the 2026-07-01 S61 MK2 daemon session.
-- **Open:** the ribbon/touch strip currently produces no observed daemon input; verify whether
-  it is a hidden mode, a MIDI-template dependency, or requires an additional init report.
+- **Done:** the ribbon/touch strip is resolved — it was both a hidden mode (`A0 93 00`) *and* a
+  MIDI-template dependency (`0xA2`); see §2 "Onboard MIDI mapping engine".
 - **Done:** `MK2USBSpy` can dump the full MK2 USB topology, HID report descriptor, claim all
   interfaces, and print packets from every readable IN endpoint.
 
@@ -192,15 +228,13 @@ Remaining bench items:
 
 1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept rate.
    Then measure a 480×40 strip. This is the go/no-go for "smooth".
-2. **Finish touch-strip investigation.** Display, primary HID surface, and USB-MIDI are
-   confirmed through persistent libusb. The S61 MK2 descriptor exposed one HID interrupt-IN
-   endpoint (`0x82`) plus one HID interrupt-OUT endpoint (`0x02`) on interface 2 and USB-MIDI
-   input `0x81` on interface 1; no aux HID input endpoint was present. If the touch strip stays
-   absent, investigate mode/init reports before falling back to NI MIDI-template assumptions.
-   A full `MK2USBSpy` run confirmed that claiming all interfaces still exposes only readable
-   endpoints `0x81` and `0x82`; ribbon-only movement produced no packet on either endpoint.
-   The HID report descriptor does advertise several non-`0x01` input/feature reports, so the
-   next probe should read/set feature reports rather than look for another pipe.
+2. **Touch strip: done** (see §2 "Onboard MIDI mapping engine"). The driver exposes
+   `KompleteKontrolMK2Protocol.AnalogAssignment` (`.off` / `.cc` unipolar / `.pitchBend`
+   bipolar) with `wheelStripMapPayload(pitchWheel:modWheel:strip:)`, and clients can switch at
+   runtime through `KompleteKontrolSSeriesMK2.configureAnalogControls(...)`. Remaining
+   niceties: surface this in the `KontrolSurfaceKit` DSL, and decode the `0xAA` mirror. The full HID report descriptor is readable
+   without claiming the device (`ioreg -l` → `ReportDescriptor` property); it also declares
+   feature reports `0xD0/0xD8/0xD9/0xF0/0xF1/0xF8/0xF9` (version/config blocks, unexplored).
 3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
    250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
    and a quick palette-index sanity sweep against `kMK2Palette`.
@@ -233,6 +267,10 @@ not paraphrased from memory or third-hand notes.
 - `tillt/KompleteSynthesia` — `HIDController.{h,m}`, `USBController.m` (init `0xA0`, light guide
   `0x81` 1-byte/key palette, buttons `0x80`, device table keys/offset, MK2 colour palette,
   bulk IF/EP MK2=3 / MK3=4): https://github.com/tillt/KompleteSynthesia
+- `joostn/jnlive` — `test1/komplete.md`: full S61 MK2 HID report descriptor dump + a captured
+  init sequence of NI's Komplete Kontrol software (`A0 93 00`, template block `A4/A1/A2/A3`,
+  `AF 00 02`, `A0 10 00`) — the source of the mapping-engine mode flags:
+  https://github.com/joostn/jnlive/blob/master/test1/komplete.md
 - **NI `KKS_MK2_Firmware_Updater.app` v1.4.0 (R205)** — device identity cross-check only:
   confirms VID `0x17cc` + PIDs `0x1610/20/30` in NI's own device table, and that the MK2 USB
   controller is **XMOS** (firmware is composite USB-DFU on the same PID). Carries no operational

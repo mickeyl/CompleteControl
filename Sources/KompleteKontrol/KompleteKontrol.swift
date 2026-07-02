@@ -2961,7 +2961,7 @@ public enum KompleteKontrolLibUSBServer {
             guard let session = ensureSession(forceOpen: forceOpen) else { return false }
             daemonLog("hardware session reconnected", group: "usb")
             if isMK2(session) {
-                writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: [0x00, 0x00])
+                enableMK2MappingEngine(session: session)
             } else {
                 writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
             }
@@ -3064,9 +3064,16 @@ public enum KompleteKontrolLibUSBServer {
             KontrolUSBLibUSBSessionGeneration(session) == 2
         }
 
+        private func enableMK2MappingEngine(session: KontrolUSBLibUSBSessionRef) {
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: KompleteKontrolMK2Protocol.initModeMappingEngineOn)
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonKnobMapReportID, payload: KompleteKontrolMK2Protocol.allOffButtonKnobMapPayload)
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.wheelStripMapReportID, payload: KompleteKontrolMK2Protocol.defaultWheelStripMapPayload)
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.mapCommitReportID, payload: KompleteKontrolMK2Protocol.mapCommitPayload)
+        }
+
         private func runMK2StartupAnimation(session: KontrolUSBLibUSBSessionRef) {
             daemonLog("MK2 startup animation begin", group: "mk2")
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: [0x00, 0x00])
+            enableMK2MappingEngine(session: session)
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x7f))
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2RainbowLightGuidePayload(session: session))
 

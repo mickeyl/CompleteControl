@@ -7,7 +7,62 @@ import KontrolUSB
 public enum KompleteKontrolMK2Protocol {
     public static let vendorID = 0x17cc
     public static let initReportID: UInt8 = 0xa0
+    // 0xa0 takes mode flags: [0x00, 0x00] leaves the onboard MIDI mapping engine off,
+    // [0x93, 0x00] (observed from NI's own init) switches it on. Without the engine the
+    // touch strip and the wheel/pedal templates stay completely silent.
+    public static let initModeMappingEngineOn: [UInt8] = [0x93, 0x00]
+    public static let initModeMappingEngineOff: [UInt8] = [0x00, 0x00]
     public static let inputReportID: UInt32 = 0x01
+    public static let controllerMirrorReportID: UInt8 = 0xaa
+    public static let wheelStripMapReportID: UInt8 = 0xa2
+    // Buttons+knobs template: 8 buttons x12 + 8 knobs x12 + 8 backlight + 3 trailer bytes.
+    // All-off suppresses the factory MIDI-mode template (rotaries CC14-21) that becomes
+    // active as soon as the mapping engine is on; HID report 0x01 is unaffected.
+    public static let buttonKnobMapReportID: UInt8 = 0xa1
+    public static let allOffButtonKnobMapPayload = [UInt8](repeating: 0x00, count: 203)
+    public static let mapCommitReportID: UInt8 = 0xaf
+    public static let mapCommitPayload: [UInt8] = [0x00, 0x02]
+
+    /// One assignment slot of the onboard mapping engine (report 0xa2 carries three:
+    /// pitch wheel, mod wheel, touch strip).
+    public enum AnalogAssignment: Sendable {
+        /// The control emits nothing; for the strip the LEDs stay dark.
+        case off
+        /// Unipolar: 0…127 on the given CC/channel, LEDs fill from the left,
+        /// the value holds where the finger lifts.
+        case cc(number: UInt8, channel: UInt8 = 0, min: UInt8 = 0, max: UInt8 = 0x7f)
+        /// Bipolar: 14-bit pitch bend, LEDs fan out from the center, springs back
+        /// to center on release. `decay` 0…8 sets the return speed (smaller = slower).
+        case pitchBend(channel: UInt8 = 0, decay: UInt8 = 4)
+
+        var slotBytes: [UInt8] {
+            switch self {
+                case .off:
+                    [UInt8](repeating: 0x00, count: 12)
+                case let .cc(number, channel, min, max):
+                    [0x03, number & 0x7f, channel & 0x0f, 0x20, min & 0x7f, 0x00, max & 0x7f, 0x00, 0x00, 0x00, 0x00, 0x00]
+                case let .pitchBend(channel, _):
+                    [0x06, 0x00, channel & 0x0f, 0x00, 0x00, 0x00, 0xff, 0x3f, 0x00, 0x00, 0x01, 0x00]
+            }
+        }
+    }
+
+    public static func wheelStripMapPayload(
+        pitchWheel: AnalogAssignment = .pitchBend(),
+        modWheel: AnalogAssignment = .cc(number: 1),
+        strip: AnalogAssignment = .cc(number: 11)
+    ) -> [UInt8] {
+        // Trailer byte 0 = pitch-bend decay, byte 3 = strip LED zero point
+        // (0x00 left origin for unipolar, 0x02 center origin for bipolar).
+        let trailer: [UInt8] = if case let .pitchBend(_, decay) = strip {
+            [min(decay, 8), 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00]
+        } else {
+            [UInt8](repeating: 0x00, count: 8)
+        }
+        return pitchWheel.slotBytes + modWheel.slotBytes + strip.slotBytes + trailer
+    }
+
+    public static let defaultWheelStripMapPayload: [UInt8] = wheelStripMapPayload()
     public static let buttonLEDReportID: UInt8 = 0x80
     public static let lightGuideReportID: UInt8 = 0x81
     public static let lightGuideReportSize = 250
@@ -495,6 +550,35 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
             return KKUSBResult(status: 0, message: response)
         }
         return KKUSBResult(status: -1, message: response)
+    }
+
+    @discardableResult
+    public func configureAnalogControls(
+        pitchWheel: KompleteKontrolMK2Protocol.AnalogAssignment = .pitchBend(),
+        modWheel: KompleteKontrolMK2Protocol.AnalogAssignment = .cc(number: 1),
+        strip: KompleteKontrolMK2Protocol.AnalogAssignment = .cc(number: 11)
+    ) -> KKUSBResult {
+        guard ensureDaemonAvailable() else {
+            return KKUSBResult(status: -1, message: "Komplete Kontrol daemon unavailable")
+        }
+        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+            return KKUSBResult(status: -1, message: "Komplete Kontrol daemon socket unavailable")
+        }
+        let payload = KompleteKontrolMK2Protocol.wheelStripMapPayload(pitchWheel: pitchWheel, modWheel: modWheel, strip: strip)
+        let writes: [(UInt8, [UInt8])] = [
+            (KompleteKontrolMK2Protocol.wheelStripMapReportID, payload),
+            (KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload),
+        ]
+        for (reportID, bytes) in writes {
+            let line = (["write", KKHex.byte(reportID)] + bytes.map(KKHex.byte)).joined(separator: " ") + "\n"
+            guard let response = client.request(line, timeoutUsec: 3_000_000) else {
+                return KKUSBResult(status: -1, message: "Komplete Kontrol daemon timed out")
+            }
+            guard response == "ok" else {
+                return KKUSBResult(status: -1, message: response)
+            }
+        }
+        return KKUSBResult(status: 0, message: "ok")
     }
 
     public static func rgb565(_ color: KKRGB) -> UInt16 {
