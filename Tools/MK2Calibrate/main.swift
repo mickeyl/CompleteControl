@@ -19,8 +19,6 @@ print("connected: \(version)")
 print("session: \(status)")
 
 let inputs = FlowInputQueue()
-// S88 light guide starts at note 21 (A-1), the 49/61 keybeds at note 36 (C1).
-inputs.commandBaseNote = status.contains("S88") ? 21 : 36
 inputs.attach(to: link)
 let log = SessionLog()
 
@@ -40,13 +38,15 @@ link.onDeviceEvent = { [weak link] event in
     }
 }
 
+link.buttonLabels = FlowInputQueue.buttonLabelSlots
 CalibrationFlows.lightCommandKeys(link: link)
+link.showText("MK2 CALIBRATE", "SELECT FLOW")
 print("""
 
-Command keys are lit on the bottom octave — answer on the keybed, not the computer:
+Command keys are the function buttons above the displays (lit + labelled):
 """)
 for key in FlowInputQueue.commandKeys {
-    print("  key +\(key.offset): \(key.label)")
+    print("  \(key.button): \(key.label)")
 }
 
 func menu() {

@@ -15,17 +15,25 @@ final class FlowInputQueue {
     private var items: [Item] = []
     private var previousReport: [UInt8]?
 
-    /// MIDI note of light-guide key 0; command keys sit on the bottom octave so the
-    /// hands never have to leave the hardware.
-    var commandBaseNote = 36
-    static let commandKeys: [(offset: Int, command: String, label: String, color: KKRGB)] = [
-        (0, "", "DONE", KKRGB(red: 0x00, green: 0xff, blue: 0x00)),
-        (2, "n", "NOTHING LIT", KKRGB(red: 0xff, green: 0x00, blue: 0x00)),
-        (4, "s", "LIT NO BUTTON", KKRGB(red: 0xff, green: 0x7f, blue: 0x00)),
-        (5, "r", "REPEAT", KKRGB(red: 0x00, green: 0x00, blue: 0xff)),
-        (7, "b", "BACK", KKRGB(red: 0xff, green: 0x00, blue: 0xff)),
-        (9, "q", "QUIT FLOW", KKRGB(red: 0xff, green: 0xff, blue: 0xff)),
+    /// Command answers live on the function buttons above the displays; their LEDs
+    /// (0x80 indices 2–9, host-controlled in mode A0 00 10) show the command colours and
+    /// `shortLabel` renders under each button on the displays (fits a 120px slot at scale 2).
+    static let commandKeys: [(button: String, command: String, label: String, shortLabel: String, slot: Int, ledIndex: Int, color: KKRGB)] = [
+        ("function1", "", "DONE", "DONE", 0, 2, KKRGB(red: 0x00, green: 0xff, blue: 0x00)),
+        ("function2", "n", "NOTHING LIT", "NONE", 1, 3, KKRGB(red: 0xff, green: 0x00, blue: 0x00)),
+        ("function3", "s", "LIT NO BUTTON", "NO BTN", 2, 4, KKRGB(red: 0xff, green: 0x7f, blue: 0x00)),
+        ("function4", "r", "REPEAT", "REPEAT", 3, 5, KKRGB(red: 0x00, green: 0x00, blue: 0xff)),
+        ("function5", "b", "BACK", "BACK", 4, 6, KKRGB(red: 0xff, green: 0x00, blue: 0xff)),
+        ("function8", "q", "QUIT FLOW", "QUIT", 7, 9, KKRGB(red: 0xff, green: 0xff, blue: 0xff)),
     ]
+
+    static var buttonLabelSlots: [String] {
+        var slots = [String](repeating: "", count: 8)
+        for key in commandKeys {
+            slots[key.slot] = key.shortLabel
+        }
+        return slots
+    }
 
     func attach(to link: DaemonLink) {
         link.onSurfaceReport = { [weak self] raw in
@@ -56,26 +64,47 @@ final class FlowInputQueue {
     }
 
     private func ingest(_ raw: [UInt8]) {
-        guard raw.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) else {
-            // 0xAA mirrors flood at input rate — everything else (e.g. the raw strip
-            // report 0x02) is protocol news and worth surfacing verbatim.
-            if raw.first != KompleteKontrolMK2Protocol.controllerMirrorReportID {
+        switch raw.first {
+            case UInt8(KompleteKontrolMK2Protocol.inputReportID):
+                break
+            case KompleteKontrolMK2Protocol.stripReportID:
+                let events = KKMK2InputReportDecoder.stripEvents(current: raw)
+                if !events.isEmpty {
+                    push(.surface(raw: raw, events: events, risingBits: []))
+                }
+                return
+            case KompleteKontrolMK2Protocol.controllerMirrorReportID:
+                return
+            default:
                 let hex = raw.map { String(format: "%02x", $0) }.joined(separator: " ")
                 push(.midi("hid report \(hex)"))
-            }
-            return
+                return
         }
         let previous = previousReport
         previousReport = raw
-        let events = KKMK2InputReportDecoder.events(previous: previous, current: raw)
+        var events = KKMK2InputReportDecoder.events(previous: previous, current: raw)
+        // Function buttons are the command keys — divert them and keep them out of the
+        // flows' binding captures (their bits all live in byte 1).
+        var commands: [String] = []
+        events.removeAll { event in
+            guard case let .button(name, pressed) = event,
+                  let key = Self.commandKeys.first(where: { $0.button == name }) else { return false }
+            if pressed {
+                commands.append(key.command)
+            }
+            return true
+        }
         var rising: [(byte: Int, mask: UInt8)] = []
         if let previous {
-            for byte in 1...9 where raw.indices.contains(byte) && previous.indices.contains(byte) {
+            for byte in 2...9 where raw.indices.contains(byte) && previous.indices.contains(byte) {
                 let fresh = raw[byte] & ~previous[byte]
                 for bit in 0..<8 where (fresh & (1 << bit)) != 0 {
                     rising.append((byte: byte, mask: 1 << bit))
                 }
             }
+        }
+        for command in commands {
+            push(.console(command))
         }
         guard !events.isEmpty || !rising.isEmpty else { return }
         push(.surface(raw: raw, events: events, risingBits: rising))
@@ -83,19 +112,7 @@ final class FlowInputQueue {
 
     private func ingestMIDI(_ packet: [UInt8]) {
         for start in stride(from: 0, to: packet.count - 3, by: 4) {
-            let status = packet[start + 1]
-            let d1 = packet[start + 2]
-            let d2 = packet[start + 3]
-            if status & 0xf0 == 0x90 || status & 0xf0 == 0x80 {
-                let offset = Int(d1) - commandBaseNote
-                if let key = Self.commandKeys.first(where: { $0.offset == offset }) {
-                    if status & 0xf0 == 0x90, d2 > 0 {
-                        push(.console(key.command))
-                    }
-                    continue
-                }
-            }
-            if let text = Self.describeMIDI(status: status, d1: d1, d2: d2) {
+            if let text = Self.describeMIDI(status: packet[start + 1], d1: packet[start + 2], d2: packet[start + 3]) {
                 push(.midi(text))
             }
         }
@@ -170,17 +187,24 @@ enum CalibrationFlows {
         return nil
     }
 
-    // MARK: Command keys on the light guide
+    // MARK: Command keys on the function buttons
+
+    /// Base 0x80 map with the command colours on the function-button LEDs; flows overlay
+    /// their own lighting on top of this instead of starting from all-off.
+    static var commandLEDBaseMap: [UInt8] {
+        var map = [UInt8](repeating: 0, count: ledMapSize)
+        for key in FlowInputQueue.commandKeys {
+            map[key.ledIndex] = KompleteKontrolSSeriesMK2.paletteCode(for: key.color)
+        }
+        return map
+    }
 
     static func lightCommandKeys(link: DaemonLink) {
-        var guide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
-        for key in FlowInputQueue.commandKeys {
-            guide[key.offset] = KompleteKontrolSSeriesMK2.paletteCode(for: key.color)
-        }
-        link.writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, guide)
+        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, commandLEDBaseMap)
     }
 
     static func clearCommandKeys(link: DaemonLink) {
+        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, [UInt8](repeating: 0, count: ledMapSize))
         link.writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize))
     }
 
@@ -198,7 +222,12 @@ enum CalibrationFlows {
         var bindings: [Int: (byte: Int, mask: UInt8, name: String?)] = [:]
         var index = 0
         sweep: while index < ledMapSize {
-            var map = [UInt8](repeating: 0, count: ledMapSize)
+            if (2...9).contains(index) {
+                log.add("LED \(index): function button (command key, known)")
+                index += 1
+                continue
+            }
+            var map = commandLEDBaseMap
             map[index] = KompleteKontrolSSeriesMK2.paletteCode(for: KKRGB(red: 0xff, green: 0xff, blue: 0xff))
             link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, map)
             let presumed = KKMK2ButtonLED(rawValue: index).map { " (\($0.protocolName)?)" } ?? ""
@@ -247,7 +276,7 @@ enum CalibrationFlows {
                 }
             }
         }
-        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, [UInt8](repeating: 0, count: ledMapSize))
+        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, commandLEDBaseMap)
         verifyCycle(link: link, inputs: inputs, log: log, bindings: bindings)
     }
 
@@ -263,7 +292,7 @@ enum CalibrationFlows {
             ("green", KompleteKontrolSSeriesMK2.paletteCode(for: KKRGB(red: 0x00, green: 0xff, blue: 0x00))),
             ("blue", KompleteKontrolSSeriesMK2.paletteCode(for: KKRGB(red: 0x00, green: 0x00, blue: 0xff))),
         ]
-        var map = [UInt8](repeating: 0, count: ledMapSize)
+        var map = commandLEDBaseMap
         var state = [Int: Int]()
         link.showText("VERIFY RGB", "PRESS BUTTONS", "WHITE KEY ENDS")
         print("\nVERIFY: press any bound button to cycle its LED (off/white/red/green/blue). White key = end.")
@@ -282,7 +311,7 @@ enum CalibrationFlows {
                     }
                 case let .console(command):
                     if command == "q" {
-                        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, [UInt8](repeating: 0, count: ledMapSize))
+                        link.writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, commandLEDBaseMap)
                         return
                     }
                 case .midi:

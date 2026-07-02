@@ -14,6 +14,7 @@ final class DaemonLink {
     private let requestLock = NSLock()
     private var pendingResponses: [String] = []
     fileprivate var lastTextLines = ["MK2 CALIBRATE", "", "", ""]
+    var buttonLabels: [String] = []
 
     init?(socketPath: String = "/var/run/kompletekontrol-libusb.sock") {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -109,11 +110,16 @@ extension DaemonLink {
     }
 
     /// Two lines per display; the daemon's 5x7 font covers 0-9 and A-Z minus J.
+    /// `buttonLabels` (8 slots) render under the physical function buttons on every frame.
     @discardableResult
     func showText(_ line0a: String, _ line0b: String, _ line1a: String = "", _ line1b: String = "") -> Bool {
         lastTextLines = [line0a, line0b, line1a, line1b]
-        let line = ["mk2text", Self.textToken(line0a), Self.textToken(line0b), Self.textToken(line1a), Self.textToken(line1b)].joined(separator: " ")
-        return request(line) == "ok"
+        var tokens = ["mk2text", Self.textToken(line0a), Self.textToken(line0b), Self.textToken(line1a), Self.textToken(line1b)]
+        if !buttonLabels.isEmpty {
+            tokens += ["001f", "f800"]
+            tokens += (0..<8).map { Self.textToken($0 < buttonLabels.count ? buttonLabels[$0] : "") }
+        }
+        return request(tokens.joined(separator: " ")) == "ok"
     }
 
     func reshowLastText() {

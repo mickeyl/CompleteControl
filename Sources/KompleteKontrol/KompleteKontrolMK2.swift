@@ -7,12 +7,17 @@ import KontrolUSB
 public enum KompleteKontrolMK2Protocol {
     public static let vendorID = 0x17cc
     public static let initReportID: UInt8 = 0xa0
-    // 0xa0 takes mode flags: [0x00, 0x00] leaves the onboard MIDI mapping engine off,
-    // [0x93, 0x00] (observed from NI's own init) switches it on. Without the engine the
-    // touch strip and the wheel/pedal templates stay completely silent.
+    // 0xa0 takes mode flags (bench 2026-07-02):
+    // [0x00, 0x10] = host-control mode — all LEDs (incl. function buttons + ribbon) are
+    //   host-driven via 0x80, and the strip streams raw on input report 0x02.
+    // [0x93, 0x00] = mapping-engine mode — the firmware owns function/ribbon LEDs and
+    //   generates MIDI from the 0xA1-0xA4 templates (the standalone-controller mode).
+    // [0x00, 0x00] = neither: strip and templates silent (the original "dead ribbon").
+    public static let initModeHostControl: [UInt8] = [0x00, 0x10]
     public static let initModeMappingEngineOn: [UInt8] = [0x93, 0x00]
     public static let initModeMappingEngineOff: [UInt8] = [0x00, 0x00]
     public static let inputReportID: UInt32 = 0x01
+    public static let stripReportID: UInt8 = 0x02
     public static let controllerMirrorReportID: UInt8 = 0xaa
     public static let wheelStripMapReportID: UInt8 = 0xa2
     // Buttons+knobs template: 8 buttons x12 + 8 knobs x12 + 8 backlight + 3 trailer bytes.
@@ -212,6 +217,8 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     case jog(direction: String)
     case jogTouch(touched: Bool)
     case jogScroll(delta: Int, value: Int)
+    /// Raw ribbon stream (host-control mode, report 0x02): position 0…1024, nil = release.
+    case strip(position: Int?, time: Int)
     case knob(index: Int, delta: Int, value: Int)
     case touchStrip(name: String, value: Int)
     case rawChanged(indices: [Int])
@@ -226,6 +233,8 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
                 "jog \(direction)"
             case let .jogTouch(touched):
                 "jog touch \(touched ? "on" : "off")"
+            case let .strip(position, time):
+                position.map { "strip \($0) t=\(time)" } ?? "strip release t=\(time)"
             case let .jogScroll(delta, value):
                 "jog scroll \(delta > 0 ? "+" : "")\(delta) value=\(value)"
             case let .knob(index, delta, value):
@@ -318,6 +327,25 @@ public enum KKMK2InputReportDecoder {
             return "k\(index + 1):\(value)"
         }.joined(separator: " ")
         return "head[\(head)] \(knobs)"
+    }
+
+    /// Report-ID-aware entry point: 0x01 = buttons/encoders/wheels, 0x02 = raw strip.
+    public static func eventsForReport(previous: [UInt8]?, current: [UInt8]) -> [KKMK2InputEvent] {
+        switch current.first {
+            case UInt8(KompleteKontrolMK2Protocol.inputReportID):
+                events(previous: previous?.first == current.first ? previous : nil, current: current)
+            case KompleteKontrolMK2Protocol.stripReportID:
+                stripEvents(current: current)
+            default:
+                []
+        }
+    }
+
+    /// Report 0x02 layout (bench 2026-07-02): [u16 const] [u16 const] [u16 time ms]
+    /// [u16 position 0…1024, 0 = release] [u16 zero]. Streams ~100 Hz while touched.
+    public static func stripEvents(current: [UInt8]) -> [KKMK2InputEvent] {
+        guard current.count >= 9, let time = word(current, 5), let position = word(current, 7) else { return [] }
+        return [.strip(position: position == 0 ? nil : position, time: time)]
     }
 
     public static func events(previous: [UInt8]?, current: [UInt8]) -> [KKMK2InputEvent] {
@@ -676,11 +704,16 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
         if bytes.first != UInt8(reportID & 0xff) {
             bytes.insert(UInt8(reportID & 0xff), at: 0)
         }
-        guard bytes.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) else { return }
-        let previous = lastReport
-        let events = KKMK2InputReportDecoder.events(previous: previous, current: bytes)
-        lastReport = bytes
-        onInputReport?(KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: KKTiming.now()))
+        if bytes.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) {
+            let previous = lastReport
+            let events = KKMK2InputReportDecoder.events(previous: previous, current: bytes)
+            lastReport = bytes
+            onInputReport?(KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: KKTiming.now()))
+            return
+        }
+        let events = KKMK2InputReportDecoder.eventsForReport(previous: nil, current: bytes)
+        guard !events.isEmpty else { return }
+        onInputReport?(KKMK2InputReport(bytes: bytes, previous: nil, events: events, receptionTimestamp: KKTiming.now()))
     }
 
     private static func openHIDDevice(seize: Bool, logOpen: Bool, logger: (@Sendable (String) -> Void)?) -> (manager: IOHIDManager, device: IOHIDDevice, model: KompleteKontrolDeviceModel, maxInputReportSize: Int, maxOutputReportSize: Int)? {

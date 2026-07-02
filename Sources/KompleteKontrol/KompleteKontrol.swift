@@ -2670,8 +2670,9 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         // Called with sessionIOLock held (must not use writeReport, which re-locks).
-        // Hands the keyboard back as a standalone controller: factory knob CCs restored,
-        // our LED/guide state cleared, displays blanked instead of frozen on stale frames.
+        // Hands the keyboard back as a standalone controller: mapping engine on with
+        // factory-like templates (knob CCs, wheels, strip CC11), our LED/guide state
+        // cleared, displays blanked instead of frozen on stale frames.
         private func restoreMK2StandaloneState(_ session: KontrolUSBLibUSBSessionRef) {
             guard KontrolUSBLibUSBSessionGeneration(session) == 2 else { return }
             func write(_ reportID: UInt8, _ payload: [UInt8]) {
@@ -2680,6 +2681,7 @@ public enum KompleteKontrolLibUSBServer {
                     KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
                 }
             }
+            write(KompleteKontrolMK2Protocol.initReportID, KompleteKontrolMK2Protocol.initModeMappingEngineOn)
             write(KompleteKontrolMK2Protocol.buttonKnobMapReportID, KompleteKontrolMK2Protocol.standaloneButtonKnobMapPayload)
             write(KompleteKontrolMK2Protocol.wheelStripMapReportID, KompleteKontrolMK2Protocol.defaultWheelStripMapPayload)
             write(KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload)
@@ -2743,8 +2745,9 @@ public enum KompleteKontrolLibUSBServer {
                 return "ok"
             }
 
-            // mk2text <line0a> <line0b> <line1a> <line1b> [accent0] [accent1]
-            // Lines are UTF8-hex ("-" = empty); accents are RGB565. Interim text path for
+            // mk2text <line0a> <line0b> <line1a> <line1b> [accent0] [accent1] [label0…label7]
+            // Lines/labels are UTF8-hex ("-" = empty); accents are RGB565. Labels render in a
+            // small font under the eight physical function buttons. Interim text path for
             // socket clients (e.g. MK2Calibrate) until a pixel blit command exists.
             if command == "mk2text" {
                 guard isMK2(session) else { return "err not mk2" }
@@ -2754,12 +2757,14 @@ public enum KompleteKontrolLibUSBServer {
                 }
                 let accent0 = UInt16((tokens.count > 5 ? KKHex.parse(tokens[5]) ?? 0x001f : 0x001f) & 0xffff)
                 let accent1 = UInt16((tokens.count > 6 ? KKHex.parse(tokens[6]) ?? 0xf800 : 0xf800) & 0xffff)
+                let labels = tokens.count > 7 ? tokens.dropFirst(7).prefix(8).map(text) : []
                 writeMK2IdleSurface(
                     session: session,
                     screen0: [text(tokens[1]), text(tokens[2])],
                     screen1: [text(tokens[3]), text(tokens[4])],
                     accent0: accent0,
-                    accent1: accent1
+                    accent1: accent1,
+                    buttonLabels: labels
                 )
                 return "ok"
             }
@@ -3021,7 +3026,7 @@ public enum KompleteKontrolLibUSBServer {
             guard let session = ensureSession(forceOpen: forceOpen) else { return false }
             daemonLog("hardware session reconnected", group: "usb")
             if isMK2(session) {
-                enableMK2MappingEngine(session: session)
+                configureMK2HostControl(session: session)
             } else {
                 writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
             }
@@ -3134,16 +3139,16 @@ public enum KompleteKontrolLibUSBServer {
             KontrolUSBLibUSBSessionGeneration(session) == 2
         }
 
-        private func enableMK2MappingEngine(session: KontrolUSBLibUSBSessionRef) {
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: KompleteKontrolMK2Protocol.initModeMappingEngineOn)
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonKnobMapReportID, payload: KompleteKontrolMK2Protocol.allOffButtonKnobMapPayload)
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.wheelStripMapReportID, payload: KompleteKontrolMK2Protocol.defaultWheelStripMapPayload)
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.mapCommitReportID, payload: KompleteKontrolMK2Protocol.mapCommitPayload)
+        // Host-control mode: all LEDs (function buttons + ribbon included) belong to the
+        // host via 0x80, and the ribbon streams raw on report 0x02. The mapping engine and
+        // its templates are only re-armed when the daemon hands the device back at shutdown.
+        private func configureMK2HostControl(session: KontrolUSBLibUSBSessionRef) {
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: KompleteKontrolMK2Protocol.initModeHostControl)
         }
 
         private func runMK2StartupAnimation(session: KontrolUSBLibUSBSessionRef) {
             daemonLog("MK2 startup animation begin", group: "mk2")
-            enableMK2MappingEngine(session: session)
+            configureMK2HostControl(session: session)
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x7f))
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2RainbowLightGuidePayload(session: session))
 
@@ -3199,6 +3204,8 @@ public enum KompleteKontrolLibUSBServer {
                         return "JOG \(direction.uppercased())"
                     case let .jogTouch(touched):
                         return "JOG TOUCH \(touched ? "ON" : "OFF")"
+                    case let .strip(position, _):
+                        return position.map { "STRIP \($0)" } ?? "STRIP UP"
                     case let .jogScroll(delta, value):
                         return "JOG \(delta >= 0 ? "+" : "")\(delta) V\(value)"
                     case let .touchEncoder(index, touched):
@@ -3243,10 +3250,11 @@ public enum KompleteKontrolLibUSBServer {
             screen0: [String],
             screen1: [String],
             accent0: UInt16,
-            accent1: UInt16
+            accent1: UInt16,
+            buttonLabels: [String] = []
         ) {
-            let left = makeMK2Frame(lines: screen0, background: 0x0000, foreground: 0xffff, accent: accent0)
-            let right = makeMK2Frame(lines: screen1, background: 0x0000, foreground: 0xffff, accent: accent1)
+            let left = makeMK2Frame(lines: screen0, background: 0x0000, foreground: 0xffff, accent: accent0, buttonLabels: Array(buttonLabels.prefix(4)))
+            let right = makeMK2Frame(lines: screen1, background: 0x0000, foreground: 0xffff, accent: accent1, buttonLabels: Array(buttonLabels.dropFirst(4).prefix(4)))
             writeMK2Frame(session: session, screen: 0, pixels: left)
             writeMK2Frame(session: session, screen: 1, pixels: right)
         }
@@ -3278,7 +3286,7 @@ public enum KompleteKontrolLibUSBServer {
             daemonLog("MK2 display frame screen=\(screen) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
         }
 
-        private func makeMK2Frame(lines: [String], background: UInt16, foreground: UInt16, accent: UInt16) -> [UInt16] {
+        private func makeMK2Frame(lines: [String], background: UInt16, foreground: UInt16, accent: UInt16, buttonLabels: [String] = []) -> [UInt16] {
             let width = KompleteKontrolMK2Protocol.displayWidth
             let height = KompleteKontrolMK2Protocol.displayHeight
             var pixels = [UInt16](repeating: background, count: width * height)
@@ -3289,6 +3297,31 @@ public enum KompleteKontrolLibUSBServer {
                 if inTop || inBottom {
                     for x in 0..<width {
                         pixels[y * width + x] = accent
+                    }
+                }
+            }
+
+            // Small-font labels directly under the four physical function buttons above
+            // this display: one 120px slot per button, scale 2 (10x14px glyphs).
+            let hasLabels = buttonLabels.contains { !$0.isEmpty }
+            if hasLabels {
+                let labelScale = 2
+                let labelY = 16
+                let slotWidth = width / 4
+                for (slot, label) in buttonLabels.prefix(4).enumerated() where !label.isEmpty {
+                    let chars = Array(label.uppercased())
+                    let charAdvance = 5 * labelScale + labelScale
+                    let labelWidth = chars.reduce(0) { total, char in
+                        total + (char == " " ? 3 * labelScale + labelScale : charAdvance)
+                    } - labelScale
+                    var x = slot * slotWidth + max(2, (slotWidth - max(0, labelWidth)) / 2)
+                    for char in chars {
+                        if char == " " {
+                            x += 3 * labelScale + labelScale
+                            continue
+                        }
+                        drawMK2Glyph(char, x: x, y: labelY, scale: labelScale, color: foreground, pixels: &pixels)
+                        x += charAdvance
                     }
                 }
             }
@@ -3307,7 +3340,7 @@ public enum KompleteKontrolLibUSBServer {
             let spacing = 2 * scale
             let lineGap = 22
             let totalHeight = sanitized.isEmpty ? 0 : sanitized.count * glyphHeight + max(0, sanitized.count - 1) * lineGap
-            var y = max(24, (height - totalHeight) / 2)
+            var y = max(hasLabels ? 38 : 24, (height - totalHeight) / 2)
             for line in sanitized {
                 let chars = Array(line)
                 let lineWidth = chars.reduce(0) { width, char in
@@ -3517,12 +3550,16 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func acknowledgeIdleMK2SurfaceInput(_ bytes: [UInt8]) {
+            // 0xAA controller mirrors flood at input rate and carry no news for the idle ack.
+            guard bytes.first != KompleteKontrolMK2Protocol.controllerMirrorReportID else { return }
             let previous: [UInt8]?
             let events: [KKMK2InputEvent]
             lock.lock()
             previous = idleSurfacePreviousReport
-            events = KKMK2InputReportDecoder.events(previous: previous, current: bytes)
-            idleSurfacePreviousReport = bytes
+            events = KKMK2InputReportDecoder.eventsForReport(previous: previous, current: bytes)
+            if bytes.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) {
+                idleSurfacePreviousReport = bytes
+            }
             if events.isEmpty, previous != nil, previous == bytes {
                 lock.unlock()
                 return

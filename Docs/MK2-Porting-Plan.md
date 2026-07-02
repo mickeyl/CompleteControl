@@ -149,11 +149,22 @@ completely dead — no HID, no MIDI. Verified live on the S61 MK2 through the `c
 - **Strip LEDs are firmware-animated** — follow-finger in CC mode (left origin), bidirectional
   from center with spring-back in pitch mode. No per-LED host writes needed.
 - **Raw strip streaming on HID report `0x02` is unlocked by `A0 00 10`** (flag in the *second*
-  payload byte — our sweep only tried `A0 10 00`). Source: jnlive (below) uses exactly
-  `{0xa0, 0x00, 0x10}` as its only init and receives the strip on report `0x02`: signed 32-bit
-  LE at bytes 5–8, encoded as `100000 + position`; values below 100000 mean touch release.
-  This explains the original unreproducible `0x02` sighting. Untested: whether `A0 93 10`
-  combines the mapping engine with the raw stream.
+  payload byte — our sweep only tried `A0 10 00`). Verified live 2026-07-02: report `0x02` =
+  `[u16 const][u16 const][u16 time ms][u16 position 0…1024, 0 = release][u16 zero]`, ~100 Hz
+  while touched (the two constants — 926/296 on the bench unit — are presumably calibration
+  bounds). This explains the original unreproducible `0x02` sighting.
+- **Mode inversion (bench 2026-07-02): `A0 00 10` is the real DAW/host mode.** In `93 00` the
+  firmware owns the function-button and ribbon LEDs (host `0x80` writes to indices 2–9/44–68
+  are ignored); in `00 10` they are host-controlled, the strip streams raw on `0x02`, and
+  keys/wheels still emit plain USB-MIDI. Consequently `ccd` now brings the device up with
+  `A0 00 10` (`configureMK2HostControl`) and only arms the mapping engine + factory templates
+  in the shutdown handover (`restoreMK2StandaloneState`: `A0 93 00`, factory `0xA1`, default
+  `0xA2`, `AF 00 02`). Beware the observation trap that hid this for a day: LED writes from a
+  probe are wiped instantly when the probe disconnects (last-client-disconnect repaints the
+  idle surface) — hold the connection while judging LED state.
+- `mk2text` accepts 8 optional label tokens rendered in a small font directly under the
+  physical function buttons (120px slots, scale-2 glyphs) — used by MK2Calibrate to label its
+  command buttons.
 
 ### jnlive cross-check (local clone `~/Documents/late/misc/jnlive`, `source/komplete.{h,cpp}`)
 

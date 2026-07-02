@@ -56,3 +56,20 @@ struct MK2FourDDecodeTests {
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [])
     }
 }
+
+// Raw strip report captured live in host-control mode (A0 00 10) on 2026-07-02:
+// [u16 const][u16 const][u16 time ms][u16 position 0…1024, 0 = release][u16 zero].
+@Suite("MK2 raw strip decode")
+struct MK2StripDecodeTests {
+    @Test("position and time from a captured report")
+    func touch() {
+        let bytes: [UInt8] = [0x02, 0x9e, 0x03, 0x28, 0x01, 0x6b, 0x11, 0xd3, 0x03, 0x00, 0x00]
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: nil, current: bytes) == [.strip(position: 0x03d3, time: 0x116b)])
+    }
+
+    @Test("position zero decodes as release")
+    func release() {
+        let bytes: [UInt8] = [0x02, 0x9e, 0x03, 0x28, 0x01, 0xba, 0x6a, 0x00, 0x00, 0x00, 0x00]
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: nil, current: bytes) == [.strip(position: nil, time: 0x6aba)])
+    }
+}

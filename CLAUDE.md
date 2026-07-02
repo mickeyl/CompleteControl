@@ -160,9 +160,14 @@ The short version:
   **onboard mapping engine**: enable with `0xA0 93 00` (`0xA0 00 00` leaves it off — this was
   the "dead ribbon" bug), configure via template reports `0xA1` (buttons+knobs), `0xA2`
   (wheels+strip), `0xA3` (pedals), `0xA4` (keyzones), then `0xAF 00 02`.
-- Engine-on also wakes the factory rotary template (CC14–21); `ccd`'s `enableMK2MappingEngine`
-  writes an all-zero `0xA1` to keep the MIDI stream clean, plus the default `0xA2`
-  (strip = CC11 unipolar) at bring-up and reconnect.
+- **`A0 00 10` is the real DAW/host mode** (bench 2026-07-02): function-button LEDs (0x80
+  indices 2–9) and ribbon LEDs (44–68) are host-controlled, the strip streams raw on report
+  `0x02` (`[u16 const][u16 const][u16 time ms][u16 pos 0…1024, 0 = release][u16 zero]`,
+  ~100 Hz), keys/wheels stay plain USB-MIDI. In `93 00` the firmware owns those LEDs and host
+  writes are ignored. `ccd` bring-up = `configureMK2HostControl` (`A0 00 10`); the mapping
+  engine + factory templates only return in the shutdown handover. Observation trap: LED
+  writes are wiped the moment the writing client disconnects (idle repaint) — hold the
+  connection while judging LED state.
 - Strip modes via `KompleteKontrolMK2Protocol.AnalogAssignment`: `.cc` = unipolar (holds value,
   LEDs fill from left), `.pitchBend` = bipolar 14-bit (springs back to center, LEDs fan from
   center, `decay` 0–8). Runtime switch: `KompleteKontrolSSeriesMK2.configureAnalogControls`.
