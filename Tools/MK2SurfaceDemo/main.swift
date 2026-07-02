@@ -222,12 +222,18 @@ private actor MK2FeatureDemo {
                 )
 
             case .buttons:
+                // Every button including the function row is part of the LED map test, so
+                // the home shortcut is unavailable here — the 4-D click is the exit.
                 for led in KKMK2ButtonLED.allCases where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
                     lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(KKRGB(red: 0x30, green: 0x90, blue: 0xff), period: 1.4)
                     bindings.onPress(led) { Task { await self.toggleButton(led) } }
                 }
+                bindings.jog = { direction in
+                    guard direction == "press" else { return }
+                    Task { await self.show(.overview) }
+                }
                 return MK2SurfaceScene2(
-                    left: baseFrame(title: "RGB BUTTONS", lines: ["PRESS LIT BUTTONS", "\(buttonColors.count) ASSIGNED"], stripStart: 0),
+                    left: baseFrame(title: "RGB BUTTONS", lines: ["PRESS LIT BUTTONS", "4D CLICK EXITS"], stripStart: 0),
                     right: buttonFrame(),
                     lamps: lamps,
                     keyColors: overviewKeys(),
