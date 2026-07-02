@@ -301,19 +301,22 @@ blits (mode `A0 00 10` at bring-up), BE pixel endianness confirmed in daily use.
 | 120×40 cell | 12.9 | 77.5 | 0.7 |
 | 32×32 tiny | **29.5** | 33.9 | 0.1 |
 
-Model: ~8–10 ms fixed per-transfer overhead (socket round-trip + debug-daemon trace logging +
-URB latency + per-call buffer build) plus ~10 MB/s effective payload rate. **Small blits are
-dominated by overhead — the 32×32 case is *slower than a full frame*** (possibly a firmware
-small-window quirk; re-test in release). Design consequences for `PixelDisplayReconciler`:
-**one scatter transfer per screen per tick** (jnlive multi-span format — pays the fixed cost
-once for all dirty regions), never individual tiny blits; coalesce dirty rects into full-width
-bands. Numbers are a lower bound: release daemon, no socket hop, and prebuilt buffers all
-remove measured overhead.
+**The numbers are hardware-bound**: a release-daemon re-run reproduced them to the decimal, so
+socket, logging, and buffer building are noise. Fitted model: **fixed ≈ 7.7 ms per transfer +
+payload at ≈ 15.9 MB/s** (predicts the 480×40 band exactly), plus a **narrow-window penalty**
+for rects below full width (120×40: +4.6 ms over model; 32×32: +21.7 ms — *slower than a full
+frame*; the panel controller apparently pays per-row addressing for narrow windows).
 
-Remaining bench items:
+Design consequences for `PixelDisplayReconciler`:
+- **One scatter transfer per screen per flush (jnlive multi-span format), full-width spans
+  only** — widen every dirty rect to 480 px (extra payload is cheap; narrowness is not).
+- The 7.7 ms floor makes always-dirty 60 Hz × both screens unsustainable if serialized
+  (2 × 10 ms > 16.7 ms). Flush dirty-only at a ~30–50 Hz cap; a tracker's real update rates
+  (row steps, meters) sit far below saturation. Full-surface refresh tops out at 20.7 Hz.
 
-1. Re-run flow 6 against the release daemon (`make daemon`), and later measure a true
-   multi-span scatter frame once the reconciler exists.
+Remaining bench item: once the reconciler exists, test whether async transfer pipelining can
+overlap the 7.7 ms fixed cost (occupancy vs completion latency), and measure a true multi-span
+scatter frame.
 2. Low-priority loose ends: byte 30 high nibble / byte 31 counters in report `0x01`, the two
    constant words in report `0x02`, octave-LED self-lighting, the `A0 93 10` mode combo, the
    `0xD0/0xF8/0xF9` feature blocks, and the per-model light-guide note offset on S49/S88.
