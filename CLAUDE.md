@@ -45,7 +45,9 @@ When no socket client is connected, `ccd` owns the hardware surface:
 
 - LCDs show `NO CLIENT`, the running git revision (`REV <rev-list count>` plus short hash; a `+`
   marks a dirty/uncommitted build), and an initial surface/MIDI test prompt.
-- Surface input is decoded and acknowledged on the LCDs.
+- Surface input is decoded and acknowledged on the LCDs. On the MK2 the idle ack is a
+  protocol scope: left display = latest raw surface report (hex), right display = decoded
+  event + MIDI summary — disagreement between the two panes is how layout bugs get spotted.
 - USB-MIDI input is decoded and acknowledged on the LCDs.
 - Pressed MIDI keys light the corresponding light-guide key; note-off clears it.
 
@@ -209,15 +211,25 @@ tint + MIDI played-note feedback).
 ## Next steps (driven by the client)
 
 First concrete client is **Paulinche**, an Amiga MOD tracker (separate macOS app, links this as a
-SwiftPM dep, integrates directly — **MCU/HUI adapter deprioritized**). Core surface = 4-channel
-pattern editing: live MIDI record, transport, channel via Navigate ◀▶, instrument via Navigate ▲▼,
-exact row via the main wheel; 2 displays/channel, display 0 = status. `PatternScreen` lives in
-Paulinche on this kit. Kit work it will pull, in rough priority:
+SwiftPM dep, integrates directly — **MCU/HUI adapter deprioritized**). **Paulinche targets the
+MK2 exclusively** (decision 2026-07-02): a tracker's surfaces — pattern grid, per-channel state,
+VU meters — need the pixel displays; the MK1's 16-segment cells can't carry them and the S25
+keybed is too small for tracker entry.
 
-1. **Light-guide is done** (`KeyColors`); may want note→key + scale/chord helpers.
-2. **Main-wheel row stepping** — accumulate counts → 1 row/detent if the wheel is high-res.
-3. **List/menu navigation** (sample/pattern browsing via 4-D + browse/back/enter).
-4. **`Meter` widget** (per-channel VU with ballistics).
+**MK1 is frozen, not removed**: the daemon keeps driving it, `KontrolProbe`/`SurfaceDemo` stay
+as the regression baseline for the shared middleware, but no new kit features get ported to the
+16-segment display pipeline.
+
+MK2 kit work Paulinche will pull, in rough priority (protocol side is done — see
+`Docs/MK2-Porting-Plan.md` "Path forward"):
+
+1. **`PixelDisplayReconciler` + pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`, `PatternGrid`)
+   with dirty-span diffing into the jnlive scatter-blit format; granularity gated on the
+   MK2Calibrate display benchmark (flow 6).
+2. **Input surfacing through the kit**: raw strip (`.strip` position 0…1024 + release), jog
+   gestures (byte-6 touch/click/pushes + detents), encoder deltas (modulo 1000).
+3. **Strip LED control** as a DSL element (0x80 indices 44–68, host-owned in `A0 00 10`).
+4. **List/menu navigation** (sample/pattern browsing via 4-D + browse/back/enter).
 5. **Encoder sensitivity as a global + rotary-local modifier** in the DSL — local *factorizes*
    (cumulative, not override) with global. See agent memory `encoder-sensitivity-modifier-plan`.
 

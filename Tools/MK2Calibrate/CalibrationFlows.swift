@@ -522,6 +522,57 @@ enum CalibrationFlows {
         link.showText("4D CAPTURE", "DONE")
     }
 
+    // MARK: Display throughput benchmark
+
+    /// Round-trip fill benchmark through the daemon socket: full frames down to tiny
+    /// rects, alternating colours so real panel updates are visible. Answers the
+    /// PixelDisplayReconciler granularity question (see porting plan "FPS reality check").
+    static func displayBenchmark(link: DaemonLink, log: SessionLog) {
+        log.section("Display throughput benchmark")
+        print("""
+
+        BENCHMARK: watch the displays flicker — this takes about a minute.
+        """)
+        link.showText("BENCHMARK", "RUNNING")
+        let cases: [(name: String, width: Int, height: Int, screens: [Int], iterations: Int)] = [
+            ("full frame single screen", 480, 272, [0], 30),
+            ("full frame both screens", 480, 272, [0, 1], 15),
+            ("half frame 480x136", 480, 136, [0], 60),
+            ("band 480x40", 480, 40, [0], 100),
+            ("cell 120x40", 120, 40, [0], 200),
+            ("tiny 32x32", 32, 32, [0], 200),
+        ]
+        let colors = [0xf800, 0x001f]
+        for benchCase in cases {
+            var failures = 0
+            let start = Date()
+            for iteration in 0..<benchCase.iterations {
+                for screen in benchCase.screens {
+                    let color = colors[iteration % 2]
+                    let line = String(
+                        format: "mk2fill %02x %04x %04x %04x %04x %04x %04x",
+                        screen, 0, 0, benchCase.width, benchCase.height, color, 2_000
+                    )
+                    if link.request(line, timeout: 5) != "ok" {
+                        failures += 1
+                    }
+                }
+            }
+            let elapsed = Date().timeIntervalSince(start)
+            let frames = benchCase.iterations * benchCase.screens.count
+            let msPerFrame = elapsed * 1000 / Double(frames)
+            let fps = Double(frames) / elapsed
+            let bytesPerFrame = benchCase.width * benchCase.height * 2
+            let mbps = Double(bytesPerFrame) * Double(frames) / elapsed / 1_048_576
+            let failNote = failures > 0 ? " FAILURES=\(failures)" : ""
+            log.add(String(
+                format: "%@: %d frames, %.1f ms/frame, %.1f fps, %.1f MB/s%@",
+                benchCase.name, frames, msPerFrame, fps, mbps, failNote
+            ))
+        }
+        link.showText("BENCHMARK", "DONE")
+    }
+
     // MARK: Live event monitor
 
     static func liveMonitor(link: DaemonLink, inputs: FlowInputQueue, log: SessionLog) {

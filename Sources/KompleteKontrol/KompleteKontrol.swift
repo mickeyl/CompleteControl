@@ -2644,6 +2644,7 @@ public enum KompleteKontrolLibUSBServer {
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
         private var idleMIDISummary = "OR MIDI KEY FOR TEST"
         private var idleHasReceivedInput = false
+        private var idleRawSurfaceBytes: [UInt8] = []
         private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
         private var idleDiagnosticNeedsFlush = false
         private var idleDiagnosticNeedsLightGuideFlush = false
@@ -3332,7 +3333,8 @@ public enum KompleteKontrolLibUSBServer {
                     }
                 }
                 .max() ?? 1
-            let scale = max(4, min(8, (width - 32) / max(1, maxUnits)))
+            // Long lines (raw hex dumps) drop to scale 2 instead of overflowing the panel.
+            let scale = max(2, min(8, (width - 32) / max(1, maxUnits)))
             let glyphWidth = 5 * scale
             let glyphHeight = 7 * scale
             let spacing = 2 * scale
@@ -3563,6 +3565,7 @@ public enum KompleteKontrolLibUSBServer {
                 return
             }
             idleHasReceivedInput = true
+            idleRawSurfaceBytes = bytes
             let report = KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: KKTiming.now())
             idleSurfaceSummary = events.isEmpty ? idleRawSurfaceSummary(bytes) : shortMK2IdleSummary(report)
             if idleMIDISummary == "OR MIDI KEY FOR TEST" {
@@ -3678,10 +3681,17 @@ public enum KompleteKontrolLibUSBServer {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
             if isMK2(session) {
+                // Left display = latest raw surface report, right = decoded view; disagreement
+                // between the two is how report-layout bugs get spotted at a glance.
+                lock.lock()
+                let rawHex = idleRawSurfaceBytes.map(KKHex.byte).joined()
+                lock.unlock()
+                let rawLine1 = String(rawHex.prefix(32))
+                let rawLine2 = String(rawHex.dropFirst(32).prefix(32))
                 writeMK2IdleSurface(
                     session: session,
-                    screen0: hasInput ? ["SURFACE", surfaceSummary] : ["NO CLIENT", "MK2 DAEMON"],
-                    screen1: hasInput ? ["MIDI", midiSummary] : ["PRESS SURFACE", "FOR HID TEST"],
+                    screen0: hasInput ? [rawLine1, rawLine2] : ["NO CLIENT", "MK2 DAEMON"],
+                    screen1: hasInput ? [surfaceSummary, midiSummary] : ["PRESS SURFACE", "FOR HID TEST"],
                     accent0: hasInput ? 0x07ff : 0xf800,
                     accent1: hasInput ? 0x07e0 : 0x001f
                 )

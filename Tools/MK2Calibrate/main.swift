@@ -58,6 +58,7 @@ func menu() {
       3) Live event monitor
       4) 4-D encoder / byte-6 capture
       5) LED remainder check (arrows, shift, octave, strip 25)
+      6) Display throughput benchmark
       q) quit (writes session log)
     """)
 }
@@ -99,6 +100,8 @@ running: while true {
             CalibrationFlows.fourDCapture(link: link, inputs: inputs, log: log)
         case "5", "remainder", "leds2":
             CalibrationFlows.ledRemainderCheck(link: link, inputs: inputs, log: log)
+        case "6", "bench", "benchmark":
+            CalibrationFlows.displayBenchmark(link: link, log: log)
         case "q", "quit":
             break running
         default:
