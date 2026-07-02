@@ -4155,6 +4155,10 @@ public enum KompleteKontrolLibUSBServer {
         }
     }
 
+    // Cached once: ProcessInfo.environment bridges the whole environ into a fresh
+    // dictionary on every access, which is too expensive for a per-blit log gate.
+    private static let releaseDaemonLogEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_LOG"] == "1"
+
     private static func daemonLog(
         _ message: @autoclosure () -> String,
         group: String = "daemon",
@@ -4163,7 +4167,7 @@ public enum KompleteKontrolLibUSBServer {
         #if KK_DEBUG
         KKStderrLog.write(group: group, level: level, message())
         #else
-        guard ProcessInfo.processInfo.environment["KK_DAEMON_LOG"] == "1" else { return }
+        guard releaseDaemonLogEnabled else { return }
         KKStderrLog.write(group: group, level: level, message())
         #endif
     }
