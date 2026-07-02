@@ -5,14 +5,14 @@ Actionable plan for adding **Komplete Kontrol S49/S61/S88 MK2** support to Compl
 **fully reverse-engineered by the community and pixel-based** — this is a bounded engineering
 job, not open-ended research. Read alongside `MK3-Porting-Plan.md` §"Sibling generations".
 
-> Status: **hardware milestone reached on S61 MK2.** The protocol constants below were checked
-> against the community driver sources, and the first real-device bench confirmed that
-> CompleteControl can drive an S61 MK2 without NI software through the privileged `ccd`
-> daemon: persistent libusb ownership, bulk display blits, HID button/light-guide output,
-> surface input, and USB-MIDI input all work. **The ribbon/touch strip mystery is solved**
-> (2026-07-02 hardware session): the strip is driven by an onboard MIDI mapping engine that
-> must be enabled with `0xA0 93 00` and configured via output report `0xA2` — see
-> §2 "Onboard MIDI mapping engine". `ccd` now does both at session bring-up.
+> Status (2026-07-02): **protocol mapping complete.** CompleteControl drives the S61 MK2
+> without NI software through `ccd`: persistent libusb ownership, display blits, all LEDs,
+> full surface input (buttons, encoders, 4-D, raw ribbon), USB-MIDI, robust device lifecycle
+> (auto-reconnect, standalone handover on quit), plus the `MK2Calibrate` workbench that
+> produced the verified tables. The device runs in host-control mode `A0 00 10`; the onboard
+> MIDI mapping engine (`A0 93 00` + templates) is armed only when handing the device back.
+> What remains is **building, not researching**: the pixel display reconciler and the kit
+> input surface — see "Path forward".
 
 ## TL;DR
 
@@ -282,37 +282,32 @@ Initial hardware bench status:
 - **Done:** `MK2USBSpy` can dump the full MK2 USB topology, HID report descriptor, claim all
   interfaces, and print packets from every readable IN endpoint.
 
+### Calibration complete (2026-07-02, via `Tools/MK2Calibrate`)
+
+The protocol-mapping phase is **finished**. Input report `0x01` is fully tabulated (buttons,
+encoders 0…999 wrap, encoder touch, 4-D byte-6 bits + byte-30 detents), the raw strip report
+`0x02` is decoded, wheels are established as MIDI-only, and the `0x80` LED map is verified
+index-by-index (only 42/43 = octave are firmware-owned). Display init needs no handshake for
+blits (mode `A0 00 10` at bring-up), BE pixel endianness confirmed in daily use.
+
 Remaining bench items:
 
-1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept rate.
-   Then measure a 480×40 strip. This is the go/no-go for "smooth".
-2. **Touch strip: done** (see §2 "Onboard MIDI mapping engine"). The driver exposes
-   `KompleteKontrolMK2Protocol.AnalogAssignment` (`.off` / `.cc` unipolar / `.pitchBend`
-   bipolar) with `wheelStripMapPayload(pitchWheel:modWheel:strip:)`, and clients can switch at
-   runtime through `KompleteKontrolSSeriesMK2.configureAnalogControls(...)`. Remaining
-   niceties: surface this in the `KontrolSurfaceKit` DSL, and decode the `0xAA` mirror. The full HID report descriptor is readable
-   without claiming the device (`ioreg -l` → `ReportDescriptor` property); it also declares
-   feature reports `0xD0/0xD8/0xD9/0xF0/0xF1/0xF8/0xF9` (version/config blocks, unexplored).
-3. **Light-guide encoding is known** (cmd `0x81`, 1 byte/key, `(colorIndex<<2)|intensity`,
-   250-byte msg — see §2). Remaining on-hardware item: the **per-model note offset** (S49 = −36)
-   and a quick palette-index sanity sweep against `kMK2Palette`.
-4. **Tabulate input report `0x01`** offsets for all still-raw controls, encoder-touch, 4-D jog,
-   and pitch/mod/touch strips (KompleteSynthesia/qKontrol give the starting layout).
-5. **Verify display init:** the candidate handshake is the `0xA0 00 00` init HID report (§2);
-   qKontrol skips it and does a bare claim + blit, so confirm whether `0x84` blits work without
-   it or whether `0xA0` is required first. Also confirm the **BE pixel/coord endianness** (§2) —
-   blit one known-colour rect and check it isn't byte-swapped.
+1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept
+   rate; then a 480×40 band; then a multi-span scatter frame (jnlive format, §2). This is the
+   go/no-go input for `PixelDisplayReconciler` granularity.
+2. Low-priority loose ends: byte 30 high nibble / byte 31 counters in report `0x01`, the two
+   constant words in report `0x02`, octave-LED self-lighting, the `A0 93 10` mode combo, the
+   `0xD0/0xF8/0xF9` feature blocks, and the per-model light-guide note offset on S49/S88.
 
-## 7. Suggested build order
+## Path forward (updated 2026-07-02)
 
-1. **Device-model abstraction + factory** (enum, descriptor: PID/keys/offset/interfaces).
-   Also unlocks the S49 MK1 win. Land this regardless of which keyboard arrives first.
-2. **MK2 light guide + button LEDs over HID** (`0x81`/`0x80`) + input report `0x01` decode →
-   the surface is alive and reactive with the *existing* DSL handlers.
-3. **`PixelDisplayReconciler` + minimal pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`) driven
-   by the 60 Hz clock with dirty-rect diffing → the screens light up.
-4. **Port a real `Screen`** (the Paulinche pattern view) to the pixel elements; tune dirty-rect
-   granularity against the FPS measured in §6.
+1. **`PixelDisplayReconciler` + minimal pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`) with
+   dirty-span diffing straight into the jnlive scatter-blit format — the one substantial build
+   left. Gate the granularity on the FPS bench (item 1 above).
+2. **Kit input surfacing**: strip (`.strip` position/release), jog gestures, encoder deltas
+   (modulo 1000) through `Surface.inputs`; per-screen strip LED control via the 0x80 map
+   (indices 44–68).
+3. **Port the Paulinche `PatternScreen`** to the pixel elements.
 
 ## Sources
 
