@@ -242,6 +242,12 @@ as the regression baseline for the shared middleware, but no new kit features ge
   get extracted into a small shared core where the seam is clean, or copied once where
   extraction would contort the frozen kit. This also keeps eventual MK1 deletion a
   mechanical excision.
+- **The daemon stays a separate root process; clients never link it** (decision 2026-07-02,
+  revisited and reaffirmed): measured IPC cost is <1 ms against a 7.7 ms fixed USB/panel
+  cost — privilege separation, crash containment (standalone handover), and session
+  continuity across client restarts are worth far more. If profiling ever indicts the
+  transport, the prepared escape hatch is a shared-memory framebuffer for the display path
+  (bulk via shm, control via socket — the CoreAudio/JACK pattern), not in-process linking.
 
 MK2 kit work Paulinche will pull, in rough priority (protocol side is done — see
 `Docs/MK2-Porting-Plan.md` "Path forward"):
