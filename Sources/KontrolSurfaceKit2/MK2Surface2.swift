@@ -389,7 +389,10 @@ public actor MK2Surface2 {
         let response = controlClient?.request(
             type: .writeReport,
             payload: KKDaemonBinaryCodec.writeReportPayload(reportID: reportID, payload: payload),
-            timeoutUsec: 250_000
+            // Ceiling, not cost: healthy acks arrive in <1 ms. 50 ms bounds the actor's
+            // worst-case stall if the daemon wedges, without inviting spurious timeouts
+            // on debug-build tail latencies the way single-digit ceilings would.
+            timeoutUsec: 50_000
         )
         guard let response else { return nil }
         return response.status == 0 ? "ok" : "err \(response.status) \(response.message)"
