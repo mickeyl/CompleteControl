@@ -85,6 +85,7 @@ private actor MK2FeatureDemo {
         let bipolar: Bool
         let discrete: Bool
         var value: Double
+        var defaultValue: Double { bipolar ? 0 : range.lowerBound + span / 2 }
 
         var span: Double { range.upperBound - range.lowerBound }
         var normalized: Double { (value - range.lowerBound) / span }
@@ -154,6 +155,8 @@ private actor MK2FeatureDemo {
                 lamps[.clear] = .red
                 bindings.encoder[1] = { delta, _ in Task { await self.adjustHue(delta) } }
                 bindings.encoder[2] = { delta, _ in Task { await self.adjustSpread(delta) } }
+                bindings.encoderDoubleTouch[1] = { Task { await self.resetLightGuide() } }
+                bindings.encoderDoubleTouch[2] = { Task { await self.resetLightGuide() } }
                 bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "LIGHT GUIDE LAB", lines: ["ENC1 HUE \(Int(hue))", "ENC2 SPREAD \(spread)"], stripStart: 0),
@@ -186,6 +189,7 @@ private actor MK2FeatureDemo {
                 for index in 1...8 {
                     bindings.encoder[index] = { delta, value in Task { await self.encoder(index, delta: delta, value: value) } }
                     bindings.encoderTouch[index] = { touched in Task { await self.encoderTouch(index, touched: touched) } }
+                    bindings.encoderDoubleTouch[index] = { Task { await self.resetLabParameter(index) } }
                 }
                 return MK2SurfaceScene2(
                     left: encoderFrame(0..<4),
@@ -342,6 +346,13 @@ private actor MK2FeatureDemo {
         parameter.value = max(parameter.range.lowerBound, min(parameter.range.upperBound, parameter.value + step))
         labParameters[index - 1] = parameter
         lastEvent = "\(parameter.name) \(parameter.display) RAW \(value)"
+        await render()
+    }
+
+    private func resetLabParameter(_ index: Int) async {
+        guard labParameters.indices.contains(index - 1) else { return }
+        labParameters[index - 1].value = labParameters[index - 1].defaultValue
+        lastEvent = "\(labParameters[index - 1].name) RESET"
         await render()
     }
 

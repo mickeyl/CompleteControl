@@ -64,6 +64,8 @@ public actor MK2Surface2 {
     private let tickGate = TickGate()
     private var eventTask: Task<Void, Never>?
     private var eventContinuation: AsyncStream<KKDaemonBinaryFrame>.Continuation?
+    private static let doubleTouchWindowNanos: UInt64 = 350_000_000
+    private var lastEncoderTouchNanos = [UInt64](repeating: 0, count: 9)
 
     public init(device: KompleteKontrolSSeriesMK2 = KompleteKontrolSSeriesMK2(seizeHID: false), options: Options = Options()) {
         _ = device
@@ -339,6 +341,15 @@ public actor MK2Surface2 {
                     scene.bindings.encoder[index]?(delta, value)
                 case let .touchEncoder(index, touched):
                     scene.bindings.encoderTouch[index]?(touched)
+                    if touched, lastEncoderTouchNanos.indices.contains(index) {
+                        let now = DispatchTime.now().uptimeNanoseconds
+                        if now &- lastEncoderTouchNanos[index] < Self.doubleTouchWindowNanos {
+                            lastEncoderTouchNanos[index] = 0
+                            scene.bindings.encoderDoubleTouch[index]?()
+                        } else {
+                            lastEncoderTouchNanos[index] = now
+                        }
+                    }
                 case let .jog(direction):
                     scene.bindings.jog?(direction)
                 case let .jogScroll(delta, value):

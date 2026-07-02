@@ -19,6 +19,9 @@ public struct MK2InputBindings2: Sendable {
     public var buttonUp: [String: @Sendable () -> Void] = [:]
     public var encoder: [Int: @Sendable (_ delta: Int, _ value: Int) -> Void] = [:]
     public var encoderTouch: [Int: @Sendable (_ touched: Bool) -> Void] = [:]
+    /// Two touch-downs on the same encoder within the double-touch window; the pro-audio
+    /// "reset to default" gesture — what "default" means is the client's decision.
+    public var encoderDoubleTouch: [Int: @Sendable () -> Void] = [:]
     public var jog: (@Sendable (_ direction: String) -> Void)?
     public var jogScroll: (@Sendable (_ delta: Int, _ value: Int) -> Void)?
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?
