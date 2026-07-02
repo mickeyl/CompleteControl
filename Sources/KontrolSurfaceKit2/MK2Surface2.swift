@@ -185,6 +185,9 @@ public actor MK2Surface2 {
 
     private func evict() {
         guard running else { return }
+        // Teardown is the kit's job; deciding whether to quit is the app's (observe
+        // connectionStates). The stderr notice guarantees eviction is never silent.
+        fputs("MK2Surface2: surface taken over by another client — this session is evicted\n", stderr)
         running = false
         timer?.cancel()
         timer = nil

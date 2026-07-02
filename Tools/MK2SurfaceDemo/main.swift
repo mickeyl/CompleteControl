@@ -10,8 +10,20 @@ struct MK2SurfaceDemo {
         await surface.start()
         await demo.show(.overview)
         print("MK2SurfaceDemo running. Use the eight function buttons on the hardware. Ctrl-C quits.")
-        while true {
-            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        // A console demo has nothing left to do without the surface; a real app would
+        // show "surface taken over" instead and keep running.
+        for await state in await surface.connectionStates {
+            switch state {
+                case .evicted:
+                    print("evicted by another surface client — quitting")
+                    exit(0)
+                case let .retrying(reason):
+                    print("surface connection: retrying (\(reason))")
+                case let .connected(detail):
+                    print("surface connection: connected (\(detail))")
+                case .stopped:
+                    print("surface connection: stopped")
+            }
         }
     }
 }
