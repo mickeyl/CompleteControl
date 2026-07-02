@@ -73,7 +73,10 @@ private actor MK2FeatureDemo {
     private let surface: MK2Surface2
     private var feature: Feature = .overview
     private var hue = 28.0
-    private var spread = 7
+    private var spreadValue = 7.0
+    private var spread: Int { Int(spreadValue.rounded()) }
+    private var ribbonModeAccumulator = 0.0
+    private var encoderScaler = MK2EncoderScaler()
     private var ribbonPosition: Int?
     private var ribbonMode = 0
     private var encoderValues = [Int](repeating: 500, count: 8)
@@ -210,7 +213,7 @@ private actor MK2FeatureDemo {
 
             case .display:
                 bindings.encoder[1] = { delta, _ in Task { await self.adjustDisplayMeter(delta) } }
-                bindings.jogScroll = { delta, _ in Task { await self.adjustDisplayMeter(delta * 2) } }
+                bindings.jogScroll = { delta, _ in Task { await self.nudgeDisplayMeter(detents: delta) } }
                 return MK2SurfaceScene2(
                     left: displayLabFrame(screen: 0),
                     right: displayLabFrame(screen: 1),
@@ -264,20 +267,23 @@ private actor MK2FeatureDemo {
     }
 
     private func adjustHue(_ delta: Int) async {
-        hue = fmod(hue + Double(delta * 4) + 360, 360)
+        // Slow full sweep = full colour circle; acceleration covers it quickly.
+        let step = encoderScaler.step(encoder: 1, delta: delta, span: 360)
+        hue = fmod(hue + step + 360, 360)
         lastEvent = "HUE \(Int(hue))"
         await render()
     }
 
     private func adjustSpread(_ delta: Int) async {
-        spread = max(1, min(24, spread + delta))
+        let step = encoderScaler.step(encoder: 2, delta: delta, span: 23)
+        spreadValue = max(1, min(24, spreadValue + step))
         lastEvent = "SPREAD \(spread)"
         await render()
     }
 
     private func resetLightGuide() async {
         hue = 28
-        spread = 7
+        spreadValue = 7
         lastEvent = "LIGHT RESET"
         await render()
     }
@@ -289,7 +295,13 @@ private actor MK2FeatureDemo {
     }
 
     private func changeRibbonMode(_ delta: Int) async {
-        ribbonMode = (ribbonMode + delta + 3) % 3
+        // Discrete steps out of a high-resolution stream: accumulate the scaled value
+        // and only act on whole units (span 6 = six mode steps per slow full sweep).
+        ribbonModeAccumulator += encoderScaler.step(encoder: 1, delta: delta, span: 6)
+        let steps = Int(ribbonModeAccumulator)
+        guard steps != 0 else { return }
+        ribbonModeAccumulator -= Double(steps)
+        ribbonMode = ((ribbonMode + steps) % 3 + 3) % 3
         lastEvent = "RIBBON \(ribbonModeName)"
         await render()
     }
@@ -351,8 +363,15 @@ private actor MK2FeatureDemo {
         await render()
     }
 
+    // 4-D detents are discrete clicks, not high-resolution counts — fixed step per detent.
+    private func nudgeDisplayMeter(detents: Int) async {
+        displayMeter = max(0, min(1, displayMeter + Double(detents) * 0.05))
+        lastEvent = "METER \(Int(displayMeter * 100))"
+        await render()
+    }
+
     private func adjustDisplayMeter(_ delta: Int) async {
-        displayMeter = max(0, min(1, displayMeter + Double(delta) / 100))
+        displayMeter = max(0, min(1, displayMeter + encoderScaler.step(encoder: 1, delta: delta, span: 1)))
         lastEvent = "METER \(Int(displayMeter * 100))"
         await render()
     }
