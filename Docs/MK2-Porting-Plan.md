@@ -290,11 +290,30 @@ encoders 0…999 wrap, encoder touch, 4-D byte-6 bits + byte-30 detents), the ra
 index-by-index (only 42/43 = octave are firmware-owned). Display init needs no handshake for
 blits (mode `A0 00 10` at bring-up), BE pixel endianness confirmed in daily use.
 
+### FPS reality check (2026-07-02, MK2Calibrate flow 6 — debug daemon, via socket)
+
+| rect | ms/frame | fps | effective MB/s |
+| --- | --- | --- | --- |
+| 480×272 full, single screen | 24.1 | 41.5 | 10.3 |
+| 480×272 full, both screens | 24.1/frame | 20.7 full-surface | 10.3 |
+| 480×136 half | 15.9 | 62.9 | 7.8 |
+| 480×40 band | 10.1 | 99.1 | 3.6 |
+| 120×40 cell | 12.9 | 77.5 | 0.7 |
+| 32×32 tiny | **29.5** | 33.9 | 0.1 |
+
+Model: ~8–10 ms fixed per-transfer overhead (socket round-trip + debug-daemon trace logging +
+URB latency + per-call buffer build) plus ~10 MB/s effective payload rate. **Small blits are
+dominated by overhead — the 32×32 case is *slower than a full frame*** (possibly a firmware
+small-window quirk; re-test in release). Design consequences for `PixelDisplayReconciler`:
+**one scatter transfer per screen per tick** (jnlive multi-span format — pays the fixed cost
+once for all dirty regions), never individual tiny blits; coalesce dirty rects into full-width
+bands. Numbers are a lower bound: release daemon, no socket hop, and prebuilt buffers all
+remove measured overhead.
+
 Remaining bench items:
 
-1. **FPS reality check.** Repeatedly blit a full 480×272 frame, measure the sustained accept
-   rate; then a 480×40 band; then a multi-span scatter frame (jnlive format, §2). This is the
-   go/no-go input for `PixelDisplayReconciler` granularity.
+1. Re-run flow 6 against the release daemon (`make daemon`), and later measure a true
+   multi-span scatter frame once the reconciler exists.
 2. Low-priority loose ends: byte 30 high nibble / byte 31 counters in report `0x01`, the two
    constant words in report `0x02`, octave-LED self-lighting, the `A0 93 10` mode combo, the
    `0xD0/0xF8/0xF9` feature blocks, and the per-model light-guide note offset on S49/S88.
