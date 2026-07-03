@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import KompleteKontrol
 
 /// The virtual S61 MK2 panel: two pixel displays, eight function buttons, side buttons,
@@ -11,6 +12,7 @@ final class PanelView: NSView {
     var onInput: ((SimFrame) -> Void)?
 
     private let screens = [ScreenBuffer(), ScreenBuffer()]
+    private let interactionAudio = InteractionAudio()
     private var ledBytes = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
     private var pressedButtons: Set<KKMK2ButtonLED> = []
     private var encoderAngle = [Double](repeating: 0, count: 8)
@@ -222,12 +224,12 @@ final class PanelView: NSView {
         let pressed = pressedButtons.contains(button.led)
         let code = ledBytes[button.led.rawValue]
         let path = NSBezierPath(roundedRect: button.rect, xRadius: 5, yRadius: 5)
-        ledColor(code, pressed: pressed).setFill()
+        ledColor(code, pressed: pressed, led: button.led).setFill()
         path.fill()
         (pressed ? NSColor.white : NSColor(white: 0.3, alpha: 1)).setStroke()
         path.lineWidth = pressed ? 2 : 1
         path.stroke()
-        drawButtonLabel(button, color: labelColor(for: code))
+        drawButtonLabel(button, color: labelColor(for: code, led: button.led))
     }
 
     private func drawButtonLabel(_ button: ButtonControl, color: NSColor) {
@@ -262,24 +264,37 @@ final class PanelView: NSView {
     }
 
     private func drawFourD() {
+        let activeColor = NSColor.systemBlue
         let rect = NSRect(x: fourDCenter.x - fourDRadius, y: fourDCenter.y - fourDRadius,
                           width: fourDRadius * 2, height: fourDRadius * 2)
         let outer = NSBezierPath(ovalIn: rect)
-        NSColor(white: 0.14, alpha: 1).setFill(); outer.fill()
-        NSColor(white: 0.35, alpha: 1).setStroke(); outer.lineWidth = 2; outer.stroke()
+        (activeFourD == nil ? NSColor(white: 0.14, alpha: 1) : NSColor(white: 0.18, alpha: 1)).setFill()
+        outer.fill()
+        (activeFourD == nil ? NSColor(white: 0.35, alpha: 1) : activeColor).setStroke()
+        outer.lineWidth = activeFourD == nil ? 2 : 3
+        outer.stroke()
 
         // Direction arrows.
-        NSColor(white: 0.55, alpha: 1).setFill()
         let a = fourDRadius * 0.55
-        for (dx, dy) in [(0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0)] {
+        let directions: [(state: MK2InputReportBuilder.FourDState, dx: Double, dy: Double)] = [
+            (.pushUp, 0.0, -1.0),
+            (.pushDown, 0.0, 1.0),
+            (.pushLeft, -1.0, 0.0),
+            (.pushRight, 1.0, 0.0),
+        ]
+        for direction in directions {
             let p = NSBezierPath()
-            let cx = fourDCenter.x + CGFloat(dx) * a
-            let cy = fourDCenter.y + CGFloat(dy) * a
-            p.appendOval(in: NSRect(x: cx - 4, y: cy - 4, width: 8, height: 8))
+            let isActive = activeFourD == direction.state
+            let dotRadius: CGFloat = isActive ? 6 : 4
+            let cx = fourDCenter.x + CGFloat(direction.dx) * a
+            let cy = fourDCenter.y + CGFloat(direction.dy) * a
+            (isActive ? activeColor : NSColor(white: 0.55, alpha: 1)).setFill()
+            p.appendOval(in: NSRect(x: cx - dotRadius, y: cy - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
             p.fill()
         }
         let inner = NSBezierPath(ovalIn: NSRect(x: fourDCenter.x - 16, y: fourDCenter.y - 16, width: 32, height: 32))
-        NSColor(white: 0.22, alpha: 1).setFill(); inner.fill()
+        (activeFourD == .click ? activeColor : NSColor(white: 0.22, alpha: 1)).setFill()
+        inner.fill()
         drawLabel("4-D", in: NSRect(x: fourDCenter.x - 20, y: fourDCenter.y + fourDRadius + 4, width: 40, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 11)
     }
@@ -300,15 +315,19 @@ final class PanelView: NSView {
         text.draw(in: textRect, withAttributes: attrs)
     }
 
-    private func ledColor(_ code: UInt8, pressed: Bool) -> NSColor {
+    private func ledColor(_ code: UInt8, pressed: Bool, led: KKMK2ButtonLED) -> NSColor {
         if code == 0 {
             return pressed ? NSColor(white: 0.45, alpha: 1) : NSColor(white: 0.18, alpha: 1)
         }
         let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
+        if led.isMonochromeBacklit {
+            let brightness = CGFloat(max(rgb.red, rgb.green, rgb.blue)) / 255
+            return NSColor(white: max(0.35, brightness), alpha: 1)
+        }
         return NSColor(red: CGFloat(rgb.red) / 255, green: CGFloat(rgb.green) / 255, blue: CGFloat(rgb.blue) / 255, alpha: 1)
     }
 
-    private func labelColor(for code: UInt8) -> NSColor {
+    private func labelColor(for code: UInt8, led: KKMK2ButtonLED) -> NSColor {
         code == 0 ? NSColor(white: 0.75, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
     }
 
@@ -319,6 +338,7 @@ final class PanelView: NSView {
         if let button = buttons.first(where: { $0.rect.contains(point) }) {
             activeButton = button.led
             pressedButtons.insert(button.led)
+            interactionAudio.playClick()
             onInput?(.button(led: button.led, pressed: true))
             needsDisplay = true
             return
@@ -334,11 +354,25 @@ final class PanelView: NSView {
         if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
             let state = fourDZone(point)
             activeFourD = state
+            interactionAudio.playClick()
             onInput?(.fourDState(state.rawValue))
+            needsDisplay = true
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if activeFourD != nil {
+            let point = convert(event.locationInWindow, from: nil)
+            guard hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius else { return }
+            let state = fourDZone(point)
+            if state != activeFourD {
+                activeFourD = state
+                onInput?(.fourDState(state.rawValue))
+                needsDisplay = true
+            }
+            return
+        }
+
         guard let index = activeEncoder else { return }
         let point = convert(event.locationInWindow, from: nil)
         let steps = Int((lastDragY - point.y) / 4) // drag up = increase (flipped view)
@@ -364,6 +398,7 @@ final class PanelView: NSView {
         if activeFourD != nil {
             onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
             activeFourD = nil
+            needsDisplay = true
         }
     }
 
@@ -375,12 +410,14 @@ final class PanelView: NSView {
         if let encoder = encoders.first(where: { $0.rect.contains(point) }) {
             emitEncoder(index: encoder.index, delta: delta)
         } else if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
+            interactionAudio.playRotate()
             onInput?(.fourDWheel(delta: delta))
         }
     }
 
     private func emitEncoder(index: Int, delta: Int) {
         encoderAngle[index - 1] += Double(delta) * 0.35
+        interactionAudio.playRotate()
         onInput?(.encoder(index: index, delta: delta))
         needsDisplay = true
     }
@@ -391,6 +428,101 @@ final class PanelView: NSView {
         if hypot(dx, dy) < 18 { return .click }
         if abs(dx) > abs(dy) { return dx > 0 ? .pushRight : .pushLeft }
         return dy > 0 ? .pushDown : .pushUp // flipped: +y is downward
+    }
+}
+
+/// Keeps click/turn sounds ready on a warm AVAudioEngine. The buffers are generated once and
+/// fired through round-robin player nodes so quick repeats do not wait behind older blips.
+private final class InteractionAudio {
+    private let engine = AVAudioEngine()
+    private let clickBuffer: AVAudioPCMBuffer
+    private let rotateBuffer: AVAudioPCMBuffer
+    private let clickPlayers: [AVAudioPlayerNode]
+    private let rotatePlayers: [AVAudioPlayerNode]
+    private var nextClickPlayer = 0
+    private var nextRotatePlayer = 0
+
+    init() {
+        let hardwareFormat = engine.outputNode.inputFormat(forBus: 0)
+        let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 48_000
+        let channelCount = max(1, min(2, hardwareFormat.channelCount))
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
+
+        clickBuffer = Self.makeClickBuffer(format: format)
+        rotateBuffer = Self.makeRotateBuffer(format: format)
+        clickPlayers = Self.makePlayers(count: 6, engine: engine, format: format)
+        rotatePlayers = Self.makePlayers(count: 10, engine: engine, format: format)
+
+        engine.prepare()
+        try? engine.start()
+    }
+
+    func playClick() {
+        play(clickBuffer, players: clickPlayers, nextIndex: &nextClickPlayer)
+    }
+
+    func playRotate() {
+        play(rotateBuffer, players: rotatePlayers, nextIndex: &nextRotatePlayer)
+    }
+
+    private func play(_ buffer: AVAudioPCMBuffer, players: [AVAudioPlayerNode], nextIndex: inout Int) {
+        guard !players.isEmpty else { return }
+        if !engine.isRunning {
+            try? engine.start()
+        }
+
+        let player = players[nextIndex]
+        nextIndex = (nextIndex + 1) % players.count
+        player.stop()
+        player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        player.play()
+    }
+
+    private static func makePlayers(count: Int, engine: AVAudioEngine, format: AVAudioFormat) -> [AVAudioPlayerNode] {
+        (0..<count).map { _ in
+            let player = AVAudioPlayerNode()
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            return player
+        }
+    }
+
+    private static func makeClickBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
+        makeBuffer(format: format, duration: 0.018) { time, progress in
+            let envelope = exp(-progress * 9.5)
+            let tone = sin(2 * .pi * 1_750 * time)
+            let snap = sin(2 * .pi * 3_200 * time) * exp(-progress * 22)
+            return Float((tone * 0.42 + snap * 0.18) * envelope)
+        }
+    }
+
+    private static func makeRotateBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer {
+        makeBuffer(format: format, duration: 0.026) { time, progress in
+            let frequency = 620 + progress * 180
+            let envelope = sin(.pi * progress) * exp(-progress * 2.8)
+            return Float(sin(2 * .pi * frequency * time) * envelope * 0.30)
+        }
+    }
+
+    private static func makeBuffer(
+        format: AVAudioFormat,
+        duration: Double,
+        sample: (Double, Double) -> Float
+    ) -> AVAudioPCMBuffer {
+        let frameCount = AVAudioFrameCount(format.sampleRate * duration)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        buffer.frameLength = frameCount
+
+        guard let channels = buffer.floatChannelData else { return buffer }
+        for frame in 0..<Int(frameCount) {
+            let time = Double(frame) / format.sampleRate
+            let progress = Double(frame) / Double(max(1, Int(frameCount) - 1))
+            let value = sample(time, progress)
+            for channel in 0..<Int(format.channelCount) {
+                channels[channel][frame] = value
+            }
+        }
+        return buffer
     }
 }
 

@@ -217,6 +217,48 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .strip25: "strip25"
         }
     }
+
+    /// Only these ten button LEDs are RGB-capable on the S-Series MK2 hardware. The
+    /// remaining report slots are single-colour white indicators even though they share
+    /// the same 0x80 report.
+    public var isRGBBacklit: Bool {
+        switch self {
+            case .m, .s,
+                 .function1, .function2, .function3, .function4,
+                 .function5, .function6, .function7, .function8:
+                true
+            default:
+                false
+        }
+    }
+
+    public var isMonochromeBacklit: Bool {
+        !isRGBBacklit
+    }
+
+    public func ledByte(for color: KKRGB) -> UInt8 {
+        guard color != .off else { return 0 }
+        if isRGBBacklit {
+            return KompleteKontrolSSeriesMK2.paletteCode(for: color)
+        }
+
+        let brightness = max(color.red, color.green, color.blue)
+        let intensity: UInt8
+        switch brightness {
+            case 0:
+                return 0
+            case 1..<86:
+                intensity = 0x01
+            case 86..<171:
+                intensity = 0x02
+            default:
+                intensity = 0x03
+        }
+        return KompleteKontrolSSeriesMK2.paletteCode(
+            for: KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+            intensity: intensity
+        )
+    }
 }
 
 public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
@@ -576,15 +618,14 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
     public func setButtonLED(_ led: KKMK2ButtonLED, color: KKRGB, flush: Bool = true) -> IOReturn? {
         let index = led.rawValue
         guard buttonLEDs.indices.contains(index) else { return nil }
-        buttonLEDs[index] = Self.paletteCode(for: color)
+        buttonLEDs[index] = led.ledByte(for: color)
         return flush ? sendButtonLEDs() : nil
     }
 
     @discardableResult
     public func setAllButtonLEDs(color: KKRGB, flush: Bool = true) -> IOReturn {
-        let code = Self.paletteCode(for: color)
-        for index in buttonLEDs.indices {
-            buttonLEDs[index] = code
+        for led in KKMK2ButtonLED.allCases where buttonLEDs.indices.contains(led.rawValue) {
+            buttonLEDs[led.rawValue] = led.ledByte(for: color)
         }
         return flush ? sendButtonLEDs() : kIOReturnSuccess
     }

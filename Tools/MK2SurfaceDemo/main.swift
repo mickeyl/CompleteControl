@@ -46,7 +46,7 @@ private enum Feature: Int, CaseIterable, Sendable {
             case .encoders: "ENCODERS"
             case .fourD: "4D ENCODER"
             case .midiKeys: "MIDI KEYS"
-            case .buttons: "RGB BUTTONS"
+            case .buttons: "BUTTON LEDS"
             case .display: "DISPLAY"
         }
     }
@@ -240,10 +240,11 @@ private actor MK2FeatureDemo {
                 )
 
             case .buttons:
-                // Every button including the function row is part of the LED map test, so
-                // the home shortcut is unavailable here — the 4-D click is the exit.
+                // Every addressable button LED is part of the map test. Only M/S and
+                // F1...F8 are RGB-capable; the rest are monochrome white indicators.
                 for led in KKMK2ButtonLED.allCases where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
-                    lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(KKRGB(red: 0x30, green: 0x90, blue: 0xff), period: 1.4)
+                    let attractor = led.isRGBBacklit ? KKRGB(red: 0x30, green: 0x90, blue: 0xff) : KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+                    lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(attractor, period: 1.4)
                     bindings.onPress(led) { Task { await self.toggleButton(led) } }
                 }
                 bindings.jog = { direction in
@@ -251,7 +252,7 @@ private actor MK2FeatureDemo {
                     Task { await self.show(.overview) }
                 }
                 return MK2SurfaceScene2(
-                    left: baseFrame(title: "RGB BUTTONS", lines: ["PRESS LIT BUTTONS", "4D CLICK EXITS"], stripStart: 0),
+                    left: baseFrame(title: "BUTTON LEDS", lines: ["RGB: M S F1-F8", "REST WHITE ONLY"], stripStart: 0),
                     right: buttonFrame(),
                     lamps: lamps,
                     keyColors: overviewKeys(),
@@ -414,7 +415,12 @@ private actor MK2FeatureDemo {
     }
 
     private func toggleButton(_ led: KKMK2ButtonLED) async {
-        let next = nextColor(after: buttonColors[led] ?? .off)
+        let next: KKRGB
+        if led.isRGBBacklit {
+            next = nextColor(after: buttonColors[led] ?? .off)
+        } else {
+            next = buttonColors[led] == nil ? KKRGB(red: 0xff, green: 0xff, blue: 0xff) : .off
+        }
         buttonColors[led] = next == .off ? nil : next
         lastEvent = "\(led.protocolName.uppercased()) \(colorName(next))"
         await render()
@@ -568,16 +574,20 @@ private actor MK2FeatureDemo {
         }
     }
 
-    // Cell text uses the button's actual toggled color (not just a touched/untouched
-    // binary) so the on-screen map can be cross-checked directly against the physical
-    // light-guide/button LEDs — the original point of this page.
+    // Cell text mirrors hardware capability: RGB-capable buttons use their selected colour;
+    // monochrome buttons are drawn white/on or dim/off.
     private func buttonFrame() -> MK2PixelFrame {
         var frame = baseFrame(title: "BUTTON LED MAP", lines: [lastEvent], stripStart: 4)
         let columns = 8
         for (index, led) in KKMK2ButtonLED.allCases.enumerated() where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
             let x = 12 + (index % columns) * 58
             let y = 128 + (index / columns) * 24
-            let color = buttonColors[led].map(KompleteKontrolSSeriesMK2.rgb565) ?? 0x8410
+            let color: UInt16
+            if led.isRGBBacklit {
+                color = buttonColors[led].map(KompleteKontrolSSeriesMK2.rgb565) ?? 0x8410
+            } else {
+                color = buttonColors[led] == nil ? 0x8410 : 0xffff
+            }
             frame.drawText(buttonShortLabel(led), x: x, y: y, scale: 2, color: color, maxWidth: 56)
         }
         return frame

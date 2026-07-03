@@ -392,15 +392,21 @@ public actor MK2Surface2 {
             case .off:
                 return 0
             case let .on(color):
-                return KompleteKontrolSSeriesMK2.paletteCode(for: color)
+                return led.ledByte(for: color)
             case let .blink(color, _):
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
-                return phase < 0.5 ? KompleteKontrolSSeriesMK2.paletteCode(for: color) : 0
+                return phase < 0.5 ? led.ledByte(for: color) : 0
             case let .pulse(color, _):
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
                 let triangle = phase < 0.5 ? phase * 2 : 2 - phase * 2
                 let intensity = UInt8(max(1, min(3, Int((triangle * 3).rounded()))))
-                return KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
+                if led.isRGBBacklit {
+                    return KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
+                }
+                return KompleteKontrolSSeriesMK2.paletteCode(
+                    for: KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+                    intensity: intensity
+                )
         }
     }
 
