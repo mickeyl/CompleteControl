@@ -3795,7 +3795,7 @@ public enum KompleteKontrolLibUSBServer {
             fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: hasInput ? 0x07ff : 0xf800, pixels: &pixels)
             fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
 
-            drawMK2Text("NO CLIENT", x: 24, y: 22, scale: 4, color: 0xffff, pixels: &pixels)
+            drawMK2Text("NO CLIENT", x: 28, y: 24, scale: 3, color: 0xffff, pixels: &pixels)
             drawMK2Text("MK2 DAEMON", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
             drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 84, scale: 2, color: 0x8410, pixels: &pixels)
 
@@ -3804,14 +3804,13 @@ public enum KompleteKontrolLibUSBServer {
             drawMK2Text("MIDI", x: 28, y: 172, scale: 1, color: 0x07e0, pixels: &pixels)
             drawMK2Text(midiSummary, x: 28, y: 188, scale: 2, color: 0xdefb, maxWidth: 420, pixels: &pixels)
 
-            drawMK2Text("RAW", x: 28, y: 222, scale: 1, color: 0x8410, pixels: &pixels)
             let visibleRawLines = Array(rawLines.suffix(3))
             if visibleRawLines.isEmpty {
-                drawMK2Text("RAW --", x: 28, y: 238, scale: 1, color: 0x8410, maxWidth: 420, pixels: &pixels)
+                drawMK2Text("RAW --", x: 28, y: 218, scale: 1, color: 0x8410, maxWidth: 420, pixels: &pixels)
             } else {
                 for (index, rawLine) in visibleRawLines.enumerated() {
                     let color: UInt16 = index == visibleRawLines.count - 1 ? 0xbdf7 : 0x8410
-                    drawMK2Text(rawLine, x: 28, y: 230 + index * 14, scale: 1, color: color, maxWidth: 420, pixels: &pixels)
+                    drawMK2Text(rawLine, x: 28, y: 216 + index * 12, scale: 1, color: color, maxWidth: 420, pixels: &pixels)
                 }
             }
             return pixels
