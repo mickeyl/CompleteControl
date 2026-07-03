@@ -4,13 +4,14 @@ import Testing
 
 @Suite("SurfaceFont metrics & atlas")
 struct SurfaceFontMetricsTests {
-    @Test("Face metrics match the vendored Tamzen cell sizes")
+    @Test("Face metrics match the vendored bitmap cell sizes")
     func faceMetrics() {
         #expect(SurfaceFont.grid.advance == 8)
         #expect(SurfaceFont.grid.cellHeight == 16)
         #expect(SurfaceFont.grid.ascent == 12)
         #expect(SurfaceFont.label.advance == 6)
-        #expect(SurfaceFont.label.cellHeight == 12)
+        #expect(SurfaceFont.label.cellHeight == 13)
+        #expect(SurfaceFont.label.ascent == 10)
         #expect(SurfaceFont.readout.advance == 10)
         #expect(SurfaceFont.readout.cellHeight == 20)
     }
@@ -26,7 +27,7 @@ struct SurfaceFontMetricsTests {
     func roleResolution() {
         #expect(SurfaceFont.face(.grid, .bold).advance == SurfaceFont.gridBold.advance)
         #expect(SurfaceFont.face(.readout, .bold).cellHeight == SurfaceFont.readoutBold.cellHeight)
-        // Tamzen 6×12 ships regular only — bold label must stay the 6×12 regular cell.
+        // Cozette ships a single label face — bold label must stay the regular cell.
         #expect(SurfaceFont.face(.label, .bold).cellHeight == SurfaceFont.label.cellHeight)
         #expect(SurfaceFont.face(.label, .bold).advance == 6)
     }

@@ -6,6 +6,13 @@ generator (`../generate.py`) compiles them into a packed Swift glyph atlas
 is what ships and runs; these BDFs are build-time input only, checked in so the atlas
 is reproducible offline.
 
+## Cozette
+
+- Files: `Cozette.bdf`
+- Source: local candidate from `~/Downloads/cozette.bdf` for MK2 label-style evaluation.
+- Copyright: `(c) 2020-2025 Ines <ines@moonwit.ch>` as recorded in the BDF.
+- License: MIT.
+
 ## Tamzen
 
 - Files: `Tamzen8x16r.bdf`, `Tamzen8x16b.bdf`, `Tamzen6x12r.bdf`, `Tamzen10x20r.bdf`, `Tamzen10x20b.bdf`

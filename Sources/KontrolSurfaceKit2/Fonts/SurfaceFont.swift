@@ -1,10 +1,10 @@
 import Foundation
 
-/// A fixed-metric bitmap font face backed by the generated Tamzen atlas. Faces are
+/// A fixed-metric bitmap font face backed by the generated bitmap atlas. Faces are
 /// value types decoded once from their base64 blob into a flat `[UInt8]` the text hot
 /// path indexes directly — no per-glyph heap churn on lookup.
 public struct SurfaceFont: Sendable {
-    /// Semantic role; maps to a concrete Tamzen cell size.
+    /// Semantic role; maps to a concrete bitmap face.
     public enum Role: Sendable {
         case grid       // 8×16 — pattern rows, dense columns
         case label      // 6×12 — chrome, secondary text
@@ -40,8 +40,8 @@ public struct SurfaceFont: Sendable {
     public static let readout = SurfaceFont(TamzenAtlas.readout)
     public static let readoutBold = SurfaceFont(TamzenAtlas.readoutBold)
 
-    /// Resolve a role/weight to a concrete face. Tamzen 6×12 ships regular only, so
-    /// `.label` bold falls back to the regular label rather than a mismatched cell size.
+    /// Resolve a role/weight to a concrete face. The label role currently ships as a
+    /// single Cozette face, so bold label falls back to regular label.
     public static func face(_ role: Role, _ weight: Weight = .regular) -> SurfaceFont {
         switch (role, weight) {
             case (.grid, .regular): grid
