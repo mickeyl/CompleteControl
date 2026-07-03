@@ -189,7 +189,7 @@ show/stop) resets handlers + clears keys so nothing leaks between screens. Prefe
 
 ## MK2 (S49/S61/S88) essentials — don't relearn these either
 
-Full protocol findings live in `Docs/MK2-Porting-Plan.md` §2; the bench hardware is an S61 MK2.
+Full protocol findings live in `../docs/MK2-Porting-Plan.md` §2; the bench hardware is an S61 MK2.
 The short version:
 
 - Surface HID input report `0x01` (buttons/encoders/wheels/4-D) streams unconditionally. The
@@ -290,7 +290,7 @@ as the regression baseline for the shared middleware, but no new kit features ge
   (bulk via shm, control via socket — the CoreAudio/JACK pattern), not in-process linking.
 
 MK2 kit work Paulinche will pull, in rough priority (protocol side is done — see
-`Docs/MK2-Porting-Plan.md` "Path forward"):
+`../docs/MK2-Porting-Plan.md` "Path forward"):
 
 1. **`PixelDisplayReconciler` + pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`, `PatternGrid`)
    with dirty-span diffing into the jnlive scatter-blit format; granularity gated on the
