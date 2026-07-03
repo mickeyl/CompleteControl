@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
@@ -81,6 +82,9 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
+    ReplCommand(name: "rec", arg: "on|off|toggle", summary: "tracker unit: arm record", values: ["on", "off", "toggle"]),
+    ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
+    ReplCommand(name: "midi", arg: "<note> [velocity]", summary: "tracker unit: route MIDI to focused channel", values: []),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
     ReplCommand(name: "quit", arg: "", summary: "exit", values: []),
@@ -139,6 +143,7 @@ private enum Unit: Int, CaseIterable, Sendable {
 
 private actor WidgetLab {
     private let surface: MK2Surface2
+    private let metronome = DemoMetronome()
     private var unit: Unit = .font
 
     // Font lab focus: the single combination we render prominently while iterating
@@ -150,10 +155,13 @@ private actor WidgetLab {
     private var focusBG: UInt16?
     private var sampleText = "Paulinche 0123 ÄÖÜ"
     private var isPlaying = false
+    private var recordArmed = false
+    private var metronomeEnabled = false
     private var playheadRow = 0
     private var playbackTimer: DispatchSourceTimer?
-    private let patternRows: [TrackerDemoRow]
+    private var patternRows: [TrackerDemoRow]
     private var focusedChannel = 3
+    private var midiInputByChannel = Array(repeating: "NO MIDI", count: 4)
     private static let availableIntensity: UInt8 = 0x01
     private static let activeIntensity: UInt8 = 0x03
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
@@ -191,6 +199,8 @@ private actor WidgetLab {
         if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
+            lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
+            lamps[.metro] = metronomeEnabled ? Self.activeLamp(Self.actionWhite) : Self.availableLamp(Self.actionWhite)
             lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
             lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
         }
@@ -207,6 +217,12 @@ private actor WidgetLab {
         bindings.onPress(.stop) { [weak self] in
             Task { await self?.stopPlayback() }
         }
+        bindings.onPress(.record) { [weak self] in
+            Task { await self?.toggleRecordArm() }
+        }
+        bindings.onPress(.metro) { [weak self] in
+            Task { await self?.toggleMetronome() }
+        }
         bindings.onPress(.pageLeft) { [weak self] in
             Task { await self?.moveFocusedChannel(-1) }
         }
@@ -215,6 +231,12 @@ private actor WidgetLab {
         }
         bindings.jogScroll = { [weak self] delta, _ in
             Task { await self?.turnMainEncoder(delta) }
+        }
+        if unit == .pattern {
+            let targetChannel = focusedChannel
+            bindings.midiFocus = MIDIFocus("tracker.channel.\(targetChannel + 1)") { [weak self] event in
+                Task { await self?.receiveMIDI(event, targetChannel: targetChannel) }
+            }
         }
 
         let (left, right) = frames()
@@ -315,8 +337,11 @@ private actor WidgetLab {
         BitmapLabel("EDIT", font: .grid, color: Palette.blue).draw(into: &frame, x: 24, y: 18)
         BitmapLabel("CH\(focusedChannel + 1)", font: .grid, color: Palette.dim).draw(into: &frame, x: 110, y: 18)
         BitmapLabel("ROW \(hex2(playheadRow))", font: .grid, color: Palette.dim).draw(into: &frame, x: 176, y: 18)
-        BitmapLabel(isPlaying ? "PLAYING" : "JOG ROW", font: .label, color: isPlaying ? Palette.green : Palette.orange)
-            .draw(into: &frame, x: 360, y: 21)
+        BitmapLabel(metronomeEnabled ? "MET ON" : "MET OFF", font: .label, color: metronomeEnabled ? Palette.text : Palette.dim)
+            .draw(into: &frame, x: 270, y: 21)
+        let mode = recordArmed ? (isPlaying ? "LIVE REC" : "STEP REC") : (isPlaying ? "PLAYING" : "JOG ROW")
+        let modeColor = recordArmed ? Palette.orange : (isPlaying ? Palette.green : Palette.orange)
+        BitmapLabel(mode, font: .label, color: modeColor).draw(into: &frame, x: 348, y: 21)
 
         drawEditField("NOTE", value: cell.note, color: Palette.text, x: 24, y: 90, width: 72, focused: true, into: &frame)
         drawEditField("INST", value: cell.instrument, color: Palette.instrument, x: 136, y: 90, width: 68, focused: false, into: &frame)
@@ -330,7 +355,7 @@ private actor WidgetLab {
 
         drawPlaceholder("VU METERS", into: &frame, rect: MK2PixelRect(x: 24, y: 212, width: 430, height: 30))
 
-        BitmapLabel("PLAY/STOP TRANSPORT  4D ROTATES ROW ONLY WHEN STOPPED", font: .label, color: Palette.dim)
+        BitmapLabel("MIDI FOCUS CH\(focusedChannel + 1)  \(midiInputByChannel[focusedChannel])", font: .label, color: Palette.dim)
             .draw(into: &frame, x: 24, y: 254)
         return frame
     }
@@ -389,10 +414,11 @@ private actor WidgetLab {
         guard unit == .pattern else { return }
         guard !isPlaying else { return }
         isPlaying = true
+        playMetronomeIfNeeded(row: playheadRow)
         await render()
         playbackTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
-        timer.schedule(deadline: .now() + .milliseconds(180), repeating: .milliseconds(180), leeway: .milliseconds(5))
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        timer.schedule(deadline: .now() + .milliseconds(180), repeating: .milliseconds(180), leeway: .nanoseconds(0))
         timer.setEventHandler {
             Task { await self.advancePlayback() }
         }
@@ -410,6 +436,7 @@ private actor WidgetLab {
     private func advancePlayback() async {
         guard isPlaying else { return }
         playheadRow = (playheadRow + 1) % patternRows.count
+        playMetronomeIfNeeded(row: playheadRow)
         await render()
     }
 
@@ -425,6 +452,59 @@ private actor WidgetLab {
         guard next != focusedChannel else { return }
         focusedChannel = next
         await render()
+    }
+
+    private func toggleRecordArm() async {
+        guard unit == .pattern else { return }
+        recordArmed.toggle()
+        await render()
+    }
+
+    private func setRecordArmed(_ armed: Bool) async {
+        guard unit == .pattern else { return }
+        recordArmed = armed
+        await render()
+    }
+
+    private func toggleMetronome() async {
+        guard unit == .pattern else { return }
+        metronomeEnabled.toggle()
+        await render()
+    }
+
+    private func setMetronomeEnabled(_ enabled: Bool) async {
+        guard unit == .pattern else { return }
+        metronomeEnabled = enabled
+        await render()
+    }
+
+    private func playMetronomeIfNeeded(row: Int) {
+        guard metronomeEnabled, recordArmed, isPlaying, row.isMultiple(of: 4) else { return }
+        metronome.play(accent: row.isMultiple(of: 16))
+    }
+
+    private func receiveMIDI(_ event: KKMIDIEvent, targetChannel: Int) async {
+        guard unit == .pattern, midiInputByChannel.indices.contains(targetChannel) else { return }
+        let row = playheadRow
+        let didRecord = recordArmed && record(event, row: row, channel: targetChannel)
+        let inputMode = didRecord ? (isPlaying ? "LIVE" : "STEP") : "MON"
+        midiInputByChannel[targetChannel] = "\(inputMode) \(hex2(row)) \(Self.midiSummary(event))"
+        if didRecord, !isPlaying {
+            playheadRow = (playheadRow + 1) % patternRows.count
+        }
+        await render()
+    }
+
+    private func record(_ event: KKMIDIEvent, row: Int, channel: Int) -> Bool {
+        guard event.kind == .noteOn, event.velocity > 0 else { return false }
+        guard patternRows.indices.contains(row), patternRows[row].cells.indices.contains(channel) else { return false }
+        patternRows[row].cells[channel] = TrackerDemoCell(
+            note: Self.midiNoteName(event.note),
+            instrument: "0A",
+            volume: Self.trackerVolume(event.velocity),
+            effect: "..."
+        )
+        return true
     }
 
     // Right screen: the focused combination big, over an optional background swatch, with
@@ -547,6 +627,36 @@ private actor WidgetLab {
                 focusedChannel = channel - 1
                 await render()
 
+            case "rec", "record":
+                let value = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                switch value {
+                    case "", "toggle":
+                        await toggleRecordArm()
+                    case "on", "1", "true", "yes":
+                        await setRecordArmed(true)
+                    case "off", "0", "false", "no":
+                        await setRecordArmed(false)
+                    default:
+                        print("? rec on|off|toggle")
+                }
+
+            case "metro", "metronome":
+                let value = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                switch value {
+                    case "", "toggle":
+                        await toggleMetronome()
+                    case "on", "1", "true", "yes":
+                        await setMetronomeEnabled(true)
+                    case "off", "0", "false", "no":
+                        await setMetronomeEnabled(false)
+                    default:
+                        print("? metro on|off|toggle")
+                }
+
+            case "midi":
+                guard let event = Self.midiEvent(rest) else { print("? midi <note> [velocity]"); return }
+                await receiveMIDI(event, targetChannel: focusedChannel)
+
             case "snap":
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
@@ -632,6 +742,39 @@ private actor WidgetLab {
         return rows
     }
 
+    private static func midiEvent(_ text: String) -> KKMIDIEvent? {
+        let parts = text.split(separator: " ").map(String.init)
+        guard let noteText = parts.first, let note = UInt8(noteText) else { return nil }
+        let velocity = parts.dropFirst().first.flatMap(UInt8.init) ?? 100
+        return KKMIDIEvent(kind: .noteOn, channel: 0, note: note, velocity: velocity)
+    }
+
+    private static func midiSummary(_ event: KKMIDIEvent) -> String {
+        switch event.kind {
+            case .noteOn:
+                event.velocity > 0 ? "ON \(midiNoteName(event.note)) V\(event.velocity)" : "OFF \(midiNoteName(event.note))"
+            case .noteOff:
+                "OFF \(midiNoteName(event.note))"
+            case .controlChange:
+                "CC \(event.control)=\(event.controlValue)"
+            case .channelPressure:
+                "AT \(event.pressure)"
+            case .pitchBend:
+                "PB \(event.pitchBendCentered)"
+        }
+    }
+
+    private static func midiNoteName(_ note: UInt8) -> String {
+        let names = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
+        let value = Int(note)
+        return "\(names[value % 12])\(value / 12 - 1)"
+    }
+
+    private static func trackerVolume(_ velocity: UInt8) -> String {
+        let volume = Int((Double(velocity) / 127.0 * 64.0).rounded())
+        return String(format: "%02X", max(0, min(64, volume)))
+    }
+
     // Accepts RRGGBB hex or a small set of names, returns wire-order-agnostic RGB565.
     private static func color565(_ text: String) -> UInt16? {
         if let hit = namedColors[text.lowercased()] { return hit }
@@ -641,6 +784,76 @@ private actor WidgetLab {
         let g = UInt16((rgb >> 8) & 0xff) >> 2
         let b = UInt16(rgb & 0xff) >> 3
         return (r << 11) | (g << 5) | b
+    }
+}
+
+private final class DemoMetronome {
+    private let engine = AVAudioEngine()
+    private let clickBuffer: AVAudioPCMBuffer
+    private let accentBuffer: AVAudioPCMBuffer
+    private let players: [AVAudioPlayerNode]
+    private var nextPlayer = 0
+
+    init() {
+        let hardwareFormat = engine.outputNode.inputFormat(forBus: 0)
+        let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 48_000
+        let channelCount = max(1, min(2, hardwareFormat.channelCount))
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
+
+        clickBuffer = Self.makeBuffer(format: format, duration: 0.018, frequency: 1_750, snap: 3_200, gain: 0.32)
+        accentBuffer = Self.makeBuffer(format: format, duration: 0.026, frequency: 2_350, snap: 4_400, gain: 0.42)
+        players = Self.makePlayers(count: 4, engine: engine, format: format)
+
+        engine.prepare()
+        try? engine.start()
+    }
+
+    func play(accent: Bool) {
+        guard !players.isEmpty else { return }
+        if !engine.isRunning {
+            try? engine.start()
+        }
+
+        let player = players[nextPlayer]
+        nextPlayer = (nextPlayer + 1) % players.count
+        player.stop()
+        player.scheduleBuffer(accent ? accentBuffer : clickBuffer, at: nil, options: .interrupts, completionHandler: nil)
+        player.play()
+    }
+
+    private static func makePlayers(count: Int, engine: AVAudioEngine, format: AVAudioFormat) -> [AVAudioPlayerNode] {
+        (0..<count).map { _ in
+            let player = AVAudioPlayerNode()
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            return player
+        }
+    }
+
+    private static func makeBuffer(
+        format: AVAudioFormat,
+        duration: Double,
+        frequency: Double,
+        snap: Double,
+        gain: Double
+    ) -> AVAudioPCMBuffer {
+        let frameCount = AVAudioFrameCount(format.sampleRate * duration)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        buffer.frameLength = frameCount
+
+        guard let channels = buffer.floatChannelData else { return buffer }
+        for frame in 0..<Int(frameCount) {
+            let time = Double(frame) / format.sampleRate
+            let progress = Double(frame) / Double(max(1, Int(frameCount) - 1))
+            let envelope = exp(-progress * 10)
+            let tone = sin(2 * .pi * frequency * time)
+            let transient = sin(2 * .pi * snap * time) * exp(-progress * 24)
+            let value = Float((tone * 0.72 + transient * 0.28) * envelope * gain)
+            for channel in 0..<Int(format.channelCount) {
+                channels[channel][frame] = value
+            }
+        }
+        return buffer
     }
 }
 

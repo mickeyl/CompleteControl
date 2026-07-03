@@ -386,7 +386,11 @@ public actor MK2Surface2 {
     }
 
     private func handle(midi event: KKMIDIEvent) {
-        scene.bindings.midi?(event)
+        if let midiFocus = scene.bindings.midiFocus {
+            midiFocus.receive(event)
+        } else {
+            scene.bindings.midi?(event)
+        }
     }
 
     private func paletteByte(for state: MK2LampState2, led: KKMK2ButtonLED) -> UInt8 {

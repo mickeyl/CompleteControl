@@ -14,6 +14,23 @@ public enum MK2LampState2: Sendable, Equatable {
     public static var red: MK2LampState2 { .on(KKRGB(red: 0xff, green: 0x18, blue: 0x18)) }
 }
 
+/// Declares which logical UI element receives USB-MIDI input for the current scene.
+/// A client should use product-level ids such as `tracker.channel.1`, not hardware ids,
+/// so the same focus concept can later route keyboard, simulator, and hardware events.
+public struct MIDIFocus: Sendable {
+    public let id: String
+    private let handler: @Sendable (_ event: KKMIDIEvent) -> Void
+
+    public init(_ id: String, handler: @escaping @Sendable (_ event: KKMIDIEvent) -> Void) {
+        self.id = id
+        self.handler = handler
+    }
+
+    public func receive(_ event: KKMIDIEvent) {
+        handler(event)
+    }
+}
+
 public struct MK2InputBindings2: Sendable {
     public var buttonDown: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     public var buttonUp: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
@@ -31,6 +48,10 @@ public struct MK2InputBindings2: Sendable {
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?
     public var strip: (@Sendable (_ position: Int?, _ time: Int) -> Void)?
     public var midi: (@Sendable (_ event: KKMIDIEvent) -> Void)?
+    /// If present, MIDI is routed to this focused element instead of the legacy global
+    /// MIDI handler. Use this for tracker channels, instrument editors, and similar
+    /// command targets where MIDI input should follow UI focus.
+    public var midiFocus: MIDIFocus?
 
     public init() {}
 
