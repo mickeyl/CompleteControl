@@ -69,6 +69,7 @@ final class PanelView: NSView {
     private var activeEncoderTouchOnly: Int?
     private var activeKey: Int?
     private var activeKeyPressure: Int?
+    private var activeKeyPressureOriginY: CGFloat?
     private var activeWheel: WheelKind?
     private var activeRibbon = false
     private var lastDragY: CGFloat = 0
@@ -415,6 +416,11 @@ final class PanelView: NSView {
         let inner = NSBezierPath(ovalIn: NSRect(x: fourDCenter.x - 16, y: fourDCenter.y - 16, width: 32, height: 32))
         (activeFourD == .click ? activeColor : NSColor(white: 0.22, alpha: 1)).setFill()
         inner.fill()
+        if activeFourD == .touched {
+            NSColor.systemBlue.setStroke()
+            inner.lineWidth = 2
+            inner.stroke()
+        }
         drawLabel("4-D PUSH", in: NSRect(x: fourDCenter.x - 40, y: fourDCenter.y + fourDRadius + 4, width: 80, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 11)
     }
@@ -527,7 +533,7 @@ final class PanelView: NSView {
             path.fill()
         }
 
-        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY - 1, width: 78, height: 14),
+        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY - 11, width: 78, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 10, left: true)
     }
 
@@ -636,6 +642,7 @@ final class PanelView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         if let key = key(at: point) {
             activeKey = key.index
+            activeKeyPressureOriginY = point.y
             setKey(key, pressed: true, velocity: keyValue(at: point, for: key))
             return
         }
@@ -708,6 +715,7 @@ final class PanelView: NSView {
             guard let current = keyControls.first(where: { $0.index == activeKey }) else {
                 self.activeKey = nil
                 activeKeyPressure = nil
+                activeKeyPressureOriginY = nil
                 return
             }
 
@@ -716,6 +724,7 @@ final class PanelView: NSView {
                 if let nextKey {
                     setKey(current, pressed: false)
                     self.activeKey = nextKey.index
+                    activeKeyPressureOriginY = point.y
                     setKey(nextKey, pressed: true, velocity: keyValue(at: point, for: nextKey))
                     updateChannelPressure(at: point, for: nextKey, force: true)
                 } else if current.rect.minX...current.rect.maxX ~= point.x {
@@ -723,6 +732,7 @@ final class PanelView: NSView {
                 } else {
                     setKey(current, pressed: false)
                     self.activeKey = nil
+                    activeKeyPressureOriginY = nil
                 }
             } else {
                 updateChannelPressure(at: point, for: current, force: false)
@@ -797,6 +807,7 @@ final class PanelView: NSView {
         if let activeKey, let key = keyControls.first(where: { $0.index == activeKey }) {
             setKey(key, pressed: false)
             self.activeKey = nil
+            activeKeyPressureOriginY = nil
         }
         if activeWheel == .pitch {
             pitchValue = 8192
@@ -861,6 +872,7 @@ final class PanelView: NSView {
                 onInput?(.midi(status: 0xd0, data1: 0, data2: 0))
                 activeKeyPressure = nil
             }
+            activeKeyPressureOriginY = nil
             pressedKeys.remove(key.index)
             onInput?(.note(key.note, velocity: 0, on: false))
         }
@@ -868,6 +880,9 @@ final class PanelView: NSView {
     }
 
     private func updateChannelPressure(at point: NSPoint, for key: KeyControl, force: Bool) {
+        if !force, activeKeyPressure == nil, let originY = activeKeyPressureOriginY, abs(point.y - originY) <= 5 {
+            return
+        }
         let pressure = Int(keyValue(at: point, for: key, minimum: 0))
         guard force || activeKeyPressure != pressure else { return }
         activeKeyPressure = pressure
@@ -988,7 +1003,9 @@ final class PanelView: NSView {
     private func fourDZone(_ point: NSPoint) -> MK2InputReportBuilder.FourDState {
         let dx = point.x - fourDCenter.x
         let dy = point.y - fourDCenter.y
-        if hypot(dx, dy) < 18 { return .click }
+        let distance = hypot(dx, dy)
+        if distance < 16 { return .click }
+        if distance < 30 { return .touched }
         if abs(dx) > abs(dy) { return dx > 0 ? .pushRight : .pushLeft }
         return dy > 0 ? .pushDown : .pushUp // flipped: +y is downward
     }

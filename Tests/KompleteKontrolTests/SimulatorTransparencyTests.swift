@@ -86,6 +86,15 @@ struct MK2InputReportBuilderTests {
         }
     }
 
+    @Test("4-D neutral touch after a push round-trips as jog center")
+    func fourDNeutralCenter() {
+        var before = MK2InputReportBuilder()
+        before.setFourD(.pushLeft)
+        var after = before
+        after.setFourD(.touched)
+        #expect(decode(before, after) == [.jogCenter])
+    }
+
     @Test("Report id and length are stable so the decoder's diff always applies")
     func reportShape() {
         let report = MK2InputReportBuilder()
