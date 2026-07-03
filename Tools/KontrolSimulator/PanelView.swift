@@ -6,6 +6,8 @@ import KompleteKontrol
 /// from the daemon update the pixels and LED colours; mouse/scroll interaction emits semantic
 /// input frames back through `onInput`.
 final class PanelView: NSView {
+    static let deviceBackgroundColor = NSColor(white: 0.12, alpha: 1)
+
     var onInput: ((SimFrame) -> Void)?
 
     private let screens = [ScreenBuffer(), ScreenBuffer()]
@@ -127,7 +129,7 @@ final class PanelView: NSView {
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(white: 0.07, alpha: 1).setFill()
+        Self.deviceBackgroundColor.setFill()
         bounds.fill()
 
         for (i, screen) in screens.enumerated() {

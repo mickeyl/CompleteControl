@@ -9,15 +9,25 @@ import KompleteKontrol
 ///
 /// The panel is the document view of a magnifiable scroll view; the View menu drives zoom,
 /// including a True Size mode that renders the displays at the real panels' physical size.
-final class AppController: NSObject, NSApplicationDelegate {
+final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private static let baseWindowTitle = "Komplete Kontrol S61 MK2 — Simulator"
+
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
     private var window: NSWindow!
     private var scrollView: NSScrollView!
     private var panel: PanelView!
+    private var fitToWidthItem: NSMenuItem?
+    private var zoomMode: ZoomMode = .manual
+    private var isProgrammaticResize = false
+
+    private enum ZoomMode {
+        case manual
+        case fitToWidth
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Base layout renders the displays at native 480×272 points (magnification 1.0 =
-        // "Actual Size"); all zoom is scroll-view magnification so clicks stay accurate.
+        // Base layout renders the displays at native 480x272 points; all zoom is scroll-view
+        // magnification so clicks stay accurate.
         panel = PanelView(scale: 1.0)
 
         let initialSize = NSSize(width: 1040, height: 640)
@@ -28,13 +38,14 @@ final class AppController: NSObject, NSApplicationDelegate {
         scrollView.maxMagnification = 5.0
         scrollView.hasHorizontalScroller = true
         scrollView.hasVerticalScroller = true
-        scrollView.backgroundColor = NSColor(white: 0.07, alpha: 1)
+        scrollView.backgroundColor = PanelView.deviceBackgroundColor
         scrollView.drawsBackground = true
 
         window = NSWindow(contentRect: NSRect(origin: .zero, size: initialSize),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = "Komplete Kontrol S61 MK2 — Simulator"
+        window.title = Self.baseWindowTitle
+        window.delegate = self
         window.contentView = scrollView
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -82,38 +93,158 @@ final class AppController: NSObject, NSApplicationDelegate {
         viewItem.submenu = viewMenu
         add(to: viewMenu, "Zoom In", #selector(zoomIn), "+")
         add(to: viewMenu, "Zoom Out", #selector(zoomOut), "-")
-        add(to: viewMenu, "Actual Size", #selector(actualSize), "0")
         viewMenu.addItem(.separator())
-        add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
+        fitToWidthItem = add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
         add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
 
         NSApp.mainMenu = mainMenu
+        updateViewMenuState()
     }
 
-    private func add(to menu: NSMenu, _ title: String, _ action: Selector, _ key: String) {
+    @discardableResult
+    private func add(to menu: NSMenu, _ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
         item.target = self
+        return item
     }
 
     // MARK: - Zoom actions
 
-    @objc private func zoomIn(_ sender: Any?) { setMagnification(scrollView.magnification * 1.2) }
-    @objc private func zoomOut(_ sender: Any?) { setMagnification(scrollView.magnification / 1.2) }
-    @objc private func actualSize(_ sender: Any?) { setMagnification(1.0) }
+    @objc private func zoomIn(_ sender: Any?) {
+        setManualMagnification(scrollView.magnification * 1.2, resizeWindow: true)
+    }
+
+    @objc private func zoomOut(_ sender: Any?) {
+        setManualMagnification(scrollView.magnification / 1.2, resizeWindow: true)
+    }
 
     @objc private func fitToWidth(_ sender: Any?) {
-        guard panel.frame.width > 0 else { return }
-        setMagnification(scrollView.frame.width / panel.frame.width)
+        zoomMode = .fitToWidth
+        updateFitToWidthMagnification()
+        resizeWindowToCurrentMagnification(preserveContentWidth: true)
+        updateViewMenuState()
     }
 
     @objc private func trueSize(_ sender: Any?) {
         guard let magnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main) else { return }
-        setMagnification(magnification)
+        setManualMagnification(magnification, resizeWindow: true)
+    }
+
+    private func setManualMagnification(_ value: CGFloat, resizeWindow: Bool) {
+        zoomMode = .manual
+        setMagnification(value)
+        if resizeWindow {
+            resizeWindowToCurrentMagnification(preserveContentWidth: false)
+        }
+        updateViewMenuState()
+    }
+
+    private func updateFitToWidthMagnification() {
+        guard panel.frame.width > 0 else { return }
+        setMagnification(scrollView.contentSize.width / panel.frame.width)
     }
 
     private func setMagnification(_ value: CGFloat) {
         let clamped = max(scrollView.minMagnification, min(scrollView.maxMagnification, value))
         scrollView.setMagnification(clamped, centeredAt: NSPoint(x: panel.frame.midX, y: panel.frame.midY))
+        updateWindowTitle()
+    }
+
+    private func resizeWindowToCurrentMagnification(preserveContentWidth: Bool) {
+        let magnification = scrollView.magnification
+        var targetContentSize = NSSize(
+            width: panel.frame.width * magnification,
+            height: panel.frame.height * magnification
+        )
+        if preserveContentWidth {
+            targetContentSize.width = scrollView.frame.width
+        }
+
+        if let maxContentSize = maxContentSizeForCurrentScreen() {
+            targetContentSize.width = min(targetContentSize.width, maxContentSize.width)
+            targetContentSize.height = min(targetContentSize.height, maxContentSize.height)
+        }
+        targetContentSize.width = max(360, targetContentSize.width)
+        targetContentSize.height = max(240, targetContentSize.height)
+
+        let frameSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: targetContentSize)).size
+        var newFrame = NSRect(
+            x: window.frame.minX,
+            y: window.frame.maxY - frameSize.height,
+            width: frameSize.width,
+            height: frameSize.height
+        )
+        if let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            if newFrame.maxX > visibleFrame.maxX {
+                newFrame.origin.x = visibleFrame.maxX - newFrame.width
+            }
+            if newFrame.minX < visibleFrame.minX {
+                newFrame.origin.x = visibleFrame.minX
+            }
+            if newFrame.minY < visibleFrame.minY {
+                newFrame.origin.y = visibleFrame.minY
+            }
+            if newFrame.maxY > visibleFrame.maxY {
+                newFrame.origin.y = visibleFrame.maxY - newFrame.height
+            }
+        }
+
+        guard abs(newFrame.width - window.frame.width) > 0.5 || abs(newFrame.height - window.frame.height) > 0.5 else {
+            return
+        }
+
+        isProgrammaticResize = true
+        window.setFrame(newFrame, display: true, animate: false)
+        DispatchQueue.main.async { [weak self] in
+            self?.isProgrammaticResize = false
+            if self?.zoomMode == .fitToWidth {
+                self?.updateFitToWidthMagnification()
+            }
+        }
+    }
+
+    private func maxContentSizeForCurrentScreen() -> NSSize? {
+        guard let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame else { return nil }
+        let framePadding: CGFloat = 48
+        let maxFrameSize = NSSize(
+            width: max(360, visibleFrame.width - framePadding),
+            height: max(240, visibleFrame.height - framePadding)
+        )
+        let contentRect = window.contentRect(forFrameRect: NSRect(origin: .zero, size: maxFrameSize))
+        return contentRect.size
+    }
+
+    private func updateViewMenuState() {
+        fitToWidthItem?.state = zoomMode == .fitToWidth ? .on : .off
+    }
+
+    private func updateWindowTitle() {
+        guard window != nil else { return }
+        let percent: CGFloat
+        if let trueSizeMagnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main),
+           trueSizeMagnification > 0 {
+            percent = scrollView.magnification / trueSizeMagnification * 100
+        } else {
+            percent = scrollView.magnification * 100
+        }
+        window.title = "\(Self.baseWindowTitle) (\(Int(percent.rounded()))%)"
+    }
+
+    // MARK: - Window resize
+
+    func windowDidResize(_ notification: Notification) {
+        guard !isProgrammaticResize else { return }
+        zoomMode = .fitToWidth
+        updateFitToWidthMagnification()
+        updateViewMenuState()
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) {
+        if zoomMode == .fitToWidth {
+            updateFitToWidthMagnification()
+        } else {
+            updateWindowTitle()
+        }
     }
 
     // MARK: - Daemon output
