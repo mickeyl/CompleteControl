@@ -31,12 +31,20 @@ final class PanelView: NSView {
     private var encoders: [EncoderControl] = []
     private var fourDCenter = NSPoint.zero
     private var fourDRadius: CGFloat = 56
+    private var fourDWheelRect = NSRect.zero
+    private var fourDWheelAngle = 0.0
+    private var fourDWheelTouched = false
 
     // Drag state
     private var activeButton: KKMK2ButtonLED?
     private var activeEncoder: Int?
+    private var activeEncoderTouchOnly: Int?
     private var lastDragY: CGFloat = 0
     private var activeFourD: MK2InputReportBuilder.FourDState?
+    private var activeFourDTouchOnly = false
+    private var activeFourDWheel = false
+    private var pendingEncoderTouchReleases: [Int: DispatchWorkItem] = [:]
+    private var pendingFourDTouchRelease: DispatchWorkItem?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -192,8 +200,15 @@ final class PanelView: NSView {
             x: (rightControlsX + rightControlsRight) / 2,
             y: dispY + controlH * 2 + rightControlsGapY + fourDRadius + 28
         )
+        let fourDWheelSize: CGFloat = 70
+        fourDWheelRect = NSRect(
+            x: fourDCenter.x - fourDWheelSize / 2,
+            y: fourDCenter.y + fourDRadius + 28,
+            width: fourDWheelSize,
+            height: fourDWheelSize
+        )
 
-        let controlsBottom = max(encY + knob + 40, fourDCenter.y + fourDRadius + 40)
+        let controlsBottom = max(encY + knob + 40, fourDWheelRect.maxY + 38)
         preferredContentSize = NSSize(
             width: rightControlsRight + margin,
             height: controlsBottom)
@@ -217,6 +232,7 @@ final class PanelView: NSView {
         for button in buttons { drawButton(button) }
         for encoder in encoders { drawEncoder(encoder) }
         drawFourD()
+        drawFourDWheel()
         drawStatus()
     }
 
@@ -267,11 +283,12 @@ final class PanelView: NSView {
         let activeColor = NSColor.systemBlue
         let rect = NSRect(x: fourDCenter.x - fourDRadius, y: fourDCenter.y - fourDRadius,
                           width: fourDRadius * 2, height: fourDRadius * 2)
+        let isTouched = activeFourD != nil || fourDWheelTouched
         let outer = NSBezierPath(ovalIn: rect)
-        (activeFourD == nil ? NSColor(white: 0.14, alpha: 1) : NSColor(white: 0.18, alpha: 1)).setFill()
+        (isTouched ? NSColor(white: 0.18, alpha: 1) : NSColor(white: 0.14, alpha: 1)).setFill()
         outer.fill()
-        (activeFourD == nil ? NSColor(white: 0.35, alpha: 1) : activeColor).setStroke()
-        outer.lineWidth = activeFourD == nil ? 2 : 3
+        (isTouched ? activeColor : NSColor(white: 0.35, alpha: 1)).setStroke()
+        outer.lineWidth = isTouched ? 3 : 2
         outer.stroke()
 
         // Direction arrows.
@@ -295,7 +312,44 @@ final class PanelView: NSView {
         let inner = NSBezierPath(ovalIn: NSRect(x: fourDCenter.x - 16, y: fourDCenter.y - 16, width: 32, height: 32))
         (activeFourD == .click ? activeColor : NSColor(white: 0.22, alpha: 1)).setFill()
         inner.fill()
-        drawLabel("4-D", in: NSRect(x: fourDCenter.x - 20, y: fourDCenter.y + fourDRadius + 4, width: 40, height: 14),
+        drawLabel("4-D PUSH", in: NSRect(x: fourDCenter.x - 40, y: fourDCenter.y + fourDRadius + 4, width: 80, height: 14),
+                  color: NSColor(white: 0.6, alpha: 1), size: 11)
+    }
+
+    private func drawFourDWheel() {
+        let path = NSBezierPath(ovalIn: fourDWheelRect)
+        NSColor(white: 0.15, alpha: 1).setFill()
+        path.fill()
+        (fourDWheelTouched ? NSColor.systemBlue : NSColor(white: 0.35, alpha: 1)).setStroke()
+        path.lineWidth = fourDWheelTouched ? 3 : 1.5
+        path.stroke()
+
+        let center = NSPoint(x: fourDWheelRect.midX, y: fourDWheelRect.midY)
+        let radius = fourDWheelRect.width / 2 - 6
+        let tip = NSPoint(
+            x: center.x + CGFloat(sin(fourDWheelAngle)) * radius,
+            y: center.y - CGFloat(cos(fourDWheelAngle)) * radius
+        )
+        let tick = NSBezierPath()
+        tick.move(to: center)
+        tick.line(to: tip)
+        NSColor.white.setStroke()
+        tick.lineWidth = 2
+        tick.stroke()
+
+        let dots = 12
+        for i in 0..<dots {
+            let angle = Double(i) / Double(dots) * .pi * 2
+            let dotCenter = NSPoint(
+                x: center.x + CGFloat(sin(angle)) * (radius + 8),
+                y: center.y - CGFloat(cos(angle)) * (radius + 8)
+            )
+            let dot = NSBezierPath(ovalIn: NSRect(x: dotCenter.x - 1.5, y: dotCenter.y - 1.5, width: 3, height: 3))
+            NSColor(white: 0.55, alpha: 1).setFill()
+            dot.fill()
+        }
+
+        drawLabel("4-D ROT", in: NSRect(x: fourDWheelRect.minX - 12, y: fourDWheelRect.maxY + 3, width: fourDWheelRect.width + 24, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 11)
     }
 
@@ -357,14 +411,33 @@ final class PanelView: NSView {
             return
         }
         if let encoder = encoders.first(where: { $0.rect.contains(point) }) {
+            if event.modifierFlags.contains(.command) {
+                activeEncoderTouchOnly = encoder.index
+                beginEncoderTouch(index: encoder.index)
+                return
+            }
             activeEncoder = encoder.index
             lastDragY = point.y
-            encoderTouched[encoder.index - 1] = true
-            onInput?(.encoderTouch(index: encoder.index, touched: true))
-            needsDisplay = true
+            beginEncoderTouch(index: encoder.index)
+            return
+        }
+        if fourDWheelRect.contains(point) {
+            if event.modifierFlags.contains(.command) {
+                activeFourDTouchOnly = true
+                beginFourDTouch()
+                return
+            }
+            activeFourDWheel = true
+            lastDragY = point.y
+            beginFourDTouch()
             return
         }
         if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
+            if event.modifierFlags.contains(.command) {
+                activeFourDTouchOnly = true
+                beginFourDTouch()
+                return
+            }
             let state = fourDZone(point)
             activeFourD = state
             interactionAudio.playClick()
@@ -374,6 +447,20 @@ final class PanelView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if activeFourDTouchOnly || activeEncoderTouchOnly != nil {
+            return
+        }
+
+        if activeFourDWheel {
+            let point = convert(event.locationInWindow, from: nil)
+            let steps = Int((lastDragY - point.y) / 4) // drag up = clockwise/increase
+            if steps != 0 {
+                emitFourDWheel(delta: steps)
+                lastDragY -= CGFloat(steps) * 4
+            }
+            return
+        }
+
         if activeFourD != nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius else { return }
@@ -402,11 +489,21 @@ final class PanelView: NSView {
             activeButton = nil
             needsDisplay = true
         }
+        if let index = activeEncoderTouchOnly {
+            endEncoderTouch(index: index)
+            activeEncoderTouchOnly = nil
+        }
         if let index = activeEncoder {
-            encoderTouched[index - 1] = false
-            onInput?(.encoderTouch(index: index, touched: false))
+            endEncoderTouch(index: index)
             activeEncoder = nil
-            needsDisplay = true
+        }
+        if activeFourDTouchOnly {
+            endFourDTouch()
+            activeFourDTouchOnly = false
+        }
+        if activeFourDWheel {
+            endFourDTouch()
+            activeFourDWheel = false
         }
         if activeFourD != nil {
             onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
@@ -421,10 +518,17 @@ final class PanelView: NSView {
         let delta = raw > 0 ? 1 : (raw < 0 ? -1 : 0)
         guard delta != 0 else { return }
         if let encoder = encoders.first(where: { $0.rect.contains(point) }) {
+            beginEncoderTouch(index: encoder.index)
             emitEncoder(index: encoder.index, delta: delta)
+            scheduleEncoderTouchRelease(index: encoder.index)
+        } else if fourDWheelRect.contains(point) {
+            beginFourDTouch()
+            emitFourDWheel(delta: delta)
+            scheduleFourDTouchRelease()
         } else if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
-            interactionAudio.playRotate()
-            onInput?(.fourDWheel(delta: delta))
+            beginFourDTouch()
+            emitFourDWheel(delta: delta)
+            scheduleFourDTouchRelease()
         }
     }
 
@@ -433,6 +537,73 @@ final class PanelView: NSView {
         interactionAudio.playRotate()
         onInput?(.encoder(index: index, delta: delta))
         needsDisplay = true
+    }
+
+    private func emitFourDWheel(delta: Int) {
+        fourDWheelAngle += Double(delta) * 0.35
+        interactionAudio.playRotate()
+        onInput?(.fourDWheel(delta: delta))
+        needsDisplay = true
+    }
+
+    private func beginEncoderTouch(index: Int) {
+        guard encoderTouched.indices.contains(index - 1) else { return }
+        pendingEncoderTouchReleases[index]?.cancel()
+        pendingEncoderTouchReleases[index] = nil
+        if !encoderTouched[index - 1] {
+            encoderTouched[index - 1] = true
+            onInput?(.encoderTouch(index: index, touched: true))
+        }
+        needsDisplay = true
+    }
+
+    private func endEncoderTouch(index: Int) {
+        guard encoderTouched.indices.contains(index - 1) else { return }
+        pendingEncoderTouchReleases[index]?.cancel()
+        pendingEncoderTouchReleases[index] = nil
+        if encoderTouched[index - 1] {
+            encoderTouched[index - 1] = false
+            onInput?(.encoderTouch(index: index, touched: false))
+        }
+        needsDisplay = true
+    }
+
+    private func scheduleEncoderTouchRelease(index: Int) {
+        pendingEncoderTouchReleases[index]?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.endEncoderTouch(index: index)
+        }
+        pendingEncoderTouchReleases[index] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: work)
+    }
+
+    private func beginFourDTouch() {
+        pendingFourDTouchRelease?.cancel()
+        pendingFourDTouchRelease = nil
+        if !fourDWheelTouched {
+            fourDWheelTouched = true
+            onInput?(.fourDTouch(touched: true))
+        }
+        needsDisplay = true
+    }
+
+    private func endFourDTouch() {
+        pendingFourDTouchRelease?.cancel()
+        pendingFourDTouchRelease = nil
+        if fourDWheelTouched {
+            fourDWheelTouched = false
+            onInput?(.fourDTouch(touched: false))
+        }
+        needsDisplay = true
+    }
+
+    private func scheduleFourDTouchRelease() {
+        pendingFourDTouchRelease?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.endFourDTouch()
+        }
+        pendingFourDTouchRelease = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: work)
     }
 
     private func fourDZone(_ point: NSPoint) -> MK2InputReportBuilder.FourDState {

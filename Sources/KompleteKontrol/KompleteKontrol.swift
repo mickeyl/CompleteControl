@@ -2793,6 +2793,11 @@ public enum KompleteKontrolLibUSBServer {
         private var idleMIDISummary = "OR MIDI KEY FOR TEST"
         private var idleHasReceivedInput = false
         private var idleRawSurfaceBytes: [UInt8] = []
+        private struct MK2IdleLogEntry {
+            var timestamp: UInt64
+            var message: String
+        }
+        private var idleMK2EventLog: [MK2IdleLogEntry] = []
         private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
         private var idleDiagnosticNeedsFlush = false
         private var idleDiagnosticNeedsLightGuideFlush = false
@@ -3613,13 +3618,8 @@ public enum KompleteKontrolLibUSBServer {
             daemonLog("MK2 idle surface prepare", group: "mk2")
             configureMK2HostControl(session: session)
             clearMK2SurfaceLights(session: session)
-            writeMK2IdleSurface(
-                session: session,
-                screen0: ["NO CLIENT", "MK2 DAEMON"],
-                screen1: ["PRESS SURFACE", "FOR HID TEST"],
-                accent0: 0xf800,
-                accent1: 0x001f
-            )
+            resetIdleDiagnosticState()
+            writeMK2NoClientDiagnostic(session: session)
         }
 
         private func clearMK2SurfaceLights(session: any KontrolDeviceSession) {
@@ -3648,30 +3648,44 @@ public enum KompleteKontrolLibUSBServer {
 
         private func shortMK2IdleSummary(_ report: KKMK2InputReport) -> String {
             if let event = report.events.first {
-                switch event {
-                    case let .button(led, pressed):
-                        return "\(led.protocolName.uppercased()) \(pressed ? "DOWN" : "UP")"
-                    case let .knob(index, delta, _):
-                        return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
-                    case let .jog(direction):
-                        return "JOG \(direction.uppercased())"
-                    case let .jogTouch(touched):
-                        return "JOG TOUCH \(touched ? "ON" : "OFF")"
-                    case let .strip(position, _):
-                        return position.map { "STRIP \($0)" } ?? "STRIP UP"
-                    case let .jogScroll(delta, value):
-                        return "JOG \(delta >= 0 ? "+" : "")\(delta) V\(value)"
-                    case let .touchEncoder(index, touched):
-                        return "TOUCH E\(index) \(touched ? "ON" : "OFF")"
-                    case let .rawChanged(indices):
-                        let values = indices.prefix(3).map { index -> String in
-                            guard report.bytes.indices.contains(index) else { return "\(index)=??" }
-                            return "\(index)=\(KKHex.byte(report.bytes[index]))"
-                        }.joined(separator: " ")
-                        return "RAW \(values)"
-                }
+                return mk2IdleSummary(for: event, bytes: report.bytes)
             }
             return "INPUT"
+        }
+
+        private func mk2IdleSummary(for event: KKMK2InputEvent, bytes: [UInt8] = []) -> String {
+            switch event {
+                case let .button(led, pressed):
+                    return "\(led.protocolName.uppercased()) \(pressed ? "DOWN" : "UP")"
+                case let .knob(index, delta, _):
+                    return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
+                case let .jog(direction):
+                    return "JOG \(direction.uppercased())"
+                case let .jogTouch(touched):
+                    return "JOG TOUCH \(touched ? "ON" : "OFF")"
+                case let .strip(position, _):
+                    return position.map { "STRIP \($0)" } ?? "STRIP UP"
+                case let .jogScroll(delta, value):
+                    return "JOG \(delta >= 0 ? "+" : "")\(delta) V\(value)"
+                case let .touchEncoder(index, touched):
+                    return "TOUCH E\(index) \(touched ? "ON" : "OFF")"
+                case let .rawChanged(indices):
+                    let values = indices.prefix(3).map { index -> String in
+                        guard bytes.indices.contains(index) else { return "\(index)=??" }
+                        return "\(index)=\(KKHex.byte(bytes[index]))"
+                    }.joined(separator: " ")
+                    return "RAW \(values)"
+            }
+        }
+
+        private func appendMK2IdleLogLocked(timestamp: UInt64, messages: [String]) {
+            guard !messages.isEmpty else { return }
+            for message in messages {
+                idleMK2EventLog.append(MK2IdleLogEntry(timestamp: timestamp, message: message))
+            }
+            if idleMK2EventLog.count > 80 {
+                idleMK2EventLog.removeFirst(idleMK2EventLog.count - 80)
+            }
         }
 
         private func writeMK2Solid(session: any KontrolDeviceSession, screen: UInt8, color: UInt16) {
@@ -3711,6 +3725,26 @@ public enum KompleteKontrolLibUSBServer {
             writeMK2Frame(session: session, screen: 1, pixels: right)
         }
 
+        private func writeMK2NoClientDiagnostic(session: any KontrolDeviceSession) {
+            lock.lock()
+            let hasInput = idleHasReceivedInput
+            let surfaceSummary = idleSurfaceSummary
+            let midiSummary = idleMIDISummary
+            let rawBytes = idleRawSurfaceBytes
+            let log = idleMK2EventLog
+            lock.unlock()
+
+            let left = makeMK2IdleStatusFrame(
+                hasInput: hasInput,
+                surfaceSummary: surfaceSummary,
+                midiSummary: midiSummary,
+                rawBytes: rawBytes
+            )
+            let right = makeMK2IdleLogFrame(log)
+            writeMK2Frame(session: session, screen: 0, pixels: left)
+            writeMK2Frame(session: session, screen: 1, pixels: right)
+        }
+
         private func writeMK2Frame(session: any KontrolDeviceSession, screen: UInt8, pixels: [UInt16]) {
             sessionIOLock.lockShared()
             lock.lock()
@@ -3731,6 +3765,107 @@ public enum KompleteKontrolLibUSBServer {
                 timeoutMs: 1_000)
             sessionIOLock.unlock()
             daemonLog("MK2 display frame screen=\(screen) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+        }
+
+        private func makeMK2IdleStatusFrame(
+            hasInput: Bool,
+            surfaceSummary: String,
+            midiSummary: String,
+            rawBytes: [UInt8]
+        ) -> [UInt16] {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            var pixels = [UInt16](repeating: 0x0000, count: width * height)
+            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: hasInput ? 0x07ff : 0xf800, pixels: &pixels)
+            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
+
+            drawMK2Text("NO CLIENT", x: 24, y: 28, scale: 5, color: 0xffff, pixels: &pixels)
+            drawMK2Text("MK2 DAEMON", x: 28, y: 82, scale: 2, color: 0x8410, pixels: &pixels)
+            drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 106, scale: 2, color: 0x8410, pixels: &pixels)
+
+            drawMK2Text("LATEST SURFACE", x: 28, y: 142, scale: 1, color: 0x07ff, pixels: &pixels)
+            drawMK2Text(hasInput ? surfaceSummary : "PRESS SURFACE FOR HID TEST", x: 28, y: 158, scale: 2, color: 0xffff, maxWidth: 420, pixels: &pixels)
+            drawMK2Text("MIDI", x: 28, y: 196, scale: 1, color: 0x07e0, pixels: &pixels)
+            drawMK2Text(midiSummary, x: 28, y: 212, scale: 2, color: 0xdefb, maxWidth: 420, pixels: &pixels)
+
+            let raw = rawBytes.prefix(16).map(KKHex.byte).joined(separator: " ")
+            drawMK2Text(raw.isEmpty ? "RAW --" : "RAW \(raw)", x: 28, y: 244, scale: 1, color: 0x8410, maxWidth: 420, pixels: &pixels)
+            return pixels
+        }
+
+        private func makeMK2IdleLogFrame(_ log: [MK2IdleLogEntry]) -> [UInt16] {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            var pixels = [UInt16](repeating: 0x0000, count: width * height)
+            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: 0x07e0, pixels: &pixels)
+            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
+            drawMK2Text("EVENT LOG", x: 18, y: 18, scale: 3, color: 0xffff, pixels: &pixels)
+            drawMK2Text("TIME", x: 18, y: 48, scale: 1, color: 0x8410, pixels: &pixels)
+            drawMK2Text("EVENT", x: 92, y: 48, scale: 1, color: 0x8410, pixels: &pixels)
+            strokeMK2Rect(x: 12, y: 42, width: width - 24, height: height - 60, color: 0x39e7, pixels: &pixels)
+
+            let visible = Array(log.suffix(19))
+            if visible.isEmpty {
+                drawMK2Text("WAITING FOR EVENTS", x: 32, y: 116, scale: 2, color: 0x8410, pixels: &pixels)
+                drawMK2Text("CMD-CLICK ENCODERS FOR TOUCH ONLY", x: 32, y: 146, scale: 1, color: 0x8410, pixels: &pixels)
+                return pixels
+            }
+
+            let firstY = 62
+            let rowStep = 10
+            for (index, entry) in visible.enumerated() {
+                let y = firstY + index * rowStep
+                let isLatest = index == visible.count - 1
+                let timeColor: UInt16 = isLatest ? 0x07ff : 0x8410
+                let eventColor: UInt16 = isLatest ? 0xffff : 0xbdf7
+                drawMK2Text(mk2IdleTimestamp(entry.timestamp), x: 18, y: y, scale: 1, color: timeColor, pixels: &pixels)
+                drawMK2Text(entry.message, x: 92, y: y, scale: 1, color: eventColor, maxWidth: width - 110, pixels: &pixels)
+            }
+            return pixels
+        }
+
+        private func mk2IdleTimestamp(_ timestamp: UInt64) -> String {
+            let ms = timestamp / 1_000_000
+            return String(format: "%03llu.%03llu", (ms / 1_000) % 1_000, ms % 1_000)
+        }
+
+        private func fillMK2Rect(x: Int, y: Int, width rectWidth: Int, height rectHeight: Int, color: UInt16, pixels: inout [UInt16]) {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            let minX = max(0, x)
+            let minY = max(0, y)
+            let maxX = min(width, x + rectWidth)
+            let maxY = min(height, y + rectHeight)
+            guard minX < maxX, minY < maxY else { return }
+            for py in minY..<maxY {
+                for px in minX..<maxX {
+                    pixels[py * width + px] = color
+                }
+            }
+        }
+
+        private func strokeMK2Rect(x: Int, y: Int, width: Int, height: Int, color: UInt16, pixels: inout [UInt16]) {
+            fillMK2Rect(x: x, y: y, width: width, height: 1, color: color, pixels: &pixels)
+            fillMK2Rect(x: x, y: y + height - 1, width: width, height: 1, color: color, pixels: &pixels)
+            fillMK2Rect(x: x, y: y, width: 1, height: height, color: color, pixels: &pixels)
+            fillMK2Rect(x: x + width - 1, y: y, width: 1, height: height, color: color, pixels: &pixels)
+        }
+
+        private func drawMK2Text(_ text: String, x: Int, y: Int, scale: Int, color: UInt16, maxWidth: Int? = nil, pixels: inout [UInt16]) {
+            let scale = max(1, scale)
+            let glyphWidth = 5 * scale
+            let spacing = 2 * scale
+            let limit = maxWidth.map { x + $0 } ?? KompleteKontrolMK2Protocol.displayWidth
+            var cursor = x
+            for char in text.uppercased() {
+                if cursor >= limit { break }
+                if char == " " {
+                    cursor += 3 * scale + spacing
+                    continue
+                }
+                drawMK2Glyph(char, x: cursor, y: y, scale: scale, color: color, pixels: &pixels)
+                cursor += glyphWidth + spacing
+            }
         }
 
         private func makeMK2Frame(lines: [String], background: UInt16, foreground: UInt16, accent: UInt16, buttonLabels: [String] = []) -> [UInt16] {
@@ -3828,6 +3963,11 @@ public enum KompleteKontrolLibUSBServer {
 
         private func mk2GlyphRows(_ char: Character) -> [UInt8] {
             switch char {
+                case "+": return [0x00, 0x04, 0x04, 0x1f, 0x04, 0x04, 0x00]
+                case "-": return [0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00]
+                case ".": return [0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c]
+                case ":": return [0x00, 0x0c, 0x0c, 0x00, 0x0c, 0x0c, 0x00]
+                case "#": return [0x0a, 0x0a, 0x1f, 0x0a, 0x1f, 0x0a, 0x0a]
                 case "0": return [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e]
                 case "1": return [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e]
                 case "2": return [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f]
@@ -3847,6 +3987,7 @@ public enum KompleteKontrolLibUSBServer {
                 case "G": return [0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0f]
                 case "H": return [0x11, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11]
                 case "I": return [0x0e, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e]
+                case "J": return [0x01, 0x01, 0x01, 0x01, 0x11, 0x11, 0x0e]
                 case "K": return [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11]
                 case "L": return [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f]
                 case "M": return [0x11, 0x1b, 0x15, 0x15, 0x11, 0x11, 0x11]
@@ -3894,13 +4035,8 @@ public enum KompleteKontrolLibUSBServer {
             guard let session = ensureSession() else { return }
             if isMK2(session) {
                 clearMK2SurfaceLights(session: session)
-                writeMK2IdleSurface(
-                    session: session,
-                    screen0: ["NO CLIENT", "MK2 DAEMON"],
-                    screen1: ["PRESS SURFACE", "FOR HID TEST"],
-                    accent0: 0xf800,
-                    accent1: 0x001f
-                )
+                resetIdleDiagnosticState()
+                writeMK2NoClientDiagnostic(session: session)
                 return
             }
             resetIdleDiagnosticState()
@@ -3950,6 +4086,8 @@ public enum KompleteKontrolLibUSBServer {
             idleMIDISummary = "OR MIDI KEY FOR TEST"
             idleHasReceivedInput = false
             idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
+            idleRawSurfaceBytes = []
+            idleMK2EventLog = []
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
             idleDiagnosticFlushGate.reset()
@@ -4000,6 +4138,7 @@ public enum KompleteKontrolLibUSBServer {
         private func acknowledgeIdleMK2SurfaceInput(_ bytes: [UInt8]) {
             // 0xAA controller mirrors flood at input rate and carry no news for the idle ack.
             guard bytes.first != KompleteKontrolMK2Protocol.controllerMirrorReportID else { return }
+            let timestamp = KKTiming.now()
             let previous: [UInt8]?
             let events: [KKMK2InputEvent]
             lock.lock()
@@ -4014,8 +4153,12 @@ public enum KompleteKontrolLibUSBServer {
             }
             idleHasReceivedInput = true
             idleRawSurfaceBytes = bytes
-            let report = KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: KKTiming.now())
+            let report = KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: timestamp)
             idleSurfaceSummary = events.isEmpty ? idleRawSurfaceSummary(bytes) : shortMK2IdleSummary(report)
+            appendMK2IdleLogLocked(
+                timestamp: timestamp,
+                messages: events.isEmpty ? [idleRawSurfaceSummary(bytes)] : events.map { mk2IdleSummary(for: $0, bytes: bytes) }
+            )
             if idleMIDISummary == "OR MIDI KEY FOR TEST" {
                 idleMIDISummary = "--"
             }
@@ -4025,12 +4168,19 @@ public enum KompleteKontrolLibUSBServer {
 
         private func acknowledgeIdleMIDIInput(_ bytes: [UInt8], timestamp: UInt64) {
             guard shouldDaemonShowIdleSurface() else { return }
+            let isMK2Idle = currentSessionIsMK2()
             let events = KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)
             guard !events.isEmpty || !bytes.isEmpty else { return }
 
             lock.lock()
             idleHasReceivedInput = true
             idleMIDISummary = events.first.map(idleMIDISummary(for:)) ?? idleRawMIDISummary(bytes)
+            if isMK2Idle {
+                appendMK2IdleLogLocked(
+                    timestamp: timestamp,
+                    messages: events.isEmpty ? [idleRawMIDISummary(bytes)] : events.map { "MIDI \(idleMIDISummary(for: $0))" }
+                )
+            }
             if idleSurfaceSummary == "PRESS ANY SURFACE" {
                 idleSurfaceSummary = "--"
             }
@@ -4129,20 +4279,7 @@ public enum KompleteKontrolLibUSBServer {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
             if isMK2(session) {
-                // Left display = latest raw surface report, right = decoded view; disagreement
-                // between the two is how report-layout bugs get spotted at a glance.
-                lock.lock()
-                let rawHex = idleRawSurfaceBytes.map(KKHex.byte).joined()
-                lock.unlock()
-                let rawLine1 = String(rawHex.prefix(32))
-                let rawLine2 = String(rawHex.dropFirst(32).prefix(32))
-                writeMK2IdleSurface(
-                    session: session,
-                    screen0: hasInput ? [rawLine1, rawLine2] : ["NO CLIENT", "MK2 DAEMON"],
-                    screen1: hasInput ? [surfaceSummary, midiSummary] : ["PRESS SURFACE", "FOR HID TEST"],
-                    accent0: hasInput ? 0x07ff : 0xf800,
-                    accent1: hasInput ? 0x07e0 : 0x001f
-                )
+                writeMK2NoClientDiagnostic(session: session)
                 return
             }
 

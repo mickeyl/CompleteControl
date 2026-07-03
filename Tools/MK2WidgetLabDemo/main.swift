@@ -15,7 +15,7 @@ struct MK2WidgetLabDemo {
         let surface = MK2Surface2(options: .init(tickHz: 60))
         let lab = WidgetLab(surface: surface)
         await surface.start()
-        await lab.show(.font)
+        await lab.show(.pattern)
         printBanner()
         startREPL(lab)
 
@@ -76,6 +76,10 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "scale", arg: "<n>", summary: "focus integer pixel scale", values: []),
     ReplCommand(name: "fg", arg: "<rrggbb|name>", summary: "foreground colour", values: namedColors.keys.sorted()),
     ReplCommand(name: "bg", arg: "<rrggbb|name|none>", summary: "focus highlight background", values: namedColors.keys.sorted() + ["none"]),
+    ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
+    ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
+    ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
+    ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
     ReplCommand(name: "quit", arg: "", summary: "exit", values: []),
@@ -126,7 +130,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font }
+    var implemented: Bool { self == .font || self == .pattern }
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -144,12 +148,23 @@ private actor WidgetLab {
     private var focusFG: UInt16 = 0xffff
     private var focusBG: UInt16?
     private var sampleText = "Paulinche 0123 ÄÖÜ"
+    private var isPlaying = false
+    private var playheadRow = 0
+    private var playbackTimer: DispatchSourceTimer?
+    private let patternRows: [TrackerDemoRow]
+    private let focusedChannel = 3
 
     init(surface: MK2Surface2) {
         self.surface = surface
+        self.patternRows = WidgetLab.demoPatternRows()
     }
 
     func show(_ next: Unit) async {
+        if next != .pattern {
+            isPlaying = false
+            playbackTimer?.cancel()
+            playbackTimer = nil
+        }
         unit = next
         await render()
     }
@@ -165,12 +180,25 @@ private actor WidgetLab {
         for candidate in Unit.allCases {
             lamps[candidate.functionLED] = candidate == unit ? .white : .off
         }
+        if unit == .pattern {
+            lamps[.play] = isPlaying ? .green : .off
+            lamps[.stop] = isPlaying ? .off : .red
+        }
 
         var bindings = MK2InputBindings2()
         for candidate in Unit.allCases {
             bindings.onPress(candidate.functionLED) { [weak self] in
                 Task { await self?.show(candidate) }
             }
+        }
+        bindings.onPress(.play) { [weak self] in
+            Task { await self?.play() }
+        }
+        bindings.onPress(.stop) { [weak self] in
+            Task { await self?.stopPlayback() }
+        }
+        bindings.jogScroll = { [weak self] delta, _ in
+            Task { await self?.turnMainEncoder(delta) }
         }
 
         let (left, right) = frames()
@@ -180,6 +208,7 @@ private actor WidgetLab {
     private func frames() -> (MK2PixelFrame, MK2PixelFrame) {
         switch unit {
             case .font: (fontCatalogFrame(), fontFocusFrame())
+            case .pattern: (trackerGridFrame(), trackerDetailFrame())
             default: (comingSoonFrame(), placeholderRightFrame())
         }
     }
@@ -205,6 +234,165 @@ private actor WidgetLab {
             y += font.cellHeight + 10
         }
         return frame
+    }
+
+    // MARK: - Tracker unit
+
+    private func trackerGridFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        BitmapLabel("PATTERN 03", font: .grid, color: Palette.blue).draw(into: &frame, x: 8, y: 8)
+        BitmapLabel("LEN 64", font: .grid, color: Palette.dim).draw(into: &frame, x: 138, y: 8)
+        BitmapLabel("ROW \(hex2(playheadRow))", font: .gridBold, color: Palette.text).draw(into: &frame, x: 232, y: 8)
+        BitmapLabel(isPlaying ? "PLAY" : "STOP", font: .gridBold, color: isPlaying ? Palette.green : Palette.orange).draw(into: &frame, x: 330, y: 8)
+        BitmapLabel("SPD 06", font: .grid, color: Palette.dim).draw(into: &frame, x: 398, y: 8)
+
+        let gridTop = 60
+        let rowHeight = 16
+        let rowIndexX = 8
+        let channelXs = [66, 174, 282, 390]
+        let rulerXs = [54, 162, 270, 378, 476]
+
+        for (index, x) in channelXs.enumerated() {
+            BitmapLabel("CHANNEL \(index + 1)", font: .label, color: index == focusedChannel ? Palette.blue : Palette.dim)
+                .draw(into: &frame, x: x, y: 38)
+        }
+        frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
+        for x in rulerXs {
+            frame.dottedVLine(x: x, y: 50, height: 218, color: Palette.ruler)
+        }
+
+        let firstRow = visibleFirstRow(center: playheadRow)
+        for visible in 0..<13 {
+            let row = firstRow + visible
+            let y = gridTop + visible * rowHeight
+            let rowRect = MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight)
+            if row == playheadRow {
+                frame.fill(rowRect, isPlaying ? Palette.playheadFill : Palette.cursorFill)
+                frame.fill(MK2PixelRect(x: 48, y: y, width: 5, height: rowHeight), Palette.green)
+            } else if row.isMultiple(of: 4) {
+                frame.fill(MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight), Palette.rowStripe)
+            }
+
+            let rowColor = row == playheadRow ? Palette.text : Palette.dim
+            BitmapLabel(hex2(row), font: .grid, color: rowColor).draw(into: &frame, x: rowIndexX, y: y)
+            for channel in 0..<4 {
+                drawTrackerCell(patternRows[row].cells[channel], channel: channel, into: &frame, x: channelXs[channel], y: y, highlighted: row == playheadRow)
+            }
+        }
+
+        drawPatternOverview(into: &frame, x: 464, y: 62, height: 200)
+        return frame
+    }
+
+    private func trackerDetailFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        let cell = patternRows[playheadRow].cells[focusedChannel]
+
+        BitmapLabel("EDIT", font: .grid, color: Palette.blue).draw(into: &frame, x: 24, y: 18)
+        BitmapLabel("CH\(focusedChannel + 1)", font: .grid, color: Palette.dim).draw(into: &frame, x: 110, y: 18)
+        BitmapLabel("ROW \(hex2(playheadRow))", font: .grid, color: Palette.dim).draw(into: &frame, x: 176, y: 18)
+        BitmapLabel(isPlaying ? "PLAYING" : "JOG ROW", font: .label, color: isPlaying ? Palette.green : Palette.orange)
+            .draw(into: &frame, x: 360, y: 21)
+
+        drawEditField("NOTE", value: cell.note, color: Palette.text, x: 24, y: 90, width: 72, focused: true, into: &frame)
+        drawEditField("INST", value: cell.instrument, color: Palette.instrument, x: 136, y: 90, width: 68, focused: false, into: &frame)
+        drawEditField("VOL", value: cell.volume, color: Palette.text, x: 252, y: 90, width: 68, focused: false, into: &frame)
+        drawEditField("FX", value: cell.effect, color: Palette.effect, x: 358, y: 90, width: 82, focused: false, into: &frame)
+
+        frame.hline(y: 156, x: 0, width: 480, color: Palette.border)
+        BitmapLabel("INST \(cell.instrument)", font: .grid, color: Palette.dim).draw(into: &frame, x: 24, y: 178)
+        BitmapLabel("strings2", font: .grid, color: Palette.text).draw(into: &frame, x: 128, y: 178)
+        drawPlaceholder("WAVEFORM", into: &frame, rect: MK2PixelRect(x: 326, y: 174, width: 128, height: 40))
+
+        drawPlaceholder("VU METERS", into: &frame, rect: MK2PixelRect(x: 24, y: 212, width: 430, height: 30))
+
+        BitmapLabel("PLAY/STOP TRANSPORT  4D ROTATES ROW ONLY WHEN STOPPED", font: .label, color: Palette.dim)
+            .draw(into: &frame, x: 24, y: 254)
+        return frame
+    }
+
+    private func drawTrackerCell(_ cell: TrackerDemoCell, channel: Int, into frame: inout MK2PixelFrame, x: Int, y: Int, highlighted: Bool) {
+        let empty = cell.isEmpty
+        let noteColor = highlighted ? Palette.text : (empty ? Palette.empty : Palette.note)
+        let instColor = highlighted ? Palette.text : (empty ? Palette.empty : Palette.instrument)
+        let fxColor = highlighted ? Palette.text : (cell.effect == "..." ? Palette.empty : Palette.effect)
+        if channel == focusedChannel, !highlighted {
+            frame.fill(MK2PixelRect(x: x - 4, y: y, width: 92, height: 16), Palette.focusedChannelFill)
+        }
+        BitmapLabel(cell.note, font: .grid, color: noteColor).draw(into: &frame, x: x, y: y)
+        BitmapLabel(cell.instrument, font: .grid, color: instColor).draw(into: &frame, x: x + 38, y: y)
+        BitmapLabel(cell.effect, font: .grid, color: fxColor).draw(into: &frame, x: x + 64, y: y)
+    }
+
+    private func drawEditField(_ label: String, value: String, color: UInt16, x: Int, y: Int, width: Int, focused: Bool, into frame: inout MK2PixelFrame) {
+        BitmapLabel(label, font: .label, color: Palette.dim).draw(into: &frame, x: x, y: y - 24)
+        let rect = MK2PixelRect(x: x, y: y, width: width, height: 28)
+        if focused {
+            frame.fill(rect, 0xc618)
+            BitmapLabel(value, font: .readout, color: 0x0000).draw(into: &frame, x: x + 4, y: y + 4)
+        } else {
+            frame.stroke(rect, Palette.border)
+            BitmapLabel(value, font: .readoutBold, color: color).draw(into: &frame, x: x + 4, y: y + 4)
+        }
+    }
+
+    private func drawPlaceholder(_ title: String, into frame: inout MK2PixelFrame, rect: MK2PixelRect) {
+        frame.fill(rect, Palette.placeholderFill)
+        frame.stroke(rect, Palette.border)
+        BitmapLabel(title, font: .label, color: Palette.dim)
+            .draw(into: &frame, x: rect.x + 8, y: rect.y + max(7, (rect.height - SurfaceFont.label.cellHeight) / 2))
+    }
+
+    private func drawPatternOverview(into frame: inout MK2PixelFrame, x: Int, y: Int, height: Int) {
+        frame.fill(MK2PixelRect(x: x, y: y, width: 5, height: height), Palette.track)
+        for row in 0..<64 {
+            let markerY = y + Int((Double(row) / 63.0 * Double(height - 1)).rounded())
+            let active = patternRows[row].cells.contains { !$0.isEmpty }
+            let color = row == playheadRow ? Palette.green : (active ? Palette.blue : Palette.ruler)
+            frame.fill(MK2PixelRect(x: x, y: markerY, width: row == playheadRow ? 9 : 5, height: 1), color)
+        }
+    }
+
+    private func visibleFirstRow(center: Int) -> Int {
+        min(max(0, center - 6), max(0, patternRows.count - 13))
+    }
+
+    private func hex2(_ value: Int) -> String {
+        String(format: "%02X", max(0, min(255, value)))
+    }
+
+    private func play() async {
+        guard unit == .pattern else { return }
+        guard !isPlaying else { return }
+        isPlaying = true
+        await render()
+        playbackTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + .milliseconds(180), repeating: .milliseconds(180), leeway: .milliseconds(5))
+        timer.setEventHandler {
+            Task { await self.advancePlayback() }
+        }
+        playbackTimer = timer
+        timer.resume()
+    }
+
+    private func stopPlayback() async {
+        isPlaying = false
+        playbackTimer?.cancel()
+        playbackTimer = nil
+        await render()
+    }
+
+    private func advancePlayback() async {
+        guard isPlaying else { return }
+        playheadRow = (playheadRow + 1) % patternRows.count
+        await render()
+    }
+
+    private func turnMainEncoder(_ delta: Int) async {
+        guard unit == .pattern, !isPlaying, delta != 0 else { return }
+        playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
+        await render()
     }
 
     // Right screen: the focused combination big, over an optional background swatch, with
@@ -305,6 +493,22 @@ private actor WidgetLab {
                 focusBG = color
                 await render()
 
+            case "play":
+                await play()
+
+            case "stop":
+                await stopPlayback()
+
+            case "row":
+                guard let row = Self.rowValue(rest) else { print("? row <0-63|hex>"); return }
+                await stopPlayback()
+                playheadRow = row
+                await render()
+
+            case "jog":
+                guard let delta = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)) else { print("? jog <delta>"); return }
+                await turnMainEncoder(delta)
+
             case "snap":
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
@@ -353,6 +557,43 @@ private actor WidgetLab {
         }
     }
 
+    private static func rowValue(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPrefixedHex = trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X")
+        let raw = isPrefixedHex ? String(trimmed.dropFirst(2)) : trimmed
+        let hasHexLetters = raw.rangeOfCharacter(from: CharacterSet(charactersIn: "ABCDEFabcdef")) != nil
+        let parsed = Int(raw, radix: isPrefixedHex || hasHexLetters ? 16 : 10)
+        guard let parsed, (0..<64).contains(parsed) else { return nil }
+        return parsed
+    }
+
+    private static func demoPatternRows() -> [TrackerDemoRow] {
+        var rows = (0..<64).map { _ in TrackerDemoRow(cells: Array(repeating: TrackerDemoCell.empty, count: 4)) }
+        let notes = ["C-3", "D#3", "F-3", "G-3", "A#3", "C-4", "D#4", "F-4", "G-4", "A-4", "C-5"]
+        let effects = ["...", "A08", "047", "C40", "1F0", "E91", "3A0", "D20", "F06"]
+
+        for row in 0..<64 {
+            if row.isMultiple(of: 4) {
+                rows[row].cells[0] = TrackerDemoCell(note: notes[(row / 4) % notes.count], instrument: String(format: "%02X", 1 + (row / 16)), volume: "40", effect: effects[(row / 4) % effects.count])
+            }
+            if row % 8 == 4 {
+                rows[row].cells[1] = TrackerDemoCell(note: notes[(row / 8 + 4) % notes.count], instrument: "05", volume: "34", effect: row % 16 == 4 ? "A04" : "...")
+            }
+            if row % 6 == 0 {
+                rows[row].cells[2] = TrackerDemoCell(note: notes[(row / 6 + 7) % notes.count], instrument: "03", volume: "38", effect: row % 12 == 0 ? "C40" : "...")
+            }
+            if row % 8 == 0 || row % 8 == 2 {
+                rows[row].cells[3] = TrackerDemoCell(note: row % 8 == 0 ? "C-4" : "C-5", instrument: row % 16 == 0 ? "07" : "09", volume: "3C", effect: row % 16 == 8 ? "1F0" : "...")
+            }
+        }
+
+        rows[0].cells[3] = TrackerDemoCell(note: "A-3", instrument: "03", volume: "40", effect: "A09")
+        rows[11].cells[3] = TrackerDemoCell(note: "F-4", instrument: "03", volume: "40", effect: "E90")
+        rows[31].cells[3] = TrackerDemoCell(note: "G-4", instrument: "08", volume: "34", effect: "200")
+        rows[48].cells[3] = TrackerDemoCell(note: "B-4", instrument: "09", volume: "38", effect: "F06")
+        return rows
+    }
+
     // Accepts RRGGBB hex or a small set of names, returns wire-order-agnostic RGB565.
     private static func color565(_ text: String) -> UInt16? {
         if let hit = namedColors[text.lowercased()] { return hit }
@@ -371,10 +612,55 @@ let namedColors: [String: UInt16] = [
     "orange": 0xfc00, "grey": 0x8410, "gray": 0x8410, "dim": 0x4208,
 ]
 
+private struct TrackerDemoRow: Sendable {
+    var cells: [TrackerDemoCell]
+}
+
+private struct TrackerDemoCell: Sendable {
+    var note: String
+    var instrument: String
+    var volume: String
+    var effect: String
+
+    static let empty = TrackerDemoCell(note: "...", instrument: "..", volume: "..", effect: "...")
+
+    var isEmpty: Bool {
+        note == "..." && instrument == ".." && volume == ".." && effect == "..."
+    }
+}
+
 private enum Palette {
     static let page: UInt16 = 0x0841       // near-black blue
     static let text: UInt16 = 0xffff
     static let dim: UInt16 = 0x8410        // mid grey
     static let accent: UInt16 = 0xffe0     // yellow
     static let border: UInt16 = 0x4208     // faint frame
+    static let blue: UInt16 = 0x7dbf
+    static let green: UInt16 = 0x464f
+    static let orange: UInt16 = 0xec88
+    static let note: UInt16 = 0xdedf
+    static let instrument: UInt16 = 0x95f2
+    static let effect: UInt16 = 0xec88
+    static let empty: UInt16 = 0x4a69
+    static let ruler: UInt16 = 0x632e
+    static let rowStripe: UInt16 = 0x1083
+    static let cursorFill: UInt16 = 0x19aa
+    static let playheadFill: UInt16 = 0x1125
+    static let focusedChannelFill: UInt16 = 0x1026
+    static let track: UInt16 = 0x2126
+    static let placeholderFill: UInt16 = 0x10a4
+}
+
+private extension MK2PixelFrame {
+    mutating func hline(y: Int, x: Int, width: Int, color: UInt16) {
+        fill(MK2PixelRect(x: x, y: y, width: width, height: 1), color)
+    }
+
+    mutating func dottedVLine(x: Int, y: Int, height: Int, color: UInt16) {
+        var offset = 0
+        while offset < height {
+            fill(MK2PixelRect(x: x, y: y + offset, width: 1, height: 1), color)
+            offset += 2
+        }
+    }
 }

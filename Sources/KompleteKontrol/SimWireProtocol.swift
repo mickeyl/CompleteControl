@@ -99,6 +99,10 @@ public extension SimFrame {
         SimFrame(type: .fourDState, payload: [raw])
     }
 
+    static func fourDTouch(touched: Bool) -> SimFrame {
+        fourDState(touched ? MK2InputReportBuilder.FourDState.touched.rawValue : MK2InputReportBuilder.FourDState.released.rawValue)
+    }
+
     static func displayBlit(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16, pixelsBE: [UInt8]) -> SimFrame {
         var payload: [UInt8] = [
             screen,

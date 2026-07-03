@@ -62,6 +62,58 @@ struct SimulatorDeviceSessionTests {
         #expect(events == [.knob(index: 2, delta: 4, value: 7)])
     }
 
+    @Test("Encoder touch, turn and release surface as separate reports")
+    func encoderTouchTurnReleaseSequence() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var last = MK2InputReportBuilder().bytes
+        _ = session.startAsyncInput { data, length in
+            last = Array(UnsafeBufferPointer(start: data, count: Int(length)))
+        }
+
+        let baseline = last
+        send(.encoderTouch(index: 4, touched: true), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: baseline, current: last) == [.touchEncoder(index: 4, touched: true)])
+
+        let touched = last
+        send(.encoder(index: 4, delta: 2), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: touched, current: last) == [.knob(index: 4, delta: 2, value: 2)])
+
+        let turned = last
+        send(.encoderTouch(index: 4, touched: false), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: turned, current: last) == [.touchEncoder(index: 4, touched: false)])
+    }
+
+    @Test("4-D touch, rotation and release surface as separate reports")
+    func fourDTouchTurnReleaseSequence() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var last = MK2InputReportBuilder().bytes
+        _ = session.startAsyncInput { data, length in
+            last = Array(UnsafeBufferPointer(start: data, count: Int(length)))
+        }
+
+        let baseline = last
+        send(.fourDTouch(touched: true), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: baseline, current: last) == [.jogTouch(touched: true)])
+
+        let touched = last
+        send(.fourDWheel(delta: 1), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: touched, current: last) == [.jogScroll(delta: 1, value: 1)])
+
+        let turned = last
+        send(.fourDTouch(touched: false), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: turned, current: last) == [.jogTouch(touched: false)])
+    }
+
     @Test("A display blit is forwarded verbatim as a wire frame")
     func outputPath() {
         let (daemon, sim) = makePair()
