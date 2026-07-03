@@ -22,7 +22,9 @@ public enum SimFrameType: UInt8, Sendable {
     case encoderTouch = 0x12    // {u8 index 1…8, u8 touched}
     case fourDWheel = 0x13      // {i8 delta}
     case fourDState = 0x14      // {u8 FourDState raw}
-    case note = 0x15            // reserved for V2: {u8 note, u8 velocity, u8 on}
+    case note = 0x15            // {u8 note, u8 velocity, u8 on}
+    case midi = 0x16            // {u8 status, u8 data1, u8 data2}
+    case strip = 0x17           // {u16be position 0...1024, 0 = release, u16be time ms}
 
     // ccd → sim
     case displayBlit = 0x80     // {u8 screen, u16be x, u16be y, u16be w, u16be h, rgb565be…}
@@ -101,6 +103,23 @@ public extension SimFrame {
 
     static func fourDTouch(touched: Bool) -> SimFrame {
         fourDState(touched ? MK2InputReportBuilder.FourDState.touched.rawValue : MK2InputReportBuilder.FourDState.released.rawValue)
+    }
+
+    static func note(_ note: UInt8, velocity: UInt8, on: Bool) -> SimFrame {
+        SimFrame(type: .note, payload: [note, velocity, on ? 1 : 0])
+    }
+
+    static func midi(status: UInt8, data1: UInt8, data2: UInt8) -> SimFrame {
+        SimFrame(type: .midi, payload: [status, data1, data2])
+    }
+
+    static func strip(position: Int?, time: Int) -> SimFrame {
+        let value = UInt16(max(0, min(1024, position ?? 0)))
+        let timestamp = UInt16(max(0, min(Int(UInt16.max), time)))
+        return SimFrame(type: .strip, payload: [
+            UInt8(value >> 8), UInt8(value & 0xff),
+            UInt8(timestamp >> 8), UInt8(timestamp & 0xff),
+        ])
     }
 
     static func displayBlit(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16, pixelsBE: [UInt8]) -> SimFrame {

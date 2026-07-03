@@ -14,10 +14,26 @@ final class PanelView: NSView {
     private let screens = [ScreenBuffer(), ScreenBuffer()]
     private let interactionAudio = InteractionAudio()
     private var ledBytes = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+    private var lightGuideBytes = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
     private var pressedButtons: Set<KKMK2ButtonLED> = []
     private var encoderAngle = [Double](repeating: 0, count: 8)
     private var encoderTouched = [Bool](repeating: false, count: 8)
+    private var pressedKeys: Set<Int> = []
+    private var pitchValue = 8192
+    private var modValue = 0
+    private var ribbonPosition: Int?
+    private var ribbonTimestamp = 0
     private var connected = false
+
+    enum KeybedSize: Int, CaseIterable {
+        case kk25 = 25
+        case kk37 = 37
+        case kk49 = 49
+        case kk61 = 61
+
+        var title: String { "KK\(rawValue)" }
+        var baseNote: UInt8 { 36 }
+    }
 
     private struct ButtonControl {
         let led: KKMK2ButtonLED
@@ -26,25 +42,45 @@ final class PanelView: NSView {
         let rect: NSRect
     }
     private struct EncoderControl { let index: Int; let rect: NSRect }
+    private struct KeyControl {
+        let index: Int
+        let note: UInt8
+        let isBlack: Bool
+        let rect: NSRect
+    }
 
     private var buttons: [ButtonControl] = []
     private var encoders: [EncoderControl] = []
+    private var keyControls: [KeyControl] = []
+    private var keybedSize: KeybedSize = .kk37
     private var fourDCenter = NSPoint.zero
     private var fourDRadius: CGFloat = 56
     private var fourDWheelRect = NSRect.zero
     private var fourDWheelAngle = 0.0
     private var fourDWheelTouched = false
+    private var pitchWheelRect = NSRect.zero
+    private var modWheelRect = NSRect.zero
+    private var ribbonRect = NSRect.zero
+    private var ribbonLEDRect = NSRect.zero
 
     // Drag state
     private var activeButton: KKMK2ButtonLED?
     private var activeEncoder: Int?
     private var activeEncoderTouchOnly: Int?
+    private var activeKey: Int?
+    private var activeWheel: WheelKind?
+    private var activeRibbon = false
     private var lastDragY: CGFloat = 0
     private var activeFourD: MK2InputReportBuilder.FourDState?
     private var activeFourDTouchOnly = false
     private var activeFourDWheel = false
     private var pendingEncoderTouchReleases: [Int: DispatchWorkItem] = [:]
     private var pendingFourDTouchRelease: DispatchWorkItem?
+
+    private enum WheelKind {
+        case pitch
+        case mod
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -68,16 +104,36 @@ final class PanelView: NSView {
     }
 
     func applyReport(reportID: UInt8, bytes: [UInt8]) {
-        guard reportID == KompleteKontrolMK2Protocol.buttonLEDReportID else { return }
-        for i in 0..<min(ledBytes.count, bytes.count) { ledBytes[i] = bytes[i] }
-        needsDisplay = true
+        switch reportID {
+            case KompleteKontrolMK2Protocol.buttonLEDReportID:
+                for i in 0..<min(ledBytes.count, bytes.count) { ledBytes[i] = bytes[i] }
+                needsDisplay = true
+            case KompleteKontrolMK2Protocol.lightGuideReportID:
+                for i in 0..<min(lightGuideBytes.count, bytes.count) { lightGuideBytes[i] = bytes[i] }
+                needsDisplay = true
+            default:
+                break
+        }
     }
 
     func clearAll() {
         for screen in screens { screen.clear() }
         for i in ledBytes.indices { ledBytes[i] = 0 }
+        for i in lightGuideBytes.indices { lightGuideBytes[i] = 0 }
+        pressedKeys.removeAll()
+        ribbonPosition = nil
         needsDisplay = true
     }
+
+    func setKeybedSize(_ size: KeybedSize) {
+        guard keybedSize != size else { return }
+        keybedSize = size
+        buildLayout()
+        setFrameSize(preferredContentSize)
+        needsDisplay = true
+    }
+
+    var currentKeybedSize: KeybedSize { keybedSize }
 
     // MARK: - Layout
 
@@ -105,6 +161,7 @@ final class PanelView: NSView {
 
         buttons.removeAll()
         encoders.removeAll()
+        keyControls.removeAll()
 
         func leftRect(column: Int, row: Int, yOffset: CGFloat = 0, width: CGFloat = controlW) -> NSRect {
             NSRect(
@@ -208,10 +265,54 @@ final class PanelView: NSView {
             height: fourDWheelSize
         )
 
-        let controlsBottom = max(encY + knob + 40, fourDWheelRect.maxY + 38)
+        let performanceTop = max(encY + knob + 46, fourDWheelRect.maxY + 38)
+        pitchWheelRect = NSRect(x: margin, y: performanceTop + 50, width: 42, height: 130)
+        modWheelRect = NSRect(x: pitchWheelRect.maxX + 18, y: performanceTop + 50, width: 42, height: 130)
+        let keybedX = modWheelRect.maxX + 30
+        let keybedWidth = rightControlsRight - keybedX
+        let keybedRect = NSRect(x: keybedX, y: performanceTop + 62, width: keybedWidth, height: 213)
+        ribbonRect = NSRect(x: keybedX, y: performanceTop + 14, width: keybedWidth, height: 22)
+        ribbonLEDRect = NSRect(x: keybedX, y: performanceTop + 42, width: keybedWidth, height: 8)
+        buildKeybed(in: keybedRect)
+
+        let controlsBottom = max(keybedRect.maxY + 34, fourDWheelRect.maxY + 38)
         preferredContentSize = NSSize(
             width: rightControlsRight + margin,
             height: controlsBottom)
+    }
+
+    private func buildKeybed(in keybedRect: NSRect) {
+        keyControls.removeAll()
+        let keyCount = keybedSize.rawValue
+        let whiteCount = (0..<keyCount).filter { !isBlackKey(index: $0) }.count
+        guard whiteCount > 0 else { return }
+
+        let whiteWidth = keybedRect.width / CGFloat(whiteCount)
+        let blackWidth = max(8, whiteWidth * 0.62)
+        let blackHeight = keybedRect.height * 0.62
+        var whiteIndex = 0
+
+        for index in 0..<keyCount {
+            if isBlackKey(index: index) {
+                let centerX = keybedRect.minX + CGFloat(whiteIndex) * whiteWidth
+                let rect = NSRect(
+                    x: centerX - blackWidth / 2,
+                    y: keybedRect.minY,
+                    width: blackWidth,
+                    height: blackHeight
+                )
+                keyControls.append(KeyControl(index: index, note: keybedSize.baseNote + UInt8(index), isBlack: true, rect: rect))
+            } else {
+                let rect = NSRect(
+                    x: keybedRect.minX + CGFloat(whiteIndex) * whiteWidth,
+                    y: keybedRect.minY,
+                    width: whiteWidth,
+                    height: keybedRect.height
+                )
+                keyControls.append(KeyControl(index: index, note: keybedSize.baseNote + UInt8(index), isBlack: false, rect: rect))
+                whiteIndex += 1
+            }
+        }
     }
 
     // MARK: - Drawing
@@ -233,6 +334,7 @@ final class PanelView: NSView {
         for encoder in encoders { drawEncoder(encoder) }
         drawFourD()
         drawFourDWheel()
+        drawPerformanceControls()
         drawStatus()
     }
 
@@ -353,6 +455,119 @@ final class PanelView: NSView {
                   color: NSColor(white: 0.6, alpha: 1), size: 11)
     }
 
+    private func drawPerformanceControls() {
+        drawWheel(rect: pitchWheelRect, title: "PITCH", value: pitchValue, range: 0...16_383, centered: true, active: activeWheel == .pitch)
+        drawWheel(rect: modWheelRect, title: "MOD", value: modValue, range: 0...127, centered: false, active: activeWheel == .mod)
+        drawRibbon()
+        drawKeybed()
+    }
+
+    private func drawWheel(rect: NSRect, title: String, value: Int, range: ClosedRange<Int>, centered: Bool, active: Bool) {
+        let slot = NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9)
+        NSColor(white: 0.08, alpha: 1).setFill()
+        slot.fill()
+        (active ? NSColor.systemBlue : NSColor(white: 0.35, alpha: 1)).setStroke()
+        slot.lineWidth = active ? 2.5 : 1.2
+        slot.stroke()
+
+        let progress = CGFloat(value - range.lowerBound) / CGFloat(range.upperBound - range.lowerBound)
+        let thumbY = rect.maxY - 12 - progress * (rect.height - 24)
+        let thumb = NSRect(x: rect.minX + 5, y: thumbY - 10, width: rect.width - 10, height: 20)
+        let thumbPath = NSBezierPath(roundedRect: thumb, xRadius: 4, yRadius: 4)
+        NSColor(white: 0.58, alpha: 1).setFill()
+        thumbPath.fill()
+
+        if centered {
+            NSColor(white: 0.28, alpha: 1).setStroke()
+            let line = NSBezierPath()
+            line.move(to: NSPoint(x: rect.minX + 4, y: rect.midY))
+            line.line(to: NSPoint(x: rect.maxX - 4, y: rect.midY))
+            line.lineWidth = 1
+            line.stroke()
+        }
+
+        drawLabel(title, in: NSRect(x: rect.minX - 8, y: rect.maxY + 5, width: rect.width + 16, height: 14),
+                  color: NSColor(white: 0.6, alpha: 1), size: 10)
+    }
+
+    private func drawRibbon() {
+        let plate = NSBezierPath(roundedRect: ribbonRect, xRadius: 8, yRadius: 8)
+        NSColor(white: 0.07, alpha: 1).setFill()
+        plate.fill()
+        NSColor(white: 0.32, alpha: 1).setStroke()
+        plate.lineWidth = 1
+        plate.stroke()
+
+        if let ribbonPosition {
+            let progress = CGFloat(max(1, min(1024, ribbonPosition)) - 1) / 1023
+            let x = ribbonRect.minX + progress * ribbonRect.width
+            let indicator = NSBezierPath()
+            indicator.move(to: NSPoint(x: x, y: ribbonRect.minY + 3))
+            indicator.line(to: NSPoint(x: x, y: ribbonRect.maxY - 3))
+            NSColor.systemBlue.setStroke()
+            indicator.lineWidth = 2
+            indicator.stroke()
+        }
+
+        let count = 25
+        let gap: CGFloat = 2
+        let segmentWidth = (ribbonLEDRect.width - gap * CGFloat(count - 1)) / CGFloat(count)
+        for index in 0..<count {
+            let rect = NSRect(
+                x: ribbonLEDRect.minX + CGFloat(index) * (segmentWidth + gap),
+                y: ribbonLEDRect.minY,
+                width: segmentWidth,
+                height: ribbonLEDRect.height
+            )
+            let codeIndex = KKMK2ButtonLED.strip1.rawValue + index
+            let code = ledBytes.indices.contains(codeIndex) ? ledBytes[codeIndex] : 0
+            let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
+            paletteColor(code: code, offWhite: 0.1).setFill()
+            path.fill()
+        }
+
+        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY + 4, width: 78, height: 14),
+                  color: NSColor(white: 0.6, alpha: 1), size: 10, left: true)
+    }
+
+    private func drawKeybed() {
+        for key in keyControls where !key.isBlack {
+            drawKey(key)
+        }
+        for key in keyControls where key.isBlack {
+            drawKey(key)
+        }
+        if let first = keyControls.first, let last = keyControls.last {
+            drawLabel(keybedSize.title, in: NSRect(x: first.rect.minX, y: first.rect.maxY + 6, width: last.rect.maxX - first.rect.minX, height: 16),
+                      color: NSColor(white: 0.58, alpha: 1), size: 11)
+        }
+    }
+
+    private func drawKey(_ key: KeyControl) {
+        let color = lightGuideColor(index: key.index)
+        let pressed = pressedKeys.contains(key.index)
+        let path = NSBezierPath(roundedRect: key.rect, xRadius: key.isBlack ? 4 : 3, yRadius: key.isBlack ? 4 : 3)
+
+        if key.isBlack {
+            (pressed ? NSColor(white: 0.22, alpha: 1) : NSColor(white: 0.015, alpha: 1)).setFill()
+        } else {
+            (pressed ? NSColor(white: 0.82, alpha: 1) : NSColor(white: 0.94, alpha: 1)).setFill()
+        }
+        path.fill()
+
+        if color.alphaComponent > 0 {
+            let glowHeight = key.isBlack ? max(7, key.rect.height * 0.18) : max(8, key.rect.height * 0.12)
+            let glowRect = NSRect(x: key.rect.minX + 2, y: key.rect.minY + 3, width: key.rect.width - 4, height: glowHeight)
+            let glow = NSBezierPath(roundedRect: glowRect, xRadius: 3, yRadius: 3)
+            color.setFill()
+            glow.fill()
+        }
+
+        (key.isBlack ? NSColor(white: 0.22, alpha: 1) : NSColor(white: 0.45, alpha: 1)).setStroke()
+        path.lineWidth = key.isBlack ? 1.2 : 0.8
+        path.stroke()
+    }
+
     private func drawStatus() {
         let text = connected ? "● daemon connected" : "○ waiting for ccd  (CCD_SIMULATE)"
         drawLabel(text, in: NSRect(x: 24, y: bounds.height - 22, width: 400, height: 16),
@@ -398,10 +613,46 @@ final class PanelView: NSView {
         return code == 0 ? NSColor(white: 0.75, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
     }
 
+    private func paletteColor(code: UInt8, offWhite: CGFloat = 0.0, alpha: CGFloat = 1) -> NSColor {
+        guard code != 0 else { return NSColor(white: offWhite, alpha: alpha) }
+        let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
+        return NSColor(
+            red: CGFloat(rgb.red) / 255,
+            green: CGFloat(rgb.green) / 255,
+            blue: CGFloat(rgb.blue) / 255,
+            alpha: alpha
+        )
+    }
+
+    private func lightGuideColor(index: Int) -> NSColor {
+        guard lightGuideBytes.indices.contains(index), lightGuideBytes[index] != 0 else { return .clear }
+        return paletteColor(code: lightGuideBytes[index], alpha: pressedKeys.contains(index) ? 0.95 : 0.78)
+    }
+
     // MARK: - Interaction
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let key = key(at: point) {
+            activeKey = key.index
+            setKey(key, pressed: true)
+            return
+        }
+        if pitchWheelRect.contains(point) {
+            activeWheel = .pitch
+            setWheel(.pitch, at: point)
+            return
+        }
+        if modWheelRect.contains(point) {
+            activeWheel = .mod
+            setWheel(.mod, at: point)
+            return
+        }
+        if ribbonRect.contains(point) {
+            activeRibbon = true
+            setRibbon(at: point)
+            return
+        }
         if let button = buttons.first(where: { $0.rect.contains(point) }) {
             activeButton = button.led
             pressedButtons.insert(button.led)
@@ -451,8 +702,32 @@ final class PanelView: NSView {
             return
         }
 
+        let point = convert(event.locationInWindow, from: nil)
+        if let activeKey {
+            let nextKey = key(at: point)
+            if nextKey?.index != activeKey {
+                if let current = keyControls.first(where: { $0.index == activeKey }) {
+                    setKey(current, pressed: false)
+                }
+                if let nextKey {
+                    self.activeKey = nextKey.index
+                    setKey(nextKey, pressed: true)
+                } else {
+                    self.activeKey = nil
+                }
+            }
+            return
+        }
+        if let activeWheel {
+            setWheel(activeWheel, at: point)
+            return
+        }
+        if activeRibbon {
+            setRibbon(at: point)
+            return
+        }
+
         if activeFourDWheel {
-            let point = convert(event.locationInWindow, from: nil)
             let steps = Int((lastDragY - point.y) / 4) // drag up = clockwise/increase
             if steps != 0 {
                 emitFourDWheel(delta: steps)
@@ -462,7 +737,6 @@ final class PanelView: NSView {
         }
 
         if activeFourD != nil {
-            let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius else { return }
             let state = fourDZone(point)
             if state != activeFourD {
@@ -474,7 +748,6 @@ final class PanelView: NSView {
         }
 
         guard let index = activeEncoder else { return }
-        let point = convert(event.locationInWindow, from: nil)
         let steps = Int((lastDragY - point.y) / 4) // drag up = increase (flipped view)
         if steps != 0 {
             emitEncoder(index: index, delta: steps)
@@ -508,6 +781,21 @@ final class PanelView: NSView {
         if activeFourD != nil {
             onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
             activeFourD = nil
+            needsDisplay = true
+        }
+        if let activeKey, let key = keyControls.first(where: { $0.index == activeKey }) {
+            setKey(key, pressed: false)
+            self.activeKey = nil
+        }
+        if activeWheel == .pitch {
+            pitchValue = 8192
+            sendPitchWheel()
+        }
+        activeWheel = nil
+        if activeRibbon {
+            activeRibbon = false
+            ribbonPosition = nil
+            onInput?(.strip(position: nil, time: nextRibbonTimestamp()))
             needsDisplay = true
         }
     }
@@ -544,6 +832,68 @@ final class PanelView: NSView {
         interactionAudio.playRotate()
         onInput?(.fourDWheel(delta: delta))
         needsDisplay = true
+    }
+
+    private func key(at point: NSPoint) -> KeyControl? {
+        keyControls.first { $0.isBlack && $0.rect.contains(point) }
+            ?? keyControls.first { !$0.isBlack && $0.rect.contains(point) }
+    }
+
+    private func setKey(_ key: KeyControl, pressed: Bool) {
+        if pressed {
+            guard !pressedKeys.contains(key.index) else { return }
+            pressedKeys.insert(key.index)
+            onInput?(.note(key.note, velocity: 100, on: true))
+        } else {
+            guard pressedKeys.contains(key.index) else { return }
+            pressedKeys.remove(key.index)
+            onInput?(.note(key.note, velocity: 0, on: false))
+        }
+        needsDisplay = true
+    }
+
+    private func setWheel(_ wheel: WheelKind, at point: NSPoint) {
+        let rect = wheel == .pitch ? pitchWheelRect : modWheelRect
+        let clampedY = max(rect.minY, min(rect.maxY, point.y))
+        let progress = 1 - ((clampedY - rect.minY) / max(1, rect.height))
+        switch wheel {
+            case .pitch:
+                let next = max(0, min(16_383, Int((progress * 16_383).rounded())))
+                guard next != pitchValue else { return }
+                pitchValue = next
+                sendPitchWheel()
+            case .mod:
+                let next = max(0, min(127, Int((progress * 127).rounded())))
+                guard next != modValue else { return }
+                modValue = next
+                onInput?(.midi(status: 0xb0, data1: 1, data2: UInt8(next)))
+        }
+        needsDisplay = true
+    }
+
+    private func sendPitchWheel() {
+        onInput?(.midi(status: 0xe0, data1: UInt8(pitchValue & 0x7f), data2: UInt8((pitchValue >> 7) & 0x7f)))
+    }
+
+    private func setRibbon(at point: NSPoint) {
+        let clampedX = max(ribbonRect.minX, min(ribbonRect.maxX, point.x))
+        let progress = (clampedX - ribbonRect.minX) / max(1, ribbonRect.width)
+        let position = max(1, min(1024, Int((progress * 1023).rounded()) + 1))
+        ribbonPosition = position
+        onInput?(.strip(position: position, time: nextRibbonTimestamp()))
+        needsDisplay = true
+    }
+
+    private func nextRibbonTimestamp() -> Int {
+        ribbonTimestamp = (ribbonTimestamp + 10) & 0xffff
+        return ribbonTimestamp
+    }
+
+    private func isBlackKey(index: Int) -> Bool {
+        switch index % 12 {
+            case 1, 3, 6, 8, 10: true
+            default: false
+        }
     }
 
     private func beginEncoderTouch(index: Int) {

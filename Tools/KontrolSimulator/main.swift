@@ -17,6 +17,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let y = "KontrolSimulator.window.y"
         static let width = "KontrolSimulator.window.width"
         static let height = "KontrolSimulator.window.height"
+        static let keybedSize = "KontrolSimulator.keybedSize"
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
@@ -24,6 +25,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var scrollView: NSScrollView!
     private var panel: PanelView!
     private var fitToWidthItem: NSMenuItem?
+    private var keybedSizeItems: [PanelView.KeybedSize: NSMenuItem] = [:]
     private var zoomMode: ZoomMode = .manual
     private var isProgrammaticResize = false
 
@@ -38,6 +40,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Base layout renders the displays at native 480x272 points; all zoom is scroll-view
         // magnification so clicks stay accurate.
         panel = PanelView(scale: 1.0)
+        if let savedSize = PanelView.KeybedSize(rawValue: UserDefaults.standard.integer(forKey: DefaultsKey.keybedSize)) {
+            panel.setKeybedSize(savedSize)
+        }
 
         let initialSize = NSSize(width: 1040, height: 640)
         scrollView = NSScrollView(frame: NSRect(origin: .zero, size: initialSize))
@@ -121,6 +126,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         viewMenu.addItem(.separator())
         fitToWidthItem = add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
         add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
+        viewMenu.addItem(.separator())
+        for size in PanelView.KeybedSize.allCases {
+            let item = add(to: viewMenu, size.title, #selector(setKeybedSizeFromMenu(_:)), "")
+            item.representedObject = size.rawValue
+            keybedSizeItems[size] = item
+        }
 
         NSApp.mainMenu = mainMenu
         updateViewMenuState()
@@ -153,6 +164,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func trueSize(_ sender: Any?) {
         guard let magnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main) else { return }
         setManualMagnification(magnification, resizeWindow: true)
+    }
+
+    @objc private func setKeybedSizeFromMenu(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? Int,
+              let size = PanelView.KeybedSize(rawValue: rawValue) else { return }
+        panel.setKeybedSize(size)
+        UserDefaults.standard.set(size.rawValue, forKey: DefaultsKey.keybedSize)
+        if zoomMode == .fitToWidth {
+            updateFitToWidthMagnification()
+            resizeWindowToCurrentMagnification(preserveContentWidth: true)
+        } else {
+            resizeWindowToCurrentMagnification(preserveContentWidth: false)
+        }
+        updateViewMenuState()
+        persistWindowPlacement()
     }
 
     private func setManualMagnification(_ value: CGFloat, resizeWindow: Bool) {
@@ -242,6 +268,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateViewMenuState() {
         fitToWidthItem?.state = zoomMode == .fitToWidth ? .on : .off
+        for (size, item) in keybedSizeItems {
+            item.state = panel.currentKeybedSize == size ? .on : .off
+        }
+        updateWindowTitle()
     }
 
     private func updateWindowTitle() {
@@ -253,7 +283,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             percent = scrollView.magnification * 100
         }
-        window.title = "\(Self.baseWindowTitle) (\(Int(percent.rounded()))%)"
+        window.title = "\(Self.baseWindowTitle) \(panel.currentKeybedSize.title) (\(Int(percent.rounded()))%)"
     }
 
     // MARK: - Window placement

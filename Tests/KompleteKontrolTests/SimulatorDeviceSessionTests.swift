@@ -114,6 +114,62 @@ struct SimulatorDeviceSessionTests {
         #expect(KKMK2InputReportDecoder.eventsForReport(previous: turned, current: last) == [.jogTouch(touched: false)])
     }
 
+    @Test("Key frames surface as USB MIDI note events")
+    func keyFramesBecomeMIDI() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var received: [[UInt8]] = []
+        _ = session.startAsyncMIDI { data, length in
+            received.append(Array(UnsafeBufferPointer(start: data, count: Int(length))))
+        }
+
+        send(.note(60, velocity: 100, on: true), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        send(.note(60, velocity: 0, on: false), to: sim)
+        session.handleEvents(timeoutMs: 0)
+
+        #expect(received == [[0x09, 0x90, 60, 100], [0x08, 0x80, 60, 0]])
+    }
+
+    @Test("Wheel MIDI frames keep their USB MIDI code index")
+    func wheelMIDIFrames() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var received: [[UInt8]] = []
+        _ = session.startAsyncMIDI { data, length in
+            received.append(Array(UnsafeBufferPointer(start: data, count: Int(length))))
+        }
+
+        send(.midi(status: 0xb0, data1: 1, data2: 127), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        send(.midi(status: 0xe0, data1: 0, data2: 64), to: sim)
+        session.handleEvents(timeoutMs: 0)
+
+        #expect(received == [[0x0b, 0xb0, 1, 127], [0x0e, 0xe0, 0, 64]])
+    }
+
+    @Test("Ribbon frames surface as raw strip reports")
+    func ribbonFramesBecomeStripReports() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var received: [[UInt8]] = []
+        _ = session.startAsyncInput { data, length in
+            received.append(Array(UnsafeBufferPointer(start: data, count: Int(length))))
+        }
+
+        send(.strip(position: 512, time: 123), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        send(.strip(position: nil, time: 133), to: sim)
+        session.handleEvents(timeoutMs: 0)
+
+        #expect(received.count == 2)
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: nil, current: received[0]) == [.strip(position: 512, time: 123)])
+        #expect(KKMK2InputReportDecoder.eventsForReport(previous: nil, current: received[1]) == [.strip(position: nil, time: 133)])
+    }
+
     @Test("A display blit is forwarded verbatim as a wire frame")
     func outputPath() {
         let (daemon, sim) = makePair()
