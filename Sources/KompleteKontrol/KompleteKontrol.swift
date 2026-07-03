@@ -2026,18 +2026,6 @@ public enum KompleteKontrolLibUSBServer {
         exit(0)
     }
 
-    private static let asyncInputCallback: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?) -> Void = { data, length, userData in
-        guard let data, let userData else { return }
-        let hardware = Unmanaged<DaemonHardware>.fromOpaque(userData).takeUnretainedValue()
-        hardware.pushInputToClients(data, length: length)
-    }
-
-    private static let asyncMidiCallback: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?) -> Void = { data, length, userData in
-        guard let data, let userData else { return }
-        let hardware = Unmanaged<DaemonHardware>.fromOpaque(userData).takeUnretainedValue()
-        hardware.pushMidiToClients(data, length: length)
-    }
-
     private static func makeDaemonServerSocket(socketPath: String) -> Int32? {
         let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverFD >= 0 else {
@@ -2768,7 +2756,7 @@ public enum KompleteKontrolLibUSBServer {
         private let maxQueuedPushes = 64
         private let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
         private let daemonSurfaceEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_DISABLE_SURFACE"] != "1"
-        private var libusbSession: KontrolUSBLibUSBSessionRef?
+        private var libusbSession: (any KontrolDeviceSession)?
         private var asyncTransfersStarted = false
         private let initialOpenRetryDelayNs: UInt64 = 1_000_000_000
         private let maxOpenRetryDelayNs: UInt64 = 10_000_000_000
@@ -2825,7 +2813,7 @@ public enum KompleteKontrolLibUSBServer {
             if let session {
                 restoreMK2StandaloneState(session)
                 daemonLog("hardware session closed for daemon shutdown", group: "usb")
-                KontrolUSBLibUSBSessionClose(session)
+                session.close()
             }
             sessionIOLock.unlock()
         }
@@ -2834,12 +2822,12 @@ public enum KompleteKontrolLibUSBServer {
         // Hands the keyboard back as a standalone controller: mapping engine on with
         // factory-like templates (knob CCs, wheels, strip CC11), our LED/guide state
         // cleared, displays blanked instead of frozen on stale frames.
-        private func restoreMK2StandaloneState(_ session: KontrolUSBLibUSBSessionRef) {
-            guard KontrolUSBLibUSBSessionGeneration(session) == 2 else { return }
+        private func restoreMK2StandaloneState(_ session: any KontrolDeviceSession) {
+            guard session.generation == 2 else { return }
             func write(_ reportID: UInt8, _ payload: [UInt8]) {
                 var bytes = payload
                 _ = bytes.withUnsafeMutableBufferPointer { buffer in
-                    KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+                    session.write(reportID: reportID, payload: Array(buffer))
                 }
             }
             write(KompleteKontrolMK2Protocol.initReportID, KompleteKontrolMK2Protocol.initModeMappingEngineOn)
@@ -2849,15 +2837,14 @@ public enum KompleteKontrolLibUSBServer {
             write(KompleteKontrolMK2Protocol.buttonLEDReportID, [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize))
             write(KompleteKontrolMK2Protocol.lightGuideReportID, [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize))
             for screen: UInt8 in [0, 1] {
-                _ = KontrolUSBLibUSBSessionFillMK2Display(
-                    session,
-                    screen,
-                    0,
-                    0,
-                    UInt16(KompleteKontrolMK2Protocol.displayWidth),
-                    UInt16(KompleteKontrolMK2Protocol.displayHeight),
-                    0x0000,
-                    1_000
+                _ = session.fillMK2Display(
+                    screen: screen,
+                    x: 0,
+                    y: 0,
+                    width: UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                    height: UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                    rgb565: 0x0000,
+                    timeoutMs: 1_000
                 )
             }
             daemonLog("MK2 handed back to standalone controller state", group: "mk2")
@@ -2967,19 +2954,14 @@ public enum KompleteKontrolLibUSBServer {
             }
 
             let writeStart = KKTiming.now()
-            let result = payload.withUnsafeBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
-                    session,
-                    UInt8(screen & 0xff),
-                    UInt16(x & 0xffff),
-                    UInt16(y & 0xffff),
-                    UInt16(width & 0xffff),
-                    UInt16(height & 0xffff),
-                    buffer.baseAddress,
-                    UInt32(buffer.count),
-                    UInt32(max(1, min(timeout, 10_000)))
-                )
-            }
+            let result = session.writeMK2DisplayBytes(
+                screen: UInt8(screen & 0xff),
+                x: UInt16(x & 0xffff),
+                y: UInt16(y & 0xffff),
+                width: UInt16(width & 0xffff),
+                height: UInt16(height & 0xffff),
+                pixels: payload,
+                timeoutMs: UInt32(max(1, min(timeout, 10_000))))
             daemonTraceLog("mk2blitbin client=\(clientID) screen=\(screen) rect=\(x),\(y) \(width)x\(height) bytes=\(payload.count) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))", group: "mk2")
             if result.status == 0 {
                 return "ok"
@@ -3094,7 +3076,7 @@ public enum KompleteKontrolLibUSBServer {
             guard let session = ensureSession() else { return -1 }
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
@@ -3102,7 +3084,7 @@ public enum KompleteKontrolLibUSBServer {
             }
             var payload = payload
             let result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+                session.write(reportID: reportID, payload: Array(buffer))
             }
             sessionIOLock.unlock()
             return result.status
@@ -3203,7 +3185,7 @@ public enum KompleteKontrolLibUSBServer {
             let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
@@ -3211,7 +3193,7 @@ public enum KompleteKontrolLibUSBServer {
             }
             var payload = payload
             let result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+                session.write(reportID: reportID, payload: Array(buffer))
             }
             sessionIOLock.unlock()
             daemonTraceLog("state report worker report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
@@ -3225,25 +3207,20 @@ public enum KompleteKontrolLibUSBServer {
             let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
                 return
             }
-            let result = blit.pixels.withUnsafeBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
-                    session,
-                    blit.screen,
-                    blit.x,
-                    blit.y,
-                    blit.width,
-                    blit.height,
-                    buffer.baseAddress,
-                    UInt32(buffer.count),
-                    max(1, min(blit.timeoutMs, 10_000))
-                )
-            }
+            let result = session.writeMK2DisplayBytes(
+                screen: blit.screen,
+                x: blit.x,
+                y: blit.y,
+                width: blit.width,
+                height: blit.height,
+                pixels: blit.pixels,
+                timeoutMs: max(1, min(blit.timeoutMs, 10_000)))
             sessionIOLock.unlock()
             daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
             if result.status != 0 {
@@ -3252,10 +3229,10 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func handleDaemonCommand(_ line: String, ifCurrentSession session: KontrolUSBLibUSBSessionRef) -> String {
+        private func handleDaemonCommand(_ line: String, ifCurrentSession session: any KontrolDeviceSession) -> String {
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
@@ -3351,7 +3328,23 @@ public enum KompleteKontrolLibUSBServer {
             return "ok unregistered"
         }
 
-        private func ensureSession(forceOpen: Bool = false) -> KontrolUSBLibUSBSessionRef? {
+        // The device seam's single construction point: the real libusb device today; the
+        // simulator backend hooks in here in sim mode (Phase C), keeping the rest of the
+        // reconnect machinery unaware of which kind of device it opened.
+        private func openDeviceSession() -> (session: (any KontrolDeviceSession)?, result: KontrolUSBResult) {
+            // Simulation mode (transparent to clients): CCD_SIMULATE selects the simulator
+            // backend; its value is the socket path, or empty for the default. Everything
+            // downstream — reconnect, reactor, socket protocol — is unaware of the choice.
+            if let simulate = ProcessInfo.processInfo.environment["CCD_SIMULATE"] {
+                let path = simulate.isEmpty ? SimulatorDeviceSession.defaultSocketPath : simulate
+                let opened = SimulatorDeviceSession.open(socketPath: path)
+                return (opened.session, opened.result)
+            }
+            let opened = LibUSBDeviceSession.open()
+            return (opened.session, opened.result)
+        }
+
+        private func ensureSession(forceOpen: Bool = false) -> (any KontrolDeviceSession)? {
             lock.lock()
             if let libusbSession {
                 lock.unlock()
@@ -3386,8 +3379,7 @@ public enum KompleteKontrolLibUSBServer {
             }
             lock.unlock()
 
-            var session: KontrolUSBLibUSBSessionRef?
-            let result = KontrolUSBLibUSBSessionOpen(&session)
+            let (session, result) = openDeviceSession()
             let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
             daemonLog("hardware session open status=\(result.status) ep=0x\(String(format: "%02x", result.endpointAddress)) \(message)")
             guard result.status == 0, let session else {
@@ -3399,7 +3391,7 @@ public enum KompleteKontrolLibUSBServer {
             lock.lock()
             if let existingSession = libusbSession {
                 lock.unlock()
-                KontrolUSBLibUSBSessionClose(session)
+                session.close()
                 sessionIOLock.unlock()
                 return existingSession
             }
@@ -3437,18 +3429,18 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         @discardableResult
-        private func dropSession(_ session: KontrolUSBLibUSBSessionRef, after response: String) -> Bool {
+        private func dropSession(_ session: any KontrolDeviceSession, after response: String) -> Bool {
             guard shouldDropSession(after: response) else { return false }
             sessionIOLock.lockExclusive()
             lock.lock()
-            let shouldClose = libusbSession == session
+            let shouldClose = libusbSession === session
             if shouldClose {
                 libusbSession = nil
                 asyncTransfersStarted = false
             }
             lock.unlock()
             if shouldClose {
-                KontrolUSBLibUSBSessionClose(session)
+                session.close()
             }
             sessionIOLock.unlock()
             return shouldClose
@@ -3466,13 +3458,13 @@ public enum KompleteKontrolLibUSBServer {
             if let session {
                 sessionIOLock.lockShared()
                 lock.lock()
-                let isCurrent = libusbSession == session
+                let isCurrent = libusbSession === session
                 lock.unlock()
                 guard isCurrent else {
                     sessionIOLock.unlock()
                     return false
                 }
-                let health = KontrolUSBLibUSBSessionHealth(session)
+                let health = session.health
                 sessionIOLock.unlock()
                 let message = KKUSBResult(health).message.replacingOccurrences(of: "\n", with: " ")
                 if health.status != 0 {
@@ -3526,7 +3518,7 @@ public enum KompleteKontrolLibUSBServer {
 
             if let session {
                 daemonLog("hardware session closed for system sleep", group: "usb")
-                KontrolUSBLibUSBSessionClose(session)
+                session.close()
             }
             sessionIOLock.unlock()
         }
@@ -3548,7 +3540,7 @@ public enum KompleteKontrolLibUSBServer {
 
             if let session {
                 daemonLog("hardware session invalidated for system wake", group: "usb")
-                KontrolUSBLibUSBSessionClose(session)
+                session.close()
             }
             sessionIOLock.unlock()
         }
@@ -3568,7 +3560,7 @@ public enum KompleteKontrolLibUSBServer {
             let session = libusbSession
             lock.unlock()
             guard let session else { return false }
-            return KontrolUSBLibUSBSessionDeviceLost(session) != 0
+            return session.isDeviceLost
         }
 
         private func runStartupAnimation() {
@@ -3606,18 +3598,18 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func isMK2(_ session: KontrolUSBLibUSBSessionRef) -> Bool {
-            KontrolUSBLibUSBSessionGeneration(session) == 2
+        private func isMK2(_ session: any KontrolDeviceSession) -> Bool {
+            session.generation == 2
         }
 
         // Host-control mode: all LEDs (function buttons + ribbon included) belong to the
         // host via 0x80, and the ribbon streams raw on report 0x02. The mapping engine and
         // its templates are only re-armed when the daemon hands the device back at shutdown.
-        private func configureMK2HostControl(session: KontrolUSBLibUSBSessionRef) {
+        private func configureMK2HostControl(session: any KontrolDeviceSession) {
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.initReportID, payload: KompleteKontrolMK2Protocol.initModeHostControl)
         }
 
-        private func prepareMK2IdleSurface(session: KontrolUSBLibUSBSessionRef) {
+        private func prepareMK2IdleSurface(session: any KontrolDeviceSession) {
             daemonLog("MK2 idle surface prepare", group: "mk2")
             configureMK2HostControl(session: session)
             clearMK2SurfaceLights(session: session)
@@ -3630,7 +3622,7 @@ public enum KompleteKontrolLibUSBServer {
             )
         }
 
-        private func clearMK2SurfaceLights(session: KontrolUSBLibUSBSessionRef) {
+        private func clearMK2SurfaceLights(session: any KontrolDeviceSession) {
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x00))
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2LightGuidePayload(fill: 0x00))
         }
@@ -3643,9 +3635,9 @@ public enum KompleteKontrolLibUSBServer {
             [UInt8](repeating: fill, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
         }
 
-        private func mk2RainbowLightGuidePayload(session: KontrolUSBLibUSBSessionRef) -> [UInt8] {
+        private func mk2RainbowLightGuidePayload(session: any KontrolDeviceSession) -> [UInt8] {
             var payload = mk2LightGuidePayload(fill: 0x00)
-            let keyCount = max(0, min(Int(KontrolUSBLibUSBSessionKeyCount(session)), payload.count))
+            let keyCount = max(0, min(Int(session.keyCount), payload.count))
             guard keyCount > 0 else { return payload }
             for index in 0..<keyCount {
                 let colorIndex = UInt8(index % 17)
@@ -3682,32 +3674,31 @@ public enum KompleteKontrolLibUSBServer {
             return "INPUT"
         }
 
-        private func writeMK2Solid(session: KontrolUSBLibUSBSessionRef, screen: UInt8, color: UInt16) {
+        private func writeMK2Solid(session: any KontrolDeviceSession, screen: UInt8, color: UInt16) {
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
                 return
             }
             let start = KKTiming.now()
-            let result = KontrolUSBLibUSBSessionFillMK2Display(
-                session,
-                screen,
-                0,
-                0,
-                UInt16(KompleteKontrolMK2Protocol.displayWidth),
-                UInt16(KompleteKontrolMK2Protocol.displayHeight),
-                color,
-                1_000
+            let result = session.fillMK2Display(
+                screen: screen,
+                x: 0,
+                y: 0,
+                width: UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                height: UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                rgb565: color,
+                timeoutMs: 1_000
             )
             sessionIOLock.unlock()
             daemonLog("MK2 display fill screen=\(screen) color=0x\(String(format: "%04x", color)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
         }
 
         private func writeMK2IdleSurface(
-            session: KontrolUSBLibUSBSessionRef,
+            session: any KontrolDeviceSession,
             screen0: [String],
             screen1: [String],
             accent0: UInt16,
@@ -3720,29 +3711,24 @@ public enum KompleteKontrolLibUSBServer {
             writeMK2Frame(session: session, screen: 1, pixels: right)
         }
 
-        private func writeMK2Frame(session: KontrolUSBLibUSBSessionRef, screen: UInt8, pixels: [UInt16]) {
+        private func writeMK2Frame(session: any KontrolDeviceSession, screen: UInt8, pixels: [UInt16]) {
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
                 return
             }
             let start = KKTiming.now()
-            let result = pixels.withUnsafeBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWriteMK2Display(
-                    session,
-                    screen,
-                    0,
-                    0,
-                    UInt16(KompleteKontrolMK2Protocol.displayWidth),
-                    UInt16(KompleteKontrolMK2Protocol.displayHeight),
-                    buffer.baseAddress,
-                    UInt32(buffer.count),
-                    1_000
-                )
-            }
+            let result = session.writeMK2DisplayPixels(
+                screen: screen,
+                x: 0,
+                y: 0,
+                width: UInt16(KompleteKontrolMK2Protocol.displayWidth),
+                height: UInt16(KompleteKontrolMK2Protocol.displayHeight),
+                pixels: pixels,
+                timeoutMs: 1_000)
             sessionIOLock.unlock()
             daemonLog("MK2 display frame screen=\(screen) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
         }
@@ -3935,7 +3921,7 @@ public enum KompleteKontrolLibUSBServer {
             return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
         }
 
-        private func writeDarkSurface(session: KontrolUSBLibUSBSessionRef, displayFrame: KKDisplayFrame) {
+        private func writeDarkSurface(session: any KontrolDeviceSession, displayFrame: KKDisplayFrame) {
             if isMK2(session) {
                 clearMK2SurfaceLights(session: session)
                 writeMK2IdleSurface(
@@ -4245,13 +4231,13 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func writeReport(session: KontrolUSBLibUSBSessionRef, reportID: UInt8, payload: [UInt8]) {
+        private func writeReport(session: any KontrolDeviceSession, reportID: UInt8, payload: [UInt8]) {
             var payload = payload
             daemonTraceLog("write report begin report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) head=\(KKTiming.short(payload))", group: "usb-out")
             let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
@@ -4259,7 +4245,7 @@ public enum KompleteKontrolLibUSBServer {
                 return
             }
             let result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
+                session.write(reportID: reportID, payload: Array(buffer))
             }
             sessionIOLock.unlock()
             daemonTraceLog("write report end report=0x\(KKHex.byte(reportID)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "usb-out")
@@ -4343,7 +4329,7 @@ public enum KompleteKontrolLibUSBServer {
             startAsyncTransfersIfNeeded(session)
         }
 
-        private func startAsyncTransfersIfNeeded(_ session: KontrolUSBLibUSBSessionRef) {
+        private func startAsyncTransfersIfNeeded(_ session: any KontrolDeviceSession) {
             lock.lock()
             guard !asyncTransfersStarted else {
                 lock.unlock()
@@ -4352,17 +4338,20 @@ public enum KompleteKontrolLibUSBServer {
             asyncTransfersStarted = true
             lock.unlock()
 
-            let selfPtr = Unmanaged.passUnretained(self).toOpaque()
             sessionIOLock.lockShared()
             lock.lock()
-            let isCurrent = libusbSession == session
+            let isCurrent = libusbSession === session
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
                 return
             }
-            let inputStatus = KontrolUSBLibUSBSessionStartAsyncInput(session, KompleteKontrolLibUSBServer.asyncInputCallback, selfPtr)
-            let midiStatus = KontrolUSBLibUSBSessionStartAsyncMIDI(session, KompleteKontrolLibUSBServer.asyncMidiCallback, selfPtr)
+            let inputStatus = session.startAsyncInput { [weak self] data, length in
+                self?.pushInputToClients(data, length: length)
+            }
+            let midiStatus = session.startAsyncMIDI { [weak self] data, length in
+                self?.pushMidiToClients(data, length: length)
+            }
             sessionIOLock.unlock()
 
             lock.lock()
@@ -4382,7 +4371,7 @@ public enum KompleteKontrolLibUSBServer {
                 return
             }
             daemonTraceLog("handle_events begin timeoutMs=\(timeoutMs)", group: "usb")
-            KontrolUSBLibUSBHandleEventsTimeout(session, Int32(timeoutMs))
+            session.handleEvents(timeoutMs: timeoutMs)
             sessionIOLock.unlock()
             daemonTraceLog("handle_events end timeoutMs=\(timeoutMs)", group: "usb")
             flushIdleDiagnosticIfNeeded()
@@ -4398,12 +4387,8 @@ public enum KompleteKontrolLibUSBServer {
                 daemonTraceLog("pollfds skipped: no session", group: "usb")
                 return []
             }
-            var pollFds = [KontrolUSBPollFd](repeating: KontrolUSBPollFd(), count: 8)
-            let count = pollFds.withUnsafeMutableBufferPointer { buf in
-                KontrolUSBLibUSBSessionGetPollFds(session, buf.baseAddress, Int32(buf.count))
-            }
+            let result = session.pollFds()
             sessionIOLock.unlock()
-            let result = Array(pollFds.prefix(Int(max(0, count))))
             let summary = result
                 .map { "fd=\($0.fd)/events=0x\(String(format: "%04x", Int($0.events)))" }
                 .joined(separator: ",")
@@ -4541,7 +4526,7 @@ public enum KompleteKontrolLibUSBServer {
         return [0x00, 0x00, UInt8(row), 0x00, 0x48, 0x00, 0x01, 0x00] + rowData
     }
 
-    private static func handleDaemonCommand(_ line: String, session: KontrolUSBLibUSBSessionRef?, transientClaim: Bool = false) -> String {
+    private static func handleDaemonCommand(_ line: String, session: (any KontrolDeviceSession)?, transientClaim: Bool = false) -> String {
         let tokens = line.split(separator: " ").map(String.init)
         guard let command = tokens.first else { return "err parse" }
         guard command != "quit" else { return "ok quit" }
@@ -4554,7 +4539,7 @@ public enum KompleteKontrolLibUSBServer {
                 return "ok transient-claim"
             }
             guard let session else { return "err no session" }
-            let result = KontrolUSBLibUSBSessionStatus(session)
+            let result = session.status
             let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
             if result.status == 0 {
                 return "ok \(message)"
@@ -4565,12 +4550,9 @@ public enum KompleteKontrolLibUSBServer {
         if command == "read" {
             guard let session else { return "timeout" }
             let timeoutMs = tokens.dropFirst().first.flatMap(KKHex.parse).map { UInt32(max(1, min($0, 1000))) } ?? 100
-            var bytes = [UInt8](repeating: 0, count: 64)
-            var transferred: UInt32 = 0
             let readStart = KKTiming.now()
-            let result = bytes.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionRead(session, buffer.baseAddress, UInt32(buffer.count), &transferred, timeoutMs)
-            }
+            let (result, bytes) = session.read(maxBytes: 64, timeoutMs: timeoutMs)
+            let transferred = UInt32(bytes.count)
             if result.status != -7 {
                 daemonTraceLog("libusb read status=\(result.status) transferred=\(transferred) timeoutMs=\(timeoutMs) elapsed=\(KKTiming.msSince(readStart))")
             }
@@ -4587,12 +4569,9 @@ public enum KompleteKontrolLibUSBServer {
         if command == "midiread" {
             guard let session else { return "timeout" }
             let timeoutMs = tokens.dropFirst().first.flatMap(KKHex.parse).map { UInt32(max(1, min($0, 1000))) } ?? 20
-            var bytes = [UInt8](repeating: 0, count: 128)
-            var transferred: UInt32 = 0
             let readStart = KKTiming.now()
-            let result = bytes.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionReadMIDI(session, buffer.baseAddress, UInt32(buffer.count), &transferred, timeoutMs)
-            }
+            let (result, bytes) = session.readMIDI(maxBytes: 128, timeoutMs: timeoutMs)
+            let transferred = UInt32(bytes.count)
             if result.status != -7 {
                 daemonTraceLog("libusb midi read status=\(result.status) transferred=\(transferred) timeoutMs=\(timeoutMs) elapsed=\(KKTiming.msSince(readStart))")
             }
@@ -4619,16 +4598,14 @@ public enum KompleteKontrolLibUSBServer {
             }
             let timeoutMs = tokens.dropFirst(7).first.flatMap(KKHex.parse).map { UInt32(max(1, min($0, 10_000))) } ?? 1_000
             let writeStart = KKTiming.now()
-            let result = KontrolUSBLibUSBSessionFillMK2Display(
-                session,
-                UInt8(screen & 0xff),
-                UInt16(x & 0xffff),
-                UInt16(y & 0xffff),
-                UInt16(width & 0xffff),
-                UInt16(height & 0xffff),
-                UInt16(color & 0xffff),
-                timeoutMs
-            )
+            let result = session.fillMK2Display(
+                screen: UInt8(screen & 0xff),
+                x: UInt16(x & 0xffff),
+                y: UInt16(y & 0xffff),
+                width: UInt16(width & 0xffff),
+                height: UInt16(height & 0xffff),
+                rgb565: UInt16(color & 0xffff),
+                timeoutMs: timeoutMs)
             daemonTraceLog("mk2fill screen=\(screen) rect=\(x),\(y) \(width)x\(height) color=0x\(String(format: "%04x", color & 0xffff)) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))")
             if result.status == 0 {
                 return "ok"
@@ -4650,9 +4627,7 @@ public enum KompleteKontrolLibUSBServer {
             }
         } else {
             guard let session else { return "err no session" }
-            result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBSessionWrite(session, UInt8(reportID & 0xff), buffer.baseAddress, UInt32(buffer.count))
-            }
+            result = session.write(reportID: UInt8(reportID & 0xff), payload: payload)
         }
         daemonTraceLog("libusb write end report=0x\(KKHex.byte(UInt8(reportID & 0xff))) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))")
         if result.status == 0 {

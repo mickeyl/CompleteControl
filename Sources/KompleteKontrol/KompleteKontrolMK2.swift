@@ -260,10 +260,13 @@ public struct KKMK2InputReport: Sendable {
 }
 
 public enum KKMK2InputReportDecoder {
-    private static let knobBaseOffset = 10
-    private static let encoderTouchOffset = 7
+    // Internal (not private) so MK2InputReportBuilder synthesizes reports from the exact
+    // same layout the decoder reads — a single source of truth prevents the builder and
+    // decoder from silently drifting apart, which would break simulator transparency.
+    static let knobBaseOffset = 10
+    static let encoderTouchOffset = 7
 
-    private struct ButtonBit {
+    struct ButtonBit {
         let byte: Int
         let mask: UInt8
         let led: KKMK2ButtonLED
@@ -273,7 +276,7 @@ public enum KKMK2InputReportDecoder {
     // compile error instead of a silently-dead binding (was `name: String`, matched by
     // spelling convention only against KKMK2ButtonLED.protocolName; 4 of them drifted
     // and those buttons just did nothing — bug found + fixed 2026-07-03).
-    private static let buttonBits: [ButtonBit] = [
+    static let buttonBits: [ButtonBit] = [
         ButtonBit(byte: 1, mask: 0x01, led: .function5),
         ButtonBit(byte: 1, mask: 0x02, led: .function6),
         ButtonBit(byte: 1, mask: 0x04, led: .function7),
@@ -316,7 +319,7 @@ public enum KKMK2InputReportDecoder {
         ButtonBit(byte: 8, mask: 0x04, led: .fixedVel),
     ]
 
-    private static let jogStates: [UInt8: String] = [
+    static let jogStates: [UInt8: String] = [
         0x0c: "press",
         0x14: "left",
         0x24: "up",
@@ -719,6 +722,20 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
             }
         }
         return UInt8(((bestIndex + 1) << 2) | Int(intensity & 0x03))
+    }
+
+    /// Inverse of `paletteCode`: the colour a `0x80`/`0x81` palette byte lights, with its
+    /// 2-bit intensity applied. Used by the simulator to render button and guide LEDs from
+    /// the exact same palette the driver encodes against.
+    public static func paletteColor(forCode code: UInt8) -> KKRGB {
+        guard code != 0 else { return .off }
+        let index = Int(code >> 2) - 1
+        guard index >= 0, index < mk2Palette.count else { return .off }
+        let base = mk2Palette[index]
+        let scale = [0.25, 0.5, 0.75, 1.0][Int(code & 0x03)]
+        return KKRGB(red: UInt8(Double(base.red) * scale),
+                     green: UInt8(Double(base.green) * scale),
+                     blue: UInt8(Double(base.blue) * scale))
     }
 
     private var hidOpenOptions: IOOptionBits {

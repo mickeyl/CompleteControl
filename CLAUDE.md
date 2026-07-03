@@ -81,6 +81,35 @@ You usually can't see the LCDs/LEDs. What works:
 - For the docs SVGs there are Python generators in scratch; render with `rsvg-convert` and Read
   the PNG to inspect visually.
 
+### Simulation mode — run the daemon without hardware
+
+`ccd` can drive a GUI panel app instead of a real device, **transparently to socket clients**.
+`CCD_SIMULATE=<socket-path>` (empty ⇒ default `/tmp/kontrol-simulator.sock`) makes
+`openDeviceSession()` construct a `SimulatorDeviceSession` (a socket to the `KontrolSimulator`
+app) instead of `LibUSBDeviceSession`. Everything above the `KontrolDeviceSession` seam —
+reactor, socket protocol, decoders, reconnect — is unaware which backend it opened.
+
+- **The seam**: `KontrolDeviceSession` (protocol, `KontrolDeviceSession.swift`) with
+  `LibUSBDeviceSession` (real) and `SimulatorDeviceSession` (simulated). `DaemonHardware`
+  reaches the device *only* through it; identity via `===` replaced the old
+  `libusbSession == session` staleness checks.
+- **Transparency linchpin**: clients decode the *raw* `0x01` HID report themselves (the daemon
+  ships raw hex), so the simulator must emit byte-identical reports. `MK2InputReportBuilder`
+  synthesizes them from the *same* layout `KKMK2InputReportDecoder` reads (its `buttonBits` /
+  offsets are `internal`, one source of truth). `MK2InputReportBuilderTests` round-trips
+  builder → decoder per control to prove it.
+- **Wire protocol**: `SimWireProtocol` (`SimFrame`/`SimWireCodec`), length-prefixed frames.
+  ccd→sim = display blits + LED reports; sim→ccd = *semantic* input (button/encoder/4-D). The
+  app is dumb — `SimulatorDeviceSession` lowers semantic input into raw reports; its socket fd
+  rides the kqueue reactor exactly where libusb pollfds do, and socket EOF = device-loss.
+- **The app**: `KontrolSimulator` (`Tools/KontrolSimulator`) — two 480×272 displays, 8 function
+  buttons, side buttons, 8 encoders, the 4-D encoder, with rendered LED palette colours
+  (`KompleteKontrolSSeriesMK2.paletteColor(forCode:)`); all clickable/scrollable. Closing the
+  window exercises reconnect.
+- **Run it**: `make run-simulator` (GUI, one shell) + `make daemon-simulate` (foreground sim
+  `ccd`, another shell — stops the launchd daemon, binds the normal client socket) + any client
+  (`swift run MK2WidgetLabDemo`). Full design + phasing in `Docs/Simulator-Plan.md`.
+
 ### Daemon output pipeline: two independent serial queues, not one
 
 `ccd` drains display blits and LED/light-guide state reports on **separate serial

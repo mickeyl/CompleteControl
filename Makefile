@@ -14,7 +14,7 @@ MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -112,6 +112,21 @@ daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized fore
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
 	@sudo "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
+
+SIM_SOCKET := /tmp/kontrol-simulator.sock
+
+run-simulator: ## Build and run the KontrolSimulator panel app (virtual MK2 for hardware-free testing).
+	swift build --product KontrolSimulator
+	@echo "Launching the simulator window. Start 'make daemon-simulate' in another shell, then a client."
+	.build/debug/KontrolSimulator
+
+daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
+	@echo "Stopping installed/foreground daemons..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Starting foreground daemon in SIMULATION mode (device = $(SIM_SOCKET)). Launch 'make run-simulator' first. Ctrl-C to stop."
+	sudo env CCD_SIMULATE=$(SIM_SOCKET) KK_DAEMON_DEBUG=1 LOGLEVEL=INFO "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
 daemon-release: daemon ## Alias for daemon.
 
