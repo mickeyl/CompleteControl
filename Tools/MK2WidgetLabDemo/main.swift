@@ -181,8 +181,8 @@ private actor WidgetLab {
             lamps[candidate.functionLED] = candidate == unit ? .white : .off
         }
         if unit == .pattern {
-            lamps[.play] = isPlaying ? .green : .off
-            lamps[.stop] = isPlaying ? .off : .red
+            lamps[.play] = isPlaying ? .off : .green
+            lamps[.stop] = isPlaying ? .red : .off
         }
 
         var bindings = MK2InputBindings2()
@@ -249,17 +249,14 @@ private actor WidgetLab {
         let gridTop = 60
         let rowHeight = 16
         let rowIndexX = 8
-        let channelXs = [66, 174, 282, 390]
-        let rulerXs = [54, 162, 270, 378, 476]
+        let channelXs = [48, 153, 258, 363]
+        let rulerXs = [36, 141, 246, 351, 456]
 
         for (index, x) in channelXs.enumerated() {
             BitmapLabel("CHANNEL \(index + 1)", font: .label, color: index == focusedChannel ? Palette.blue : Palette.dim)
                 .draw(into: &frame, x: x, y: 38)
         }
         frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
-        for x in rulerXs {
-            frame.dottedVLine(x: x, y: 50, height: 218, color: Palette.ruler)
-        }
 
         let firstRow = visibleFirstRow(center: playheadRow)
         for visible in 0..<13 {
@@ -268,7 +265,7 @@ private actor WidgetLab {
             let rowRect = MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight)
             if row == playheadRow {
                 frame.fill(rowRect, isPlaying ? Palette.playheadFill : Palette.cursorFill)
-                frame.fill(MK2PixelRect(x: 48, y: y, width: 5, height: rowHeight), Palette.green)
+                frame.fill(MK2PixelRect(x: 36, y: y, width: 5, height: rowHeight), Palette.green)
             } else if row.isMultiple(of: 4) {
                 frame.fill(MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight), Palette.rowStripe)
             }
@@ -279,8 +276,11 @@ private actor WidgetLab {
                 drawTrackerCell(patternRows[row].cells[channel], channel: channel, into: &frame, x: channelXs[channel], y: y, highlighted: row == playheadRow)
             }
         }
+        for x in rulerXs {
+            frame.dottedVLine(x: x, y: 50, height: 218, color: Palette.ruler)
+        }
 
-        drawPatternOverview(into: &frame, x: 464, y: 62, height: 200)
+        drawPatternOverview(into: &frame, x: 466, y: 62, height: 200)
         return frame
     }
 
