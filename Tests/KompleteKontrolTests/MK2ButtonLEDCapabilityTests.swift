@@ -29,4 +29,27 @@ struct MK2ButtonLEDCapabilityTests {
         #expect(KKMK2ButtonLED.stop.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0x00, blue: 0x00))
         #expect(KKMK2ButtonLED.clear.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0xff, blue: 0xff))
     }
+
+    @Test("Explicit MK2 LED intensity is encoded for RGB and monochrome buttons")
+    func explicitIntensity() {
+        let green = KKRGB(red: 0x00, green: 0xff, blue: 0x66)
+        let white = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+
+        #expect(KKMK2ButtonLED.function1.ledByte(for: green, intensity: 0x01) & 0x03 == 0x01)
+        #expect(KKMK2ButtonLED.function1.ledByte(for: green, intensity: 0x03) & 0x03 == 0x03)
+        #expect(KKMK2ButtonLED.pageRight.ledByte(for: white, intensity: 0x01) & 0x03 == 0x01)
+        #expect(KKMK2ButtonLED.stop.ledByte(for: green, intensity: 0x03) == KKMK2ButtonLED.stop.ledByte(for: white, intensity: 0x03))
+    }
+
+    @Test("Simulator palette decoding preserves half and full brightness")
+    func simulatorPaletteBrightness() {
+        let white = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+        let halfCode = KompleteKontrolSSeriesMK2.paletteCode(for: white, intensity: 0x01)
+        let fullCode = KompleteKontrolSSeriesMK2.paletteCode(for: white, intensity: 0x03)
+        let half = KompleteKontrolSSeriesMK2.paletteColor(forCode: halfCode)
+        let full = KompleteKontrolSSeriesMK2.paletteColor(forCode: fullCode)
+
+        #expect(max(half.red, half.green, half.blue) == 127)
+        #expect(max(full.red, full.green, full.blue) == 255)
+    }
 }

@@ -245,7 +245,7 @@ private actor MK2FeatureDemo {
                 // F1...F8 are RGB-capable; the rest are fixed-colour monochrome indicators.
                 for led in KKMK2ButtonLED.allCases where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
                     let attractor = led.isRGBBacklit ? KKRGB(red: 0x30, green: 0x90, blue: 0xff) : KKRGB(red: 0xff, green: 0xff, blue: 0xff)
-                    lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(attractor, period: 1.4)
+                    lamps[led] = buttonColors[led].map { .on($0) } ?? .pulse(attractor, period: 1.4)
                     bindings.onPress(led) { Task { await self.toggleButton(led) } }
                 }
                 bindings.jog = { direction in

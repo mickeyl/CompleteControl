@@ -3,8 +3,8 @@ import KompleteKontrol
 
 public enum MK2LampState2: Sendable, Equatable {
     case off
-    case on(KKRGB)
-    case blink(KKRGB, period: Double)
+    case on(KKRGB, intensity: UInt8 = 0x03)
+    case blink(KKRGB, period: Double, intensity: UInt8 = 0x03)
     case pulse(KKRGB, period: Double)
 
     public static var white: MK2LampState2 { .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff)) }

@@ -154,6 +154,11 @@ private actor WidgetLab {
     private var playbackTimer: DispatchSourceTimer?
     private let patternRows: [TrackerDemoRow]
     private var focusedChannel = 3
+    private static let availableIntensity: UInt8 = 0x01
+    private static let activeIntensity: UInt8 = 0x03
+    private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+    private static let actionGreen = KKRGB(red: 0x00, green: 0xff, blue: 0x66)
+    private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
 
     init(surface: MK2Surface2) {
         self.surface = surface
@@ -179,13 +184,15 @@ private actor WidgetLab {
     private func scene() -> MK2SurfaceScene2 {
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
         for candidate in Unit.allCases {
-            lamps[candidate.functionLED] = candidate == unit ? .white : .off
+            lamps[candidate.functionLED] = candidate == unit
+                ? Self.activeLamp(Self.actionWhite)
+                : (candidate.implemented ? Self.availableLamp(Self.actionWhite) : .off)
         }
         if unit == .pattern {
-            lamps[.play] = isPlaying ? .off : .green
-            lamps[.stop] = isPlaying ? .red : .off
-            lamps[.pageLeft] = focusedChannel > 0 ? .white : .off
-            lamps[.pageRight] = focusedChannel < 3 ? .white : .off
+            lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
+            lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
+            lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
+            lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
         }
 
         var bindings = MK2InputBindings2()
@@ -212,6 +219,14 @@ private actor WidgetLab {
 
         let (left, right) = frames()
         return MK2SurfaceScene2(left: left, right: right, lamps: lamps, bindings: bindings)
+    }
+
+    private static func availableLamp(_ color: KKRGB) -> MK2LampState2 {
+        .on(color, intensity: availableIntensity)
+    }
+
+    private static func activeLamp(_ color: KKRGB) -> MK2LampState2 {
+        .on(color, intensity: activeIntensity)
     }
 
     private func frames() -> (MK2PixelFrame, MK2PixelFrame) {

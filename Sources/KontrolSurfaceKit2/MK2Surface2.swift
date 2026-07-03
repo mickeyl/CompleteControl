@@ -283,7 +283,7 @@ public actor MK2Surface2 {
     private func advanceLamps(dt: Double) {
         for (led, state) in scene.lamps {
             switch state {
-                case let .blink(_, period), let .pulse(_, period):
+                case let .blink(_, period, _), let .pulse(_, period):
                     if period > 0 {
                         lampPhase[led, default: 0] += dt / period
                     }
@@ -393,11 +393,11 @@ public actor MK2Surface2 {
         switch state {
             case .off:
                 return 0
-            case let .on(color):
-                return led.ledByte(for: color)
-            case let .blink(color, _):
+            case let .on(color, intensity):
+                return led.ledByte(for: color, intensity: intensity)
+            case let .blink(color, _, intensity):
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
-                return phase < 0.5 ? led.ledByte(for: color) : 0
+                return phase < 0.5 ? led.ledByte(for: color, intensity: intensity) : 0
             case let .pulse(color, _):
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
                 let triangle = phase < 0.5 ? phase * 2 : 2 - phase * 2

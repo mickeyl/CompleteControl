@@ -270,6 +270,18 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             intensity: intensity
         )
     }
+
+    public func ledByte(for color: KKRGB, intensity rawIntensity: UInt8) -> UInt8 {
+        let intensity = min(rawIntensity, 0x03)
+        guard color != .off, intensity > 0 else { return 0 }
+        if isRGBBacklit {
+            return KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
+        }
+        return KompleteKontrolSSeriesMK2.paletteCode(
+            for: fixedMonochromeBacklightColor,
+            intensity: intensity
+        )
+    }
 }
 
 public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
