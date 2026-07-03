@@ -68,6 +68,7 @@ final class PanelView: NSView {
     private var activeEncoder: Int?
     private var activeEncoderTouchOnly: Int?
     private var activeKey: Int?
+    private var activeKeyPressure: Int?
     private var activeWheel: WheelKind?
     private var activeRibbon = false
     private var lastDragY: CGFloat = 0
@@ -526,7 +527,7 @@ final class PanelView: NSView {
             path.fill()
         }
 
-        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY + 4, width: 78, height: 14),
+        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY - 1, width: 78, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 10, left: true)
     }
 
@@ -635,7 +636,7 @@ final class PanelView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         if let key = key(at: point) {
             activeKey = key.index
-            setKey(key, pressed: true)
+            setKey(key, pressed: true, velocity: keyValue(at: point, for: key))
             return
         }
         if pitchWheelRect.contains(point) {
@@ -704,17 +705,27 @@ final class PanelView: NSView {
 
         let point = convert(event.locationInWindow, from: nil)
         if let activeKey {
+            guard let current = keyControls.first(where: { $0.index == activeKey }) else {
+                self.activeKey = nil
+                activeKeyPressure = nil
+                return
+            }
+
             let nextKey = key(at: point)
             if nextKey?.index != activeKey {
-                if let current = keyControls.first(where: { $0.index == activeKey }) {
-                    setKey(current, pressed: false)
-                }
                 if let nextKey {
+                    setKey(current, pressed: false)
                     self.activeKey = nextKey.index
-                    setKey(nextKey, pressed: true)
+                    setKey(nextKey, pressed: true, velocity: keyValue(at: point, for: nextKey))
+                    updateChannelPressure(at: point, for: nextKey, force: true)
+                } else if current.rect.minX...current.rect.maxX ~= point.x {
+                    updateChannelPressure(at: point, for: current, force: false)
                 } else {
+                    setKey(current, pressed: false)
                     self.activeKey = nil
                 }
+            } else {
+                updateChannelPressure(at: point, for: current, force: false)
             }
             return
         }
@@ -839,17 +850,35 @@ final class PanelView: NSView {
             ?? keyControls.first { !$0.isBlack && $0.rect.contains(point) }
     }
 
-    private func setKey(_ key: KeyControl, pressed: Bool) {
+    private func setKey(_ key: KeyControl, pressed: Bool, velocity: UInt8 = 100) {
         if pressed {
             guard !pressedKeys.contains(key.index) else { return }
             pressedKeys.insert(key.index)
-            onInput?(.note(key.note, velocity: 100, on: true))
+            onInput?(.note(key.note, velocity: velocity, on: true))
         } else {
             guard pressedKeys.contains(key.index) else { return }
+            if activeKeyPressure != nil {
+                onInput?(.midi(status: 0xd0, data1: 0, data2: 0))
+                activeKeyPressure = nil
+            }
             pressedKeys.remove(key.index)
             onInput?(.note(key.note, velocity: 0, on: false))
         }
         needsDisplay = true
+    }
+
+    private func updateChannelPressure(at point: NSPoint, for key: KeyControl, force: Bool) {
+        let pressure = Int(keyValue(at: point, for: key, minimum: 0))
+        guard force || activeKeyPressure != pressure else { return }
+        activeKeyPressure = pressure
+        onInput?(.midi(status: 0xd0, data1: UInt8(pressure), data2: 0))
+        needsDisplay = true
+    }
+
+    private func keyValue(at point: NSPoint, for key: KeyControl, minimum: UInt8 = 1) -> UInt8 {
+        let clampedY = max(key.rect.minY, min(key.rect.maxY, point.y))
+        let progress = 1 - ((clampedY - key.rect.minY) / max(1, key.rect.height))
+        return UInt8(max(Int(minimum), min(127, Int((progress * 127).rounded()))))
     }
 
     private func setWheel(_ wheel: WheelKind, at point: NSPoint) {
