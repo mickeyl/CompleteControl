@@ -11,6 +11,13 @@ import KompleteKontrol
 /// including a True Size mode that renders the displays at the real panels' physical size.
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let baseWindowTitle = "Komplete Kontrol S61 MK2 — Simulator"
+    private enum DefaultsKey {
+        static let screenIndex = "KontrolSimulator.window.screenIndex"
+        static let x = "KontrolSimulator.window.x"
+        static let y = "KontrolSimulator.window.y"
+        static let width = "KontrolSimulator.window.width"
+        static let height = "KontrolSimulator.window.height"
+    }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
     private var window: NSWindow!
@@ -26,6 +33,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.applicationIconImage = SimulatorAppIcon.make()
+
         // Base layout renders the displays at native 480x272 points; all zoom is scroll-view
         // magnification so clicks stay accurate.
         panel = PanelView(scale: 1.0)
@@ -47,7 +56,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = Self.baseWindowTitle
         window.delegate = self
         window.contentView = scrollView
-        window.center()
+        let restoredFrame = restoredWindowFrame()
+        if let restoredFrame {
+            window.setFrame(restoredFrame, display: false)
+        } else {
+            window.center()
+        }
         window.makeKeyAndOrderFront(nil)
 
         buildMenu()
@@ -63,13 +77,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSLog("KontrolSimulator: failed to bind \(SimEndpoint.defaultSocketPath)")
         }
 
-        // Initial zoom: True Size if requested, otherwise fit the panel to the window width.
+        // Initial zoom: True Size if requested, otherwise fit the panel to the current window
+        // width. A restored frame keeps its persisted height instead of being refitted.
         if ProcessInfo.processInfo.environment["SIM_TRUE_SIZE"] != nil {
             trueSize(nil)
         } else {
-            fitToWidth(nil)
+            zoomMode = .fitToWidth
+            updateFitToWidthMagnification()
+            if restoredFrame == nil {
+                resizeWindowToCurrentMagnification(preserveContentWidth: true)
+            }
+            updateViewMenuState()
         }
+        persistWindowPlacement()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 
     // MARK: - Menu
@@ -195,6 +220,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         isProgrammaticResize = true
         window.setFrame(newFrame, display: true, animate: false)
+        persistWindowPlacement()
         DispatchQueue.main.async { [weak self] in
             self?.isProgrammaticResize = false
             if self?.zoomMode == .fitToWidth {
@@ -230,13 +256,85 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "\(Self.baseWindowTitle) (\(Int(percent.rounded()))%)"
     }
 
+    // MARK: - Window placement
+
+    private func restoredWindowFrame() -> NSRect? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: DefaultsKey.width) != nil,
+              defaults.object(forKey: DefaultsKey.height) != nil else {
+            return nil
+        }
+
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+        let storedIndex = defaults.object(forKey: DefaultsKey.screenIndex) as? Int ?? 0
+        let screen = screens.indices.contains(storedIndex) ? screens[storedIndex] : (NSScreen.main ?? screens[0])
+        let visibleFrame = screen.visibleFrame
+        var frame = NSRect(
+            x: visibleFrame.minX + defaults.double(forKey: DefaultsKey.x),
+            y: visibleFrame.minY + defaults.double(forKey: DefaultsKey.y),
+            width: defaults.double(forKey: DefaultsKey.width),
+            height: defaults.double(forKey: DefaultsKey.height)
+        )
+        frame.size.width = max(360, min(frame.width, visibleFrame.width))
+        frame.size.height = max(240, min(frame.height, visibleFrame.height))
+        return clamped(frame, to: visibleFrame)
+    }
+
+    private func persistWindowPlacement() {
+        guard let window, let screen = window.screen ?? screenContaining(window.frame) ?? NSScreen.main else { return }
+        let visibleFrame = screen.visibleFrame
+        let frame = window.frame
+        let defaults = UserDefaults.standard
+        defaults.set(screenIndex(for: screen) ?? 0, forKey: DefaultsKey.screenIndex)
+        defaults.set(frame.minX - visibleFrame.minX, forKey: DefaultsKey.x)
+        defaults.set(frame.minY - visibleFrame.minY, forKey: DefaultsKey.y)
+        defaults.set(frame.width, forKey: DefaultsKey.width)
+        defaults.set(frame.height, forKey: DefaultsKey.height)
+    }
+
+    private func screenIndex(for screen: NSScreen) -> Int? {
+        NSScreen.screens.firstIndex { $0 === screen }
+    }
+
+    private func screenContaining(_ frame: NSRect) -> NSScreen? {
+        NSScreen.screens.max { lhs, rhs in
+            lhs.frame.intersection(frame).area < rhs.frame.intersection(frame).area
+        }
+    }
+
+    private func clamped(_ frame: NSRect, to visibleFrame: NSRect) -> NSRect {
+        var result = frame
+        if result.maxX > visibleFrame.maxX {
+            result.origin.x = visibleFrame.maxX - result.width
+        }
+        if result.minX < visibleFrame.minX {
+            result.origin.x = visibleFrame.minX
+        }
+        if result.minY < visibleFrame.minY {
+            result.origin.y = visibleFrame.minY
+        }
+        if result.maxY > visibleFrame.maxY {
+            result.origin.y = visibleFrame.maxY - result.height
+        }
+        return result
+    }
+
     // MARK: - Window resize
 
     func windowDidResize(_ notification: Notification) {
-        guard !isProgrammaticResize else { return }
+        guard !isProgrammaticResize else {
+            persistWindowPlacement()
+            return
+        }
         zoomMode = .fitToWidth
         updateFitToWidthMagnification()
         updateViewMenuState()
+        persistWindowPlacement()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        persistWindowPlacement()
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
@@ -245,6 +343,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             updateWindowTitle()
         }
+        persistWindowPlacement()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        persistWindowPlacement()
     }
 
     // MARK: - Daemon output
@@ -269,6 +372,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let width = Int(payload[5]) << 8 | Int(payload[6])
         let height = Int(payload[7]) << 8 | Int(payload[8])
         panel.applyBlit(screen: screen, x: x, y: y, w: width, h: height, be: Array(payload.dropFirst(9)))
+    }
+}
+
+private extension NSRect {
+    var area: CGFloat {
+        guard width > 0, height > 0 else { return 0 }
+        return width * height
     }
 }
 
