@@ -149,17 +149,31 @@ Each phase = widget(s) + one dedicated lab page exercising it + a
 cost. Measure before calling it done, per this project's established discipline this
 session.
 
-- **Phase A — Tamzen font pipeline.** Blocking prerequisite for everything else.
-- **Phase B — `BitmapLabel` + `Meter` + `ToggleChip`.** Small, mechanical; exercises the
-  new font against the reconciler for the first time.
-- **Phase C — `ListSelect` + `SoftKeyRow`.** Needed by both the instrument browser and
-  the FX-reference overlay; also the first widget with input bindings (scroll/select),
-  not just static render.
-- **Phase D — `PatternGrid`.** The centerpiece. Build against real `PatternCell`
-  shapes; worth borrowing/mirroring a slice of Paulinche's own pattern fixtures for
-  realistic test data rather than inventing placeholder cells.
-- **Phase E — `WaveformView` + playhead compositing.** Only needed for INSTRUMENT mode
-  (Paulinche P3), can land in parallel with C/D rather than strictly after.
+### Phase A — Tamzen font pipeline
+
+Blocking prerequisite for everything else — no other widget is legible without it.
+
+### Phase B — `BitmapLabel` + `Meter` + `ToggleChip`
+
+Small, mechanical; exercises the new font against the reconciler for the first time.
+
+### Phase C — `ListSelect` + `SoftKeyRow`
+
+Needed by both the instrument browser and the FX-reference overlay; also the first
+widget with input bindings (scroll/select), not just static render.
+
+### Phase D — `PatternGrid`
+
+The centerpiece. Build against real `PatternCell` shapes; worth borrowing/mirroring a
+slice of Paulinche's own pattern fixtures for realistic test data rather than inventing
+placeholder cells.
+
+### Phase E — `WaveformView` + playhead compositing
+
+Only needed for INSTRUMENT mode (Paulinche P3), can land in parallel with C/D rather
+than strictly after.
+
+### Sequencing
 
 Recommend A–D land before Paulinche's P1 (MK2-pixel-adapter + PATTERN mode) starts,
 since P1 needs `PatternGrid` + `BitmapLabel` + `Meter` + `SoftKeyRow` all working
