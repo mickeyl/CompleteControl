@@ -15,8 +15,8 @@ public enum MK2LampState2: Sendable, Equatable {
 }
 
 public struct MK2InputBindings2: Sendable {
-    public var buttonDown: [String: @Sendable () -> Void] = [:]
-    public var buttonUp: [String: @Sendable () -> Void] = [:]
+    public var buttonDown: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
+    public var buttonUp: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     /// `timestampNanos` is the daemon-side reception time (KKTiming clock): velocity-
     /// sensitive consumers must measure from it, not from processing time — handler
     /// invocations bunch up behind rendering and would fake fast turns otherwise.
@@ -34,11 +34,11 @@ public struct MK2InputBindings2: Sendable {
     public init() {}
 
     public mutating func onPress(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
-        buttonDown[led.protocolName] = handler
+        buttonDown[led] = handler
     }
 
     public mutating func onRelease(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
-        buttonUp[led.protocolName] = handler
+        buttonUp[led] = handler
     }
 }
 

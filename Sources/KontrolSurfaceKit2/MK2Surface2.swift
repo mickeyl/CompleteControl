@@ -350,11 +350,11 @@ public actor MK2Surface2 {
     private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {
             switch event {
-                case let .button(name, pressed):
+                case let .button(led, pressed):
                     if pressed {
-                        scene.bindings.buttonDown[name]?()
+                        scene.bindings.buttonDown[led]?()
                     } else {
-                        scene.bindings.buttonUp[name]?()
+                        scene.bindings.buttonUp[led]?()
                     }
                 case let .knob(index, delta, value):
                     scene.bindings.encoder[index]?(delta, value, timestampNanos)

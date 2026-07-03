@@ -143,8 +143,11 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
 
     public var protocolName: String {
         switch self {
-            case .m: "m"
-            case .s: "s"
+            // Named to match KKMK2InputReportDecoder.buttonBits, the bench-verified
+            // input names — onPress/onRelease key off this string, so a mismatch here
+            // silently drops the binding even though the LED index above is correct.
+            case .m: "mute"
+            case .s: "solo"
             case .function1: "function1"
             case .function2: "function2"
             case .function3: "function3"
@@ -158,8 +161,8 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .jogDown: "jogdown"
             case .jogRight: "jogright"
             case .shift: "shift"
-            case .scaleEdit: "scaleedit"
-            case .arpEdit: "arpedit"
+            case .scaleEdit: "scale"
+            case .arpEdit: "arp"
             case .scene: "scene"
             case .undoRedo: "undoredo"
             case .quantize: "quantize"
@@ -217,7 +220,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
 }
 
 public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
-    case button(name: String, pressed: Bool)
+    case button(led: KKMK2ButtonLED, pressed: Bool)
     case touchEncoder(index: Int, touched: Bool)
     case jog(direction: String)
     case jogTouch(touched: Bool)
@@ -229,8 +232,8 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-            case let .button(name, pressed):
-                "button \(name) \(pressed ? "down" : "up")"
+            case let .button(led, pressed):
+                "button \(led.protocolName) \(pressed ? "down" : "up")"
             case let .touchEncoder(index, touched):
                 "touch encoder \(index) \(touched ? "on" : "off")"
             case let .jog(direction):
@@ -263,50 +266,54 @@ public enum KKMK2InputReportDecoder {
     private struct ButtonBit {
         let byte: Int
         let mask: UInt8
-        let name: String
+        let led: KKMK2ButtonLED
     }
 
+    // led here is the same KKMK2ButtonLED enum used for LED output — a typo is now a
+    // compile error instead of a silently-dead binding (was `name: String`, matched by
+    // spelling convention only against KKMK2ButtonLED.protocolName; 4 of them drifted
+    // and those buttons just did nothing — bug found + fixed 2026-07-03).
     private static let buttonBits: [ButtonBit] = [
-        ButtonBit(byte: 1, mask: 0x01, name: "function5"),
-        ButtonBit(byte: 1, mask: 0x02, name: "function6"),
-        ButtonBit(byte: 1, mask: 0x04, name: "function7"),
-        ButtonBit(byte: 1, mask: 0x08, name: "function8"),
-        ButtonBit(byte: 1, mask: 0x10, name: "function1"),
-        ButtonBit(byte: 1, mask: 0x20, name: "function2"),
-        ButtonBit(byte: 1, mask: 0x40, name: "function3"),
-        ButtonBit(byte: 1, mask: 0x80, name: "function4"),
-        ButtonBit(byte: 2, mask: 0x01, name: "auto"),
-        ButtonBit(byte: 2, mask: 0x02, name: "quantize"),
-        ButtonBit(byte: 2, mask: 0x04, name: "arp"),
-        ButtonBit(byte: 2, mask: 0x08, name: "scale"),
-        ButtonBit(byte: 2, mask: 0x10, name: "play"),
-        ButtonBit(byte: 2, mask: 0x20, name: "loop"),
-        ButtonBit(byte: 2, mask: 0x40, name: "undoredo"),
-        ButtonBit(byte: 2, mask: 0x80, name: "shift"),
-        ButtonBit(byte: 3, mask: 0x01, name: "stop"),
-        ButtonBit(byte: 3, mask: 0x02, name: "record"),
-        ButtonBit(byte: 3, mask: 0x04, name: "tempo"),
-        ButtonBit(byte: 3, mask: 0x08, name: "metro"),
-        ButtonBit(byte: 3, mask: 0x10, name: "presetup"),
-        ButtonBit(byte: 3, mask: 0x20, name: "pageright"),
-        ButtonBit(byte: 3, mask: 0x40, name: "presetdown"),
-        ButtonBit(byte: 3, mask: 0x80, name: "pageleft"),
-        ButtonBit(byte: 4, mask: 0x01, name: "mute"),
-        ButtonBit(byte: 4, mask: 0x02, name: "solo"),
-        ButtonBit(byte: 4, mask: 0x04, name: "scene"),
-        ButtonBit(byte: 4, mask: 0x08, name: "pattern"),
-        ButtonBit(byte: 4, mask: 0x10, name: "track"),
-        ButtonBit(byte: 4, mask: 0x20, name: "clear"),
-        ButtonBit(byte: 4, mask: 0x40, name: "keymode"),
-        ButtonBit(byte: 5, mask: 0x01, name: "mixer"),
-        ButtonBit(byte: 5, mask: 0x02, name: "plugin"),
-        ButtonBit(byte: 5, mask: 0x04, name: "browser"),
-        ButtonBit(byte: 5, mask: 0x08, name: "setup"),
-        ButtonBit(byte: 5, mask: 0x10, name: "instance"),
-        ButtonBit(byte: 5, mask: 0x20, name: "midi"),
-        ButtonBit(byte: 8, mask: 0x01, name: "octavedown"),
-        ButtonBit(byte: 8, mask: 0x02, name: "octaveup"),
-        ButtonBit(byte: 8, mask: 0x04, name: "fixedvel"),
+        ButtonBit(byte: 1, mask: 0x01, led: .function5),
+        ButtonBit(byte: 1, mask: 0x02, led: .function6),
+        ButtonBit(byte: 1, mask: 0x04, led: .function7),
+        ButtonBit(byte: 1, mask: 0x08, led: .function8),
+        ButtonBit(byte: 1, mask: 0x10, led: .function1),
+        ButtonBit(byte: 1, mask: 0x20, led: .function2),
+        ButtonBit(byte: 1, mask: 0x40, led: .function3),
+        ButtonBit(byte: 1, mask: 0x80, led: .function4),
+        ButtonBit(byte: 2, mask: 0x01, led: .auto),
+        ButtonBit(byte: 2, mask: 0x02, led: .quantize),
+        ButtonBit(byte: 2, mask: 0x04, led: .arpEdit),
+        ButtonBit(byte: 2, mask: 0x08, led: .scaleEdit),
+        ButtonBit(byte: 2, mask: 0x10, led: .play),
+        ButtonBit(byte: 2, mask: 0x20, led: .loop),
+        ButtonBit(byte: 2, mask: 0x40, led: .undoRedo),
+        ButtonBit(byte: 2, mask: 0x80, led: .shift),
+        ButtonBit(byte: 3, mask: 0x01, led: .stop),
+        ButtonBit(byte: 3, mask: 0x02, led: .record),
+        ButtonBit(byte: 3, mask: 0x04, led: .tempo),
+        ButtonBit(byte: 3, mask: 0x08, led: .metro),
+        ButtonBit(byte: 3, mask: 0x10, led: .presetUp),
+        ButtonBit(byte: 3, mask: 0x20, led: .pageRight),
+        ButtonBit(byte: 3, mask: 0x40, led: .presetDown),
+        ButtonBit(byte: 3, mask: 0x80, led: .pageLeft),
+        ButtonBit(byte: 4, mask: 0x01, led: .m),
+        ButtonBit(byte: 4, mask: 0x02, led: .s),
+        ButtonBit(byte: 4, mask: 0x04, led: .scene),
+        ButtonBit(byte: 4, mask: 0x08, led: .pattern),
+        ButtonBit(byte: 4, mask: 0x10, led: .track),
+        ButtonBit(byte: 4, mask: 0x20, led: .clear),
+        ButtonBit(byte: 4, mask: 0x40, led: .keyMode),
+        ButtonBit(byte: 5, mask: 0x01, led: .mixer),
+        ButtonBit(byte: 5, mask: 0x02, led: .plugin),
+        ButtonBit(byte: 5, mask: 0x04, led: .browser),
+        ButtonBit(byte: 5, mask: 0x08, led: .setup),
+        ButtonBit(byte: 5, mask: 0x10, led: .instance),
+        ButtonBit(byte: 5, mask: 0x20, led: .midi),
+        ButtonBit(byte: 8, mask: 0x01, led: .octaveDown),
+        ButtonBit(byte: 8, mask: 0x02, led: .octaveUp),
+        ButtonBit(byte: 8, mask: 0x04, led: .fixedVel),
     ]
 
     private static let jogStates: [UInt8: String] = [
@@ -360,7 +367,7 @@ public enum KKMK2InputReportDecoder {
             let was = state(previous, bit)
             let now = state(current, bit)
             if was != now {
-                events.append(.button(name: bit.name, pressed: now))
+                events.append(.button(led: bit.led, pressed: now))
                 explained.insert(bit.byte)
             }
         }

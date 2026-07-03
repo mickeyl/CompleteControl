@@ -515,14 +515,70 @@ private actor MK2FeatureDemo {
         return frame
     }
 
+    // Short labels instead of raw KKMK2ButtonLED indices: a number only means something
+    // once you've memorized the enum's declaration order, which defeats the point of a
+    // LED-map test a tester is meant to read at a glance.
+    private func buttonShortLabel(_ led: KKMK2ButtonLED) -> String {
+        switch led {
+            case .m: "MUT"
+            case .s: "SOL"
+            case .function1: "F1"
+            case .function2: "F2"
+            case .function3: "F3"
+            case .function4: "F4"
+            case .function5: "F5"
+            case .function6: "F6"
+            case .function7: "F7"
+            case .function8: "F8"
+            case .jogLeft: "JGL"
+            case .jogUp: "JGU"
+            case .jogDown: "JGD"
+            case .jogRight: "JGR"
+            case .shift: "SHFT"
+            case .scaleEdit: "SCAL"
+            case .arpEdit: "ARP"
+            case .scene: "SCN"
+            case .undoRedo: "UNDO"
+            case .quantize: "QUAN"
+            case .auto: "AUTO"
+            case .pattern: "PATT"
+            case .presetUp: "PR+"
+            case .track: "TRK"
+            case .loop: "LOOP"
+            case .metro: "METR"
+            case .tempo: "TMPO"
+            case .presetDown: "PR-"
+            case .keyMode: "KEY"
+            case .play: "PLAY"
+            case .record: "REC"
+            case .stop: "STOP"
+            case .pageLeft: "PG<"
+            case .pageRight: "PG>"
+            case .clear: "CLR"
+            case .browser: "BRWS"
+            case .plugin: "PLUG"
+            case .mixer: "MIX"
+            case .instance: "INST"
+            case .midi: "MIDI"
+            case .setup: "SETU"
+            case .fixedVel: "FVEL"
+            case .octaveDown: "OCT-"
+            case .octaveUp: "OCT+"
+            default: led.protocolName.prefix(4).uppercased()
+        }
+    }
+
+    // Cell text uses the button's actual toggled color (not just a touched/untouched
+    // binary) so the on-screen map can be cross-checked directly against the physical
+    // light-guide/button LEDs — the original point of this page.
     private func buttonFrame() -> MK2PixelFrame {
         var frame = baseFrame(title: "BUTTON LED MAP", lines: [lastEvent], stripStart: 4)
-        var index = 0
-        for led in KKMK2ButtonLED.allCases.prefix(36) {
-            let x = 20 + (index % 6) * 74
-            let y = 126 + (index / 6) * 22
-            frame.drawText("\(led.rawValue)", x: x, y: y, scale: 2, color: buttonColors[led] == nil ? 0x8410 : 0xffff)
-            index += 1
+        let columns = 8
+        for (index, led) in KKMK2ButtonLED.allCases.enumerated() where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
+            let x = 12 + (index % columns) * 58
+            let y = 128 + (index / columns) * 24
+            let color = buttonColors[led].map(KompleteKontrolSSeriesMK2.rgb565) ?? 0x8410
+            frame.drawText(buttonShortLabel(led), x: x, y: y, scale: 2, color: color, maxWidth: 56)
         }
         return frame
     }

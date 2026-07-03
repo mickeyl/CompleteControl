@@ -139,27 +139,27 @@ struct InputReportDecoderTests {
         var current = previous
         current[8] = 0x01
         var events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.button(name: "octavedown", pressed: true)])
+        #expect(events == [.button(led: .octaveDown, pressed: true)])
 
         current = previous
         current[8] = 0x02
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.button(name: "octaveup", pressed: true)])
+        #expect(events == [.button(led: .octaveUp, pressed: true)])
 
         current = previous
         current[8] = 0x04
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.button(name: "fixedvel", pressed: true)])
+        #expect(events == [.button(led: .fixedVel, pressed: true)])
 
         current = previous
         current[5] = 0x01
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.button(name: "mixer", pressed: true)])
+        #expect(events == [.button(led: .mixer, pressed: true)])
 
         current = previous
         current[5] = 0x04
         events = KKMK2InputReportDecoder.events(previous: previous, current: current)
-        #expect(events == [.button(name: "browser", pressed: true)])
+        #expect(events == [.button(led: .browser, pressed: true)])
     }
 
     @Test("MK2 initial baseline preserves first function button press")
@@ -171,7 +171,7 @@ struct InputReportDecoderTests {
 
         let events = KKMK2InputReportDecoder.eventsForReport(previous: nil, current: current)
 
-        #expect(events == [.button(name: "function6", pressed: true)])
+        #expect(events == [.button(led: .function6, pressed: true)])
     }
 
     @Test("MK2 pitch and mod HID mirrors do not remain raw")

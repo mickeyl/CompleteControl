@@ -3657,8 +3657,8 @@ public enum KompleteKontrolLibUSBServer {
         private func shortMK2IdleSummary(_ report: KKMK2InputReport) -> String {
             if let event = report.events.first {
                 switch event {
-                    case let .button(name, pressed):
-                        return "\(name.uppercased()) \(pressed ? "DOWN" : "UP")"
+                    case let .button(led, pressed):
+                        return "\(led.protocolName.uppercased()) \(pressed ? "DOWN" : "UP")"
                     case let .knob(index, delta, _):
                         return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
                     case let .jog(direction):
