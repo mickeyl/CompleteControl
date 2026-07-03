@@ -177,6 +177,15 @@ public actor MK2Surface2 {
                 let message = String(bytes: frame.payload, encoding: .utf8) ?? "device"
                 if message == KKDaemonSessionPolicy.evictionNotice {
                     evict()
+                } else if message.hasPrefix("device reconnected") {
+                    // A session that registered before the device was plugged in (or
+                    // survived an unplug) already ran its lamp/key/display writes once —
+                    // those calls updated the "last sent" caches even though the daemon
+                    // silently dropped them (no libusb session yet). Nothing here checks
+                    // write status, so without a forced replay the surface would sit
+                    // registered-but-blank forever: reconcile* only sends deltas, and the
+                    // delta against a cache the hardware never actually received is empty.
+                    replaySurfaceState()
                 } else {
                     publish(.retrying(message))
                 }
@@ -230,6 +239,16 @@ public actor MK2Surface2 {
         configureHostControl()
         tick(forceDisplay: true)
         publish(.connected("MK2 daemon client registered"))
+    }
+
+    private func replaySurfaceState() {
+        guard running else { return }
+        lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        lastKeyColors = []
+        displayReconciler.reset()
+        configureHostControl()
+        tick(forceDisplay: true)
+        publish(.connected("MK2 device reconnected; state replayed"))
     }
 
     private func unregisterDaemonClient() {

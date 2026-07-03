@@ -2788,9 +2788,17 @@ public enum KompleteKontrolLibUSBServer {
         private var midiPushSequence: UInt64 = 0
         private let displayQueue = DispatchQueue(label: "media.vanille.kompletekontrol.display", qos: .userInitiated)
         private var pendingDisplayBlits: [UInt8: PendingDisplayBlit] = [:]
+        private var displayDrainScheduled = false
+        // Separate queue from displayQueue: LEDs/guide use a different USB endpoint
+        // (interrupt) than display blits (bulk), and sessionIOLock already permits
+        // concurrent shared holders, so there's no reason to make a "tiny and
+        // feel-critical" LED write sit behind an in-flight ~1-17ms display blit on a
+        // shared serial queue. Measured on hardware: a report enqueued mid-blit was
+        // gated until the blit's own drain pass finished before this split existed.
+        private let stateReportQueue = DispatchQueue(label: "media.vanille.kompletekontrol.statereport", qos: .userInitiated)
         private var pendingStateReports: [UInt8: [UInt8]] = [:]
         private var pendingStateReportOrder: [UInt8] = []
-        private var displayDrainScheduled = false
+        private var stateReportDrainScheduled = false
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
@@ -3059,11 +3067,11 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func binaryWriteReport(reportID: UInt8, payload: [UInt8]) -> Int32 {
-            // Full-state maps at animation rate go through the async output worker like
-            // display blits (latest-wins per report): a synchronous write here would wait
-            // on sessionIOLock behind an in-flight 10-20 ms blit and stall the client's
-            // surface actor. Config reports keep the synchronous path — they are rare and
-            // their relative ordering matters.
+            // Full-state maps at animation rate go through their own async output worker
+            // (latest-wins per report), on a queue separate from display blits: a
+            // synchronous write here would wait on sessionIOLock behind an in-flight
+            // ~1-17 ms blit and stall the client's surface actor. Config reports keep the
+            // synchronous path — they are rare and their relative ordering matters.
             if reportID == KompleteKontrolMK2Protocol.buttonLEDReportID || reportID == KompleteKontrolMK2Protocol.lightGuideReportID {
                 var shouldSchedule = false
                 lock.lock()
@@ -3071,14 +3079,14 @@ public enum KompleteKontrolLibUSBServer {
                     pendingStateReportOrder.append(reportID)
                 }
                 pendingStateReports[reportID] = payload
-                if !displayDrainScheduled {
-                    displayDrainScheduled = true
+                if !stateReportDrainScheduled {
+                    stateReportDrainScheduled = true
                     shouldSchedule = true
                 }
                 lock.unlock()
                 if shouldSchedule {
-                    displayQueue.async { [weak self] in
-                        self?.drainDisplayBlits()
+                    stateReportQueue.async { [weak self] in
+                        self?.drainStateReports()
                     }
                 }
                 return 0
@@ -3148,34 +3156,51 @@ public enum KompleteKontrolLibUSBServer {
         private func drainDisplayBlits() {
             while true {
                 let blits: [PendingDisplayBlit]
-                let reports: [(UInt8, [UInt8])]
                 lock.lock()
                 blits = pendingDisplayBlits.values.sorted { $0.screen < $1.screen }
                 pendingDisplayBlits.removeAll(keepingCapacity: true)
-                reports = pendingStateReportOrder.compactMap { id in
-                    pendingStateReports[id].map { (id, $0) }
-                }
-                pendingStateReports.removeAll(keepingCapacity: true)
-                pendingStateReportOrder.removeAll(keepingCapacity: true)
-                if blits.isEmpty && reports.isEmpty {
+                if blits.isEmpty {
                     displayDrainScheduled = false
                     lock.unlock()
                     return
                 }
                 lock.unlock()
 
-                // LEDs before pixels: they are tiny and feel-critical.
-                for (reportID, payload) in reports {
-                    performStateReportWrite(reportID: reportID, payload: payload)
-                }
                 for blit in blits {
                     performDisplayBlit(blit)
                 }
             }
         }
 
+        // Own serial queue from drainDisplayBlits: LEDs/guide use a different USB
+        // endpoint than pixels, and sessionIOLock's shared lock already allows the two
+        // to run concurrently — see the stateReportQueue declaration for why this is
+        // split out rather than sharing displayQueue.
+        private func drainStateReports() {
+            while true {
+                let reports: [(UInt8, [UInt8])]
+                lock.lock()
+                reports = pendingStateReportOrder.compactMap { id in
+                    pendingStateReports[id].map { (id, $0) }
+                }
+                pendingStateReports.removeAll(keepingCapacity: true)
+                pendingStateReportOrder.removeAll(keepingCapacity: true)
+                if reports.isEmpty {
+                    stateReportDrainScheduled = false
+                    lock.unlock()
+                    return
+                }
+                lock.unlock()
+
+                for (reportID, payload) in reports {
+                    performStateReportWrite(reportID: reportID, payload: payload)
+                }
+            }
+        }
+
         private func performStateReportWrite(reportID: UInt8, payload: [UInt8]) {
             guard let session = ensureSession() else { return }
+            let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
             let isCurrent = libusbSession == session
@@ -3189,6 +3214,7 @@ public enum KompleteKontrolLibUSBServer {
                 KontrolUSBLibUSBSessionWrite(session, reportID, buffer.baseAddress, UInt32(buffer.count))
             }
             sessionIOLock.unlock()
+            daemonTraceLog("state report worker report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
             if result.status != 0 {
                 daemonLog("state report worker failed report=0x\(KKHex.byte(reportID)) status=\(result.status)", group: "mk2", level: .error)
             }

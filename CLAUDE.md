@@ -81,6 +81,33 @@ You usually can't see the LCDs/LEDs. What works:
 - For the docs SVGs there are Python generators in scratch; render with `rsvg-convert` and Read
   the PNG to inspect visually.
 
+### Daemon output pipeline: two independent serial queues, not one
+
+`ccd` drains display blits and LED/light-guide state reports on **separate serial
+`DispatchQueue`s** (`displayQueue` / `stateReportQueue` in `KompleteKontrol.swift`), each
+taking `sessionIOLock.lockShared()` so they run truly concurrently against libusb. They used
+to share one queue; a state report enqueued while a blit was already draining had to wait for
+that blit to finish. Measured on hardware (S61 MK2, before the split): up to ~17ms
+(full-frame force-replay) or a few ms (typical partial-row-band blit) of pure, avoidable delay
+on the "LEDs are tiny and feel-critical" path (see d55b0da's own comment). The split is safe
+because displays and LEDs/guide use different USB endpoints (bulk vs. interrupt) with no
+shared mutable state at the C layer, and libusb documents concurrent transfers on different
+endpoints as safe — verified against `KontrolUSB.c` directly, not just the libusb docs.
+
+Measured blit cost by row-band height (S61 MK2, full 480px width, debug build TRACE log):
+~0.4ms fixed + ~0.06ms/row — 1 row ≈0.5ms, 40 rows ≈3ms, 136 rows ≈9ms, full 272 rows
+(480×272) ≈17ms. Only force-replays/reconnects send a full frame; a normal tick sends a small
+dirty band, so this path's everyday cost is low-single-digit ms, not the full-frame worst case.
+
+**Measurement gotcha**: `writeReport`/`displayBlit` daemon acks fire on *enqueue*, not on
+actual hardware completion (latest-wins, fire-and-forget by design) — client-perceived
+round-trip time is **not** a valid proxy for real USB latency on this path. To measure the
+real thing, read the daemon's own TRACE log (`performDisplayBlit`/`performStateReportWrite`
+both log `elapsed=`), not the client's `request()` timing. A synthetic client-side race test
+showed near-zero latency for a state report racing a blit purely because the ack doesn't wait
+for the transfer; the real serialization only showed up by cross-referencing daemon-side
+timestamps for when the underlying libusb call actually ran.
+
 ## KontrolSurfaceKit architecture
 
 `Surface` is an **actor**. A single `DispatchSourceTimer` clock (`SurfaceClock`, 60 Hz, chosen
@@ -196,8 +223,21 @@ The short version:
 - **Never write `0xA4` (keyzones) blind** — a malformed zone map silences the keybed and darkens
   the light guide until power cycle; with the engine on, zone state also overrides host `0x81`
   guide writes. Lifecycle: device loss → `sessionDeviceLost` reactor check → drop + timed
-  reconnect + re-init + `device reconnected` push (clients re-establish their state); daemon
-  shutdown → `restoreMK2StandaloneState` (factory knob CCs, LEDs/guide/displays cleared).
+  reconnect + re-init + `device reconnected` push; daemon shutdown → `restoreMK2StandaloneState`
+  (factory knob CCs, LEDs/guide/displays cleared).
+- **A registered client must force a full state replay on `"device reconnected"`, not just
+  treat it as "connection is fine now"** (bug fixed 2026-07-03). If a client registers before
+  the device is plugged in (or the daemon reopens the session after a drop), its `reconcile*`
+  "last sent" caches (lamp bytes, key colors, the display reconciler's dirty-diff state) had
+  already advanced from writes issued while no libusb session existed — those writes silently
+  no-op'd daemon-side (`ensureSession()` returns `nil`), but nothing checked the result. Once
+  the session actually opens, a plain delta-diff tick has nothing new to send, so the surface
+  sits registered-but-blank forever. Fix lives in `MK2Surface2.process(_:)`
+  (`Sources/KontrolSurfaceKit2/MK2Surface2.swift`): on `"device reconnected"`, reset those
+  caches and force `tick(forceDisplay: true)` plus re-run `configureHostControl()` instead of
+  publishing `.retrying`. General lesson: any "hardware became available/reappeared" signal
+  needs to force a *replay*, not just flip a connection-state flag — a diff against a cache the
+  hardware never actually received will always be empty.
 - The old MK2 calibration workbench has been removed. Its protocol findings remain in git
   history and the MK2 tests/docs; new validation should go through `MK2SurfaceDemo`,
   `MK2USBSpy`, and focused tests.
