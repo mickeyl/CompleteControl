@@ -80,6 +80,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
+    ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
     ReplCommand(name: "quit", arg: "", summary: "exit", values: []),
@@ -152,7 +153,7 @@ private actor WidgetLab {
     private var playheadRow = 0
     private var playbackTimer: DispatchSourceTimer?
     private let patternRows: [TrackerDemoRow]
-    private let focusedChannel = 3
+    private var focusedChannel = 3
 
     init(surface: MK2Surface2) {
         self.surface = surface
@@ -183,6 +184,8 @@ private actor WidgetLab {
         if unit == .pattern {
             lamps[.play] = isPlaying ? .off : .green
             lamps[.stop] = isPlaying ? .red : .off
+            lamps[.pageLeft] = focusedChannel > 0 ? .white : .off
+            lamps[.pageRight] = focusedChannel < 3 ? .white : .off
         }
 
         var bindings = MK2InputBindings2()
@@ -196,6 +199,12 @@ private actor WidgetLab {
         }
         bindings.onPress(.stop) { [weak self] in
             Task { await self?.stopPlayback() }
+        }
+        bindings.onPress(.pageLeft) { [weak self] in
+            Task { await self?.moveFocusedChannel(-1) }
+        }
+        bindings.onPress(.pageRight) { [weak self] in
+            Task { await self?.moveFocusedChannel(1) }
         }
         bindings.jogScroll = { [weak self] delta, _ in
             Task { await self?.turnMainEncoder(delta) }
@@ -395,6 +404,14 @@ private actor WidgetLab {
         await render()
     }
 
+    private func moveFocusedChannel(_ delta: Int) async {
+        guard unit == .pattern, delta != 0 else { return }
+        let next = max(0, min(3, focusedChannel + delta))
+        guard next != focusedChannel else { return }
+        focusedChannel = next
+        await render()
+    }
+
     // Right screen: the focused combination big, over an optional background swatch, with
     // a settings readout — this is the surface we judge a candidate on.
     private func fontFocusFrame() -> MK2PixelFrame {
@@ -508,6 +525,12 @@ private actor WidgetLab {
             case "jog":
                 guard let delta = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)) else { print("? jog <delta>"); return }
                 await turnMainEncoder(delta)
+
+            case "ch", "channel":
+                guard let channel = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      (1...4).contains(channel) else { print("? ch <1-4>"); return }
+                focusedChannel = channel - 1
+                await render()
 
             case "snap":
                 await snapshot(to: rest.isEmpty ? nil : rest)
