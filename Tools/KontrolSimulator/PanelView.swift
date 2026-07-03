@@ -32,9 +32,11 @@ final class PanelView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    init(scale: CGFloat) {
+        self.dispScale = scale
+        super.init(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
         buildLayout()
+        setFrameSize(preferredContentSize)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -62,7 +64,9 @@ final class PanelView: NSView {
 
     // MARK: - Layout
 
-    private let dispScale: CGFloat = 0.85
+    private let dispScale: CGFloat
+    /// Size the panel needs given the current display scale; the window is fitted to it.
+    private(set) var preferredContentSize: NSSize = .zero
     private var dispW: CGFloat { 480 * dispScale }
     private var dispH: CGFloat { 272 * dispScale }
     private var display0 = NSRect.zero
@@ -114,6 +118,10 @@ final class PanelView: NSView {
         }
 
         fourDCenter = NSPoint(x: (blockLeft + blockRight) / 2, y: encY + knob + 76)
+
+        preferredContentSize = NSSize(
+            width: blockRight + 12 + colW + margin,
+            height: fourDCenter.y + fourDRadius + 40)
     }
 
     // MARK: - Drawing
