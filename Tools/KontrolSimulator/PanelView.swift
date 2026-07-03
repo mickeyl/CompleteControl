@@ -397,13 +397,28 @@ final class PanelView: NSView {
 
         // Direction arrows.
         let a = fourDRadius * 0.55
-        let directions: [(state: MK2InputReportBuilder.FourDState, dx: Double, dy: Double)] = [
-            (.pushUp, 0.0, -1.0),
-            (.pushDown, 0.0, 1.0),
-            (.pushLeft, -1.0, 0.0),
-            (.pushRight, 1.0, 0.0),
+        let directions: [(state: MK2InputReportBuilder.FourDState, led: KKMK2ButtonLED, dx: Double, dy: Double)] = [
+            (.pushUp, .jogUp, 0.0, -1.0),
+            (.pushDown, .jogDown, 0.0, 1.0),
+            (.pushLeft, .jogLeft, -1.0, 0.0),
+            (.pushRight, .jogRight, 1.0, 0.0),
         ]
         for direction in directions {
+            let lampRadius: CGFloat = 4
+            let lampDistance = fourDRadius * 0.78
+            let lampCenter = NSPoint(
+                x: fourDCenter.x + CGFloat(direction.dx) * lampDistance,
+                y: fourDCenter.y + CGFloat(direction.dy) * lampDistance
+            )
+            let lamp = NSBezierPath(ovalIn: NSRect(
+                x: lampCenter.x - lampRadius,
+                y: lampCenter.y - lampRadius,
+                width: lampRadius * 2,
+                height: lampRadius * 2
+            ))
+            ledIndicatorColor(for: direction.led).setFill()
+            lamp.fill()
+
             let p = NSBezierPath()
             let isActive = activeFourD == direction.state
             let dotRadius: CGFloat = isActive ? 6 : 4
@@ -634,6 +649,25 @@ final class PanelView: NSView {
     private func lightGuideColor(index: Int) -> NSColor {
         guard lightGuideBytes.indices.contains(index), lightGuideBytes[index] != 0 else { return .clear }
         return paletteColor(code: lightGuideBytes[index], alpha: pressedKeys.contains(index) ? 0.95 : 0.78)
+    }
+
+    private func ledIndicatorColor(for led: KKMK2ButtonLED) -> NSColor {
+        guard ledBytes.indices.contains(led.rawValue) else { return NSColor(white: 0.08, alpha: 1) }
+        let code = ledBytes[led.rawValue]
+        guard code != 0 else { return NSColor(white: 0.08, alpha: 1) }
+        if led.isRGBBacklit {
+            return paletteColor(code: code)
+        }
+
+        let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
+        let brightness = CGFloat(max(rgb.red, rgb.green, rgb.blue)) / 255
+        let base = led.fixedMonochromeBacklightColor
+        return NSColor(
+            red: CGFloat(base.red) / 255 * brightness,
+            green: CGFloat(base.green) / 255 * brightness,
+            blue: CGFloat(base.blue) / 255 * brightness,
+            alpha: 1
+        )
     }
 
     // MARK: - Interaction

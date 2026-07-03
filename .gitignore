@@ -1,6 +1,8 @@
 .build/
 .swiftpm/
 .DS*
+.vscode
+Docs/Komplete-Kontrol-Protocol-Guide.md
 
 # NI firmware image + RE artifacts (large, do not commit)
 NI/
