@@ -213,6 +213,8 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
                         codeIndex = frame.payload[2] == 0 ? 0x08 : 0x09
                     case 0xb0:
                         codeIndex = 0x0b
+                    case 0xd0:
+                        codeIndex = 0x0d
                     case 0xe0:
                         codeIndex = 0x0e
                     default:

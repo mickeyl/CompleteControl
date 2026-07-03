@@ -53,7 +53,8 @@ struct MK2FourDDecodeTests {
     func pushes() {
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x24)) == [.jog(direction: "up")])
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x0c)) == [.jog(direction: "press")])
-        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [.jogCenter])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x0c), current: report(byte6: 0x04)) == [.jogCenter])
     }
 }
 

@@ -276,6 +276,7 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     case button(led: KKMK2ButtonLED, pressed: Bool)
     case touchEncoder(index: Int, touched: Bool)
     case jog(direction: String)
+    case jogCenter
     case jogTouch(touched: Bool)
     case jogScroll(delta: Int, value: Int)
     /// Raw ribbon stream (host-control mode, report 0x02): position 0…1024, nil = release.
@@ -291,6 +292,8 @@ public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
                 "touch encoder \(index) \(touched ? "on" : "off")"
             case let .jog(direction):
                 "jog \(direction)"
+            case .jogCenter:
+                "jog center"
             case let .jogTouch(touched):
                 "jog touch \(touched ? "on" : "off")"
             case let .strip(position, time):
@@ -436,6 +439,9 @@ public enum KKMK2InputReportDecoder {
             let isTouched = (current[6] & 0x04) != 0
             if wasTouched != isTouched {
                 events.append(.jogTouch(touched: isTouched))
+            }
+            if current[6] == 0x04 && (previous[6] & 0xf8) != 0 {
+                events.append(.jogCenter)
             }
             if let direction = jogStates[current[6]] {
                 events.append(.jog(direction: direction))

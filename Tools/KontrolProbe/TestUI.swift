@@ -394,6 +394,9 @@ private final class KKTestUIController: @unchecked Sendable {
                 } else {
                     lastEvent = "MIDI CC \(event.control) value \(event.controlValue)"
                 }
+            case .channelPressure:
+                lastEvent = "MIDI pressure \(event.pressure)"
+                status = "demo aftertouch \(event.pressure)/127"
             case .pitchBend:
                 lastEvent = "MIDI pitch strip \(event.pitchBendCentered)"
                 status = "demo pitch strip \(event.pitchBendCentered)"

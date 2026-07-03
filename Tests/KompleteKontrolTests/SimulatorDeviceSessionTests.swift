@@ -150,6 +150,22 @@ struct SimulatorDeviceSessionTests {
         #expect(received == [[0x0b, 0xb0, 1, 127], [0x0e, 0xe0, 0, 64]])
     }
 
+    @Test("Channel pressure MIDI frames keep their USB MIDI code index")
+    func channelPressureMIDIFrames() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        var received: [[UInt8]] = []
+        _ = session.startAsyncMIDI { data, length in
+            received.append(Array(UnsafeBufferPointer(start: data, count: Int(length))))
+        }
+
+        send(.midi(status: 0xd0, data1: 0x45, data2: 0x00), to: sim)
+        session.handleEvents(timeoutMs: 0)
+
+        #expect(received == [[0x0d, 0xd0, 0x45, 0x00]])
+    }
+
     @Test("Ribbon frames surface as raw strip reports")
     func ribbonFramesBecomeStripReports() {
         let (daemon, sim) = makePair()

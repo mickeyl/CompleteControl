@@ -371,6 +371,8 @@ public actor MK2Surface2 {
                     }
                 case let .jog(direction):
                     scene.bindings.jog?(direction)
+                case .jogCenter:
+                    scene.bindings.jogCenter?()
                 case let .jogScroll(delta, value):
                     scene.bindings.jogScroll?(delta, value)
                 case let .jogTouch(touched):
@@ -464,6 +466,8 @@ public actor MK2Surface2 {
                     events.append(KKMIDIEvent(kind: data2 == 0 ? .noteOff : .noteOn, channel: channel, note: data1, velocity: data2, receptionTimestamp: timestamp))
                 case 0xb0:
                     events.append(KKMIDIEvent(control: data1, value: data2, channel: channel, receptionTimestamp: timestamp))
+                case 0xd0:
+                    events.append(KKMIDIEvent(channelPressure: data1, channel: channel, receptionTimestamp: timestamp))
                 case 0xe0:
                     events.append(KKMIDIEvent(pitchBendLSB: data1, msb: data2, channel: channel, receptionTimestamp: timestamp))
                 default:

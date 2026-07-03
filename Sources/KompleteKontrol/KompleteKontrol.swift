@@ -586,6 +586,7 @@ public struct KKMIDIEvent: Sendable, Equatable {
         case noteOn
         case noteOff
         case controlChange
+        case channelPressure
         case pitchBend
     }
 
@@ -619,10 +620,19 @@ public struct KKMIDIEvent: Sendable, Equatable {
         self.receptionTimestamp = receptionTimestamp
     }
 
+    public init(channelPressure pressure: UInt8, channel: UInt8, receptionTimestamp: UInt64 = 0) {
+        self.kind = .channelPressure
+        self.channel = channel
+        self.data1 = pressure
+        self.data2 = 0
+        self.receptionTimestamp = receptionTimestamp
+    }
+
     public var note: UInt8 { data1 }
     public var velocity: UInt8 { data2 }
     public var control: UInt8 { data1 }
     public var controlValue: UInt8 { data2 }
+    public var pressure: UInt8 { data1 }
     public var pitchBendValue: Int { Int(data1) | (Int(data2) << 7) }
     public var pitchBendCentered: Int { pitchBendValue - 8192 }
 
@@ -634,6 +644,8 @@ public struct KKMIDIEvent: Sendable, Equatable {
                 "note off ch \(channel + 1) note \(note) velocity \(velocity)"
             case .controlChange:
                 "cc ch \(channel + 1) \(control)=\(controlValue)"
+            case .channelPressure:
+                "channel pressure ch \(channel + 1) \(pressure)"
             case .pitchBend:
                 "pitch bend ch \(channel + 1) \(pitchBendCentered)"
         }
@@ -1583,7 +1595,7 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         }
     }
 
-    fileprivate static func parseUSBMIDIEvents(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
+    static func parseUSBMIDIEvents(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
         guard bytes.count >= 4 else { return [] }
         var events: [KKMIDIEvent] = []
         var offset = 0
@@ -1599,6 +1611,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
                     events.append(KKMIDIEvent(kind: .noteOff, channel: channel, note: note, velocity: velocity, receptionTimestamp: receptionTimestamp))
                 case 0xb0:
                     events.append(KKMIDIEvent(control: note, value: velocity, channel: channel, receptionTimestamp: receptionTimestamp))
+                case 0xd0:
+                    events.append(KKMIDIEvent(channelPressure: note, channel: channel, receptionTimestamp: receptionTimestamp))
                 case 0xe0:
                     events.append(KKMIDIEvent(pitchBendLSB: note, msb: velocity, channel: channel, receptionTimestamp: receptionTimestamp))
                 default:
@@ -3661,6 +3675,8 @@ public enum KompleteKontrolLibUSBServer {
                     return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
                 case let .jog(direction):
                     return "JOG \(direction.uppercased())"
+                case .jogCenter:
+                    return "JOG CENTER"
                 case let .jogTouch(touched):
                     return "JOG TOUCH \(touched ? "ON" : "OFF")"
                 case let .strip(position, _):
@@ -4224,6 +4240,8 @@ public enum KompleteKontrolLibUSBServer {
                     return "OFF \(idleNoteName(event.note))"
                 case .controlChange:
                     return "CC \(event.control) \(event.controlValue)"
+                case .channelPressure:
+                    return "PRESS \(event.pressure)"
                 case .pitchBend:
                     return "BEND \(event.pitchBendCentered)"
             }

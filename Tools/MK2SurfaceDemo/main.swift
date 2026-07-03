@@ -219,6 +219,7 @@ private actor MK2FeatureDemo {
                 lamps[.jogUp] = .amber
                 lamps[.jogDown] = .amber
                 bindings.jog = { direction in Task { await self.jog(direction) } }
+                bindings.jogCenter = { Task { await self.jogCenter() } }
                 bindings.jogScroll = { delta, value in Task { await self.jogScroll(delta: delta, value: value) } }
                 bindings.jogTouch = { touched in Task { await self.jogTouch(touched) } }
                 return MK2SurfaceScene2(
@@ -387,6 +388,12 @@ private actor MK2FeatureDemo {
         await render()
     }
 
+    private func jogCenter() async {
+        jogLast = "CENTER"
+        lastEvent = "JOG CENTER"
+        await render()
+    }
+
     private func jogScroll(delta: Int, value: Int) async {
         jogValue = value
         lastEvent = "SCROLL \(delta >= 0 ? "+" : "")\(delta)"
@@ -408,6 +415,8 @@ private actor MK2FeatureDemo {
                 lastEvent = "NOTE OFF \(event.data1)"
             case .controlChange:
                 lastEvent = "CC \(event.data1) \(event.data2)"
+            case .channelPressure:
+                lastEvent = "PRESS \(event.pressure)"
             case .pitchBend:
                 lastEvent = "BEND \(event.data1) \(event.data2)"
         }

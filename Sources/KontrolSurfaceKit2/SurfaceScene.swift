@@ -26,6 +26,7 @@ public struct MK2InputBindings2: Sendable {
     /// "reset to default" gesture — what "default" means is the client's decision.
     public var encoderDoubleTouch: [Int: @Sendable () -> Void] = [:]
     public var jog: (@Sendable (_ direction: String) -> Void)?
+    public var jogCenter: (@Sendable () -> Void)?
     public var jogScroll: (@Sendable (_ delta: Int, _ value: Int) -> Void)?
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?
     public var strip: (@Sendable (_ position: Int?, _ time: Int) -> Void)?
