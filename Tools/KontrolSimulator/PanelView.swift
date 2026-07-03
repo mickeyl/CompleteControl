@@ -17,7 +17,12 @@ final class PanelView: NSView {
     private var encoderTouched = [Bool](repeating: false, count: 8)
     private var connected = false
 
-    private struct ButtonControl { let led: KKMK2ButtonLED; let label: String; let rect: NSRect }
+    private struct ButtonControl {
+        let led: KKMK2ButtonLED
+        let title: String
+        let subtitle: String?
+        let rect: NSRect
+    }
     private struct EncoderControl { let index: Int; let rect: NSRect }
 
     private var buttons: [ButtonControl] = []
@@ -76,17 +81,82 @@ final class PanelView: NSView {
 
     private func buildLayout() {
         let margin: CGFloat = 24
-        let colW: CGFloat = 84
-        let displaysX = margin + colW + 12
+        let controlW: CGFloat = 82
+        let controlH: CGFloat = 34
+        let controlGapX: CGFloat = 10
+        let controlGapY: CGFloat = 8
+        let leftBlockX = margin
+        let navBlockX = leftBlockX + controlW * 3 + controlGapX * 2 + 46
+        let modeBlockX = navBlockX + controlW + 42
+        let displaysX = modeBlockX + controlW + 28
         let funcH: CGFloat = 30
         let funcY = margin
         let dispY = funcY + funcH + 14
+
+        buttons.removeAll()
+        encoders.removeAll()
+
+        func leftRect(column: Int, row: Int, yOffset: CGFloat = 0, width: CGFloat = controlW) -> NSRect {
+            NSRect(
+                x: leftBlockX + CGFloat(column) * (controlW + controlGapX),
+                y: funcY + CGFloat(row) * (controlH + controlGapY) + yOffset,
+                width: width,
+                height: controlH
+            )
+        }
+
+        func addButton(_ led: KKMK2ButtonLED, _ title: String, _ subtitle: String? = nil, _ rect: NSRect) {
+            buttons.append(ButtonControl(led: led, title: title, subtitle: subtitle, rect: rect))
+        }
+
+        // Hardware control area left of the displays.
+        addButton(.shift, "SHIFT", nil, leftRect(column: 0, row: 0))
+        addButton(.scaleEdit, "SCALE", "Edit", leftRect(column: 1, row: 0))
+        addButton(.arpEdit, "ARP", "Edit", leftRect(column: 2, row: 0))
+        addButton(.undoRedo, "UNDO", "Redo", leftRect(column: 0, row: 1))
+        addButton(.quantize, "QUANTIZE", nil, leftRect(column: 1, row: 1))
+        addButton(.auto, "AUTOMATION", nil, leftRect(column: 2, row: 1))
+
+        let transportY = funcY + (controlH + controlGapY) * 3 + 8
+        addButton(.loop, "LOOP", nil, leftRect(column: 0, row: 0, yOffset: transportY - funcY))
+        addButton(.metro, "METRONOME", nil, leftRect(column: 1, row: 0, yOffset: transportY - funcY))
+        addButton(.tempo, "TEMPO", nil, leftRect(column: 2, row: 0, yOffset: transportY - funcY))
+        addButton(.play, "PLAY", "Restart", leftRect(column: 0, row: 1, yOffset: transportY - funcY))
+        addButton(.record, "REC", "Count-In", leftRect(column: 1, row: 1, yOffset: transportY - funcY))
+        addButton(.stop, "STOP", nil, leftRect(column: 2, row: 1, yOffset: transportY - funcY))
+
+        let smallButton: CGFloat = 34
+        addButton(.m, "M", nil, NSRect(x: navBlockX, y: funcY, width: smallButton, height: smallButton))
+        addButton(.s, "S", nil, NSRect(x: navBlockX + smallButton + 10, y: funcY, width: smallButton, height: smallButton))
+        addButton(.presetUp, "PRESET ^", nil, NSRect(x: navBlockX, y: funcY + 78, width: controlW, height: controlH))
+        addButton(.presetDown, "PRESET v", nil, NSRect(x: navBlockX, y: funcY + 120, width: controlW, height: controlH))
+        addButton(.pageLeft, "<", nil, NSRect(x: navBlockX, y: funcY + 166, width: smallButton, height: smallButton))
+        addButton(.pageRight, ">", nil, NSRect(x: navBlockX + smallButton + 10, y: funcY + 166, width: smallButton, height: smallButton))
+
+        addButton(.scene, "SCENE", nil, NSRect(x: modeBlockX, y: funcY, width: controlW, height: controlH))
+        addButton(.pattern, "PATTERN", nil, NSRect(x: modeBlockX, y: funcY + 42, width: controlW, height: controlH))
+        addButton(.track, "TRACK", nil, NSRect(x: modeBlockX, y: funcY + 84, width: controlW, height: controlH))
+        addButton(.keyMode, "KEY MODE", nil, NSRect(x: modeBlockX, y: funcY + 126, width: controlW, height: controlH))
+        addButton(.clear, "CLEAR", nil, NSRect(x: modeBlockX, y: funcY + 168, width: controlW, height: controlH))
 
         display0 = NSRect(x: displaysX, y: dispY, width: dispW, height: dispH)
         display1 = NSRect(x: displaysX + dispW + 16, y: dispY, width: dispW, height: dispH)
         let blockLeft = displaysX
         let blockRight = display1.maxX
         let blockWidth = blockRight - blockLeft
+        let rightControlsX = blockRight + 28
+        let rightControlW: CGFloat = 84
+        let rightControlsGapX: CGFloat = 10
+        let rightControlsGapY: CGFloat = 8
+
+        func rightControlRect(column: Int, row: Int) -> NSRect {
+            NSRect(
+                x: rightControlsX + CGFloat(column) * (rightControlW + rightControlsGapX),
+                y: dispY + CGFloat(row) * (controlH + rightControlsGapY),
+                width: rightControlW,
+                height: controlH
+            )
+        }
 
         // Function buttons across the display block.
         let fGap: CGFloat = 8
@@ -94,20 +164,16 @@ final class PanelView: NSView {
         for i in 0..<8 {
             let rect = NSRect(x: blockLeft + CGFloat(i) * (fW + fGap), y: funcY, width: fW, height: funcH)
             let led = KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + i)!
-            buttons.append(ButtonControl(led: led, label: "F\(i + 1)", rect: rect))
+            addButton(led, "F\(i + 1)", nil, rect)
         }
 
-        // Side buttons flanking the displays.
-        let sideSpecs: [(x: CGFloat, items: [(KKMK2ButtonLED, String)])] = [
-            (margin, [(.shift, "SHIFT"), (.scaleEdit, "SCALE"), (.arpEdit, "ARP")]),
-            (blockRight + 12, [(.browser, "BROWSE"), (.plugin, "PLUGIN"), (.mixer, "MIXER")]),
-        ]
-        for spec in sideSpecs {
-            for (i, item) in spec.items.enumerated() {
-                let rect = NSRect(x: spec.x, y: dispY + CGFloat(i) * 52, width: colW, height: 40)
-                buttons.append(ButtonControl(led: item.0, label: item.1, rect: rect))
-            }
-        }
+        // Right-side mode buttons above the 4-D encoder.
+        addButton(.browser, "BROWSER", nil, rightControlRect(column: 0, row: 0))
+        addButton(.plugin, "PLUGIN", nil, rightControlRect(column: 1, row: 0))
+        addButton(.mixer, "MIXER", nil, rightControlRect(column: 2, row: 0))
+        addButton(.instance, "INSTANCE", nil, rightControlRect(column: 0, row: 1))
+        addButton(.midi, "MIDI", nil, rightControlRect(column: 1, row: 1))
+        addButton(.setup, "SETUP", nil, rightControlRect(column: 2, row: 1))
 
         // Encoders under the displays.
         let encY = display0.maxY + 20
@@ -119,11 +185,16 @@ final class PanelView: NSView {
             encoders.append(EncoderControl(index: i + 1, rect: rect))
         }
 
-        fourDCenter = NSPoint(x: (blockLeft + blockRight) / 2, y: encY + knob + 76)
+        let rightControlsRight = rightControlsX + rightControlW * 3 + rightControlsGapX * 2
+        fourDCenter = NSPoint(
+            x: (rightControlsX + rightControlsRight) / 2,
+            y: dispY + controlH * 2 + rightControlsGapY + fourDRadius + 28
+        )
 
+        let controlsBottom = max(encY + knob + 40, fourDCenter.y + fourDRadius + 40)
         preferredContentSize = NSSize(
-            width: blockRight + 12 + colW + margin,
-            height: fourDCenter.y + fourDRadius + 40)
+            width: rightControlsRight + margin,
+            height: controlsBottom)
     }
 
     // MARK: - Drawing
@@ -156,7 +227,18 @@ final class PanelView: NSView {
         (pressed ? NSColor.white : NSColor(white: 0.3, alpha: 1)).setStroke()
         path.lineWidth = pressed ? 2 : 1
         path.stroke()
-        drawLabel(button.label, in: button.rect, color: labelColor(for: code))
+        drawButtonLabel(button, color: labelColor(for: code))
+    }
+
+    private func drawButtonLabel(_ button: ButtonControl, color: NSColor) {
+        if let subtitle = button.subtitle {
+            let titleRect = NSRect(x: button.rect.minX + 6, y: button.rect.minY + 5, width: button.rect.width - 12, height: 13)
+            let subtitleRect = NSRect(x: button.rect.minX + 6, y: button.rect.minY + 18, width: button.rect.width - 12, height: 12)
+            drawLabel(button.title, in: titleRect, color: color, size: 10, left: true)
+            drawLabel(subtitle, in: subtitleRect, color: color.withAlphaComponent(0.62), size: 9, left: true)
+        } else {
+            drawLabel(button.title, in: button.rect, color: color)
+        }
     }
 
     private func drawEncoder(_ encoder: EncoderControl) {
