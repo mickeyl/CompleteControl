@@ -2806,7 +2806,7 @@ public enum KompleteKontrolLibUSBServer {
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
         private var idleMIDISummary = "OR MIDI KEY FOR TEST"
         private var idleHasReceivedInput = false
-        private var idleRawSurfaceBytes: [UInt8] = []
+        private var idleRawSurfaceLines: [String] = []
         private struct MK2IdleLogEntry {
             var timestamp: UInt64
             var message: String
@@ -3746,7 +3746,7 @@ public enum KompleteKontrolLibUSBServer {
             let hasInput = idleHasReceivedInput
             let surfaceSummary = idleSurfaceSummary
             let midiSummary = idleMIDISummary
-            let rawBytes = idleRawSurfaceBytes
+            let rawLines = idleRawSurfaceLines
             let log = idleMK2EventLog
             lock.unlock()
 
@@ -3754,7 +3754,7 @@ public enum KompleteKontrolLibUSBServer {
                 hasInput: hasInput,
                 surfaceSummary: surfaceSummary,
                 midiSummary: midiSummary,
-                rawBytes: rawBytes
+                rawLines: rawLines
             )
             let right = makeMK2IdleLogFrame(log)
             writeMK2Frame(session: session, screen: 0, pixels: left)
@@ -3787,7 +3787,7 @@ public enum KompleteKontrolLibUSBServer {
             hasInput: Bool,
             surfaceSummary: String,
             midiSummary: String,
-            rawBytes: [UInt8]
+            rawLines: [String]
         ) -> [UInt16] {
             let width = KompleteKontrolMK2Protocol.displayWidth
             let height = KompleteKontrolMK2Protocol.displayHeight
@@ -3795,17 +3795,25 @@ public enum KompleteKontrolLibUSBServer {
             fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: hasInput ? 0x07ff : 0xf800, pixels: &pixels)
             fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
 
-            drawMK2Text("NO CLIENT", x: 24, y: 28, scale: 5, color: 0xffff, pixels: &pixels)
-            drawMK2Text("MK2 DAEMON", x: 28, y: 82, scale: 2, color: 0x8410, pixels: &pixels)
-            drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 106, scale: 2, color: 0x8410, pixels: &pixels)
+            drawMK2Text("NO CLIENT", x: 24, y: 22, scale: 4, color: 0xffff, pixels: &pixels)
+            drawMK2Text("MK2 DAEMON", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
+            drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 84, scale: 2, color: 0x8410, pixels: &pixels)
 
-            drawMK2Text("LATEST SURFACE", x: 28, y: 142, scale: 1, color: 0x07ff, pixels: &pixels)
-            drawMK2Text(hasInput ? surfaceSummary : "PRESS SURFACE FOR HID TEST", x: 28, y: 158, scale: 2, color: 0xffff, maxWidth: 420, pixels: &pixels)
-            drawMK2Text("MIDI", x: 28, y: 196, scale: 1, color: 0x07e0, pixels: &pixels)
-            drawMK2Text(midiSummary, x: 28, y: 212, scale: 2, color: 0xdefb, maxWidth: 420, pixels: &pixels)
+            drawMK2Text("LATEST SURFACE", x: 28, y: 120, scale: 1, color: 0x07ff, pixels: &pixels)
+            drawMK2Text(hasInput ? surfaceSummary : "PRESS SURFACE FOR HID TEST", x: 28, y: 136, scale: 2, color: 0xffff, maxWidth: 420, pixels: &pixels)
+            drawMK2Text("MIDI", x: 28, y: 172, scale: 1, color: 0x07e0, pixels: &pixels)
+            drawMK2Text(midiSummary, x: 28, y: 188, scale: 2, color: 0xdefb, maxWidth: 420, pixels: &pixels)
 
-            let raw = rawBytes.prefix(16).map(KKHex.byte).joined(separator: " ")
-            drawMK2Text(raw.isEmpty ? "RAW --" : "RAW \(raw)", x: 28, y: 244, scale: 1, color: 0x8410, maxWidth: 420, pixels: &pixels)
+            drawMK2Text("RAW", x: 28, y: 222, scale: 1, color: 0x8410, pixels: &pixels)
+            let visibleRawLines = Array(rawLines.suffix(3))
+            if visibleRawLines.isEmpty {
+                drawMK2Text("RAW --", x: 28, y: 238, scale: 1, color: 0x8410, maxWidth: 420, pixels: &pixels)
+            } else {
+                for (index, rawLine) in visibleRawLines.enumerated() {
+                    let color: UInt16 = index == visibleRawLines.count - 1 ? 0xbdf7 : 0x8410
+                    drawMK2Text(rawLine, x: 28, y: 230 + index * 14, scale: 1, color: color, maxWidth: 420, pixels: &pixels)
+                }
+            }
             return pixels
         }
 
@@ -4102,7 +4110,7 @@ public enum KompleteKontrolLibUSBServer {
             idleMIDISummary = "OR MIDI KEY FOR TEST"
             idleHasReceivedInput = false
             idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-            idleRawSurfaceBytes = []
+            idleRawSurfaceLines = []
             idleMK2EventLog = []
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
@@ -4168,7 +4176,10 @@ public enum KompleteKontrolLibUSBServer {
                 return
             }
             idleHasReceivedInput = true
-            idleRawSurfaceBytes = bytes
+            idleRawSurfaceLines.append(mk2IdleRawLine(bytes))
+            if idleRawSurfaceLines.count > 3 {
+                idleRawSurfaceLines.removeFirst(idleRawSurfaceLines.count - 3)
+            }
             let report = KKMK2InputReport(bytes: bytes, previous: previous, events: events, receptionTimestamp: timestamp)
             idleSurfaceSummary = events.isEmpty ? idleRawSurfaceSummary(bytes) : shortMK2IdleSummary(report)
             appendMK2IdleLogLocked(
@@ -4253,6 +4264,10 @@ public enum KompleteKontrolLibUSBServer {
 
         private func idleRawMIDISummary(_ bytes: [UInt8]) -> String {
             "RAW " + bytes.prefix(6).map(KKHex.byte).joined(separator: " ")
+        }
+
+        private func mk2IdleRawLine(_ bytes: [UInt8]) -> String {
+            "RAW " + bytes.prefix(16).map(KKHex.byte).joined(separator: " ")
         }
 
         private func shortIdleName(_ name: String) -> String {
