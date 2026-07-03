@@ -35,34 +35,65 @@ struct MK2WidgetLabDemo {
     }
 
     private static func printBanner() {
-        print("""
-        MK2WidgetLabDemo — units A…H via function buttons or REPL.
-        REPL commands:
-          a…h | unit <a-h>        switch unit
-          text <string>          font lab: sample text
-          face grid|label|readout
-          weight regular|bold    (label has no bold; stays regular)
-          scale <n>              font lab: integer pixel scale
-          fg <rrggbb|name>       foreground colour
-          bg <rrggbb|name|none>  focus swatch background
-          snap [path]            write a two-screen PNG snapshot
-          help                   this text
-          quit                   exit
-        """)
+        print("MK2WidgetLabDemo — units A…H via function buttons or REPL. Type 'help' or press Tab.")
     }
 
     private static func startREPL(_ lab: WidgetLab) {
         let reader = Thread {
-            while let line = readLine(strippingNewline: true) {
+            let editor = LineReader(completer: replComplete)
+            while let line = editor.readLine(prompt: "› ") {
                 let command = line.trimmingCharacters(in: .whitespaces)
                 guard !command.isEmpty else { continue }
-                Task { await lab.command(command) }
+                editor.addHistory(command)
+                // Run the command to completion before reading the next line so its output
+                // never interleaves with the live line editor.
+                let done = DispatchSemaphore(value: 0)
+                Task { await lab.command(command); done.signal() }
+                done.wait()
             }
         }
         reader.stackSize = 1 << 20
         reader.name = "widgetlab-repl"
         reader.start()
     }
+}
+
+/// The single source of truth for the REPL: drives help output, Tab completion, and the
+/// documented argument shapes. Keep it in sync with `WidgetLab.command`.
+struct ReplCommand {
+    let name: String
+    let arg: String
+    let summary: String
+    let values: [String] // completion candidates for the first argument (empty = free/none)
+}
+
+let replCommands: [ReplCommand] = [
+    ReplCommand(name: "unit", arg: "<a-h>", summary: "switch unit", values: Unit.allCases.map { $0.letter }),
+    ReplCommand(name: "text", arg: "<string>", summary: "font lab: sample text", values: []),
+    ReplCommand(name: "face", arg: "grid|label|readout", summary: "focus face", values: ["grid", "label", "readout"]),
+    ReplCommand(name: "weight", arg: "regular|bold", summary: "focus weight", values: ["regular", "bold"]),
+    ReplCommand(name: "bold", arg: "on|off", summary: "focus bold toggle", values: ["on", "off"]),
+    ReplCommand(name: "scale", arg: "<n>", summary: "focus integer pixel scale", values: []),
+    ReplCommand(name: "fg", arg: "<rrggbb|name>", summary: "foreground colour", values: namedColors.keys.sorted()),
+    ReplCommand(name: "bg", arg: "<rrggbb|name|none>", summary: "focus highlight background", values: namedColors.keys.sorted() + ["none"]),
+    ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
+    ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
+    ReplCommand(name: "quit", arg: "", summary: "exit", values: []),
+]
+
+func replComplete(_ tokens: [String]) -> [String] {
+    if tokens.count <= 1 { return replCommands.map { $0.name } + Unit.allCases.map { $0.letter } }
+    guard tokens.count == 2, let command = replCommands.first(where: { $0.name == tokens[0].lowercased() }) else { return [] }
+    return command.values
+}
+
+func printReplHelp() {
+    print("MK2WidgetLabDemo REPL — commands (Tab completes):")
+    for command in replCommands {
+        let left = "\(command.name) \(command.arg)".padding(toLength: 26, withPad: " ", startingAt: 0)
+        print("  \(left)\(command.summary)")
+    }
+    print("  " + "a…h".padding(toLength: 26, withPad: " ", startingAt: 0) + "shortcut for 'unit <letter>'")
 }
 
 private enum Unit: Int, CaseIterable, Sendable {
@@ -278,7 +309,7 @@ private actor WidgetLab {
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
             case "help", "?":
-                MK2WidgetLabDemo_help()
+                printReplHelp()
 
             case "quit", "exit", "q":
                 print("bye"); exit(0)
@@ -324,12 +355,7 @@ private actor WidgetLab {
 
     // Accepts RRGGBB hex or a small set of names, returns wire-order-agnostic RGB565.
     private static func color565(_ text: String) -> UInt16? {
-        let named: [String: UInt16] = [
-            "white": 0xffff, "black": 0x0000, "red": 0xf800, "green": 0x07e0,
-            "blue": 0x001f, "yellow": 0xffe0, "cyan": 0x07ff, "magenta": 0xf81f,
-            "grey": 0x8410, "gray": 0x8410,
-        ]
-        if let hit = named[text.lowercased()] { return hit }
+        if let hit = namedColors[text.lowercased()] { return hit }
         let hex = text.hasPrefix("#") ? String(text.dropFirst()) : text
         guard hex.count == 6, let rgb = UInt32(hex, radix: 16) else { return nil }
         let r = UInt16((rgb >> 16) & 0xff) >> 3
@@ -339,12 +365,11 @@ private actor WidgetLab {
     }
 }
 
-private func MK2WidgetLabDemo_help() {
-    print("""
-    a…h switch unit · text <s> · face grid|label|readout · weight reg|bold
-    scale <n> · fg <rrggbb|name> · bg <rrggbb|name|none> · snap [path] · quit
-    """)
-}
+let namedColors: [String: UInt16] = [
+    "white": 0xffff, "black": 0x0000, "red": 0xf800, "green": 0x07e0,
+    "blue": 0x001f, "yellow": 0xffe0, "cyan": 0x07ff, "magenta": 0xf81f,
+    "orange": 0xfc00, "grey": 0x8410, "gray": 0x8410, "dim": 0x4208,
+]
 
 private enum Palette {
     static let page: UInt16 = 0x0841       // near-black blue
