@@ -404,7 +404,7 @@ public actor MK2Surface2 {
                     return KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
                 }
                 return KompleteKontrolSSeriesMK2.paletteCode(
-                    for: KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+                    for: led.fixedMonochromeBacklightColor,
                     intensity: intensity
                 )
         }

@@ -96,6 +96,10 @@ The middleware holds the intended state of every addressable element:
 - 25 RGB light-guide keys,
 - the button LED table (`KKButtonLED`).
 
+For MK2 surfaces the button LED table is capability-aware rather than uniformly RGB:
+Mute, Solo, and F1-F8 accept RGB palette colours, while the other button indicators are
+fixed-colour monochrome brightness channels (Play green, Stop red, otherwise white).
+
 Per tick it computes `intended` from the active screen + animations, diffs against
 `lastSent`, and flushes only dirty reports. Text/glyph rows collapse to at most one display
 report per changed row; key/LED changes collapse to one guide / one LED report. Backpressure:
@@ -174,7 +178,8 @@ Component catalog (all value types, all overflow/format-aware):
 - `Glyph(index)` / `GlyphRow(indices)` — direct 16-segment access (the glyph table the
   docs already render).
 - `Cell(displayIndex) { … }` — composes the three rows of one LCD.
-- `Lamp(button, on:color:blink:)` — button LED.
+- `Lamp(button, on:color:blink:)` — button LED. Colour is honoured only when the target
+  hardware exposes RGB for that button; fixed-colour buttons quantize it to brightness.
 - `KeyColors { … }` — light-guide layer (see §9).
 
 Screens compose; overlays stack on top (e.g. a transient "value popup" when an encoder is

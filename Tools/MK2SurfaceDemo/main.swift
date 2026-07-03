@@ -241,7 +241,7 @@ private actor MK2FeatureDemo {
 
             case .buttons:
                 // Every addressable button LED is part of the map test. Only M/S and
-                // F1...F8 are RGB-capable; the rest are monochrome white indicators.
+                // F1...F8 are RGB-capable; the rest are fixed-colour monochrome indicators.
                 for led in KKMK2ButtonLED.allCases where led.rawValue < KKMK2ButtonLED.strip1.rawValue {
                     let attractor = led.isRGBBacklit ? KKRGB(red: 0x30, green: 0x90, blue: 0xff) : KKRGB(red: 0xff, green: 0xff, blue: 0xff)
                     lamps[led] = buttonColors[led].map(MK2LampState2.on) ?? .pulse(attractor, period: 1.4)

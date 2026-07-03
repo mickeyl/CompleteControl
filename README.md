@@ -2,7 +2,7 @@
 
 Swift control library and diagnostics tools for the Native Instruments Komplete Kontrol S25 MK1.
 
-This project talks to the S25 MK1 as a real hardware surface: RGB light guide, button LEDs, the nine segmented LCDs, buttons, rotary encoders, touch strips, and USB-MIDI input. It is not an official Native Instruments project and is not endorsed by Native Instruments.
+This project talks to Komplete Kontrol keyboards as real hardware surfaces. The mature path targets the S25 MK1: RGB light guide, button LEDs, the nine segmented LCDs, buttons, rotary encoders, touch strips, and USB-MIDI input. The newer MK2 path targets the S-Series MK2 through `KontrolSurfaceKit2`: two 480x272 pixel displays, function/menu/transport controls, encoders, 4-D input, light guide, and a simulator. It is not an official Native Instruments project and is not endorsed by Native Instruments.
 
 The current implementation targets macOS and is optimized around a privileged libusb daemon with a kqueue reactor. The daemon owns the USB interfaces once, handles async libusb transfers, pushes surface and MIDI input to clients over a Unix domain socket, and keeps output writes out of app processes that should not run as root.
 
@@ -19,11 +19,13 @@ Supported now:
 - Foreground debug daemon and quiet release daemon
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
+- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, and `KontrolSimulator`
+- MK2 button LED capability model: RGB only on Mute, Solo, and F1-F8; all other button indicators are fixed-colour monochrome (normally white, Play green, Stop red)
 
 Not supported yet:
 
 - S49/S61/S88 MK1 verification
-- MK2/MK3 protocol families
+- MK3 protocol family
 - Windows/Linux packaging
 - Stable semantic-versioned public API
 - A final repository license file
@@ -44,6 +46,11 @@ Not supported yet:
 | Display row 0 | Progress/bar row only |
 | Display rows 1-2 | Text or raw 16-segment glyph masks |
 | Input report | Report `0x01`, decoded to button, encoder, touch, and strip events |
+
+MK2 uses the same broad report IDs but different payload layouts and capabilities. In
+particular, its button LED report is not a full RGB button surface: only Mute, Solo, and
+F1-F8 are RGB-capable. The remaining button indicators are fixed-colour monochrome LEDs
+with brightness control; Play is green, Stop is red, and the rest are white.
 
 ## Why This Architecture Exists
 

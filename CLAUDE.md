@@ -103,9 +103,10 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   app is dumb — `SimulatorDeviceSession` lowers semantic input into raw reports; its socket fd
   rides the kqueue reactor exactly where libusb pollfds do, and socket EOF = device-loss.
 - **The app**: `KontrolSimulator` (`Tools/KontrolSimulator`) — two 480×272 displays, 8 function
-  buttons, side buttons, 8 encoders, the 4-D encoder, with rendered LED palette colours
-  (`KompleteKontrolSSeriesMK2.paletteColor(forCode:)`); all clickable/scrollable. Closing the
-  window exercises reconnect.
+  buttons, side buttons, 8 encoders, the 4-D encoder, with hardware-accurate button LEDs:
+  RGB only for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest (Play green,
+  Stop red, otherwise white). All controls are clickable/scrollable. Closing the window
+  exercises reconnect.
 - **Run it**: `make run-simulator` (GUI, one shell) + `make daemon-simulate` (foreground sim
   `ccd`, another shell — stops the launchd daemon, binds the normal client socket) + any client
   (`swift run MK2WidgetLabDemo`). Full design + phasing in `Docs/Simulator-Plan.md`.
@@ -227,13 +228,16 @@ The short version:
   the "dead ribbon" bug), configure via template reports `0xA1` (buttons+knobs), `0xA2`
   (wheels+strip), `0xA3` (pedals), `0xA4` (keyzones), then `0xAF 00 02`.
 - **`A0 00 10` is the real DAW/host mode** (bench 2026-07-02): function-button LEDs (0x80
-  indices 2–9) and ribbon LEDs (44–68) are host-controlled, the strip streams raw on report
-  `0x02` (`[u16 const][u16 const][u16 time ms][u16 pos 0…1024, 0 = release][u16 zero]`,
-  ~100 Hz), keys/wheels stay plain USB-MIDI. In `93 00` the firmware owns those LEDs and host
-  writes are ignored. `ccd` bring-up = `configureMK2HostControl` (`A0 00 10`); the mapping
-  engine + factory templates only return in the shutdown handover. Observation trap: LED
-  writes are wiped the moment the writing client disconnects (idle repaint) — hold the
-  connection while judging LED state.
+  indices 2–9), Mute/Solo (0–1), fixed-colour monochrome button indicators, and ribbon LEDs
+  (44–68) are host-controlled; the strip streams raw on report `0x02` (`[u16 const][u16 const]
+  [u16 time ms][u16 pos 0…1024, 0 = release][u16 zero]`, ~100 Hz), keys/wheels stay plain
+  USB-MIDI. Button LED capability is constrained by hardware: only Mute, Solo, and F1-F8 are
+  RGB; all other button LEDs are fixed-colour monochrome brightness channels (Play green,
+  Stop red, otherwise white). In `93 00` the firmware owns those LEDs and host writes are
+  ignored. `ccd` bring-up = `configureMK2HostControl` (`A0 00 10`); the mapping engine +
+  factory templates only return in the shutdown handover. Observation trap: LED writes are
+  wiped the moment the writing client disconnects (idle repaint) — hold the connection while
+  judging LED state.
 - Strip modes via `KompleteKontrolMK2Protocol.AnalogAssignment`: `.cc` = unipolar (holds value,
   LEDs fill from left), `.pitchBend` = bipolar 14-bit (springs back to center, LEDs fan from
   center, `decay` 0–8). Runtime switch: `KompleteKontrolSSeriesMK2.configureAnalogControls`.
@@ -326,7 +330,8 @@ MK2 kit work Paulinche will pull, in rough priority (protocol side is done — s
    recorded MK2 display benchmarks.
 2. **Input surfacing through the kit**: raw strip (`.strip` position 0…1024 + release), jog
    gestures (byte-6 touch/click/pushes + detents), encoder deltas (modulo 1000).
-3. **Strip LED control** as a DSL element (0x80 indices 44–68, host-owned in `A0 00 10`).
+3. **Strip/ribbon projection** as a DSL element: semantic position/fill over the 0x80 strip
+   indices where host-owned, without pretending it is part of the RGB button surface.
 4. **List/menu navigation** (sample/pattern browsing via 4-D + browse/back/enter).
 5. **Encoder sensitivity as a global + rotary-local modifier** in the DSL — local *factorizes*
    (cumulative, not override) with global. See agent memory `encoder-sensitivity-modifier-plan`.

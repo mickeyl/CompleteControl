@@ -224,7 +224,7 @@ final class PanelView: NSView {
         let pressed = pressedButtons.contains(button.led)
         let code = ledBytes[button.led.rawValue]
         let path = NSBezierPath(roundedRect: button.rect, xRadius: 5, yRadius: 5)
-        ledColor(code, pressed: pressed, led: button.led).setFill()
+        buttonFillColor(code: code, pressed: pressed, led: button.led).setFill()
         path.fill()
         (pressed ? NSColor.white : NSColor(white: 0.3, alpha: 1)).setStroke()
         path.lineWidth = pressed ? 2 : 1
@@ -315,20 +315,33 @@ final class PanelView: NSView {
         text.draw(in: textRect, withAttributes: attrs)
     }
 
-    private func ledColor(_ code: UInt8, pressed: Bool, led: KKMK2ButtonLED) -> NSColor {
+    private func buttonFillColor(code: UInt8, pressed: Bool, led: KKMK2ButtonLED) -> NSColor {
+        if led.isMonochromeBacklit {
+            return pressed ? NSColor(white: 0.08, alpha: 1) : NSColor.black
+        }
+
         if code == 0 {
             return pressed ? NSColor(white: 0.45, alpha: 1) : NSColor(white: 0.18, alpha: 1)
         }
         let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
-        if led.isMonochromeBacklit {
-            let brightness = CGFloat(max(rgb.red, rgb.green, rgb.blue)) / 255
-            return NSColor(white: max(0.35, brightness), alpha: 1)
-        }
         return NSColor(red: CGFloat(rgb.red) / 255, green: CGFloat(rgb.green) / 255, blue: CGFloat(rgb.blue) / 255, alpha: 1)
     }
 
     private func labelColor(for code: UInt8, led: KKMK2ButtonLED) -> NSColor {
-        code == 0 ? NSColor(white: 0.75, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
+        if led.isMonochromeBacklit {
+            let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
+            let brightness = CGFloat(max(rgb.red, rgb.green, rgb.blue)) / 255
+            let base = led.fixedMonochromeBacklightColor
+            let floor: CGFloat = 0.22
+            let scale = max(floor, brightness)
+            return NSColor(
+                red: CGFloat(base.red) / 255 * scale,
+                green: CGFloat(base.green) / 255 * scale,
+                blue: CGFloat(base.blue) / 255 * scale,
+                alpha: 1
+            )
+        }
+        return code == 0 ? NSColor(white: 0.75, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
     }
 
     // MARK: - Interaction

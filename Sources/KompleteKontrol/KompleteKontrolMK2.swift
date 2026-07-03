@@ -219,8 +219,8 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     }
 
     /// Only these ten button LEDs are RGB-capable on the S-Series MK2 hardware. The
-    /// remaining report slots are single-colour white indicators even though they share
-    /// the same 0x80 report.
+    /// remaining report slots are fixed-colour monochrome indicators even though they
+    /// share the same 0x80 report.
     public var isRGBBacklit: Bool {
         switch self {
             case .m, .s,
@@ -234,6 +234,17 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
 
     public var isMonochromeBacklit: Bool {
         !isRGBBacklit
+    }
+
+    public var fixedMonochromeBacklightColor: KKRGB {
+        switch self {
+            case .play:
+                KKRGB(red: 0x00, green: 0xff, blue: 0x00)
+            case .stop:
+                KKRGB(red: 0xff, green: 0x00, blue: 0x00)
+            default:
+                KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+        }
     }
 
     public func ledByte(for color: KKRGB) -> UInt8 {
@@ -255,7 +266,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
                 intensity = 0x03
         }
         return KompleteKontrolSSeriesMK2.paletteCode(
-            for: KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+            for: fixedMonochromeBacklightColor,
             intensity: intensity
         )
     }
