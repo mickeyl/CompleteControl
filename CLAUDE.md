@@ -360,8 +360,15 @@ as the regression baseline for the shared middleware, but no new kit features ge
   `PixelDisplayReconciler`, pixel DSL, strip/jog/encoder inputs. Paulinche imports only this.
   Current tracker-facing widgets include `MK2ButtonToggle` (lamp + optional pixel button),
   `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue` (bounded discrete encoder values with
-  optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, `MK2ModalDialog`, and the
-  FreeType text renderer/catalog for large UI typography.
+  optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, `MK2ModalDialog`,
+  `MK2SelectionList` / `MK2SelectionGrid`, and the FreeType text renderer/catalog for
+  large UI typography. Selection views are one-screen list/grid projections with optional
+  bottom-third filter controls. Keep filter values in fixed physical `E5`-`E8` slots, and
+  do not conflate active filters with focused encoder values: active filters colour labels,
+  while only the touched/turned value is inverted. `MK2WidgetLabDemo` cycles plain/filtered
+  list/grid variants with the `Instance` button; `MK2FreeTypeDemo` uses the same selection
+  elements for its Font Awesome icon browser with `Instance` modes and an `E5` first-letter
+  filter.
   Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)
   get extracted into a small shared core where the seam is clean, or copied once where
   extraction would contort the frozen kit. This also keeps eventual MK1 deletion a

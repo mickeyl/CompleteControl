@@ -70,6 +70,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "title", arg: "<18-32>", summary: "font lab: title pixel size", values: []),
     ReplCommand(name: "icon", arg: "<0-6|name>", summary: "font lab: icon preset", values: []),
     ReplCommand(name: "iconsize", arg: "<32-72>", summary: "font lab: icon pixel size", values: []),
+    ReplCommand(name: "selmode", arg: "", summary: "selection unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
     ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
@@ -110,7 +111,7 @@ private enum Unit: Int, CaseIterable, Sendable {
             case .font: "FONT LAB"
             case .chrome: "CHROME LAB"
             case .meter: "METER LAB"
-            case .list: "LIST LAB"
+            case .list: "SELECTION LAB"
             case .pattern: "PATTERN LAB"
             case .waveform: "WAVEFORM LAB"
             case .keys: "KEYS LAB"
@@ -123,7 +124,7 @@ private enum Unit: Int, CaseIterable, Sendable {
             case .font: "FONT"
             case .chrome: "CHRM"
             case .meter: "METR"
-            case .list: "LIST"
+            case .list: "SEL"
             case .pattern: "PATT"
             case .waveform: "WAVE"
             case .keys: "KEYS"
@@ -132,7 +133,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .pattern }
+    var implemented: Bool { self == .font || self == .list || self == .pattern }
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -157,6 +158,14 @@ private actor WidgetLab {
     private var titlePixelSize = 24
     private var iconSampleIndex = 1
     private var iconPixelSize = 48
+    private var selectionMode: SelectionDemoMode = .plainList
+    private var selectionIndex = 0
+    private var selectionTypeIndex = 0
+    private var selectionToneIndex = 0
+    private var selectionBankIndex = 0
+    private var selectionCellSizeIndex = 1
+    private var selectionFocusedFilterEncoder: Int?
+    private var selectionConfirmation = "Noch nichts bestätigt"
     private var isPlaying = false
     private var recordArmed = false
     private var metronomeEnabled = false
@@ -232,6 +241,28 @@ private actor WidgetLab {
         FontLabIconSample(name: "Sliders", glyph: "\u{f1de}", color: Palette.solo),
         FontLabIconSample(name: "Trash", glyph: "\u{f2ed}", color: Palette.mute),
     ]
+    private static let selectionItems = [
+        SelectionDemoItem(title: "Kick Resin", detail: "Round transient, short tail", category: "Drums", tone: "Warm", bank: "Factory", icon: "\u{f001}"),
+        SelectionDemoItem(title: "Snare Alloy", detail: "Bright shell with tight snap", category: "Drums", tone: "Bright", bank: "Factory", icon: "\u{f001}"),
+        SelectionDemoItem(title: "Hat Needle", detail: "Closed metallic tick", category: "Drums", tone: "Bright", bank: "User", icon: "\u{f001}"),
+        SelectionDemoItem(title: "Bass Rubber", detail: "Elastic mono bass", category: "Bass", tone: "Warm", bank: "Factory", icon: "\u{f8d7}"),
+        SelectionDemoItem(title: "Sub Pure", detail: "Clean sine foundation", category: "Bass", tone: "Dark", bank: "User", icon: "\u{f8d7}"),
+        SelectionDemoItem(title: "Lead Glass", detail: "Thin digital lead", category: "Synth", tone: "Bright", bank: "Factory", icon: "\u{e2ca}"),
+        SelectionDemoItem(title: "Arp Carbon", detail: "Tight sequence layer", category: "Synth", tone: "Dark", bank: "User", icon: "\u{e2ca}"),
+        SelectionDemoItem(title: "Pad Violet", detail: "Slow ensemble pad", category: "Pads", tone: "Warm", bank: "Factory", icon: "\u{f8ef}"),
+        SelectionDemoItem(title: "Tape Strings", detail: "Soft sampled ensemble", category: "Pads", tone: "Warm", bank: "User", icon: "\u{f8ef}"),
+        SelectionDemoItem(title: "Organ Mini", detail: "Small drawbar comp", category: "Keys", tone: "Bright", bank: "Factory", icon: "\u{f001}"),
+        SelectionDemoItem(title: "Piano Noir", detail: "Muted felt grand", category: "Keys", tone: "Dark", bank: "User", icon: "\u{f001}"),
+        SelectionDemoItem(title: "Vox Byte", detail: "Formant stab", category: "Voice", tone: "Bright", bank: "User", icon: "\u{f130}"),
+    ]
+    private static let selectionTypes = ["All", "Drums", "Bass", "Synth", "Pads", "Keys", "Voice"]
+    private static let selectionTones = ["All", "Warm", "Bright", "Dark"]
+    private static let selectionBanks = ["All", "Factory", "User"]
+    private static let selectionCellSizes = [
+        MK2SelectionCellSize(width: 232, height: 66),
+        MK2SelectionCellSize(width: 154, height: 58),
+        MK2SelectionCellSize(width: 116, height: 48),
+    ]
 
     init(surface: MK2Surface2) {
         self.surface = surface
@@ -271,7 +302,9 @@ private actor WidgetLab {
                 ? Self.activeLamp(Self.actionWhite)
                 : (candidate.implemented ? Self.availableLamp(Self.actionWhite) : .off)
         }
-        if unit == .pattern {
+        if unit == .list {
+            lamps[.instance] = Self.availableLamp(Self.actionWhite)
+        } else if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
@@ -309,6 +342,16 @@ private actor WidgetLab {
         }
         if unit == .font {
             for binding in fontLabEncoderBindings() {
+                binding.apply(bindings: &bindings)
+            }
+        } else if unit == .list {
+            bindings.onPress(.instance) { [weak self] in
+                Task { await self?.cycleSelectionMode() }
+            }
+            bindings.jog = { [weak self] direction in
+                Task { await self?.handleSelectionJog(direction) }
+            }
+            for binding in selectionEncoderBindings() {
                 binding.apply(bindings: &bindings)
             }
         } else if unit == .pattern {
@@ -396,6 +439,7 @@ private actor WidgetLab {
     private func frames() -> (MK2PixelFrame, MK2PixelFrame) {
         switch unit {
             case .font: (fontCatalogFrame(), fontFocusFrame())
+            case .list: (selectionStatusFrame(), selectionPickerFrame())
             case .pattern: (trackerGridFrame(), trackerDetailFrame())
             default: (comingSoonFrame(), placeholderRightFrame())
         }
@@ -433,6 +477,65 @@ private actor WidgetLab {
             BitmapLabel(sampleText, font: font, color: Palette.text)
                 .draw(into: &frame, x: 112, y: y, clip: MK2PixelRect(x: 112, y: y, width: 352, height: font.cellHeight))
             y += font.cellHeight + 8
+        }
+        return frame
+    }
+
+    // MARK: - Selection lab
+
+    private func selectionStatusFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        let items = filteredSelectionItems()
+        let selected = selectedSelectionItem()
+        BitmapLabel("SELECTION LAB", font: .label, color: Palette.accent)
+            .draw(into: &frame, x: 8, y: 8)
+        drawFreeTypeTitle(selectionMode.title, into: &frame, x: 16, y: 42, size: 24, color: Palette.text, maxWidth: 432)
+        drawFreeTypeBody("INSTANCE schaltet Plain List, Plain Grid, Filtered List und Filtered Grid.", into: &frame, x: 16, y: 82, size: 16, color: Palette.dim, maxWidth: 432)
+        drawFreeTypeBody("4D dreht durch die Auswahl, 4D-Press bestätigt.", into: &frame, x: 16, y: 126, size: 16, color: Palette.dim, maxWidth: 432)
+        drawFreeTypeBody("Treffer: \(items.count) / \(Self.selectionItems.count)", into: &frame, x: 16, y: 164, size: 16, color: Palette.text, maxWidth: 432)
+        if let selected {
+            drawFreeTypeBody("Aktuell: \(selected.title)", into: &frame, x: 16, y: 192, size: 16, color: Palette.blue, maxWidth: 432)
+        }
+        drawFreeTypeBody(selectionConfirmation, into: &frame, x: 16, y: 236, size: 16, color: Palette.empty, maxWidth: 432)
+        return frame
+    }
+
+    private func selectionPickerFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        let items = filteredSelectionItems().map(\.selectionItem)
+        let filters = selectionMode.hasFilters ? selectionFilters() : []
+        let subtitle = selectionMode.hasFilters ? "4D select, E5-E7 filter" : "4D select, INSTANCE mode"
+        let colors = MK2SelectionViewColors(
+            background: Palette.page,
+            text: Palette.text,
+            dim: Palette.dim,
+            muted: Palette.empty,
+            accent: Palette.accent,
+            selectionFill: Palette.selectionFill,
+            border: Palette.border,
+            filterFill: Palette.filterFill
+        )
+
+        if selectionMode.isGrid {
+            MK2SelectionGrid(
+                title: selectionMode.shortTitle,
+                subtitle: subtitle,
+                items: items,
+                selectedIndex: selectionIndex,
+                cellSize: Self.selectionCellSizes[selectionCellSizeIndex],
+                filters: filters,
+                colors: colors
+            ).draw(into: &frame, renderer: freeTypeRenderer)
+        } else {
+            MK2SelectionList(
+                title: selectionMode.shortTitle,
+                subtitle: subtitle,
+                items: items,
+                selectedIndex: selectionIndex,
+                filters: filters,
+                rowHeight: selectionMode.hasFilters ? 44 : 30,
+                colors: colors
+            ).draw(into: &frame, renderer: freeTypeRenderer)
         }
         return frame
     }
@@ -638,6 +741,8 @@ private actor WidgetLab {
             case .font:
                 setFontSampleIndex(fontSampleIndex + delta)
                 await render()
+            case .list:
+                await moveSelection(delta)
             case .pattern:
                 guard !isPlaying else { return }
                 playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
@@ -712,6 +817,181 @@ private actor WidgetLab {
     private func setIconPixelSize(_ value: Int) async {
         iconPixelSize = max(32, min(72, value))
         await render()
+    }
+
+    private func cycleSelectionMode() async {
+        guard unit == .list else { return }
+        selectionMode = selectionMode.next
+        if !selectionMode.hasFilters {
+            selectionFocusedFilterEncoder = nil
+        }
+        clampSelectionIndex()
+        await render()
+    }
+
+    private func handleSelectionJog(_ direction: String) async {
+        guard unit == .list else { return }
+        switch direction {
+            case "up":
+                await moveSelection(-1)
+            case "down":
+                await moveSelection(1)
+            case "press":
+                await confirmSelection()
+            default:
+                break
+        }
+    }
+
+    private func moveSelection(_ delta: Int) async {
+        guard unit == .list, delta != 0 else { return }
+        let count = filteredSelectionItems().count
+        guard count > 0 else { return }
+        selectionIndex = max(0, min(count - 1, selectionIndex + delta))
+        await render()
+    }
+
+    private func confirmSelection() async {
+        guard unit == .list, let selected = selectedSelectionItem() else { return }
+        selectionConfirmation = "Bestätigt: \(selected.title)"
+        await render()
+    }
+
+    private func selectionEncoderBindings() -> [MK2EncoderDiscreteValue] {
+        guard selectionMode.hasFilters else { return [] }
+        var bindings = [
+            MK2EncoderDiscreteValue(
+                encoder: 5,
+                value: selectionTypeIndex,
+                bounds: 0...(Self.selectionTypes.count - 1),
+                wraps: true,
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSelectionFilterFocus(encoder: 5, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSelectionType(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 6,
+                value: selectionToneIndex,
+                bounds: 0...(Self.selectionTones.count - 1),
+                wraps: true,
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSelectionFilterFocus(encoder: 6, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSelectionTone(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 7,
+                value: selectionBankIndex,
+                bounds: 0...(Self.selectionBanks.count - 1),
+                wraps: true,
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSelectionFilterFocus(encoder: 7, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSelectionBank(value) }
+                }
+            )
+        ]
+        if selectionMode.isGrid {
+            bindings.append(
+                MK2EncoderDiscreteValue(
+                    encoder: 8,
+                    value: selectionCellSizeIndex,
+                    bounds: 0...(Self.selectionCellSizes.count - 1),
+                    wraps: true,
+                    onTouch: { [weak self] touched in
+                        Task { await self?.setSelectionFilterFocus(encoder: 8, touched: touched) }
+                    },
+                    onChange: { [weak self] value in
+                        Task { await self?.setSelectionCellSize(value) }
+                    }
+                )
+            )
+        }
+        return bindings
+    }
+
+    private func setSelectionType(_ value: Int) async {
+        guard unit == .list else { return }
+        selectionFocusedFilterEncoder = 5
+        selectionTypeIndex = value.wrapped(to: 0...(Self.selectionTypes.count - 1))
+        clampSelectionIndex()
+        await render()
+    }
+
+    private func setSelectionTone(_ value: Int) async {
+        guard unit == .list else { return }
+        selectionFocusedFilterEncoder = 6
+        selectionToneIndex = value.wrapped(to: 0...(Self.selectionTones.count - 1))
+        clampSelectionIndex()
+        await render()
+    }
+
+    private func setSelectionBank(_ value: Int) async {
+        guard unit == .list else { return }
+        selectionFocusedFilterEncoder = 7
+        selectionBankIndex = value.wrapped(to: 0...(Self.selectionBanks.count - 1))
+        clampSelectionIndex()
+        await render()
+    }
+
+    private func setSelectionCellSize(_ value: Int) async {
+        guard unit == .list else { return }
+        selectionFocusedFilterEncoder = 8
+        selectionCellSizeIndex = value.wrapped(to: 0...(Self.selectionCellSizes.count - 1))
+        clampSelectionIndex()
+        await render()
+    }
+
+    private func setSelectionFilterFocus(encoder: Int, touched: Bool) async {
+        guard unit == .list, selectionMode.hasFilters else { return }
+        if touched {
+            selectionFocusedFilterEncoder = encoder
+        } else if selectionFocusedFilterEncoder == encoder {
+            selectionFocusedFilterEncoder = nil
+        }
+        await render()
+    }
+
+    private func selectedSelectionItem() -> SelectionDemoItem? {
+        let items = filteredSelectionItems()
+        guard items.indices.contains(selectionIndex) else { return items.first }
+        return items[selectionIndex]
+    }
+
+    private func filteredSelectionItems() -> [SelectionDemoItem] {
+        guard selectionMode.hasFilters else { return Self.selectionItems }
+        let type = Self.selectionTypes[selectionTypeIndex]
+        let tone = Self.selectionTones[selectionToneIndex]
+        let bank = Self.selectionBanks[selectionBankIndex]
+        return Self.selectionItems.filter { item in
+            (type == "All" || item.category == type)
+                && (tone == "All" || item.tone == tone)
+                && (bank == "All" || item.bank == bank)
+        }
+    }
+
+    private func selectionFilters() -> [MK2SelectionFilter] {
+        var filters = [
+            MK2SelectionFilter(label: "TYPE", value: Self.selectionTypes[selectionTypeIndex], encoder: 5, isActive: selectionTypeIndex != 0, isFocused: selectionFocusedFilterEncoder == 5),
+            MK2SelectionFilter(label: "TONE", value: Self.selectionTones[selectionToneIndex], encoder: 6, isActive: selectionToneIndex != 0, isFocused: selectionFocusedFilterEncoder == 6),
+            MK2SelectionFilter(label: "BANK", value: Self.selectionBanks[selectionBankIndex], encoder: 7, isActive: selectionBankIndex != 0, isFocused: selectionFocusedFilterEncoder == 7),
+        ]
+        if selectionMode.isGrid {
+            let size = Self.selectionCellSizes[selectionCellSizeIndex]
+            filters.append(MK2SelectionFilter(label: "CELL", value: "\(size.width)x\(size.height)", encoder: 8, isActive: true, isFocused: selectionFocusedFilterEncoder == 8))
+        }
+        return filters
+    }
+
+    private func clampSelectionIndex() {
+        let count = filteredSelectionItems().count
+        selectionIndex = count == 0 ? 0 : max(0, min(count - 1, selectionIndex))
     }
 
     private func moveFocusedChannel(_ delta: Int) async {
@@ -1063,7 +1343,7 @@ private actor WidgetLab {
 
     private func placeholderRightFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("A FONT   B CHRM   C METR   D LIST", font: .label, color: Palette.dim)
+        BitmapLabel("A FONT   B CHRM   C METR   D SEL", font: .label, color: Palette.dim)
             .draw(into: &frame, x: 8, y: 40)
         BitmapLabel("E PATT   F WAVE   G KEYS   H SCEN", font: .label, color: Palette.dim)
             .draw(into: &frame, x: 8, y: 60)
@@ -1149,6 +1429,9 @@ private actor WidgetLab {
                 guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
                       (32...72).contains(value) else { print("? iconsize <32-72>"); return }
                 await setIconPixelSize(value)
+
+            case "selmode":
+                await cycleSelectionMode()
 
             case "play":
                 await play()
@@ -1508,6 +1791,56 @@ private struct FontLabIconSample: Sendable {
     var color: UInt16
 }
 
+private struct SelectionDemoItem: Sendable {
+    var title: String
+    var detail: String
+    var category: String
+    var tone: String
+    var bank: String
+    var icon: String
+
+    var selectionItem: MK2SelectionItem {
+        MK2SelectionItem(title: title, detail: detail, badge: category, iconGlyph: icon)
+    }
+}
+
+private enum SelectionDemoMode: Int, CaseIterable, Sendable {
+    case plainList
+    case plainGrid
+    case filteredList
+    case filteredGrid
+
+    var next: SelectionDemoMode {
+        Self(rawValue: (rawValue + 1) % Self.allCases.count)!
+    }
+
+    var title: String {
+        switch self {
+            case .plainList: "Plain List"
+            case .plainGrid: "Plain Grid"
+            case .filteredList: "Filtered List"
+            case .filteredGrid: "Filtered Grid"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+            case .plainList: "PLAIN LIST"
+            case .plainGrid: "PLAIN GRID"
+            case .filteredList: "FILTERED LIST"
+            case .filteredGrid: "FILTERED GRID"
+        }
+    }
+
+    var isGrid: Bool {
+        self == .plainGrid || self == .filteredGrid
+    }
+
+    var hasFilters: Bool {
+        self == .filteredList || self == .filteredGrid
+    }
+}
+
 private struct TrackerDemoRow: Sendable {
     var cells: [TrackerDemoCell]
 }
@@ -1645,6 +1978,8 @@ private enum Palette {
     static let editFieldFocusedFill: UInt16 = 0xc618
     static let track: UInt16 = 0x2126
     static let dialogSurface: UInt16 = 0x18e3
+    static let selectionFill: UInt16 = 0x2126
+    static let filterFill: UInt16 = 0x1083
 }
 
 private extension MK2PixelFrame {

@@ -323,8 +323,15 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
 - `MK2StatusLine`: fixed-position compact header/status text for pixel-display pages.
 - `MK2ValueCell`: a labelled, fixed-size value field intended for encoder-bound controls.
 - `MK2ModalDialog`: global modal dialog projection with 4-D encoder selection/confirm and hardware-button dismiss.
+- `MK2SelectionList` / `MK2SelectionGrid`: reusable selection projections for one-screen
+  lists and configurable-cell grids, with optional bottom-third filter controls aligned to
+  fixed `E5`-`E8` rotary encoder slots. Filter state separates "active" from "focused":
+  active filters colour the label, while only the touched/turned encoder value is inverted.
 
 For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
+For the Selection Lab unit, `Instance` cycles plain list, plain grid, filtered list, and
+filtered grid. The 4-D encoder moves by one item and confirms on press; filtered modes use
+right-side encoders for category filters.
 
 ## MK2 FreeType Font Exploration
 
@@ -353,6 +360,8 @@ The demo prints a full control map at startup. Hardware controls:
 - `Page Left` / `Page Right`: previous / next icon
 - `Plugin` / `Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
   dialog copy
+- `Instance`: cycle the icon browser between list, grid, filtered list, and filtered grid
+- `E5`: in filtered icon-browser modes, choose the first-letter filter `ALL` / `A`-`Z`
 - `Preset Down` / `Preset Up`: smaller / larger icon size
 
 Recommended OLED default is `Gray hinted`. LCD/subpixel rendering is intentionally not used

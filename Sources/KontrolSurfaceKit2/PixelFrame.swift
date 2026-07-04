@@ -91,11 +91,31 @@ public struct MK2PixelFrame: Sendable, Equatable {
         }
 
         let sampleCount = 4
-        for y in rect.y..<rect.maxY where (0..<Self.height).contains(y) {
-            for x in rect.x..<rect.maxX where (0..<Self.width).contains(x) {
+        fill(MK2PixelRect(x: rect.x + radius, y: rect.y, width: rect.width - radius * 2, height: rect.height), color)
+        fill(MK2PixelRect(x: rect.x, y: rect.y + radius, width: rect.width, height: rect.height - radius * 2), color)
+        fillRoundedCorner(rect: rect, radius: radius, cornerX: 0, cornerY: 0, color: color, sampleCount: sampleCount)
+        fillRoundedCorner(rect: rect, radius: radius, cornerX: rect.width - radius, cornerY: 0, color: color, sampleCount: sampleCount)
+        fillRoundedCorner(rect: rect, radius: radius, cornerX: 0, cornerY: rect.height - radius, color: color, sampleCount: sampleCount)
+        fillRoundedCorner(rect: rect, radius: radius, cornerX: rect.width - radius, cornerY: rect.height - radius, color: color, sampleCount: sampleCount)
+    }
+
+    private mutating func fillRoundedCorner(
+        rect: MK2PixelRect,
+        radius: Int,
+        cornerX: Int,
+        cornerY: Int,
+        color: UInt16,
+        sampleCount: Int
+    ) {
+        for localY in cornerY..<(cornerY + radius) {
+            let y = rect.y + localY
+            guard (0..<Self.height).contains(y) else { continue }
+            for localX in cornerX..<(cornerX + radius) {
+                let x = rect.x + localX
+                guard (0..<Self.width).contains(x) else { continue }
                 let coverage = roundedRectCoverage(
-                    x: x - rect.x,
-                    y: y - rect.y,
+                    x: localX,
+                    y: localY,
                     width: rect.width,
                     height: rect.height,
                     radius: radius,

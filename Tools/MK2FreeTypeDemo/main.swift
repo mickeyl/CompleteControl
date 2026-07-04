@@ -49,6 +49,49 @@ private actor FreeTypeDemo {
         let action: String
     }
 
+    private enum IconSelectionMode: Int, CaseIterable, Sendable {
+        case plainList
+        case plainGrid
+        case filteredList
+        case filteredGrid
+
+        var title: String {
+            switch self {
+                case .plainList: "ICON LIST"
+                case .plainGrid: "ICON GRID"
+                case .filteredList: "FILTERED LIST"
+                case .filteredGrid: "FILTERED GRID"
+            }
+        }
+
+        var shortTitle: String {
+            switch self {
+                case .plainList: "LIST"
+                case .plainGrid: "GRID"
+                case .filteredList: "A-Z LIST"
+                case .filteredGrid: "A-Z GRID"
+            }
+        }
+
+        var hasFilter: Bool {
+            switch self {
+                case .filteredList, .filteredGrid: true
+                case .plainList, .plainGrid: false
+            }
+        }
+
+        var isGrid: Bool {
+            switch self {
+                case .plainGrid, .filteredGrid: true
+                case .plainList, .filteredList: false
+            }
+        }
+
+        var next: IconSelectionMode {
+            Self.allCases[(rawValue + 1) % Self.allCases.count]
+        }
+    }
+
     private static let textFamilyID = FreeTypeFontCatalog.textFamilyID
     private static let rasterMode = FreeTypeRasterMode.grayscaleHinted
     private static let bodySize = 16
@@ -72,6 +115,9 @@ private actor FreeTypeDemo {
 
     private var page: Page = .typography
     private var iconIndex: Int
+    private var iconSelectionMode: IconSelectionMode = .plainList
+    private var iconLetterFilterIndex = 0
+    private var focusedIconFilterEncoder: Int?
     private var iconSizeIndex = 7
     private var actionIndex = 0
 
@@ -105,6 +151,8 @@ private actor FreeTypeDemo {
           4D Up / 4D Down              scroll right icon list by one page
           Page Left / Page Right       previous / next icon
           Plugin / Mixer               jump -16 / +16 icons
+          Instance                     cycle list/grid/filter list/filter grid
+          E5                           filtered modes: A-Z first-letter filter
           Preset Down / Preset Up      smaller / larger icon size
 
         Action-dialog page:
@@ -155,6 +203,9 @@ private actor FreeTypeDemo {
         lamps[.plugin] = Self.availableLamp
         lamps[.mixer] = Self.availableLamp
         if page == .icons {
+            lamps[.instance] = Self.availableLamp
+        }
+        if page == .icons {
             lamps[.jogLeft] = Self.availableLamp
             lamps[.jogRight] = Self.availableLamp
             lamps[.jogUp] = Self.availableLamp
@@ -177,11 +228,17 @@ private actor FreeTypeDemo {
         bindings.onPress(.plugin) { [weak self] in Task { await self?.moveIcon(-16) } }
         bindings.onPress(.mixer) { [weak self] in Task { await self?.mixerAction() } }
         if page == .icons {
+            bindings.onPress(.instance) { [weak self] in
+                Task { await self?.cycleIconSelectionMode() }
+            }
             bindings.jogScroll = { [weak self] delta, _ in
                 Task { await self?.moveIcon(delta) }
             }
             bindings.jog = { [weak self] direction in
                 Task { await self?.jogIconList(direction) }
+            }
+            for binding in iconFilterEncoderBindings() {
+                binding.apply(bindings: &bindings)
             }
         }
 
@@ -201,8 +258,22 @@ private actor FreeTypeDemo {
         await render()
     }
 
+    private func cycleIconSelectionMode() async {
+        guard page == .icons else { return }
+        iconSelectionMode = iconSelectionMode.next
+        if !iconSelectionMode.hasFilter {
+            focusedIconFilterEncoder = nil
+        }
+        clampIconToVisibleSelection()
+        await render()
+    }
+
     private func moveIcon(_ delta: Int) async {
-        iconIndex = (iconIndex + delta).wrapped(to: 0...(icons.count - 1))
+        let visible = page == .icons ? visibleIcons() : allIconEntries()
+        guard !visible.isEmpty else { return }
+        let current = selectedVisibleIconIndex(in: visible)
+        let next = (current + delta).wrapped(to: 0...(visible.count - 1))
+        iconIndex = visible[next].globalIndex
         await render()
     }
 
@@ -222,6 +293,42 @@ private actor FreeTypeDemo {
         await render()
     }
 
+    private func iconFilterEncoderBindings() -> [MK2EncoderDiscreteValue] {
+        guard iconSelectionMode.hasFilter else { return [] }
+        return [
+            MK2EncoderDiscreteValue(
+                encoder: 5,
+                value: iconLetterFilterIndex,
+                bounds: 0...(Self.iconLetterFilters.count - 1),
+                wraps: true,
+                onTouch: { [weak self] touched in
+                    Task { await self?.setIconFilterFocus(encoder: 5, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setIconLetterFilter(value) }
+                }
+            )
+        ]
+    }
+
+    private func setIconLetterFilter(_ value: Int) async {
+        guard page == .icons, iconSelectionMode.hasFilter else { return }
+        focusedIconFilterEncoder = 5
+        iconLetterFilterIndex = value.wrapped(to: 0...(Self.iconLetterFilters.count - 1))
+        clampIconToVisibleSelection()
+        await render()
+    }
+
+    private func setIconFilterFocus(encoder: Int, touched: Bool) async {
+        guard page == .icons, iconSelectionMode.hasFilter else { return }
+        if touched {
+            focusedIconFilterEncoder = encoder
+        } else if focusedIconFilterEncoder == encoder {
+            focusedIconFilterEncoder = nil
+        }
+        await render()
+    }
+
     private func mixerAction() async {
         if page == .actionDialog {
             actionIndex = (actionIndex + 1).wrapped(to: 0...(actionCandidates.count - 1))
@@ -233,6 +340,32 @@ private actor FreeTypeDemo {
             return
         }
         await render()
+    }
+
+    private static let iconLetterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
+
+    private func allIconEntries() -> [(globalIndex: Int, icon: FontAwesomeIcon)] {
+        icons.enumerated().map { (globalIndex: $0.offset, icon: $0.element) }
+    }
+
+    private func visibleIcons() -> [(globalIndex: Int, icon: FontAwesomeIcon)] {
+        let indexed = allIconEntries()
+        guard iconSelectionMode.hasFilter else { return indexed }
+        let letter = Self.iconLetterFilters[iconLetterFilterIndex]
+        guard letter != "ALL" else { return indexed }
+        return indexed.filter { $0.icon.name.uppercased().hasPrefix(letter) }
+    }
+
+    private func selectedVisibleIconIndex(in visible: [(globalIndex: Int, icon: FontAwesomeIcon)]) -> Int {
+        visible.firstIndex { $0.globalIndex == iconIndex } ?? 0
+    }
+
+    private func clampIconToVisibleSelection() {
+        let visible = visibleIcons()
+        guard !visible.isEmpty else { return }
+        if !visible.contains(where: { $0.globalIndex == iconIndex }) {
+            iconIndex = visible[0].globalIndex
+        }
     }
 
     private func leftFrame() -> MK2PixelFrame {
@@ -281,31 +414,75 @@ private actor FreeTypeDemo {
 
     private func iconBrowserFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.background)
-        drawBitmapHeader(into: &frame, title: page.title, subtitle: "\(iconIndex + 1)/\(icons.count) \(Self.iconStyleLabel)")
+        let visible = visibleIcons()
+        let visibleIndex = selectedVisibleIconIndex(in: visible)
+        drawBitmapHeader(into: &frame, title: page.title, subtitle: "\(visibleIndex + 1)/\(max(1, visible.count)) \(iconSelectionMode.title)")
         drawIcon(icon, into: &frame, centerX: 240, baselineY: 72, size: iconSize, color: Palette.text)
         drawTitle(icon.label, into: &frame, x: 18, y: 158, color: Palette.text, maxWidth: 432)
         drawBody(icon.name, into: &frame, x: 18, y: 194, color: Palette.dim, maxWidth: 432)
         drawBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, iconSize, Self.iconStyleLabel), into: &frame, x: 18, y: 222, color: Palette.dim, maxWidth: 432)
-        drawBody("Main rotary +/-1   4D up/down +/-7   Preset size", into: &frame, x: 18, y: 248, color: Palette.muted, maxWidth: 432)
+        drawBody("INSTANCE mode  Main +/-1  4D page  E5 A-Z filter", into: &frame, x: 18, y: 248, color: Palette.muted, maxWidth: 432)
         return frame
     }
 
     private func iconListFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.panel)
-        drawBitmapHeader(into: &frame, title: "NEARBY ICONS", subtitle: "\(icons.count) icons, Pro Light")
-        let offsets = [-3, -2, -1, 0, 1, 2, 3]
-        for (row, offset) in offsets.enumerated() {
-            let index = (iconIndex + offset).wrapped(to: 0...(icons.count - 1))
-            let item = icons[index]
-            let y = 50 + row * 30
-            if index == iconIndex {
-                frame.fill(MK2PixelRect(x: 8, y: y - 4, width: 464, height: 27), Palette.selection)
-            }
-            drawIcon(item, into: &frame, x: 20, y: y - 2, size: 22, color: Palette.text)
-            drawBody(item.name, into: &frame, x: 58, y: y, color: index == iconIndex ? Palette.text : Palette.dim, maxWidth: 280)
-            drawBody("PLT", into: &frame, x: 360, y: y, color: Palette.text)
+        let visible = visibleIcons()
+        let items = visible.map { entry in
+            MK2SelectionItem(
+                title: entry.icon.name,
+                detail: entry.icon.label,
+                badge: Self.iconStyleLabel,
+                iconGlyph: entry.icon.glyph
+            )
+        }
+        let selected = selectedVisibleIconIndex(in: visible)
+        let filters = iconSelectionMode.hasFilter ? iconFilters() : []
+        let colors = MK2SelectionViewColors(
+            background: Palette.panel,
+            text: Palette.text,
+            dim: Palette.dim,
+            muted: Palette.muted,
+            accent: Palette.accent,
+            selectionFill: Palette.selection,
+            border: Palette.border,
+            filterFill: Palette.background,
+            filterValue: Palette.text
+        )
+        if iconSelectionMode.isGrid {
+            MK2SelectionGrid(
+                title: iconSelectionMode.shortTitle,
+                subtitle: "\(visible.count) icons, \(Self.iconStyleLabel)",
+                items: items,
+                selectedIndex: selected,
+                cellSize: MK2SelectionCellSize(width: 154, height: 58),
+                filters: filters,
+                colors: colors
+            ).draw(into: &frame, renderer: renderer)
+        } else {
+            MK2SelectionList(
+                title: iconSelectionMode.shortTitle,
+                subtitle: "\(visible.count) icons, \(Self.iconStyleLabel)",
+                items: items,
+                selectedIndex: selected,
+                filters: filters,
+                rowHeight: iconSelectionMode.hasFilter ? 44 : 30,
+                colors: colors
+            ).draw(into: &frame, renderer: renderer)
         }
         return frame
+    }
+
+    private func iconFilters() -> [MK2SelectionFilter] {
+        [
+            MK2SelectionFilter(
+                label: "LETTER",
+                value: Self.iconLetterFilters[iconLetterFilterIndex],
+                encoder: 5,
+                isActive: iconLetterFilterIndex != 0,
+                isFocused: focusedIconFilterEncoder == 5
+            )
+        ]
     }
 
     private func actionDialogFrame() -> MK2PixelFrame {

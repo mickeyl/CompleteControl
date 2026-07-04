@@ -460,6 +460,21 @@ the left display, edit projection on the right display, transport/metronome/mute
 hardware toggles, channel focus via Page Left/Right, instrument selection via Preset Up/Down,
 exact row via the 4-D encoder, and edit fields on rotary encoders 5-8. The recent
 `KontrolSurfaceKit2` widgets pulled from that lab are `MK2ButtonToggle`,
-`MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue`, `MK2StatusLine`, `MK2ValueCell`, and
-`MK2ModalDialog`. The MCU/HUI adapter is deprioritized — Paulinche integrates directly, not via
-MIDI emulation.
+`MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue`, `MK2StatusLine`, `MK2ValueCell`,
+`MK2SelectionList`, `MK2SelectionGrid`, and `MK2ModalDialog`.
+
+The Selection Lab unit formalizes one-screen list/grid projections. `MK2SelectionList` and
+`MK2SelectionGrid` render icon-demo-style rows or configurable-cell grids, with an optional
+bottom-third filter area driven by right-side rotary encoders. Filter value cells always sit
+in fixed `E5`-`E8` slots, independent of how many filters are currently shown, so the value
+projection stays aligned with the physical encoder. Active filters and focused encoder values
+are separate states: active filters colour their label, while only the touched/turned encoder
+uses the inverted value-cell treatment. Rounded rectangles use antialiased corners, with the
+pixel fill path optimized to shade only the corner regions instead of supersampling large
+interior panels on every encoder tick.
+
+In the lab, `Instance` cycles plain list, plain grid, filtered list, and filtered grid; the
+4-D encoder moves selection by one item and confirms on press. `MK2FreeTypeDemo` uses the same
+selection elements for the Font Awesome icon browser: `Instance` cycles list/grid/filter
+variants, and `E5` filters by first letter (`ALL`, `A`-`Z`). The MCU/HUI adapter is
+deprioritized — Paulinche integrates directly, not via MIDI emulation.
