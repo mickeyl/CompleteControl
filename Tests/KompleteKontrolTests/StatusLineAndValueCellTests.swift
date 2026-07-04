@@ -1,7 +1,8 @@
+import Foundation
 import Testing
 @testable import KontrolSurfaceKit2
 
-@Suite("Status line and value cell")
+@Suite("Status line and value cell", .serialized)
 struct StatusLineAndValueCellTests {
     @Test("Status line renders text at the requested y position")
     func statusLineRendersText() {
@@ -39,6 +40,72 @@ struct StatusLineAndValueCellTests {
         #expect(unfocused[rect.x + 2, rect.y + 2] == colors.fill)
         #expect(focused[rect.x, rect.y] == colors.focusedBorder)
         #expect(focused[rect.x + 2, rect.y + 2] == colors.focusedFill)
+    }
+
+    @Test("Rounded value cell antialiases corner pixels")
+    func valueCellRoundedCornersAntialias() {
+        UserDefaults.standard.set(true, forKey: MK2RenderSettings.antialiasingEnabledDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: MK2RenderSettings.antialiasingEnabledDefaultsKey) }
+
+        let colors = MK2ValueCellColors(
+            label: 0xffff,
+            value: 0x07e0,
+            border: 0xffff,
+            fill: 0x001f,
+            focusedValue: 0x0000,
+            focusedFill: 0xc618,
+            focusedBorder: 0xffff
+        )
+        let rect = MK2PixelRect(x: 20, y: 40, width: 80, height: 30)
+        var frame = MK2PixelFrame()
+
+        MK2ValueCell(label: "VOL", value: "40", rect: rect, cornerRadius: 8, colors: colors)
+            .draw(into: &frame)
+
+        var hasBlendedCornerPixel = false
+        for y in rect.y..<(rect.y + 8) {
+            for x in rect.x..<(rect.x + 8) {
+                let pixel = frame[x, y]
+                if pixel != 0x0000, pixel != colors.border, pixel != colors.fill {
+                    hasBlendedCornerPixel = true
+                }
+            }
+        }
+
+        #expect(hasBlendedCornerPixel)
+    }
+
+    @Test("Render settings can disable rounded corner antialiasing globally")
+    func valueCellRoundedCornersRespectGlobalAntialiasingSwitch() {
+        UserDefaults.standard.set(false, forKey: MK2RenderSettings.antialiasingEnabledDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: MK2RenderSettings.antialiasingEnabledDefaultsKey) }
+
+        let colors = MK2ValueCellColors(
+            label: 0xffff,
+            value: 0x07e0,
+            border: 0xffff,
+            fill: 0x001f,
+            focusedValue: 0x0000,
+            focusedFill: 0xc618,
+            focusedBorder: 0xffff
+        )
+        let rect = MK2PixelRect(x: 20, y: 40, width: 80, height: 30)
+        var frame = MK2PixelFrame()
+
+        MK2ValueCell(label: "VOL", value: "40", rect: rect, cornerRadius: 8, colors: colors)
+            .draw(into: &frame)
+
+        var hasBlendedCornerPixel = false
+        for y in rect.y..<(rect.y + 8) {
+            for x in rect.x..<(rect.x + 8) {
+                let pixel = frame[x, y]
+                if pixel != 0x0000, pixel != colors.border, pixel != colors.fill {
+                    hasBlendedCornerPixel = true
+                }
+            }
+        }
+
+        #expect(!hasBlendedCornerPixel)
     }
 }
 

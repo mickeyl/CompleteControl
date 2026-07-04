@@ -36,6 +36,7 @@ public struct MK2ValueCell: Sendable {
     public var isFocused: Bool
     public var valueFont: SurfaceFont
     public var labelFont: SurfaceFont
+    public var cornerRadius: Int
     public var colors: MK2ValueCellColors
 
     public init(
@@ -45,6 +46,7 @@ public struct MK2ValueCell: Sendable {
         isFocused: Bool = false,
         valueFont: SurfaceFont = .readoutBold,
         labelFont: SurfaceFont = .label,
+        cornerRadius: Int = 0,
         colors: MK2ValueCellColors
     ) {
         self.label = label
@@ -53,15 +55,28 @@ public struct MK2ValueCell: Sendable {
         self.isFocused = isFocused
         self.valueFont = valueFont
         self.labelFont = labelFont
+        self.cornerRadius = max(0, cornerRadius)
         self.colors = colors
     }
 
     public func draw(into frame: inout MK2PixelFrame) {
         BitmapLabel(label, font: labelFont, color: colors.label)
-            .draw(into: &frame, x: rect.x, y: max(0, rect.y - labelFont.cellHeight - 6))
+            .draw(into: &frame, x: rect.x, y: max(0, rect.y - labelFont.cellHeight - 3))
 
-        frame.fill(rect, isFocused ? colors.focusedFill : colors.fill)
-        frame.stroke(rect, isFocused ? colors.focusedBorder : colors.border)
+        let fill = isFocused ? colors.focusedFill : colors.fill
+        let border = isFocused ? colors.focusedBorder : colors.border
+        if cornerRadius > 0, rect.width > 2, rect.height > 2 {
+            frame.fillRounded(rect, radius: cornerRadius, border, antialiased: true)
+            frame.fillRounded(
+                MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2),
+                radius: max(0, cornerRadius - 1),
+                fill,
+                antialiased: true
+            )
+        } else {
+            frame.fill(rect, fill)
+            frame.stroke(rect, border)
+        }
 
         let glyph = BitmapLabel(value, font: valueFont, color: isFocused ? colors.focusedValue : colors.value)
         glyph.draw(

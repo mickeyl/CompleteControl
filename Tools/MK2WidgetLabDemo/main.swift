@@ -446,26 +446,27 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         let cell = patternRows[playheadRow].cells[focusedChannel]
 
-        let mode = recordArmed ? (isPlaying ? "LIVE REC" : "STEP REC") : (isPlaying ? "PLAYING" : "JOG ROW")
-        let modeColor = recordArmed ? Palette.orange : (isPlaying ? Palette.green : Palette.orange)
+        let selectedInstrumentText = "INST \(selectedInstrument.displayName)"
 
         MK2StatusLine(y: 8, items: [
             MK2StatusLineItem("EDIT", x: 8, color: Palette.blue),
             MK2StatusLineItem("CH\(focusedChannel + 1)", x: 92, color: Palette.dim),
             MK2StatusLineItem("ROW \(hex2(playheadRow))", x: 158, color: Palette.text, font: .gridBold),
-            MK2StatusLineItem(mode, x: 276, color: modeColor),
-            MK2StatusLineItem(metronomeEnabled ? "MET ON" : "MET OFF", x: 382, color: metronomeEnabled ? Palette.text : Palette.dim, font: .label),
         ]).draw(into: &frame)
+        BitmapLabel(selectedInstrumentText, font: .grid, color: Palette.instrument)
+            .draw(into: &frame, x: 232, y: 8, clip: MK2PixelRect(x: 232, y: 8, width: 240, height: SurfaceFont.grid.cellHeight))
 
         frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
 
-        let fieldY = 220
+        let fieldY = 232
+        let fieldCornerRadius = 7
         MK2ValueCell(
             label: "NOTE",
             value: cell.note,
             rect: MK2PixelRect(x: 8, y: fieldY, width: 96, height: 36),
             isFocused: focusedEditField == .note,
             valueFont: .readoutBold,
+            cornerRadius: fieldCornerRadius,
             colors: editCellColors(value: Palette.text)
         ).draw(into: &frame)
         MK2ValueCell(
@@ -474,6 +475,7 @@ private actor WidgetLab {
             rect: MK2PixelRect(x: 128, y: fieldY, width: 80, height: 36),
             isFocused: focusedEditField == .instrument,
             valueFont: .readoutBold,
+            cornerRadius: fieldCornerRadius,
             colors: editCellColors(value: Palette.instrument)
         ).draw(into: &frame)
         MK2ValueCell(
@@ -482,6 +484,7 @@ private actor WidgetLab {
             rect: MK2PixelRect(x: 252, y: fieldY, width: 80, height: 36),
             isFocused: focusedEditField == .volume,
             valueFont: .readoutBold,
+            cornerRadius: fieldCornerRadius,
             colors: editCellColors(value: Palette.text)
         ).draw(into: &frame)
         MK2ValueCell(
@@ -490,6 +493,7 @@ private actor WidgetLab {
             rect: MK2PixelRect(x: 376, y: fieldY, width: 88, height: 36),
             isFocused: focusedEditField == .effect,
             valueFont: .readoutBold,
+            cornerRadius: fieldCornerRadius,
             colors: editCellColors(value: Palette.effect)
         ).draw(into: &frame)
         return frame

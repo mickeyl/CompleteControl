@@ -79,6 +79,116 @@ public struct MK2PixelFrame: Sendable, Equatable {
         }
     }
 
+    public mutating func fillRounded(_ rect: MK2PixelRect, radius: Int, _ color: UInt16, antialiased: Bool = false) {
+        let radius = max(0, min(radius, rect.width / 2, rect.height / 2))
+        guard radius > 0 else {
+            fill(rect, color)
+            return
+        }
+        guard antialiased, MK2RenderSettings.antialiasingEnabled else {
+            fillRoundedAliased(rect, radius: radius, color)
+            return
+        }
+
+        let sampleCount = 4
+        for y in rect.y..<rect.maxY where (0..<Self.height).contains(y) {
+            for x in rect.x..<rect.maxX where (0..<Self.width).contains(x) {
+                let coverage = roundedRectCoverage(
+                    x: x - rect.x,
+                    y: y - rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    radius: radius,
+                    sampleCount: sampleCount
+                )
+                if coverage >= 1 {
+                    self[x, y] = color
+                } else if coverage > 0 {
+                    self[x, y] = blendRGB565(color, over: self[x, y], alpha: coverage)
+                }
+            }
+        }
+    }
+
+    private mutating func fillRoundedAliased(_ rect: MK2PixelRect, radius: Int, _ color: UInt16) {
+        for localY in 0..<rect.height {
+            let inset = roundedCornerInset(y: localY, height: rect.height, radius: radius)
+            fill(
+                MK2PixelRect(
+                    x: rect.x + inset,
+                    y: rect.y + localY,
+                    width: max(0, rect.width - inset * 2),
+                    height: 1
+                ),
+                color
+            )
+        }
+    }
+
+    private func roundedCornerInset(y: Int, height: Int, radius: Int) -> Int {
+        let dy: Int
+        if y < radius {
+            dy = radius - y - 1
+        } else if y >= height - radius {
+            dy = y - (height - radius)
+        } else {
+            return 0
+        }
+        return max(0, radius - Int(Double(radius * radius - dy * dy).squareRoot()))
+    }
+
+    private func roundedRectCoverage(
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        radius: Int,
+        sampleCount: Int
+    ) -> Double {
+        let samples = max(1, sampleCount)
+        var inside = 0
+        let total = samples * samples
+        for sy in 0..<samples {
+            for sx in 0..<samples {
+                let sampleX = Double(x) + (Double(sx) + 0.5) / Double(samples)
+                let sampleY = Double(y) + (Double(sy) + 0.5) / Double(samples)
+                if isInsideRoundedRect(
+                    x: sampleX,
+                    y: sampleY,
+                    width: Double(width),
+                    height: Double(height),
+                    radius: Double(radius)
+                ) {
+                    inside += 1
+                }
+            }
+        }
+        return Double(inside) / Double(total)
+    }
+
+    private func isInsideRoundedRect(x: Double, y: Double, width: Double, height: Double, radius: Double) -> Bool {
+        let nearestX = min(max(x, radius), width - radius)
+        let nearestY = min(max(y, radius), height - radius)
+        let dx = x - nearestX
+        let dy = y - nearestY
+        return dx * dx + dy * dy <= radius * radius
+    }
+
+    private func blendRGB565(_ foreground: UInt16, over background: UInt16, alpha: Double) -> UInt16 {
+        let alpha = max(0, min(1, alpha))
+        let inverse = 1 - alpha
+        let fr = Double((foreground >> 11) & 0x1f)
+        let fg = Double((foreground >> 5) & 0x3f)
+        let fb = Double(foreground & 0x1f)
+        let br = Double((background >> 11) & 0x1f)
+        let bg = Double((background >> 5) & 0x3f)
+        let bb = Double(background & 0x1f)
+        let r = UInt16(max(0, min(31, Int((fr * alpha + br * inverse).rounded()))))
+        let g = UInt16(max(0, min(63, Int((fg * alpha + bg * inverse).rounded()))))
+        let b = UInt16(max(0, min(31, Int((fb * alpha + bb * inverse).rounded()))))
+        return (r << 11) | (g << 5) | b
+    }
+
     // A 4-byte pattern of the same stored pixel twice: any 2-byte-aligned offset into
     // the repeated pattern still yields that pixel, so memset_pattern4 works at odd x.
     private func patternPair(_ stored: UInt16) -> UInt32 {
