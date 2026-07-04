@@ -323,15 +323,22 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
 - `MK2StatusLine`: fixed-position compact header/status text for pixel-display pages.
 - `MK2ValueCell`: a labelled, fixed-size value field intended for encoder-bound controls.
 - `MK2ModalDialog`: global modal dialog projection with 4-D encoder selection/confirm and hardware-button dismiss.
+- `MK2SelectionNavigation`: a small value-type state helper for selection index movement,
+  clamping/wrapping, and single-filter encoder focus.
 - `MK2SelectionList` / `MK2SelectionGrid`: reusable selection projections for one-screen
   lists and configurable-cell grids, with optional bottom-third filter controls aligned to
   fixed `E5`-`E8` rotary encoder slots. Filter state separates "active" from "focused":
   active filters colour the label, while only the touched/turned encoder value is inverted.
+  Grids can use text cells or compact icon-only cells for icon browsers.
 
 For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
 For the Selection Lab unit, `Instance` cycles plain list, plain grid, filtered list, and
 filtered grid. The 4-D encoder moves by one item and confirms on press; filtered modes use
 right-side encoders for category filters.
+For the Browser Lab unit, `F2`/unit `B` prototypes a Paulinche-style browser/settings
+surface: the left display shows detail/preview, the right display uses `MK2SelectionList` or
+`MK2SelectionGrid`, `Instance` cycles list/grid/filter variants, 4-D moves/confirms, and
+filtered modes use `E5` for area plus `E6` for source.
 
 ## MK2 FreeType Font Exploration
 

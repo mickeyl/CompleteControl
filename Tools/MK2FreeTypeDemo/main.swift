@@ -97,6 +97,7 @@ private actor FreeTypeDemo {
     private static let bodySize = 16
     private static let titleSize = 24
     private static let iconPageStep = 7
+    private static let iconGridCellSize = MK2SelectionCellSize(width: 58, height: 58)
     private static let actionDialogIconSize = 48
     private static let iconStyleLabel = "Pro Light"
 
@@ -116,8 +117,7 @@ private actor FreeTypeDemo {
     private var page: Page = .typography
     private var iconIndex: Int
     private var iconSelectionMode: IconSelectionMode = .plainList
-    private var iconLetterFilterIndex = 0
-    private var focusedIconFilterEncoder: Int?
+    private var iconFilterNavigation = MK2SelectionNavigation()
     private var iconSizeIndex = 7
     private var actionIndex = 0
 
@@ -148,7 +148,7 @@ private actor FreeTypeDemo {
 
         Icon controls:
           Main rotary                  scroll right icon list
-          4D Up / 4D Down              scroll right icon list by one page
+          4D Up / 4D Down              list page, grid row
           Page Left / Page Right       previous / next icon
           Plugin / Mixer               jump -16 / +16 icons
           Instance                     cycle list/grid/filter list/filter grid
@@ -262,7 +262,7 @@ private actor FreeTypeDemo {
         guard page == .icons else { return }
         iconSelectionMode = iconSelectionMode.next
         if !iconSelectionMode.hasFilter {
-            focusedIconFilterEncoder = nil
+            iconFilterNavigation.setFilterFocus(encoder: nil)
         }
         clampIconToVisibleSelection()
         await render()
@@ -278,11 +278,14 @@ private actor FreeTypeDemo {
     }
 
     private func jogIconList(_ direction: String) async {
+        let rowStep = iconSelectionMode.isGrid
+            ? MK2SelectionGrid.columnCount(for: Self.iconGridCellSize)
+            : Self.iconPageStep
         switch direction {
             case "up":
-                await moveIcon(-Self.iconPageStep)
+                await moveIcon(-rowStep)
             case "down":
-                await moveIcon(Self.iconPageStep)
+                await moveIcon(rowStep)
             default:
                 break
         }
@@ -298,7 +301,7 @@ private actor FreeTypeDemo {
         return [
             MK2EncoderDiscreteValue(
                 encoder: 5,
-                value: iconLetterFilterIndex,
+                value: iconFilterNavigation.selectedIndex,
                 bounds: 0...(Self.iconLetterFilters.count - 1),
                 wraps: true,
                 onTouch: { [weak self] touched in
@@ -313,19 +316,15 @@ private actor FreeTypeDemo {
 
     private func setIconLetterFilter(_ value: Int) async {
         guard page == .icons, iconSelectionMode.hasFilter else { return }
-        focusedIconFilterEncoder = 5
-        iconLetterFilterIndex = value.wrapped(to: 0...(Self.iconLetterFilters.count - 1))
+        iconFilterNavigation.setFilterFocus(encoder: 5)
+        iconFilterNavigation.select(value, itemCount: Self.iconLetterFilters.count)
         clampIconToVisibleSelection()
         await render()
     }
 
     private func setIconFilterFocus(encoder: Int, touched: Bool) async {
         guard page == .icons, iconSelectionMode.hasFilter else { return }
-        if touched {
-            focusedIconFilterEncoder = encoder
-        } else if focusedIconFilterEncoder == encoder {
-            focusedIconFilterEncoder = nil
-        }
+        iconFilterNavigation.touchFilter(encoder: encoder, touched: touched)
         await render()
     }
 
@@ -351,7 +350,7 @@ private actor FreeTypeDemo {
     private func visibleIcons() -> [(globalIndex: Int, icon: FontAwesomeIcon)] {
         let indexed = allIconEntries()
         guard iconSelectionMode.hasFilter else { return indexed }
-        let letter = Self.iconLetterFilters[iconLetterFilterIndex]
+        let letter = Self.iconLetterFilters[iconFilterNavigation.selectedIndex]
         guard letter != "ALL" else { return indexed }
         return indexed.filter { $0.icon.name.uppercased().hasPrefix(letter) }
     }
@@ -421,7 +420,7 @@ private actor FreeTypeDemo {
         drawTitle(icon.label, into: &frame, x: 18, y: 158, color: Palette.text, maxWidth: 432)
         drawBody(icon.name, into: &frame, x: 18, y: 194, color: Palette.dim, maxWidth: 432)
         drawBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, iconSize, Self.iconStyleLabel), into: &frame, x: 18, y: 222, color: Palette.dim, maxWidth: 432)
-        drawBody("INSTANCE mode  Main +/-1  4D page  E5 A-Z filter", into: &frame, x: 18, y: 248, color: Palette.muted, maxWidth: 432)
+        drawBody("INSTANCE mode  Main +/-1  4D page/row  E5 A-Z filter", into: &frame, x: 18, y: 248, color: Palette.muted, maxWidth: 432)
         return frame
     }
 
@@ -455,9 +454,10 @@ private actor FreeTypeDemo {
                 subtitle: "\(visible.count) icons, \(Self.iconStyleLabel)",
                 items: items,
                 selectedIndex: selected,
-                cellSize: MK2SelectionCellSize(width: 154, height: 58),
+                cellSize: Self.iconGridCellSize,
                 filters: filters,
-                colors: colors
+                colors: colors,
+                cellContent: .iconOnly(iconSize: 30)
             ).draw(into: &frame, renderer: renderer)
         } else {
             MK2SelectionList(
@@ -477,10 +477,10 @@ private actor FreeTypeDemo {
         [
             MK2SelectionFilter(
                 label: "LETTER",
-                value: Self.iconLetterFilters[iconLetterFilterIndex],
+                value: Self.iconLetterFilters[iconFilterNavigation.selectedIndex],
                 encoder: 5,
-                isActive: iconLetterFilterIndex != 0,
-                isFocused: focusedIconFilterEncoder == 5
+                isActive: iconFilterNavigation.selectedIndex != 0,
+                isFocused: iconFilterNavigation.focusedFilterEncoder == 5
             )
         ]
     }

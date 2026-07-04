@@ -35,6 +35,61 @@ public struct MK2SelectionFilter: Sendable, Equatable {
     }
 }
 
+public struct MK2SelectionNavigation: Sendable, Equatable {
+    public var selectedIndex: Int
+    public var focusedFilterEncoder: Int?
+
+    public init(selectedIndex: Int = 0, focusedFilterEncoder: Int? = nil) {
+        self.selectedIndex = max(0, selectedIndex)
+        self.focusedFilterEncoder = focusedFilterEncoder
+    }
+
+    public mutating func move(by delta: Int, itemCount: Int, wraps: Bool = false) -> Bool {
+        guard delta != 0, itemCount > 0 else { return false }
+        let previous = selectedIndex
+        let bounds = 0...(itemCount - 1)
+        if wraps {
+            selectedIndex = (selectedIndex + delta).wrapped(to: bounds)
+        } else {
+            selectedIndex = (selectedIndex + delta).clamped(to: bounds)
+        }
+        return selectedIndex != previous
+    }
+
+    public mutating func select(_ index: Int, itemCount: Int) {
+        guard itemCount > 0 else {
+            selectedIndex = 0
+            return
+        }
+        selectedIndex = index.clamped(to: 0...(itemCount - 1))
+    }
+
+    public mutating func clamp(itemCount: Int) {
+        select(selectedIndex, itemCount: itemCount)
+    }
+
+    public func clampedSelectedIndex(itemCount: Int) -> Int? {
+        guard itemCount > 0 else { return nil }
+        return selectedIndex.clamped(to: 0...(itemCount - 1))
+    }
+
+    public mutating func setFilterFocus(encoder: Int?, enabled: Bool = true) {
+        focusedFilterEncoder = enabled ? encoder : nil
+    }
+
+    public mutating func touchFilter(encoder: Int, touched: Bool, enabled: Bool = true) {
+        guard enabled else {
+            focusedFilterEncoder = nil
+            return
+        }
+        if touched {
+            focusedFilterEncoder = encoder
+        } else if focusedFilterEncoder == encoder {
+            focusedFilterEncoder = nil
+        }
+    }
+}
+
 public struct MK2SelectionViewColors: Sendable, Equatable {
     public var background: UInt16
     public var text: UInt16
@@ -145,6 +200,13 @@ public struct MK2SelectionList: Sendable {
 }
 
 public struct MK2SelectionGrid: Sendable {
+    public static let defaultContentWidth = 464
+
+    public enum CellContent: Sendable, Equatable {
+        case iconAndText
+        case iconOnly(iconSize: Int = 30)
+    }
+
     public var title: String
     public var subtitle: String?
     public var items: [MK2SelectionItem]
@@ -152,6 +214,7 @@ public struct MK2SelectionGrid: Sendable {
     public var cellSize: MK2SelectionCellSize
     public var filters: [MK2SelectionFilter]
     public var colors: MK2SelectionViewColors
+    public var cellContent: CellContent
 
     public init(
         title: String,
@@ -160,7 +223,8 @@ public struct MK2SelectionGrid: Sendable {
         selectedIndex: Int,
         cellSize: MK2SelectionCellSize,
         filters: [MK2SelectionFilter] = [],
-        colors: MK2SelectionViewColors = MK2SelectionViewColors()
+        colors: MK2SelectionViewColors = MK2SelectionViewColors(),
+        cellContent: CellContent = .iconAndText
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -169,6 +233,11 @@ public struct MK2SelectionGrid: Sendable {
         self.cellSize = cellSize
         self.filters = filters
         self.colors = colors
+        self.cellContent = cellContent
+    }
+
+    public static func columnCount(for cellSize: MK2SelectionCellSize, contentWidth: Int = defaultContentWidth) -> Int {
+        max(1, contentWidth / cellSize.width)
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -181,11 +250,11 @@ public struct MK2SelectionGrid: Sendable {
             return
         }
 
-        let columns = max(1, content.width / cellSize.width)
-        let rows = max(1, content.height / cellSize.height)
+        let columns = Self.columnCount(for: cellSize, contentWidth: content.width)
+        let rows = visibleRowCount(in: content)
         let selected = selectedIndex.clamped(to: 0...(items.count - 1))
         let selectedRow = selected / columns
-        let firstRow = min(max(0, selectedRow - rows / 2), max(0, ((items.count - 1) / columns) - rows + 1))
+        let firstRow = firstVisibleRow(selectedRow: selectedRow, visibleRows: rows, itemCount: items.count, columns: columns)
         let first = firstRow * columns
         let last = min(items.count, first + rows * columns)
 
@@ -220,6 +289,32 @@ public struct MK2SelectionGrid: Sendable {
                 into: &frame
             )
         }
+        if case let .iconOnly(iconSize) = cellContent {
+            let size = max(12, min(iconSize, min(rect.width, rect.height) - 12))
+            let color = selected ? colors.text : colors.dim
+            if let iconGlyph = item.iconGlyph {
+                MK2SelectionDrawing.drawIcon(
+                    iconGlyph,
+                    into: &frame,
+                    renderer: renderer,
+                    x: rect.x + max(0, (rect.width - size) / 2),
+                    y: rect.y + max(0, (rect.height - size) / 2) - 1,
+                    size: size,
+                    color: color
+                )
+            } else {
+                MK2SelectionDrawing.drawBody(
+                    item.title,
+                    into: &frame,
+                    renderer: renderer,
+                    x: rect.x + 6,
+                    y: rect.y + max(0, (rect.height - 18) / 2),
+                    color: color,
+                    maxWidth: max(0, rect.width - 12)
+                )
+            }
+            return
+        }
         if let iconGlyph = item.iconGlyph, rect.height >= 56 {
             MK2SelectionDrawing.drawIcon(iconGlyph, into: &frame, renderer: renderer, x: rect.x + 10, y: rect.y + 6, size: 22, color: selected ? colors.text : colors.dim)
             MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: rect.x + 42, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: max(0, rect.width - 48))
@@ -229,6 +324,19 @@ public struct MK2SelectionGrid: Sendable {
         if let badge = item.badge, rect.height >= 44 {
             MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: rect.x + 8, y: rect.maxY - 22, color: selected ? colors.dim : colors.muted, maxWidth: max(0, rect.width - 16))
         }
+    }
+
+    private func visibleRowCount(in content: MK2PixelRect) -> Int {
+        if filters.isEmpty, case .iconOnly = cellContent {
+            return max(1, (content.height + cellSize.height - 1) / cellSize.height)
+        }
+        return max(1, content.height / cellSize.height)
+    }
+
+    private func firstVisibleRow(selectedRow: Int, visibleRows: Int, itemCount: Int, columns: Int) -> Int {
+        let totalRows = max(1, ((itemCount - 1) / columns) + 1)
+        let maxFirstRow = max(0, totalRows - visibleRows)
+        return min(maxFirstRow, (selectedRow / visibleRows) * visibleRows)
     }
 }
 
@@ -245,9 +353,9 @@ public struct MK2SelectionCellSize: Sendable, Equatable {
 private enum MK2SelectionDrawing {
     static func contentRect(hasFilters: Bool) -> MK2PixelRect {
         if hasFilters {
-            return MK2PixelRect(x: 8, y: 45, width: 464, height: 132)
+            return MK2PixelRect(x: 8, y: 43, width: 464, height: 134)
         }
-        return MK2PixelRect(x: 8, y: 45, width: 464, height: 219)
+        return MK2PixelRect(x: 8, y: 43, width: 464, height: 221)
     }
 
     static func drawHeader(title: String, subtitle: String?, into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors) {
@@ -373,5 +481,13 @@ private extension MK2SelectionFilter {
 private extension Int {
     func clamped(to bounds: ClosedRange<Int>) -> Int {
         Swift.min(bounds.upperBound, Swift.max(bounds.lowerBound, self))
+    }
+
+    func wrapped(to bounds: ClosedRange<Int>) -> Int {
+        let count = bounds.upperBound - bounds.lowerBound + 1
+        guard count > 0 else { return bounds.lowerBound }
+        let raw = (self - bounds.lowerBound) % count
+        let offset = raw >= 0 ? raw : raw + count
+        return bounds.lowerBound + offset
     }
 }

@@ -4,6 +4,36 @@ import Testing
 
 @Suite("Selection list and grid", .serialized)
 struct SelectionViewTests {
+    @Test("Navigation clamps or wraps selected indices")
+    func navigationMovesAndClampsSelection() {
+        var clamped = MK2SelectionNavigation(selectedIndex: 1)
+
+        #expect(clamped.move(by: 2, itemCount: 3) == true)
+        #expect(clamped.selectedIndex == 2)
+        #expect(clamped.move(by: 1, itemCount: 3) == false)
+        #expect(clamped.selectedIndex == 2)
+        clamped.clamp(itemCount: 0)
+        #expect(clamped.selectedIndex == 0)
+
+        var wrapped = MK2SelectionNavigation(selectedIndex: 0)
+        #expect(wrapped.move(by: -1, itemCount: 3, wraps: true) == true)
+        #expect(wrapped.selectedIndex == 2)
+    }
+
+    @Test("Navigation keeps one focused filter encoder")
+    func navigationTracksFocusedFilterEncoder() {
+        var navigation = MK2SelectionNavigation()
+
+        navigation.touchFilter(encoder: 6, touched: true)
+        #expect(navigation.focusedFilterEncoder == 6)
+        navigation.touchFilter(encoder: 7, touched: false)
+        #expect(navigation.focusedFilterEncoder == 6)
+        navigation.touchFilter(encoder: 6, touched: false)
+        #expect(navigation.focusedFilterEncoder == nil)
+        navigation.setFilterFocus(encoder: 5, enabled: false)
+        #expect(navigation.focusedFilterEncoder == nil)
+    }
+
     @Test("List draws selected row and filter area")
     func listDrawsSelectionAndFilters() {
         var frame = MK2PixelFrame()
@@ -88,6 +118,78 @@ struct SelectionViewTests {
         ).draw(into: &frame)
 
         #expect(frame.countPixels(in: MK2PixelRect(x: 251, y: 98, width: 114, height: 44), matching: 0x2126) > 200)
+    }
+
+    @Test("Grid can render compact icon-only cells")
+    func gridRendersIconOnlyCells() {
+        let colors = MK2SelectionViewColors(
+            background: 0x0000,
+            dim: 0x39e7,
+            muted: 0x7bef,
+            selectionFill: 0x2126
+        )
+        var frame = MK2PixelFrame()
+        let items = (0..<40).map { index in
+            let item = sampleItems[index % sampleItems.count]
+            return MK2SelectionItem(
+                title: "\(item.title) \(index)",
+                detail: item.detail,
+                badge: item.badge,
+                iconGlyph: item.iconGlyph
+            )
+        }
+
+        MK2SelectionGrid(
+            title: "ICONS",
+            items: items,
+            selectedIndex: 31,
+            cellSize: MK2SelectionCellSize(width: 58, height: 58),
+            colors: colors,
+            cellContent: .iconOnly(iconSize: 30)
+        ).draw(into: &frame)
+
+        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 220, width: 52, height: 52), matching: colors.selectionFill) > 200)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 430, y: 270, width: 26, height: 1), matching: colors.selectionFill) > 0)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 256, width: 52, height: 14), matching: colors.muted) == 0)
+    }
+
+    @Test("Selection list and grid can be captured as a two-screen snapshot")
+    func selectionSnapshotSmoke() {
+        var list = MK2PixelFrame()
+        MK2SelectionList(
+            title: "LIST",
+            items: sampleItems,
+            selectedIndex: 1,
+            filters: [
+                MK2SelectionFilter(label: "TYPE", value: "Bass", encoder: 5, isActive: true, isFocused: true),
+            ],
+            rowHeight: 44
+        ).draw(into: &list)
+
+        var grid = MK2PixelFrame()
+        MK2SelectionGrid(
+            title: "GRID",
+            items: sampleItems + sampleItems,
+            selectedIndex: 4,
+            cellSize: MK2SelectionCellSize(width: 154, height: 58),
+            filters: [
+                MK2SelectionFilter(label: "BANK", value: "User", encoder: 7, isActive: true, isFocused: true),
+            ]
+        ).draw(into: &grid)
+
+        let png = PixelSnapshot.pngData(frames: [list, grid])
+        #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        #expect(Self.be32(png, 16) == 2 * MK2PixelFrame.width + 1)
+        #expect(Self.be32(png, 20) == MK2PixelFrame.height)
+        #expect(list.countPixels(in: MK2PixelRect(x: 8, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(grid.countPixels(in: MK2PixelRect(x: 248, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
+    }
+
+    private static func be32(_ data: Data, _ offset: Int) -> Int {
+        Int(data[offset]) << 24
+            | Int(data[offset + 1]) << 16
+            | Int(data[offset + 2]) << 8
+            | Int(data[offset + 3])
     }
 }
 

@@ -361,6 +361,7 @@ as the regression baseline for the shared middleware, but no new kit features ge
   Current tracker-facing widgets include `MK2ButtonToggle` (lamp + optional pixel button),
   `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue` (bounded discrete encoder values with
   optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, `MK2ModalDialog`,
+  `MK2SelectionNavigation` (selection index + filter-focus state),
   `MK2SelectionList` / `MK2SelectionGrid`, and the FreeType text renderer/catalog for
   large UI typography. Selection views are one-screen list/grid projections with optional
   bottom-third filter controls. Keep filter values in fixed physical `E5`-`E8` slots, and
@@ -368,7 +369,8 @@ as the regression baseline for the shared middleware, but no new kit features ge
   while only the touched/turned value is inverted. `MK2WidgetLabDemo` cycles plain/filtered
   list/grid variants with the `Instance` button; `MK2FreeTypeDemo` uses the same selection
   elements for its Font Awesome icon browser with `Instance` modes and an `E5` first-letter
-  filter.
+  filter. `MK2WidgetLabDemo` unit `B` is the browser/settings prototype: left detail/preview,
+  right selection list/grid, `Instance` modes, 4-D move/confirm, and `E5`/`E6` filters.
   Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)
   get extracted into a small shared core where the seam is clean, or copied once where
   extraction would contort the frozen kit. This also keeps eventual MK1 deletion a
