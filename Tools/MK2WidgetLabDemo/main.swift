@@ -15,23 +15,11 @@ struct MK2WidgetLabDemo {
     static func main() async {
         let surface = MK2Surface2(options: .init(tickHz: 60))
         let lab = WidgetLab(surface: surface)
-        await surface.start()
-        await lab.show(.pattern)
-        printBanner()
-        startREPL(lab)
-
-        for await state in await surface.connectionStates {
-            switch state {
-                case .evicted:
-                    print("evicted by another surface client — quitting")
-                    exit(0)
-                case let .retrying(reason):
-                    print("surface: retrying (\(reason))")
-                case let .connected(detail):
-                    print("surface: connected (\(detail))")
-                case .stopped:
-                    print("surface: stopped")
-            }
+        let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
+        await runner.run { _ in
+            await lab.show(.pattern)
+            printBanner()
+            startREPL(lab)
         }
     }
 

@@ -9,34 +9,17 @@ struct MK2FreeTypeDemo {
         do {
             let surface = MK2Surface2(options: .init(tickHz: 30))
             let demo = try FreeTypeDemo(surface: surface)
+            let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
             demo.printHelp()
             fflush(stdout)
-            await surface.start()
-            await demo.render()
-
-            for await state in await surface.connectionStates {
-                switch state {
-                    case .evicted:
-                        log("evicted by another surface client — quitting")
-                        exit(0)
-                    case let .retrying(reason):
-                        log("surface: retrying (\(reason))")
-                    case let .connected(detail):
-                        log("surface: connected (\(detail))")
-                        await demo.render()
-                    case .stopped:
-                        log("surface: stopped")
-                }
-            }
+            await runner.run(
+                initialRender: { _ in await demo.render() },
+                onConnected: { _, _ in await demo.render() }
+            )
         } catch {
             fputs("MK2FreeTypeDemo: \(error)\n", stderr)
             exit(1)
         }
-    }
-
-    private static func log(_ message: String) {
-        print(message)
-        fflush(stdout)
     }
 }
 
