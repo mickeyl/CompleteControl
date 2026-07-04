@@ -215,6 +215,32 @@ def composite(glyph, cell_w, cell_h, ascent):
     return grid
 
 
+def glyph_view_grid(glyph, cell_w, cell_h, ascent):
+    if glyph is None:
+        return composite(glyph, cell_w, cell_h, ascent), cell_w, cell_h
+
+    top = ascent - (glyph.bbyo + glyph.bbh)
+    min_x = min(0, glyph.bbxo)
+    max_x = max(cell_w, glyph.dwidth, glyph.bbxo + glyph.bbw)
+    min_y = min(0, top)
+    max_y = max(cell_h, top + glyph.bbh)
+    view_w = max(1, max_x - min_x)
+    view_h = max(1, max_y - min_y)
+    grid = [[0] * view_w for _ in range(view_h)]
+    row_bytes = (glyph.bbw + 7) // 8
+    for row in range(glyph.bbh):
+        bits = glyph.rows[row] if row < len(glyph.rows) else 0
+        y = top + row - min_y
+        if not (0 <= y < view_h):
+            continue
+        for col in range(glyph.bbw):
+            if (bits >> (row_bytes * 8 - 1 - col)) & 1:
+                x = glyph.bbxo + col - min_x
+                if 0 <= x < view_w:
+                    grid[y][x] = 1
+    return grid, view_w, view_h
+
+
 def put_pixel(img, width, height, x, y, color):
     if 0 <= x < width and 0 <= y < height:
         img[y * width + x] = color
@@ -359,16 +385,16 @@ def write_catalog_tsv(path, catalogs, nerd_names):
 
 def glyph_svg(glyph, cell_w, cell_h, ascent, scale):
     pixels = []
-    grid = composite(glyph, cell_w, cell_h, ascent)
+    grid, view_w, view_h = glyph_view_grid(glyph, cell_w, cell_h, ascent)
     for row, values in enumerate(grid):
         for col, value in enumerate(values):
             if value:
                 pixels.append(f"M{col} {row}h1v1h-1z")
     path = "".join(pixels)
-    width = cell_w * scale
-    height = cell_h * scale
+    width = view_w * scale
+    height = view_h * scale
     return (
-        f'<svg class="glyph-svg" viewBox="0 0 {cell_w} {cell_h}" '
+        f'<svg class="glyph-svg" viewBox="0 0 {view_w} {view_h}" '
         f'width="{width}" height="{height}" aria-hidden="true">'
         f'<path d="{path}"/></svg>'
     )
@@ -591,6 +617,10 @@ tbody tr:hover { background: #141923; }
   image-rendering: pixelated;
   fill: var(--text);
 }
+.preview-dimensions {
+  margin-top: 8px;
+  color: var(--dim);
+}
 .native-char {
   font-size: 18px;
   color: var(--text);
@@ -646,6 +676,7 @@ tbody tr.selected:hover { background: #172234; }
             '<aside id="hover-preview" class="hover-preview" aria-hidden="true">'
             '<div id="preview-title" class="preview-title"></div>'
             '<div id="preview-grid" class="preview-grid"></div>'
+            '<div id="preview-dimensions" class="preview-dimensions"></div>'
             "</aside>\n"
         )
         fh.write("<main>\n")
@@ -713,6 +744,7 @@ const faceButtons = [...document.querySelectorAll(".face-button")];
 const preview = document.getElementById("hover-preview");
 const previewTitle = document.getElementById("preview-title");
 const previewGrid = document.getElementById("preview-grid");
+const previewDimensions = document.getElementById("preview-dimensions");
 let selectedRow = null;
 let activeFace = faceButtons[0]?.dataset.face || "";
 
@@ -733,6 +765,7 @@ function updatePreview(row) {
   if (!row) {
     previewTitle.textContent = "No glyph selected";
     previewGrid.replaceChildren();
+    previewDimensions.textContent = "";
     return;
   }
   const box = row.querySelector(".glyph-box");
@@ -745,11 +778,14 @@ function updatePreview(row) {
   const viewBox = svg.getAttribute("viewBox").split(/\\s+/).map(Number);
   const cellW = viewBox[2] || 1;
   const cellH = viewBox[3] || 1;
+  const renderedW = Number(svg.getAttribute("width")) || cellW;
+  const renderedH = Number(svg.getAttribute("height")) || cellH;
   const previewW = Math.min(300, window.innerWidth - 72);
   const previewH = Math.round(previewW * cellH / cellW);
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   previewTitle.textContent = `${face} · ${code} · ${name}${sourceText}`;
+  previewDimensions.textContent = `${renderedW}x${renderedH} · grid ${cellW}x${cellH}`;
   previewGrid.replaceChildren(svg);
   previewGrid.style.width = `${previewW}px`;
   previewGrid.style.height = `${previewH}px`;

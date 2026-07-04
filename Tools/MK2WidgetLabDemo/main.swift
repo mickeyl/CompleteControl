@@ -171,6 +171,7 @@ private actor WidgetLab {
     private var midiInputByChannel = Array(repeating: "NO MIDI", count: 4)
     private var mutedChannels: Set<Int> = []
     private var soloedChannels: Set<Int> = []
+    private var focusedEditField: TrackerEditField = .note
     private static let availableIntensity: UInt8 = 0x01
     private static let activeIntensity: UInt8 = 0x03
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
@@ -291,6 +292,10 @@ private actor WidgetLab {
                 Task { await self?.setFocusedChannelSolo(enabled) }
             }
             .apply(lamps: &lamps, bindings: &bindings)
+
+            for binding in editFieldEncoderBindings() {
+                binding.apply(bindings: &bindings)
+            }
 
             MK2ButtonRangeSelection(
                 value: selectedInstrumentIndex,
@@ -441,32 +446,52 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         let cell = patternRows[playheadRow].cells[focusedChannel]
 
-        BitmapLabel("EDIT", font: .grid, color: Palette.blue).draw(into: &frame, x: 24, y: 18)
-        BitmapLabel("CH\(focusedChannel + 1)", font: .grid, color: Palette.dim).draw(into: &frame, x: 110, y: 18)
-        BitmapLabel("ROW \(hex2(playheadRow))", font: .grid, color: Palette.dim).draw(into: &frame, x: 176, y: 18)
-        BitmapLabel(metronomeEnabled ? "MET ON" : "MET OFF", font: .label, color: metronomeEnabled ? Palette.text : Palette.dim)
-            .draw(into: &frame, x: 270, y: 21)
         let mode = recordArmed ? (isPlaying ? "LIVE REC" : "STEP REC") : (isPlaying ? "PLAYING" : "JOG ROW")
         let modeColor = recordArmed ? Palette.orange : (isPlaying ? Palette.green : Palette.orange)
-        BitmapLabel(mode, font: .label, color: modeColor).draw(into: &frame, x: 348, y: 21)
 
-        drawEditField("NOTE", value: cell.note, color: Palette.text, x: 24, y: 90, width: 72, focused: true, into: &frame)
-        drawEditField("INST", value: cell.instrument, color: Palette.instrument, x: 136, y: 90, width: 68, focused: false, into: &frame)
-        drawEditField("VOL", value: cell.volume, color: Palette.text, x: 252, y: 90, width: 68, focused: false, into: &frame)
-        drawEditField("FX", value: cell.effect, color: Palette.effect, x: 358, y: 90, width: 82, focused: false, into: &frame)
+        MK2StatusLine(y: 8, items: [
+            MK2StatusLineItem("EDIT", x: 8, color: Palette.blue),
+            MK2StatusLineItem("CH\(focusedChannel + 1)", x: 92, color: Palette.dim),
+            MK2StatusLineItem("ROW \(hex2(playheadRow))", x: 158, color: Palette.text, font: .gridBold),
+            MK2StatusLineItem(mode, x: 276, color: modeColor),
+            MK2StatusLineItem(metronomeEnabled ? "MET ON" : "MET OFF", x: 382, color: metronomeEnabled ? Palette.text : Palette.dim, font: .label),
+        ]).draw(into: &frame)
 
-        frame.hline(y: 156, x: 0, width: 480, color: Palette.border)
-        BitmapLabel("INST \(cell.instrument)", font: .grid, color: Palette.dim).draw(into: &frame, x: 24, y: 178)
-        BitmapLabel("strings2", font: .grid, color: Palette.text).draw(into: &frame, x: 128, y: 178)
-        drawPlaceholder("WAVEFORM", into: &frame, rect: MK2PixelRect(x: 326, y: 174, width: 128, height: 40))
+        frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
 
-        drawPlaceholder("VU METERS", into: &frame, rect: MK2PixelRect(x: 24, y: 212, width: 430, height: 30))
-
-        let instrumentLabel = BitmapLabel(selectedInstrument.displayName, font: .label, color: Palette.instrument)
-        let instrumentX = 456 - instrumentLabel.width
-        BitmapLabel("MIDI FOCUS CH\(focusedChannel + 1)  \(midiInputByChannel[focusedChannel])", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 24, y: 254, clip: MK2PixelRect(x: 24, y: 254, width: max(0, instrumentX - 32), height: instrumentLabel.height))
-        instrumentLabel.draw(into: &frame, x: instrumentX, y: 254)
+        let fieldY = 220
+        MK2ValueCell(
+            label: "NOTE",
+            value: cell.note,
+            rect: MK2PixelRect(x: 8, y: fieldY, width: 96, height: 36),
+            isFocused: focusedEditField == .note,
+            valueFont: .readoutBold,
+            colors: editCellColors(value: Palette.text)
+        ).draw(into: &frame)
+        MK2ValueCell(
+            label: "INST",
+            value: cell.instrument,
+            rect: MK2PixelRect(x: 128, y: fieldY, width: 80, height: 36),
+            isFocused: focusedEditField == .instrument,
+            valueFont: .readoutBold,
+            colors: editCellColors(value: Palette.instrument)
+        ).draw(into: &frame)
+        MK2ValueCell(
+            label: "VOL",
+            value: cell.volume,
+            rect: MK2PixelRect(x: 252, y: fieldY, width: 80, height: 36),
+            isFocused: focusedEditField == .volume,
+            valueFont: .readoutBold,
+            colors: editCellColors(value: Palette.text)
+        ).draw(into: &frame)
+        MK2ValueCell(
+            label: "FX",
+            value: cell.effect,
+            rect: MK2PixelRect(x: 376, y: fieldY, width: 88, height: 36),
+            isFocused: focusedEditField == .effect,
+            valueFont: .readoutBold,
+            colors: editCellColors(value: Palette.effect)
+        ).draw(into: &frame)
         return frame
     }
 
@@ -487,23 +512,16 @@ private actor WidgetLab {
         toggle.drawDisplay(into: &frame)
     }
 
-    private func drawEditField(_ label: String, value: String, color: UInt16, x: Int, y: Int, width: Int, focused: Bool, into frame: inout MK2PixelFrame) {
-        BitmapLabel(label, font: .label, color: Palette.dim).draw(into: &frame, x: x, y: y - 24)
-        let rect = MK2PixelRect(x: x, y: y, width: width, height: 28)
-        if focused {
-            frame.fill(rect, 0xc618)
-            BitmapLabel(value, font: .readout, color: 0x0000).draw(into: &frame, x: x + 4, y: y + 4)
-        } else {
-            frame.stroke(rect, Palette.border)
-            BitmapLabel(value, font: .readoutBold, color: color).draw(into: &frame, x: x + 4, y: y + 4)
-        }
-    }
-
-    private func drawPlaceholder(_ title: String, into frame: inout MK2PixelFrame, rect: MK2PixelRect) {
-        frame.fill(rect, Palette.placeholderFill)
-        frame.stroke(rect, Palette.border)
-        BitmapLabel(title, font: .label, color: Palette.dim)
-            .draw(into: &frame, x: rect.x + 8, y: rect.y + max(7, (rect.height - SurfaceFont.label.cellHeight) / 2))
+    private func editCellColors(value: UInt16) -> MK2ValueCellColors {
+        MK2ValueCellColors(
+            label: Palette.dim,
+            value: value,
+            border: Palette.border,
+            fill: Palette.editFieldFill,
+            focusedValue: 0x0000,
+            focusedFill: Palette.editFieldFocusedFill,
+            focusedBorder: Palette.text
+        )
     }
 
     private func drawPatternOverview(into frame: inout MK2PixelFrame, x: Int, y: Int, height: Int) {
@@ -590,6 +608,63 @@ private actor WidgetLab {
             mutedChannels.remove(focusedChannel)
         }
         await render()
+    }
+
+    private func focusEditField(_ field: TrackerEditField) async {
+        guard unit == .pattern else { return }
+        focusedEditField = field
+        await render()
+    }
+
+    private func setFocusedEditValue(_ value: Int, field: TrackerEditField) async {
+        guard unit == .pattern,
+              patternRows.indices.contains(playheadRow),
+              patternRows[playheadRow].cells.indices.contains(focusedChannel) else { return }
+
+        focusedEditField = field
+        switch field {
+            case .note:
+                patternRows[playheadRow].cells[focusedChannel].note = Self.midiNoteName(UInt8(max(0, min(127, value))))
+            case .instrument:
+                patternRows[playheadRow].cells[focusedChannel].instrument = String(format: "%02X", max(0, min(255, value)))
+            case .volume:
+                patternRows[playheadRow].cells[focusedChannel].volume = String(format: "%02X", max(0, min(64, value)))
+            case .effect:
+                patternRows[playheadRow].cells[focusedChannel].effect = String(format: "%03X", max(0, min(0xfff, value)))
+        }
+        await render()
+    }
+
+    private func editFieldEncoderBindings() -> [MK2EncoderDiscreteValue] {
+        let cell = patternRows[playheadRow].cells[focusedChannel]
+        return TrackerEditField.allCases.map { field in
+            MK2EncoderDiscreteValue(
+                encoder: field.encoder,
+                value: editValue(for: field, cell: cell),
+                bounds: field.bounds,
+                wraps: false,
+                onTouch: { [weak self] touched in
+                    guard touched else { return }
+                    Task { await self?.focusEditField(field) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setFocusedEditValue(value, field: field) }
+                }
+            )
+        }
+    }
+
+    private func editValue(for field: TrackerEditField, cell: TrackerDemoCell) -> Int {
+        switch field {
+            case .note:
+                Self.midiNoteValue(cell.note) ?? 60
+            case .instrument:
+                Int(cell.instrument, radix: 16) ?? Self.instrumentIndexBounds.lowerBound + 1
+            case .volume:
+                Int(cell.volume, radix: 16) ?? 0
+            case .effect:
+                Int(cell.effect, radix: 16) ?? 0
+        }
     }
 
     private func channelMuteToggle(
@@ -1063,6 +1138,17 @@ private actor WidgetLab {
         return "\(names[value % 12])\(value / 12 - 1)"
     }
 
+    private static func midiNoteValue(_ note: String) -> Int? {
+        guard note.count >= 3 else { return nil }
+        let names = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
+        let prefix = String(note.prefix(2))
+        guard let index = names.firstIndex(of: prefix),
+              let octave = Int(note.dropFirst(2)) else { return nil }
+        let value = (octave + 1) * 12 + index
+        guard (0...127).contains(value) else { return nil }
+        return value
+    }
+
     private static func trackerVolume(_ velocity: UInt8) -> String {
         let volume = Int((Double(velocity) / 127.0 * 64.0).rounded())
         return String(format: "%02X", max(0, min(64, volume)))
@@ -1158,6 +1244,31 @@ let namedColors: [String: UInt16] = [
 
 private struct TrackerDemoRow: Sendable {
     var cells: [TrackerDemoCell]
+}
+
+private enum TrackerEditField: CaseIterable, Sendable {
+    case note
+    case instrument
+    case volume
+    case effect
+
+    var encoder: Int {
+        switch self {
+            case .note: 5
+            case .instrument: 6
+            case .volume: 7
+            case .effect: 8
+        }
+    }
+
+    var bounds: ClosedRange<Int> {
+        switch self {
+            case .note: 24...96
+            case .instrument: 1...16
+            case .volume: 0...64
+            case .effect: 0...0xfff
+        }
+    }
 }
 
 private struct DemoInstrument: Sendable {
@@ -1263,8 +1374,9 @@ private enum Palette {
     static let channelButtonFill: UInt16 = 0x1083
     static let channelButtonBorder: UInt16 = 0x4208
     static let channelButtonActiveText: UInt16 = 0xffff
+    static let editFieldFill: UInt16 = 0x1083
+    static let editFieldFocusedFill: UInt16 = 0xc618
     static let track: UInt16 = 0x2126
-    static let placeholderFill: UInt16 = 0x10a4
 }
 
 private extension MK2PixelFrame {
