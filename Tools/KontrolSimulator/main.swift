@@ -52,6 +52,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scrollView.maxMagnification = 5.0
         scrollView.hasHorizontalScroller = true
         scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .legacy
         scrollView.backgroundColor = PanelView.deviceBackgroundColor
         scrollView.drawsBackground = true
 
