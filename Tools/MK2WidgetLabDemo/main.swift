@@ -82,6 +82,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
+    ReplCommand(name: "stripe", arg: "off|odd|even|<n>|every <n> [phase]", summary: "tracker unit: row stripe rule", values: ["off", "odd", "even", "4", "16", "every"]),
     ReplCommand(name: "rec", arg: "on|off|toggle", summary: "tracker unit: arm record", values: ["on", "off", "toggle"]),
     ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
     ReplCommand(name: "midi", arg: "<note> [velocity]", summary: "tracker unit: route MIDI to focused channel", values: []),
@@ -158,6 +159,8 @@ private actor WidgetLab {
     private var recordArmed = false
     private var metronomeEnabled = false
     private var playheadRow = 0
+    private var rowStripeMode = RowStripeMode.every(4)
+    private var selectedInstrumentIndex = 0
     private var playbackTimer: DispatchSourceTimer?
     private var patternRows: [TrackerDemoRow]
     private var focusedChannel = 3
@@ -167,10 +170,34 @@ private actor WidgetLab {
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
     private static let actionGreen = KKRGB(red: 0x00, green: 0xff, blue: 0x66)
     private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
+    private static let demoInstruments = [
+        DemoInstrument(number: "01", name: "Kick Resin"),
+        DemoInstrument(number: "02", name: "Snare Alloy"),
+        DemoInstrument(number: "03", name: "Hat Needle"),
+        DemoInstrument(number: "04", name: "Bass Rubber"),
+        DemoInstrument(number: "05", name: "Lead Glass"),
+        DemoInstrument(number: "06", name: "Chord Tape"),
+        DemoInstrument(number: "07", name: "Arp Carbon"),
+        DemoInstrument(number: "08", name: "Pad Violet"),
+        DemoInstrument(number: "09", name: "Tom Box"),
+        DemoInstrument(number: "0A", name: "Pluck FM"),
+        DemoInstrument(number: "0B", name: "Bell Dust"),
+        DemoInstrument(number: "0C", name: "Organ Mini"),
+        DemoInstrument(number: "0D", name: "Noise Rise"),
+        DemoInstrument(number: "0E", name: "Vox Byte"),
+        DemoInstrument(number: "0F", name: "Hit Plate"),
+        DemoInstrument(number: "10", name: "Sub Pure"),
+    ]
+    private static let instrumentIndexBounds = 0...(demoInstruments.count - 1)
 
     init(surface: MK2Surface2) {
         self.surface = surface
         self.patternRows = WidgetLab.demoPatternRows()
+    }
+
+    private var selectedInstrument: DemoInstrument {
+        let index = max(Self.instrumentIndexBounds.lowerBound, min(Self.instrumentIndexBounds.upperBound, selectedInstrumentIndex))
+        return Self.demoInstruments[index]
     }
 
     func show(_ next: Unit) async {
@@ -233,6 +260,17 @@ private actor WidgetLab {
             Task { await self?.turnMainEncoder(delta) }
         }
         if unit == .pattern {
+            MK2ButtonRangeSelection(
+                value: selectedInstrumentIndex,
+                bounds: Self.instrumentIndexBounds,
+                previousButton: .presetUp,
+                nextButton: .presetDown,
+                availableLamp: Self.availableLamp(Self.actionWhite)
+            ) { [weak self] index in
+                Task { await self?.setSelectedInstrumentIndex(index) }
+            }
+            .apply(lamps: &lamps, bindings: &bindings)
+
             let targetChannel = focusedChannel
             bindings.midiFocus = MIDIFocus("tracker.channel.\(targetChannel + 1)") { [weak self] event in
                 Task { await self?.receiveMIDI(event, targetChannel: targetChannel) }
@@ -312,7 +350,7 @@ private actor WidgetLab {
             if row == playheadRow {
                 frame.fill(rowRect, isPlaying ? Palette.playheadFill : Palette.cursorFill)
                 frame.fill(MK2PixelRect(x: 36, y: y, width: 5, height: rowHeight), Palette.green)
-            } else if row.isMultiple(of: 4) {
+            } else if rowStripeMode.matches(row) {
                 frame.fill(MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight), Palette.rowStripe)
             }
 
@@ -355,8 +393,11 @@ private actor WidgetLab {
 
         drawPlaceholder("VU METERS", into: &frame, rect: MK2PixelRect(x: 24, y: 212, width: 430, height: 30))
 
+        let instrumentLabel = BitmapLabel(selectedInstrument.displayName, font: .label, color: Palette.instrument)
+        let instrumentX = 456 - instrumentLabel.width
         BitmapLabel("MIDI FOCUS CH\(focusedChannel + 1)  \(midiInputByChannel[focusedChannel])", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 24, y: 254)
+            .draw(into: &frame, x: 24, y: 254, clip: MK2PixelRect(x: 24, y: 254, width: max(0, instrumentX - 32), height: instrumentLabel.height))
+        instrumentLabel.draw(into: &frame, x: instrumentX, y: 254)
         return frame
     }
 
@@ -427,9 +468,13 @@ private actor WidgetLab {
     }
 
     private func stopPlayback() async {
+        let wasPlaying = isPlaying
         isPlaying = false
         playbackTimer?.cancel()
         playbackTimer = nil
+        if !wasPlaying {
+            playheadRow = 0
+        }
         await render()
     }
 
@@ -451,6 +496,14 @@ private actor WidgetLab {
         let next = max(0, min(3, focusedChannel + delta))
         guard next != focusedChannel else { return }
         focusedChannel = next
+        await render()
+    }
+
+    private func setSelectedInstrumentIndex(_ index: Int) async {
+        guard unit == .pattern else { return }
+        let next = max(Self.instrumentIndexBounds.lowerBound, min(Self.instrumentIndexBounds.upperBound, index))
+        guard next != selectedInstrumentIndex else { return }
+        selectedInstrumentIndex = next
         await render()
     }
 
@@ -479,7 +532,7 @@ private actor WidgetLab {
     }
 
     private func playMetronomeIfNeeded(row: Int) {
-        guard metronomeEnabled, recordArmed, isPlaying, row.isMultiple(of: 4) else { return }
+        guard metronomeEnabled, isPlaying, row.isMultiple(of: 4) else { return }
         metronome.play(accent: row.isMultiple(of: 16))
     }
 
@@ -500,7 +553,7 @@ private actor WidgetLab {
         guard patternRows.indices.contains(row), patternRows[row].cells.indices.contains(channel) else { return false }
         patternRows[row].cells[channel] = TrackerDemoCell(
             note: Self.midiNoteName(event.note),
-            instrument: "0A",
+            instrument: selectedInstrument.number,
             volume: Self.trackerVolume(event.velocity),
             effect: "..."
         )
@@ -627,6 +680,13 @@ private actor WidgetLab {
                 focusedChannel = channel - 1
                 await render()
 
+            case "stripe", "stripes", "rowstripe", "rowstripes":
+                guard let mode = Self.rowStripeMode(rest) else {
+                    print("? stripe off|odd|even|<n>|every <n> [phase]"); return
+                }
+                rowStripeMode = mode
+                await render()
+
             case "rec", "record":
                 let value = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 switch value {
@@ -715,6 +775,34 @@ private actor WidgetLab {
         return parsed
     }
 
+    private static func rowStripeMode(_ text: String) -> RowStripeMode? {
+        let parts = text
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0).lowercased() }
+        guard let first = parts.first else { return .every(4) }
+        switch first {
+            case "off", "none", "no":
+                return RowStripeMode.none
+            case "odd":
+                return .every(2, phase: 1)
+            case "even":
+                return .every(2, phase: 0)
+            case "every", "mod", "modulo":
+                guard parts.count <= 3,
+                      parts.indices.contains(1),
+                      let interval = Int(parts[1]),
+                      interval > 0 else { return nil }
+                let phase = parts.indices.contains(2) ? Int(parts[2]) : 0
+                guard let phase else { return nil }
+                return .every(interval, phase: phase)
+            default:
+                guard parts.count == 1,
+                      let interval = Int(first),
+                      interval > 0 else { return nil }
+                return .every(interval)
+        }
+    }
+
     private static func demoPatternRows() -> [TrackerDemoRow] {
         var rows = (0..<64).map { _ in TrackerDemoRow(cells: Array(repeating: TrackerDemoCell.empty, count: 4)) }
         let notes = ["C-3", "D#3", "F-3", "G-3", "A#3", "C-4", "D#4", "F-4", "G-4", "A-4", "C-5"]
@@ -800,8 +888,8 @@ private final class DemoMetronome {
         let channelCount = max(1, min(2, hardwareFormat.channelCount))
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
 
-        clickBuffer = Self.makeBuffer(format: format, duration: 0.018, frequency: 1_750, snap: 3_200, gain: 0.32)
-        accentBuffer = Self.makeBuffer(format: format, duration: 0.026, frequency: 2_350, snap: 4_400, gain: 0.42)
+        clickBuffer = Self.makeBuffer(format: format, duration: 0.018, frequency: 1_750, snap: 3_200, gain: 0.52)
+        accentBuffer = Self.makeBuffer(format: format, duration: 0.026, frequency: 2_350, snap: 4_400, gain: 0.68)
         players = Self.makePlayers(count: 4, engine: engine, format: format)
 
         engine.prepare()
@@ -867,6 +955,30 @@ private struct TrackerDemoRow: Sendable {
     var cells: [TrackerDemoCell]
 }
 
+private struct DemoInstrument: Sendable {
+    var number: String
+    var name: String
+
+    var displayName: String {
+        "\(number) \(name)"
+    }
+}
+
+private enum RowStripeMode: Sendable {
+    case none
+    case every(Int, phase: Int = 0)
+
+    func matches(_ row: Int) -> Bool {
+        switch self {
+            case .none:
+                return false
+            case let .every(interval, phase):
+                guard interval > 0 else { return false }
+                return row.floorMod(interval) == phase.floorMod(interval)
+        }
+    }
+}
+
 private struct TrackerDemoCell: Sendable {
     var note: String
     var instrument: String
@@ -877,6 +989,13 @@ private struct TrackerDemoCell: Sendable {
 
     var isEmpty: Bool {
         note == "..." && instrument == ".." && volume == ".." && effect == "..."
+    }
+}
+
+private extension Int {
+    func floorMod(_ divisor: Int) -> Int {
+        let remainder = self % divisor
+        return remainder >= 0 ? remainder : remainder + divisor
     }
 }
 

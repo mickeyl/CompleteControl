@@ -37,10 +37,12 @@ public actor MK2Surface2 {
     public struct Options: Sendable {
         public var tickHz: Int
         public var displayTimeoutMs: UInt32
+        public var buttonHoldDelay: TimeInterval
 
-        public init(tickHz: Int = 30, displayTimeoutMs: UInt32 = 1_000) {
+        public init(tickHz: Int = 30, displayTimeoutMs: UInt32 = 1_000, buttonHoldDelay: TimeInterval = 1.0) {
             self.tickHz = tickHz
             self.displayTimeoutMs = displayTimeoutMs
+            self.buttonHoldDelay = buttonHoldDelay
         }
     }
 
@@ -66,6 +68,10 @@ public actor MK2Surface2 {
     private var eventContinuation: AsyncStream<KKDaemonBinaryFrame>.Continuation?
     private static let doubleTouchWindowNanos: UInt64 = 350_000_000
     private var lastEncoderTouchNanos = [UInt64](repeating: 0, count: 9)
+    private var pressedButtons: Set<KKMK2ButtonLED> = []
+    private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
+    private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
+    private var nextButtonHoldToken: UInt64 = 0
 
     public init(device: KompleteKontrolSSeriesMK2 = KompleteKontrolSSeriesMK2(seizeHID: false), options: Options = Options()) {
         _ = device
@@ -100,6 +106,7 @@ public actor MK2Surface2 {
         eventTask?.cancel()
         eventTask = nil
         previousSurfaceReport = nil
+        cancelButtonHolds()
         scene = MK2SurfaceScene2()
         displayReconciler.reset()
         publish(.stopped)
@@ -347,13 +354,19 @@ public actor MK2Surface2 {
         handle(events, timestampNanos: event.timestamp)
     }
 
+    func handleForTesting(_ events: [KKMK2InputEvent], timestampNanos: UInt64 = 0) {
+        handle(events, timestampNanos: timestampNanos)
+    }
+
     private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {
             switch event {
                 case let .button(led, pressed):
                     if pressed {
+                        beginButtonHold(led)
                         scene.bindings.buttonDown[led]?()
                     } else {
+                        endButtonHold(led)
                         scene.bindings.buttonUp[led]?()
                     }
                 case let .knob(index, delta, value):
@@ -383,6 +396,59 @@ public actor MK2Surface2 {
                     break
             }
         }
+    }
+
+    private func beginButtonHold(_ led: KKMK2ButtonLED) {
+        pressedButtons.insert(led)
+        buttonHoldTasks[led]?.cancel()
+        guard let handler = scene.bindings.buttonHold[led] else { return }
+
+        nextButtonHoldToken &+= 1
+        let token = nextButtonHoldToken
+        buttonHoldTokens[led] = token
+        let delayNanos = Self.nanoseconds(for: options.buttonHoldDelay)
+        buttonHoldTasks[led] = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delayNanos)
+            } catch {
+                return
+            }
+            await self?.fireButtonHold(led, token: token, handler: handler)
+        }
+    }
+
+    private func endButtonHold(_ led: KKMK2ButtonLED) {
+        pressedButtons.remove(led)
+        buttonHoldTokens[led] = nil
+        buttonHoldTasks[led]?.cancel()
+        buttonHoldTasks[led] = nil
+    }
+
+    private func fireButtonHold(
+        _ led: KKMK2ButtonLED,
+        token: UInt64,
+        handler: @escaping @Sendable () -> Void
+    ) {
+        guard pressedButtons.contains(led), buttonHoldTokens[led] == token else { return }
+        buttonHoldTokens[led] = nil
+        buttonHoldTasks[led] = nil
+        handler()
+    }
+
+    private func cancelButtonHolds() {
+        for task in buttonHoldTasks.values {
+            task.cancel()
+        }
+        pressedButtons.removeAll()
+        buttonHoldTokens.removeAll()
+        buttonHoldTasks.removeAll()
+    }
+
+    private static func nanoseconds(for delay: TimeInterval) -> UInt64 {
+        guard delay.isFinite, delay > 0 else { return 0 }
+        let nanoseconds = delay * 1_000_000_000
+        guard nanoseconds < Double(UInt64.max) else { return UInt64.max }
+        return UInt64(nanoseconds.rounded())
     }
 
     private func handle(midi event: KKMIDIEvent) {

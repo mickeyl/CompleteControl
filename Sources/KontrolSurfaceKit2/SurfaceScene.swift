@@ -34,6 +34,7 @@ public struct MIDIFocus: Sendable {
 public struct MK2InputBindings2: Sendable {
     public var buttonDown: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     public var buttonUp: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
+    public var buttonHold: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     /// `timestampNanos` is the daemon-side reception time (KKTiming clock): velocity-
     /// sensitive consumers must measure from it, not from processing time — handler
     /// invocations bunch up behind rendering and would fake fast turns otherwise.
@@ -61,6 +62,10 @@ public struct MK2InputBindings2: Sendable {
 
     public mutating func onRelease(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
         buttonUp[led] = handler
+    }
+
+    public mutating func onHold(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
+        buttonHold[led] = handler
     }
 }
 
