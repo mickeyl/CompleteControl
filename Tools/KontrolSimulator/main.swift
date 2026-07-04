@@ -61,6 +61,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         (scrollView as? SimulatorScrollView)?.onViewportChanged = { [weak self] in
             self?.scheduleScrollerVisibilityRefresh()
         }
+        (scrollView as? SimulatorScrollView)?.onMagnificationChanged = { [weak self] in
+            self?.handleDirectMagnificationChange()
+        }
 
         window = NSWindow(contentRect: NSRect(origin: .zero, size: initialSize),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -276,6 +279,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func handleDirectMagnificationChange() {
+        zoomMode = .manual
+        updateViewMenuState()
+        scheduleScrollerVisibilityRefresh()
+    }
+
     private func refreshScrollerVisibility() {
         guard scrollView != nil, panel != nil else { return }
         isRefreshingScrollerVisibility = true
@@ -464,6 +473,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 private final class SimulatorScrollView: NSScrollView {
     var onViewportChanged: (() -> Void)?
+    var onMagnificationChanged: (() -> Void)?
 
     override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
@@ -472,6 +482,7 @@ private final class SimulatorScrollView: NSScrollView {
 
     override func magnify(with event: NSEvent) {
         super.magnify(with: event)
+        onMagnificationChanged?()
         onViewportChanged?()
     }
 }
