@@ -4,6 +4,26 @@ Swift control library + middleware for the **Native Instruments Komplete Kontrol
 This file is the working context for an agent picking the project up. Pair it with
 `Docs/Middleware-Concept.md` (the full middleware design + implementation status).
 
+## Next Session
+
+Resume from pushed `master` at `bcc038e Centralize MK2 selection layout metrics`.
+
+First, hardware-test the current MK2 selection stack before changing more code:
+
+- `MK2FreeTypeDemo`: icon browser list/grid/filtered list/filtered grid, 4-D Up/Down,
+  main rotary, and `E5` first-letter filter. Confirm the 2 px shorter header leaves the
+  fourth icon-grid selection box fully visible without making list rows feel too tight.
+- `MK2WidgetLabDemo`: Selection Lab and Browser Lab list/grid/filter modes. Confirm grid
+  Up/Down moves by one visual row, not by one item or by sliding the page unexpectedly.
+
+If the hardware pass is good, continue by formalizing selection input, not by adding more
+demo-local handlers. The intended next code step is a small reusable selection input helper
+for list-vs-grid row steps, clamp, confirm, and filter-focus coordination, backed by
+`MK2SelectionNavigation` and `MK2SelectionLayout`. After that helper exists, migrate
+`MK2FreeTypeDemo`, WidgetLab Selection Lab, and WidgetLab Browser Lab to it. Then start the
+first Paulinche integration prep: identify Browser/Settings views, global action dialogs,
+and selection projections that should consume the Kit2 list/grid/dialog widgets.
+
 ## Layout
 
 Two layers, plus a baseline app and a middleware demo:
