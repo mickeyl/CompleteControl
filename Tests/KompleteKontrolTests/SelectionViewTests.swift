@@ -34,6 +34,19 @@ struct SelectionViewTests {
         #expect(navigation.focusedFilterEncoder == nil)
     }
 
+    @Test("Layout exposes shared content metrics")
+    func layoutExposesSharedContentMetrics() {
+        let full = MK2SelectionLayout.contentRect(hasFilters: false)
+        let filtered = MK2SelectionLayout.contentRect(hasFilters: true)
+        let iconCell = MK2SelectionCellSize(width: 58, height: 58)
+
+        #expect(full == MK2PixelRect(x: 8, y: 43, width: 464, height: 221))
+        #expect(filtered == MK2PixelRect(x: 8, y: 43, width: 464, height: 134))
+        #expect(MK2SelectionLayout.gridColumnCount(for: iconCell) == 8)
+        #expect(MK2SelectionLayout.gridRowStep(for: iconCell) == 8)
+        #expect(MK2SelectionGrid.columnCount(for: iconCell) == MK2SelectionLayout.gridColumnCount(for: iconCell))
+    }
+
     @Test("List draws selected row and filter area")
     func listDrawsSelectionAndFilters() {
         var frame = MK2PixelFrame()

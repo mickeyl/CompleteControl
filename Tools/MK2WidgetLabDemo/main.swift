@@ -891,7 +891,7 @@ private actor WidgetLab {
     private func handleBrowserJog(_ direction: String) async {
         guard unit == .chrome else { return }
         let rowStep = browserMode.isGrid
-            ? MK2SelectionGrid.columnCount(for: BrowserLabFixtures.gridCellSizes[0])
+            ? MK2SelectionLayout.gridRowStep(for: BrowserLabFixtures.gridCellSizes[0])
             : 1
         switch direction {
             case "up":
@@ -1010,7 +1010,7 @@ private actor WidgetLab {
     private func handleSelectionJog(_ direction: String) async {
         guard unit == .list else { return }
         let rowStep = selectionMode.isGrid
-            ? MK2SelectionGrid.columnCount(for: SelectionLabFixtures.cellSizes[selectionCellSizeIndex])
+            ? MK2SelectionLayout.gridRowStep(for: SelectionLabFixtures.cellSizes[selectionCellSizeIndex])
             : 1
         switch direction {
             case "up":

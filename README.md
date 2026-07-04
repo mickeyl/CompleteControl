@@ -325,6 +325,8 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
 - `MK2ModalDialog`: global modal dialog projection with 4-D encoder selection/confirm and hardware-button dismiss.
 - `MK2SelectionNavigation`: a small value-type state helper for selection index movement,
   clamping/wrapping, and single-filter encoder focus.
+- `MK2SelectionLayout`: shared selection-view metrics for content/filter rectangles and
+  grid row steps. Demos should use it instead of duplicating display geometry.
 - `MK2SelectionList` / `MK2SelectionGrid`: reusable selection projections for one-screen
   lists and configurable-cell grids, with optional bottom-third filter controls aligned to
   fixed `E5`-`E8` rotary encoder slots. Filter state separates "active" from "focused":
@@ -333,8 +335,8 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
 
 For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
 For the Selection Lab unit, `Instance` cycles plain list, plain grid, filtered list, and
-filtered grid. The 4-D encoder moves by one item and confirms on press; filtered modes use
-right-side encoders for category filters.
+filtered grid. The 4-D encoder moves by one item in lists, by one visual row in grids, and
+confirms on press; filtered modes use right-side encoders for category filters.
 For the Browser Lab unit, `F2`/unit `B` prototypes a Paulinche-style browser/settings
 surface: the left display shows detail/preview, the right display uses `MK2SelectionList` or
 `MK2SelectionGrid`, `Instance` cycles list/grid/filter variants, 4-D moves/confirms, and

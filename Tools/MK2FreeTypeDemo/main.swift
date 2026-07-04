@@ -279,7 +279,7 @@ private actor FreeTypeDemo {
 
     private func jogIconList(_ direction: String) async {
         let rowStep = iconSelectionMode.isGrid
-            ? MK2SelectionGrid.columnCount(for: Self.iconGridCellSize)
+            ? MK2SelectionLayout.gridRowStep(for: Self.iconGridCellSize)
             : Self.iconPageStep
         switch direction {
             case "up":

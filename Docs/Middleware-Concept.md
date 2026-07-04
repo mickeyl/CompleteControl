@@ -461,7 +461,8 @@ hardware toggles, channel focus via Page Left/Right, instrument selection via Pr
 exact row via the 4-D encoder, and edit fields on rotary encoders 5-8. The recent
 `KontrolSurfaceKit2` widgets pulled from that lab are `MK2ButtonToggle`,
 `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue`, `MK2StatusLine`, `MK2ValueCell`,
-`MK2SelectionNavigation`, `MK2SelectionList`, `MK2SelectionGrid`, and `MK2ModalDialog`.
+`MK2SelectionNavigation`, `MK2SelectionLayout`, `MK2SelectionList`, `MK2SelectionGrid`, and
+`MK2ModalDialog`.
 
 The Selection Lab unit formalizes one-screen list/grid projections. `MK2SelectionList` and
 `MK2SelectionGrid` render icon-demo-style rows or configurable-cell grids, with an optional
@@ -471,15 +472,18 @@ projection stays aligned with the physical encoder. Active filters and focused e
 are separate states: active filters colour their label, while only the touched/turned encoder
 uses the inverted value-cell treatment. Rounded rectangles use antialiased corners, with the
 pixel fill path optimized to shade only the corner regions instead of supersampling large
-interior panels on every encoder tick.
+interior panels on every encoder tick. Selection geometry lives in `MK2SelectionLayout`;
+apps and demos should use those content/filter rectangles and grid row-step helpers instead
+of copying pixel constants from the renderer.
 
 In the lab, `Instance` cycles plain list, plain grid, filtered list, and filtered grid; the
-4-D encoder moves selection by one item and confirms on press. `MK2FreeTypeDemo` uses the same
-selection elements for the Font Awesome icon browser: `Instance` cycles list/grid/filter
-variants, and `E5` filters by first letter (`ALL`, `A`-`Z`). `MK2SelectionNavigation` owns
-the reusable selection-index and filter-focus mechanics so app-specific labs keep filtering
-and rendering decisions local without copying clamp/wrap/focus code. The MCU/HUI adapter is
-deprioritized — Paulinche integrates directly, not via MIDI emulation.
+4-D encoder moves selection by one item in lists, one visual row in grids, and confirms on
+press. `MK2FreeTypeDemo` uses the same selection elements for the Font Awesome icon browser:
+`Instance` cycles list/grid/filter variants, and `E5` filters by first letter (`ALL`, `A`-`Z`).
+`MK2SelectionNavigation` owns the reusable selection-index and filter-focus mechanics so
+app-specific labs keep filtering and rendering decisions local without copying clamp/wrap/focus
+code. The MCU/HUI adapter is deprioritized — Paulinche integrates directly, not via MIDI
+emulation.
 
 The Browser Lab unit is the next Paulinche-facing composition: left display detail/preview,
 right display list/grid selection, `Instance` for list/grid/filter variants, 4-D for
