@@ -458,14 +458,13 @@ tbody tr:hover { background: #141923; }
   top: 86px;
   right: 18px;
   z-index: 5;
-  display: none;
+  display: block;
   width: 360px;
   padding: 12px;
   background: rgba(9, 10, 13, 0.97);
   border: 1px solid var(--accent);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.58);
 }
-.hover-preview.visible { display: block; }
 .preview-title {
   margin-bottom: 10px;
   color: var(--accent);
@@ -498,6 +497,12 @@ tbody tr:hover { background: #141923; }
 .dim { color: var(--dim); }
 .name { color: #f2f6ee; }
 .aliases { color: #9cb3c7; }
+tbody tr.selected {
+  background: #172234;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+tbody tr.selected:hover { background: #172234; }
 @media (max-width: 820px) {
   header { grid-template-columns: 1fr; }
   thead th { top: 116px; }
@@ -558,7 +563,7 @@ tbody tr:hover { background: #141923; }
                 ]
             ).lower()
             native_char = f"&#x{codepoint:X};"
-            fh.write(f'<tr data-search="{html.escape(search, quote=True)}">')
+            fh.write(f'<tr data-search="{html.escape(search, quote=True)}" tabindex="-1">')
             fh.write(f'<td><span class="glyph-box">{glyph_svg(glyph, cell_w, cell_h, ascent, 2)}</span></td>')
             fh.write(f'<td>0x{glyph.encoding:04X}</td>')
             fh.write(f'<td>U+{codepoint:04X}</td>')
@@ -579,40 +584,92 @@ const rows = [...document.querySelectorAll("#glyphs tbody tr")];
 const preview = document.getElementById("hover-preview");
 const previewTitle = document.getElementById("preview-title");
 const previewGrid = document.getElementById("preview-grid");
+let selectedRow = null;
+
+function visibleRows() {
+  return rows.filter((row) => !row.hidden);
+}
+
+function updatePreview(row) {
+  if (!row) {
+    previewTitle.textContent = "No glyph selected";
+    previewGrid.replaceChildren();
+    return;
+  }
+  const box = row.querySelector(".glyph-box");
+  const code = row.children[2].textContent;
+  const name = row.children[5].textContent;
+  const source = row.children[6].textContent;
+  const sourceText = source ? ` · ${source}` : "";
+  const svg = box.querySelector("svg").cloneNode(true);
+  const viewBox = svg.getAttribute("viewBox").split(/\\s+/).map(Number);
+  const cellW = viewBox[2] || 1;
+  const cellH = viewBox[3] || 1;
+  const previewW = Math.min(300, window.innerWidth - 72);
+  const previewH = Math.round(previewW * cellH / cellW);
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  previewTitle.textContent = `${code} · ${name}${sourceText}`;
+  previewGrid.replaceChildren(svg);
+  previewGrid.style.width = `${previewW}px`;
+  previewGrid.style.height = `${previewH}px`;
+  previewGrid.style.backgroundSize = `${previewW / cellW}px ${previewH / cellH}px`;
+}
+
+function selectRow(row, scroll) {
+  if (!row || row.hidden) {
+    return;
+  }
+  if (selectedRow) {
+    selectedRow.classList.remove("selected");
+    selectedRow.removeAttribute("aria-selected");
+  }
+  selectedRow = row;
+  selectedRow.classList.add("selected");
+  selectedRow.setAttribute("aria-selected", "true");
+  updatePreview(selectedRow);
+  if (scroll) {
+    selectedRow.scrollIntoView({ block: "nearest" });
+  }
+}
+
 input.addEventListener("input", () => {
   const needle = input.value.trim().toLowerCase();
   for (const row of rows) {
     row.hidden = needle && !row.dataset.search.includes(needle);
   }
-});
-for (const box of document.querySelectorAll(".glyph-box")) {
-  box.addEventListener("mouseenter", () => {
-    const row = box.closest("tr");
-    const code = row.children[2].textContent;
-    const name = row.children[5].textContent;
-    const source = row.children[6].textContent;
-    const sourceText = source ? ` · ${source}` : "";
-    const svg = box.querySelector("svg").cloneNode(true);
-    const viewBox = svg.getAttribute("viewBox").split(/\\s+/).map(Number);
-    const cellW = viewBox[2] || 1;
-    const cellH = viewBox[3] || 1;
-    const previewW = Math.min(300, window.innerWidth - 72);
-    const previewH = Math.round(previewW * cellH / cellW);
-    svg.removeAttribute("width");
-    svg.removeAttribute("height");
-    previewTitle.textContent = `${code} · ${name}${sourceText}`;
-    previewGrid.replaceChildren(svg);
-    previewGrid.style.width = `${previewW}px`;
-    previewGrid.style.height = `${previewH}px`;
-    previewGrid.style.backgroundSize = `${previewW / cellW}px ${previewH / cellH}px`;
-    preview.classList.add("visible");
-  });
-}
-document.addEventListener("mouseover", (event) => {
-  if (!event.target.closest(".glyph-box") && !event.target.closest(".hover-preview")) {
-    preview.classList.remove("visible");
+  if (!selectedRow || selectedRow.hidden) {
+    selectRow(visibleRows()[0], false);
+  } else {
+    updatePreview(selectedRow);
   }
 });
+
+for (const row of rows) {
+  row.addEventListener("click", () => selectRow(row, false));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.metaKey || event.altKey || event.ctrlKey) {
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+    return;
+  }
+  const candidates = visibleRows();
+  if (!candidates.length) {
+    updatePreview(null);
+    return;
+  }
+  event.preventDefault();
+  const currentIndex = Math.max(0, candidates.indexOf(selectedRow));
+  const direction = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex = Math.min(candidates.length - 1, Math.max(0, currentIndex + direction));
+  selectRow(candidates[nextIndex], true);
+});
+
+window.addEventListener("resize", () => updatePreview(selectedRow));
+selectRow(visibleRows()[0], false);
 </script>
 </body>
 </html>
