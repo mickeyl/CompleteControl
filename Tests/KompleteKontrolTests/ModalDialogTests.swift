@@ -51,10 +51,51 @@ struct ModalDialogTests {
 
         #expect(box.events == ["dismiss"])
     }
+
+    @Test("Severity maps to stable icon colours")
+    func severityColors() {
+        let colors = MK2ModalDialogColors()
+
+        #expect(colors.accent(for: .info) == colors.accent)
+        #expect(colors.accent(for: .warning) == colors.warning)
+        #expect(colors.accent(for: .error) == colors.destructive)
+        #expect(colors.accent(for: .question) == colors.question)
+    }
+
+    @Test("Dialog draws FreeType icon and text regions")
+    func drawsFreeTypeRegions() throws {
+        let dialog = makeDialog(selectedIndex: 0, box: ModalDialogBox(), severity: .warning)
+
+        let scene = dialog.scene()
+        let left = try #require(scene.displays[0])
+        let right = try #require(scene.displays[1])
+
+        #expect(left.countPixels(in: MK2PixelRect(x: 16, y: 18, width: 96, height: 96), matching: MK2ModalDialogColors().warning) > 100)
+        #expect(left.countNonBackgroundPixels(in: MK2PixelRect(x: 136, y: 28, width: 328, height: 48)) > 100)
+        #expect(right.countNonBackgroundPixels(in: MK2PixelRect(x: 24, y: 12, width: 432, height: 48)) > 100)
+    }
+
+    @Test("Dialog panels antialias rounded corners")
+    func roundedPanelsAntialiasCorners() throws {
+        let colors = MK2ModalDialogColors()
+        let dialog = makeDialog(selectedIndex: 0, box: ModalDialogBox(), severity: .warning)
+
+        let scene = dialog.scene()
+        let left = try #require(scene.displays[0])
+        let right = try #require(scene.displays[1])
+
+        #expect(left.countIntermediatePixels(in: MK2PixelRect(x: 16, y: 18, width: 12, height: 12), excluding: [colors.background, colors.warning]) > 0)
+        #expect(right.countIntermediatePixels(in: MK2PixelRect(x: 24, y: 62, width: 12, height: 12), excluding: [colors.background, colors.warning, colors.selectionFill]) > 0)
+    }
 }
 
-private func makeDialog(selectedIndex: Int, box: ModalDialogBox) -> MK2ModalDialog {
+private func makeDialog(
+    selectedIndex: Int,
+    box: ModalDialogBox,
+    severity: MK2ModalDialogSeverity = .info
+) -> MK2ModalDialog {
     MK2ModalDialog(
+        severity: severity,
         title: "TEST",
         message: ["Really?"],
         actions: [
@@ -83,5 +124,40 @@ private final class ModalDialogBox: @unchecked Sendable {
         lock.lock()
         storage.append(event)
         lock.unlock()
+    }
+}
+
+private extension MK2PixelFrame {
+    func countPixels(in rect: MK2PixelRect, matching color: UInt16) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where self[x, y] == color {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    func countNonBackgroundPixels(in rect: MK2PixelRect) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where self[x, y] != 0x0000 {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    func countIntermediatePixels(in rect: MK2PixelRect, excluding colors: Set<UInt16>) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where !colors.contains(self[x, y]) {
+                count += 1
+            }
+        }
+        return count
     }
 }

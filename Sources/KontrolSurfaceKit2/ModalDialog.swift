@@ -17,6 +17,8 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
     public var dim: UInt16
     public var accent: UInt16
     public var destructive: UInt16
+    public var warning: UInt16
+    public var question: UInt16
     public var selectionFill: UInt16
     public var border: UInt16
 
@@ -26,6 +28,8 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
         dim: UInt16 = 0x8410,
         accent: UInt16 = 0x7dbf,
         destructive: UInt16 = 0xec88,
+        warning: UInt16 = 0xfe00,
+        question: UInt16 = 0x9a7f,
         selectionFill: UInt16 = 0x2126,
         border: UInt16 = 0x4208
     ) {
@@ -34,8 +38,44 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
         self.dim = dim
         self.accent = accent
         self.destructive = destructive
+        self.warning = warning
+        self.question = question
         self.selectionFill = selectionFill
         self.border = border
+    }
+
+    public func accent(for severity: MK2ModalDialogSeverity) -> UInt16 {
+        switch severity {
+            case .info: accent
+            case .warning: warning
+            case .error: destructive
+            case .question: question
+        }
+    }
+}
+
+public enum MK2ModalDialogSeverity: Sendable, Equatable, CaseIterable {
+    case info
+    case warning
+    case error
+    case question
+
+    public var iconGlyph: String {
+        switch self {
+            case .info: "\u{f05a}"      // circle-info
+            case .warning: "\u{f071}"   // triangle-exclamation
+            case .error: "\u{f057}"     // circle-xmark
+            case .question: "\u{f059}"  // circle-question
+        }
+    }
+
+    public var fallbackText: String {
+        switch self {
+            case .info: "i"
+            case .warning: "!"
+            case .error: "x"
+            case .question: "?"
+        }
     }
 }
 
@@ -44,7 +84,8 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
 /// The dialog is intentionally strict: 4-D wheel up/down and rotation move selection,
 /// 4-D press confirms, and every other hardware button press dismisses the dialog.
 public struct MK2ModalDialog: Sendable {
-    public var iconPlaceholder: String
+    public var severity: MK2ModalDialogSeverity
+    public var iconGlyph: String?
     public var title: String
     public var message: [String]
     public var actions: [MK2ModalDialogAction]
@@ -57,7 +98,8 @@ public struct MK2ModalDialog: Sendable {
     private let onDismiss: @Sendable () -> Void
 
     public init(
-        iconPlaceholder: String = "[!]",
+        severity: MK2ModalDialogSeverity = .info,
+        iconGlyph: String? = nil,
         title: String,
         message: [String],
         actions: [MK2ModalDialogAction],
@@ -68,7 +110,8 @@ public struct MK2ModalDialog: Sendable {
         onConfirm: @escaping @Sendable (_ index: Int) -> Void,
         onDismiss: @escaping @Sendable () -> Void
     ) {
-        self.iconPlaceholder = iconPlaceholder
+        self.severity = severity
+        self.iconGlyph = iconGlyph
         self.title = title
         self.message = message
         self.actions = actions
@@ -84,9 +127,10 @@ public struct MK2ModalDialog: Sendable {
         var bindings = MK2InputBindings2()
         bindNavigation(into: &bindings)
         bindDismissButtons(into: &bindings)
+        let renderer = try? FreeTypeTextRenderer()
         return MK2SurfaceScene2(
-            left: leftFrame(),
-            right: rightFrame(),
+            left: leftFrame(renderer: renderer),
+            right: rightFrame(renderer: renderer),
             lamps: [:],
             bindings: bindings
         )
@@ -128,48 +172,131 @@ public struct MK2ModalDialog: Sendable {
         onConfirm(selectedIndex)
     }
 
-    private func leftFrame() -> MK2PixelFrame {
+    private func leftFrame(renderer: FreeTypeTextRenderer?) -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: colors.background)
-        frame.stroke(MK2PixelRect(x: 16, y: 18, width: 96, height: 96), colors.border)
-        BitmapLabel(iconPlaceholder, font: .readoutBold, color: colors.destructive)
-            .draw(into: &frame, x: 36, y: 50)
-        BitmapLabel(title, font: .gridBold, color: colors.destructive)
-            .draw(into: &frame, x: 136, y: 30, clip: MK2PixelRect(x: 136, y: 30, width: 328, height: 20))
+        let tone = colors.accent(for: severity)
+        let iconRect = MK2PixelRect(x: 16, y: 18, width: 96, height: 96)
+        drawRoundedPanel(iconRect, fill: colors.background, border: tone, radius: 8, into: &frame)
+        drawIcon(renderer: renderer, glyph: iconGlyph ?? severity.iconGlyph, fallback: severity.fallbackText, into: &frame, rect: iconRect, color: tone)
+        drawTitle(title, renderer: renderer, into: &frame, x: 136, y: iconRect.y, color: tone, maxWidth: 328)
 
-        var y = 82
-        for line in message.prefix(5) {
-            BitmapLabel(line, font: .grid, color: colors.text)
-                .draw(into: &frame, x: 136, y: y, clip: MK2PixelRect(x: 136, y: y, width: 328, height: 20))
-            y += 22
+        var y = 76
+        for line in message.prefix(6) {
+            drawBody(line, renderer: renderer, into: &frame, x: 136, y: y, color: colors.text, maxWidth: 328)
+            y += 24
         }
 
-        BitmapLabel("4D: Auswahl und Bestätigung", font: .label, color: colors.dim)
-            .draw(into: &frame, x: 24, y: 246)
+        drawBody("4D: Auswahl und Bestätigung", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
     }
 
-    private func rightFrame() -> MK2PixelFrame {
+    private func rightFrame(renderer: FreeTypeTextRenderer?) -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: colors.background)
-        BitmapLabel("AKTIONEN", font: .gridBold, color: colors.accent).draw(into: &frame, x: 24, y: 24)
+        let tone = colors.accent(for: severity)
+        drawTitle("AKTIONEN", renderer: renderer, into: &frame, x: 24, y: 12, color: tone, maxWidth: 432)
 
         for (index, action) in actions.enumerated() {
-            let y = 72 + index * 48
+            let rect = MK2PixelRect(x: 24, y: 62 + index * 74, width: 432, height: 62)
             let selected = index == selectedIndex
-            let rect = MK2PixelRect(x: 24, y: y - 8, width: 432, height: 40)
             if selected {
-                frame.fill(rect, colors.selectionFill)
-                frame.stroke(rect, colors.accent)
+                drawRoundedPanel(rect, fill: colors.selectionFill, border: tone, radius: 7, into: &frame)
             }
-            BitmapLabel(selected ? "> \(action.title)" : "  \(action.title)", font: .grid, color: selected ? colors.text : colors.dim)
-                .draw(into: &frame, x: 36, y: y, clip: MK2PixelRect(x: 36, y: y, width: 400, height: 18))
+            drawTitle(action.title, renderer: renderer, into: &frame, x: 44, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: 392)
             if let detail = action.detail {
-                BitmapLabel(detail, font: .label, color: colors.dim)
-                    .draw(into: &frame, x: 56, y: y + 20, clip: MK2PixelRect(x: 56, y: y + 20, width: 380, height: 14))
+                drawBody(detail, renderer: renderer, into: &frame, x: 44, y: rect.y + 37, color: colors.dim, maxWidth: 392)
             }
         }
 
-        BitmapLabel(dismissHint, font: .label, color: colors.dim)
-            .draw(into: &frame, x: 24, y: 246, clip: MK2PixelRect(x: 24, y: 246, width: 432, height: 14))
+        drawBody(dismissHint, renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
+    }
+
+    private func drawRoundedPanel(
+        _ rect: MK2PixelRect,
+        fill: UInt16,
+        border: UInt16,
+        radius: Int,
+        borderWidth: Int = 1,
+        into frame: inout MK2PixelFrame
+    ) {
+        frame.fillRounded(rect, radius: radius, border, antialiased: true)
+        let inset = max(1, borderWidth)
+        let inner = MK2PixelRect(
+            x: rect.x + inset,
+            y: rect.y + inset,
+            width: rect.width - inset * 2,
+            height: rect.height - inset * 2
+        )
+        frame.fillRounded(inner, radius: max(0, radius - inset), fill, antialiased: true)
+    }
+
+    private func drawTitle(
+        _ text: String,
+        renderer: FreeTypeTextRenderer?,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        let style = FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.textFamilyID,
+            weight: .medium,
+            pixelSize: 24,
+            color: color
+        )
+        guard let renderer, (try? renderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
+            BitmapLabel(text, font: .gridBold, color: color)
+                .draw(into: &frame, x: x, y: y + 4, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: 24))
+            return
+        }
+    }
+
+    private func drawBody(
+        _ text: String,
+        renderer: FreeTypeTextRenderer?,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        let style = FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.textFamilyID,
+            weight: .regular,
+            pixelSize: 16,
+            color: color
+        )
+        guard let renderer, (try? renderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
+            BitmapLabel(text, font: .grid, color: color)
+                .draw(into: &frame, x: x, y: y + 3, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: 18))
+            return
+        }
+    }
+
+    private func drawIcon(
+        renderer: FreeTypeTextRenderer?,
+        glyph: String,
+        fallback: String,
+        into frame: inout MK2PixelFrame,
+        rect: MK2PixelRect,
+        color: UInt16
+    ) {
+        let style = FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
+            weight: .regular,
+            pixelSize: 48,
+            color: color
+        )
+        if let renderer, let width = try? renderer.measure(glyph, style: style) {
+            let x = rect.x + (rect.width - width) / 2
+            let y = rect.y + 22
+            if (try? renderer.drawText(glyph, into: &frame, x: x, y: y, style: style, maxWidth: rect.width)) != nil {
+                return
+            }
+        }
+
+        BitmapLabel(fallback, font: .readoutBold, color: color)
+            .draw(into: &frame, x: rect.x + 36, y: rect.y + 32)
     }
 }

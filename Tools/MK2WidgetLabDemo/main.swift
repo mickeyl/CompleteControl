@@ -8,8 +8,8 @@ import KontrolSurfaceKit2
 // PixelSnapshot) — no private drawing helpers, no legacy placeholder font. If a unit
 // needs something the kit can't express yet, that capability goes into the kit first.
 //
-// Eight units select via the function buttons (later: paging). A readline REPL drives the
-// per-unit parameters so we don't have to bind every knob to hardware while iterating.
+// Eight units select via the function buttons. Hardware encoders drive the active
+// unit's most useful parameters; the readline REPL mirrors them for fast iteration.
 @main
 struct MK2WidgetLabDemo {
     static func main() async {
@@ -17,7 +17,7 @@ struct MK2WidgetLabDemo {
         let lab = WidgetLab(surface: surface)
         let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
         await runner.run { _ in
-            await lab.show(.pattern)
+            await lab.show(.font)
             printBanner()
             startREPL(lab)
         }
@@ -65,6 +65,11 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "scale", arg: "<n>", summary: "focus integer pixel scale", values: []),
     ReplCommand(name: "fg", arg: "<rrggbb|name>", summary: "foreground colour", values: namedColors.keys.sorted()),
     ReplCommand(name: "bg", arg: "<rrggbb|name|none>", summary: "focus highlight background", values: namedColors.keys.sorted() + ["none"]),
+    ReplCommand(name: "sample", arg: "<0-3>", summary: "font lab: FreeType sample preset", values: ["0", "1", "2", "3"]),
+    ReplCommand(name: "body", arg: "<12-22>", summary: "font lab: body pixel size", values: []),
+    ReplCommand(name: "title", arg: "<18-32>", summary: "font lab: title pixel size", values: []),
+    ReplCommand(name: "icon", arg: "<0-6|name>", summary: "font lab: icon preset", values: []),
+    ReplCommand(name: "iconsize", arg: "<32-72>", summary: "font lab: icon pixel size", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
     ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
@@ -136,6 +141,7 @@ private enum Unit: Int, CaseIterable, Sendable {
 private actor WidgetLab {
     private let surface: MK2Surface2
     private let metronome = DemoMetronome()
+    private let freeTypeRenderer: FreeTypeTextRenderer?
     private var unit: Unit = .font
 
     // Font lab focus: the single combination we render prominently while iterating
@@ -146,6 +152,11 @@ private actor WidgetLab {
     private var focusFG: UInt16 = 0xffff
     private var focusBG: UInt16?
     private var sampleText = "Paulinche 0123 ÄÖÜ"
+    private var fontSampleIndex = 0
+    private var bodyPixelSize = 16
+    private var titlePixelSize = 24
+    private var iconSampleIndex = 1
+    private var iconPixelSize = 48
     private var isPlaying = false
     private var recordArmed = false
     private var metronomeEnabled = false
@@ -186,9 +197,45 @@ private actor WidgetLab {
         DemoInstrument(number: "10", name: "Sub Pure"),
     ]
     private static let instrumentIndexBounds = 0...(demoInstruments.count - 1)
+    private static let fontSamples = [
+        FontLabSample(
+            label: "Dialog",
+            title: "Pattern löschen?",
+            body: "Wollen Sie das aktuelle Pattern wirklich löschen?",
+            detail: "4D bestätigt, jede andere Hardware-Taste bricht ab."
+        ),
+        FontLabSample(
+            label: "Browser",
+            title: "Instrument Browser",
+            body: "Kick Resin, Snare Alloy, Hat Needle, Bass Rubber",
+            detail: "Längere Listentexte bleiben ruhig und gut lesbar."
+        ),
+        FontLabSample(
+            label: "Settings",
+            title: "MIDI Routing",
+            body: "Channel 3 empfängt live und schreibt Steps in Pattern 03.",
+            detail: "Body Regular, Titel Medium, Icons Pro Light."
+        ),
+        FontLabSample(
+            label: "German",
+            title: "Globale Einstellungen",
+            body: "Größen, Dicken und Umlaute prüfen: ÄÖÜ äöü ß.",
+            detail: "Zahlen und Einheiten: 120 BPM, 16 Steps, 80 %."
+        ),
+    ]
+    private static let fontIconSamples = [
+        FontLabIconSample(name: "Info", glyph: "\u{f05a}", color: Palette.blue),
+        FontLabIconSample(name: "Warn", glyph: "\u{f071}", color: Palette.accent),
+        FontLabIconSample(name: "Error", glyph: "\u{f057}", color: Palette.orange),
+        FontLabIconSample(name: "Question", glyph: "\u{f059}", color: Palette.question),
+        FontLabIconSample(name: "Save", glyph: "\u{f0c7}", color: Palette.green),
+        FontLabIconSample(name: "Sliders", glyph: "\u{f1de}", color: Palette.solo),
+        FontLabIconSample(name: "Trash", glyph: "\u{f2ed}", color: Palette.mute),
+    ]
 
     init(surface: MK2Surface2) {
         self.surface = surface
+        self.freeTypeRenderer = try? FreeTypeTextRenderer()
         self.patternRows = WidgetLab.demoPatternRows()
     }
 
@@ -260,7 +307,11 @@ private actor WidgetLab {
         bindings.jogScroll = { [weak self] delta, _ in
             Task { await self?.turnMainEncoder(delta) }
         }
-        if unit == .pattern {
+        if unit == .font {
+            for binding in fontLabEncoderBindings() {
+                binding.apply(bindings: &bindings)
+            }
+        } else if unit == .pattern {
             MK2ButtonToggle(
                 button: .metro,
                 isOn: metronomeEnabled,
@@ -310,7 +361,7 @@ private actor WidgetLab {
         switch modalDialog {
             case let .clearPattern(selectedIndex):
                 return MK2ModalDialog(
-                    iconPlaceholder: "[!]",
+                    severity: .warning,
                     title: "PATTERN LÖSCHEN",
                     message: [
                         "Wollen Sie das aktuelle",
@@ -356,19 +407,32 @@ private actor WidgetLab {
     // directly comparable against the same sample string.
     private func fontCatalogFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("FONT LAB - CATALOG", font: .label, color: Palette.accent)
+        BitmapLabel("FONT LAB - FREETYPE + BITMAP", font: .label, color: Palette.accent)
             .draw(into: &frame, x: 8, y: 8)
 
+        drawFreeTypeTitle("Globaler Dialogtitel", into: &frame, x: 8, y: 32, size: 24, color: Palette.text, maxWidth: 448)
+        drawFreeTypeBody("Body Regular 16 px: Listen, Dialoge, Browser, Settings.", into: &frame, x: 8, y: 70, size: 16, color: Palette.dim, maxWidth: 448)
+        drawFreeTypeBody("Tracker und Grid bleiben bitmap-scharf.", into: &frame, x: 8, y: 94, size: 16, color: Palette.empty, maxWidth: 448)
+
+        let icons = Array(Self.fontIconSamples.prefix(4))
+        for (index, icon) in icons.enumerated() {
+            let x = 28 + index * 110
+            drawFreeTypeIcon(icon.glyph, into: &frame, x: x, y: 122, size: 40, color: icon.color)
+            BitmapLabel(icon.name.uppercased(), font: .label, color: Palette.dim)
+                .draw(into: &frame, x: x - 10, y: 174, clip: MK2PixelRect(x: x - 10, y: 174, width: 92, height: 14))
+        }
+
+        frame.hline(y: 198, x: 8, width: 456, color: Palette.border)
+
         let faces: [(String, SurfaceFont)] = [
-            ("GRID", .grid), ("GRID-B", .gridBold), ("LABEL", .label),
-            ("READOUT", .readout), ("READ-B", .readoutBold),
+            ("BITMAP GRID", .grid), ("GRID BOLD", .gridBold), ("LABEL", .label),
         ]
-        var y = 34
+        var y = 212
         for (name, font) in faces {
             BitmapLabel(name, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y + 1)
             BitmapLabel(sampleText, font: font, color: Palette.text)
-                .draw(into: &frame, x: 96, y: y, clip: MK2PixelRect(x: 96, y: y, width: 480 - 96, height: font.cellHeight))
-            y += font.cellHeight + 10
+                .draw(into: &frame, x: 112, y: y, clip: MK2PixelRect(x: 112, y: y, width: 352, height: font.cellHeight))
+            y += font.cellHeight + 8
         }
         return frame
     }
@@ -569,8 +633,84 @@ private actor WidgetLab {
     }
 
     private func turnMainEncoder(_ delta: Int) async {
-        guard unit == .pattern, !isPlaying, delta != 0 else { return }
-        playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
+        guard delta != 0 else { return }
+        switch unit {
+            case .font:
+                setFontSampleIndex(fontSampleIndex + delta)
+                await render()
+            case .pattern:
+                guard !isPlaying else { return }
+                playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
+                await render()
+            default:
+                return
+        }
+    }
+
+    private func fontLabEncoderBindings() -> [MK2EncoderDiscreteValue] {
+        [
+            MK2EncoderDiscreteValue(
+                encoder: 1,
+                value: bodyPixelSize,
+                bounds: 12...22,
+                wraps: false,
+                onChange: { [weak self] value in
+                    Task { await self?.setBodyPixelSize(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 2,
+                value: titlePixelSize,
+                bounds: 18...32,
+                wraps: false,
+                onChange: { [weak self] value in
+                    Task { await self?.setTitlePixelSize(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 3,
+                value: iconSampleIndex,
+                bounds: 0...(Self.fontIconSamples.count - 1),
+                wraps: true,
+                onChange: { [weak self] value in
+                    Task { await self?.setIconSampleIndex(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 4,
+                value: iconPixelSize,
+                bounds: 32...72,
+                step: 2,
+                wraps: false,
+                onChange: { [weak self] value in
+                    Task { await self?.setIconPixelSize(value) }
+                }
+            ),
+        ]
+    }
+
+    private func setFontSampleIndex(_ value: Int) {
+        fontSampleIndex = value.wrapped(to: 0...(Self.fontSamples.count - 1))
+        sampleText = Self.fontSamples[fontSampleIndex].title
+    }
+
+    private func setBodyPixelSize(_ value: Int) async {
+        bodyPixelSize = max(12, min(22, value))
+        await render()
+    }
+
+    private func setTitlePixelSize(_ value: Int) async {
+        titlePixelSize = max(18, min(32, value))
+        await render()
+    }
+
+    private func setIconSampleIndex(_ value: Int) async {
+        iconSampleIndex = value.wrapped(to: 0...(Self.fontIconSamples.count - 1))
+        await render()
+    }
+
+    private func setIconPixelSize(_ value: Int) async {
+        iconPixelSize = max(32, min(72, value))
         await render()
     }
 
@@ -803,22 +943,110 @@ private actor WidgetLab {
     // a settings readout — this is the surface we judge a candidate on.
     private func fontFocusFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.page)
-        let font = SurfaceFont.face(focusRole, focusWeight)
+        let sample = Self.fontSamples[fontSampleIndex]
+        let icon = Self.fontIconSamples[iconSampleIndex]
 
-        let readout = "\(roleName) \(weightName) x\(focusScale)  FG \(hex(focusFG))  BG \(focusBG.map(hex) ?? "----")"
-        BitmapLabel(readout, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: 8)
+        BitmapLabel("MAIN SAMPLE  E1 BODY  E2 TITLE  E3 ICON  E4 SIZE", font: .label, color: Palette.dim)
+            .draw(into: &frame, x: 8, y: 8)
+        BitmapLabel("\(sample.label.uppercased())  \(icon.name.uppercased())", font: .label, color: Palette.accent)
+            .draw(into: &frame, x: 8, y: 25, clip: MK2PixelRect(x: 8, y: 25, width: 456, height: 14))
 
-        let swatch = MK2PixelRect(x: 6, y: 34, width: 468, height: 200)
-        if let background = focusBG {
-            frame.fill(swatch, background)
-            frame.stroke(swatch, Palette.border)
-        }
-        BitmapLabel(sampleText, font: font, color: focusFG, scale: focusScale)
-            .draw(into: &frame, x: 16, y: 110, clip: swatch)
+        let dialog = MK2PixelRect(x: 8, y: 48, width: 456, height: 150)
+        frame.fill(dialog, Palette.dialogSurface)
+        frame.stroke(dialog, icon.color)
+        drawFreeTypeIcon(icon.glyph, into: &frame, x: 28, y: 70, size: iconPixelSize, color: icon.color)
+        drawFreeTypeTitle(sample.title, into: &frame, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
+        drawFreeTypeBody(sample.body, into: &frame, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336)
+        drawFreeTypeBody(sample.detail, into: &frame, x: 112, y: 132, size: max(12, min(18, bodyPixelSize - 1)), color: Palette.dim, maxWidth: 336)
 
-        BitmapLabel("ENC/BTN LATER - DRIVE VIA REPL", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 8, y: 250)
+        let valueY = 218
+        drawFontLabValue(label: "BODY", value: "\(bodyPixelSize)", x: 8, y: valueY, color: Palette.text, into: &frame)
+        drawFontLabValue(label: "TITLE", value: "\(titlePixelSize)", x: 126, y: valueY, color: Palette.text, into: &frame)
+        drawFontLabValue(label: "ICON", value: "\(iconSampleIndex + 1)", x: 244, y: valueY, color: icon.color, into: &frame)
+        drawFontLabValue(label: "SIZE", value: "\(iconPixelSize)", x: 362, y: valueY, color: icon.color, into: &frame)
         return frame
+    }
+
+    private func drawFontLabValue(label: String, value: String, x: Int, y: Int, color: UInt16, into frame: inout MK2PixelFrame) {
+        MK2ValueCell(
+            label: label,
+            value: value,
+            rect: MK2PixelRect(x: x, y: y, width: 102, height: 38),
+            isFocused: false,
+            valueFont: .readoutBold,
+            cornerRadius: 7,
+            colors: editCellColors(value: color)
+        ).draw(into: &frame)
+    }
+
+    private func drawFreeTypeTitle(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        size: Int,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .medium, color: color, maxWidth: maxWidth)
+    }
+
+    private func drawFreeTypeBody(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        size: Int,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .regular, color: color, maxWidth: maxWidth)
+    }
+
+    private func drawFreeTypeText(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        size: Int,
+        weight: FreeTypeFontWeight,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        let style = FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.textFamilyID,
+            weight: weight,
+            pixelSize: size,
+            color: color
+        )
+        guard let freeTypeRenderer,
+              (try? freeTypeRenderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
+            BitmapLabel(text, font: weight == .medium ? .gridBold : .grid, color: color)
+                .draw(into: &frame, x: x, y: y + 3, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: max(18, size + 6)))
+            return
+        }
+    }
+
+    private func drawFreeTypeIcon(
+        _ glyph: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        size: Int,
+        color: UInt16
+    ) {
+        let style = FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
+            weight: .regular,
+            pixelSize: size,
+            color: color
+        )
+        guard let freeTypeRenderer,
+              (try? freeTypeRenderer.drawText(glyph, into: &frame, x: x, y: y, style: style, maxWidth: max(80, size + 20))) != nil else {
+            BitmapLabel("?", font: .readoutBold, color: color)
+                .draw(into: &frame, x: x + 12, y: y + 14)
+            return
+        }
     }
 
     // MARK: - Placeholder units
@@ -896,6 +1124,31 @@ private actor WidgetLab {
                 guard let color = Self.color565(rest) else { print("? bg <rrggbb|name|none>"); return }
                 focusBG = color
                 await render()
+
+            case "sample":
+                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      Self.fontSamples.indices.contains(value) else { print("? sample <0-\(Self.fontSamples.count - 1)>"); return }
+                setFontSampleIndex(value)
+                await render()
+
+            case "body":
+                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      (12...22).contains(value) else { print("? body <12-22>"); return }
+                await setBodyPixelSize(value)
+
+            case "title":
+                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      (18...32).contains(value) else { print("? title <18-32>"); return }
+                await setTitlePixelSize(value)
+
+            case "icon":
+                guard let value = Self.fontIconIndex(rest) else { print("? icon <0-\(Self.fontIconSamples.count - 1)|name>"); return }
+                await setIconSampleIndex(value)
+
+            case "iconsize":
+                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
+                      (32...72).contains(value) else { print("? iconsize <32-72>"); return }
+                await setIconPixelSize(value)
 
             case "play":
                 await play()
@@ -1018,6 +1271,14 @@ private actor WidgetLab {
             case "readout": .readout
             default: nil
         }
+    }
+
+    private static func fontIconIndex(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let index = Int(trimmed), fontIconSamples.indices.contains(index) {
+            return index
+        }
+        return fontIconSamples.firstIndex { $0.name.lowercased() == trimmed }
     }
 
     private static func rowValue(_ text: String) -> Int? {
@@ -1234,6 +1495,19 @@ let namedColors: [String: UInt16] = [
     "orange": 0xfc00, "grey": 0x8410, "gray": 0x8410, "dim": 0x4208,
 ]
 
+private struct FontLabSample: Sendable {
+    var label: String
+    var title: String
+    var body: String
+    var detail: String
+}
+
+private struct FontLabIconSample: Sendable {
+    var name: String
+    var glyph: String
+    var color: UInt16
+}
+
 private struct TrackerDemoRow: Sendable {
     var cells: [TrackerDemoCell]
 }
@@ -1350,6 +1624,7 @@ private enum Palette {
     static let blue: UInt16 = 0x7dbf
     static let green: UInt16 = 0x464f
     static let orange: UInt16 = 0xec88
+    static let question: UInt16 = 0x9a7f
     static let solo: UInt16 = 0x03ff
     static let soloBorder: UInt16 = 0x5dff
     static let mute: UInt16 = 0xf8c3
@@ -1369,6 +1644,7 @@ private enum Palette {
     static let editFieldFill: UInt16 = 0x1083
     static let editFieldFocusedFill: UInt16 = 0xc618
     static let track: UInt16 = 0x2126
+    static let dialogSurface: UInt16 = 0x18e3
 }
 
 private extension MK2PixelFrame {
@@ -1382,5 +1658,15 @@ private extension MK2PixelFrame {
             fill(MK2PixelRect(x: x, y: y + offset, width: 1, height: 1), color)
             offset += 2
         }
+    }
+}
+
+private extension Int {
+    func wrapped(to bounds: ClosedRange<Int>) -> Int {
+        let count = bounds.upperBound - bounds.lowerBound + 1
+        guard count > 0 else { return bounds.lowerBound }
+        let raw = (self - bounds.lowerBound) % count
+        let offset = raw >= 0 ? raw : raw + count
+        return bounds.lowerBound + offset
     }
 }
