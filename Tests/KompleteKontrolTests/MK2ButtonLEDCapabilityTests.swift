@@ -23,10 +23,11 @@ struct MK2ButtonLEDCapabilityTests {
         #expect(KKMK2ButtonLED.function1.ledByte(for: red) != KKMK2ButtonLED.function1.ledByte(for: white))
     }
 
-    @Test("Play and Stop are fixed-colour monochrome indicators")
+    @Test("Play and Record are fixed-colour monochrome indicators")
     func fixedColorMonochromeButtons() {
         #expect(KKMK2ButtonLED.play.fixedMonochromeBacklightColor == KKRGB(red: 0x00, green: 0xff, blue: 0x00))
-        #expect(KKMK2ButtonLED.stop.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0x00, blue: 0x00))
+        #expect(KKMK2ButtonLED.record.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0x00, blue: 0x00))
+        #expect(KKMK2ButtonLED.stop.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0xff, blue: 0xff))
         #expect(KKMK2ButtonLED.clear.fixedMonochromeBacklightColor == KKRGB(red: 0xff, green: 0xff, blue: 0xff))
     }
 

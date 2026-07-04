@@ -240,7 +240,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
         switch self {
             case .play:
                 KKRGB(red: 0x00, green: 0xff, blue: 0x00)
-            case .stop:
+            case .record:
                 KKRGB(red: 0xff, green: 0x00, blue: 0x00)
             default:
                 KKRGB(red: 0xff, green: 0xff, blue: 0xff)

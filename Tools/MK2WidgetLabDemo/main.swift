@@ -83,6 +83,8 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
+    ReplCommand(name: "solo", arg: "on|off|toggle", summary: "tracker unit: solo focused channel", values: ["on", "off", "toggle"]),
+    ReplCommand(name: "mute", arg: "on|off|toggle", summary: "tracker unit: mute focused channel", values: ["on", "off", "toggle"]),
     ReplCommand(name: "stripe", arg: "off|odd|even|<n>|every <n> [phase]", summary: "tracker unit: row stripe rule", values: ["off", "odd", "even", "4", "16", "every"]),
     ReplCommand(name: "rec", arg: "on|off|toggle", summary: "tracker unit: arm record", values: ["on", "off", "toggle"]),
     ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
@@ -167,11 +169,15 @@ private actor WidgetLab {
     private var patternRows: [TrackerDemoRow]
     private var focusedChannel = 3
     private var midiInputByChannel = Array(repeating: "NO MIDI", count: 4)
+    private var mutedChannels: Set<Int> = []
+    private var soloedChannels: Set<Int> = []
     private static let availableIntensity: UInt8 = 0x01
     private static let activeIntensity: UInt8 = 0x03
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
     private static let actionGreen = KKRGB(red: 0x00, green: 0xff, blue: 0x66)
     private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
+    private static let soloColor = KKRGB(red: 0x00, green: 0x7f, blue: 0xff)
+    private static let muteColor = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
     private static let demoInstruments = [
         DemoInstrument(number: "01", name: "Kick Resin"),
         DemoInstrument(number: "02", name: "Snare Alloy"),
@@ -233,7 +239,6 @@ private actor WidgetLab {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
-            lamps[.metro] = metronomeEnabled ? Self.activeLamp(Self.actionWhite) : Self.availableLamp(Self.actionWhite)
             lamps[.clear] = Self.availableLamp(Self.actionWhite)
             lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
             lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
@@ -254,9 +259,6 @@ private actor WidgetLab {
         bindings.onPress(.record) { [weak self] in
             Task { await self?.toggleRecordArm() }
         }
-        bindings.onPress(.metro) { [weak self] in
-            Task { await self?.toggleMetronome() }
-        }
         bindings.onPress(.clear) { [weak self] in
             Task { await self?.showClearPatternDialog() }
         }
@@ -270,6 +272,26 @@ private actor WidgetLab {
             Task { await self?.turnMainEncoder(delta) }
         }
         if unit == .pattern {
+            MK2ButtonToggle(
+                button: .metro,
+                isOn: metronomeEnabled,
+                onLamp: Self.activeLamp(Self.actionWhite),
+                offLamp: Self.availableLamp(Self.actionWhite)
+            ) { [weak self] enabled in
+                Task { await self?.setMetronomeEnabled(enabled) }
+            }
+            .apply(lamps: &lamps, bindings: &bindings)
+
+            channelMuteToggle(focusedChannel) { [weak self] enabled in
+                Task { await self?.setFocusedChannelMute(enabled) }
+            }
+            .apply(lamps: &lamps, bindings: &bindings)
+
+            channelSoloToggle(focusedChannel) { [weak self] enabled in
+                Task { await self?.setFocusedChannelSolo(enabled) }
+            }
+            .apply(lamps: &lamps, bindings: &bindings)
+
             MK2ButtonRangeSelection(
                 value: selectedInstrumentIndex,
                 bounds: Self.instrumentIndexBounds,
@@ -374,9 +396,18 @@ private actor WidgetLab {
         let channelXs = [48, 153, 258, 363]
         let rulerXs = [36, 141, 246, 351, 456]
 
-        for (index, x) in channelXs.enumerated() {
-            BitmapLabel("CHANNEL \(index + 1)", font: .label, color: index == focusedChannel ? Palette.blue : Palette.dim)
+        for (index, x) in rulerXs.dropLast().enumerated() {
+            let active = index == focusedChannel
+            BitmapLabel("CHANNEL \(index + 1)", font: .label, color: active ? Palette.blue : Palette.dim)
                 .draw(into: &frame, x: x, y: 38)
+            drawChannelButton(
+                channelMuteToggle(index, display: channelToggleDisplay("M", kind: .mute, x: x + 69, y: 34)),
+                into: &frame
+            )
+            drawChannelButton(
+                channelSoloToggle(index, display: channelToggleDisplay("S", kind: .solo, x: x + 87, y: 34)),
+                into: &frame
+            )
         }
         frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
 
@@ -450,6 +481,10 @@ private actor WidgetLab {
         BitmapLabel(cell.note, font: .grid, color: noteColor).draw(into: &frame, x: x, y: y)
         BitmapLabel(cell.instrument, font: .grid, color: instColor).draw(into: &frame, x: x + 38, y: y)
         BitmapLabel(cell.effect, font: .grid, color: fxColor).draw(into: &frame, x: x + 64, y: y)
+    }
+
+    private func drawChannelButton(_ toggle: MK2ButtonToggle, into frame: inout MK2PixelFrame) {
+        toggle.drawDisplay(into: &frame)
     }
 
     private func drawEditField(_ label: String, value: String, color: UInt16, x: Int, y: Int, width: Int, focused: Bool, into frame: inout MK2PixelFrame) {
@@ -535,6 +570,65 @@ private actor WidgetLab {
         guard next != focusedChannel else { return }
         focusedChannel = next
         await render()
+    }
+
+    private func setFocusedChannelSolo(_ enabled: Bool) async {
+        guard unit == .pattern else { return }
+        if enabled {
+            soloedChannels.insert(focusedChannel)
+        } else {
+            soloedChannels.remove(focusedChannel)
+        }
+        await render()
+    }
+
+    private func setFocusedChannelMute(_ enabled: Bool) async {
+        guard unit == .pattern else { return }
+        if enabled {
+            mutedChannels.insert(focusedChannel)
+        } else {
+            mutedChannels.remove(focusedChannel)
+        }
+        await render()
+    }
+
+    private func channelMuteToggle(
+        _ channel: Int,
+        display: MK2ButtonToggleDisplay? = nil,
+        onToggle: @escaping @Sendable (_ isOn: Bool) -> Void = { _ in }
+    ) -> MK2ButtonToggle {
+        MK2ButtonToggle(
+            button: .m,
+            isOn: mutedChannels.contains(channel),
+            onLamp: Self.activeLamp(Self.muteColor),
+            offLamp: Self.availableLamp(Self.muteColor),
+            display: display,
+            onToggle: onToggle
+        )
+    }
+
+    private func channelSoloToggle(
+        _ channel: Int,
+        display: MK2ButtonToggleDisplay? = nil,
+        onToggle: @escaping @Sendable (_ isOn: Bool) -> Void = { _ in }
+    ) -> MK2ButtonToggle {
+        MK2ButtonToggle(
+            button: .s,
+            isOn: soloedChannels.contains(channel),
+            onLamp: Self.activeLamp(Self.soloColor),
+            offLamp: Self.availableLamp(Self.soloColor),
+            display: display,
+            onToggle: onToggle
+        )
+    }
+
+    private func channelToggleDisplay(_ label: String, kind: ChannelButtonKind, x: Int, y: Int) -> MK2ButtonToggleDisplay {
+        MK2ButtonToggleDisplay(
+            label: label,
+            rect: MK2PixelRect(x: x, y: y, width: 14, height: 16),
+            font: .label,
+            colors: kind.displayColors
+        )
     }
 
     private func setSelectedInstrumentIndex(_ index: Int) async {
@@ -761,6 +855,18 @@ private actor WidgetLab {
                 focusedChannel = channel - 1
                 await render()
 
+            case "solo":
+                guard let enabled = Self.triState(rest, current: soloedChannels.contains(focusedChannel)) else {
+                    print("? solo on|off|toggle"); return
+                }
+                await setFocusedChannelSolo(enabled)
+
+            case "mute":
+                guard let enabled = Self.triState(rest, current: mutedChannels.contains(focusedChannel)) else {
+                    print("? mute on|off|toggle"); return
+                }
+                await setFocusedChannelMute(enabled)
+
             case "stripe", "stripes", "rowstripe", "rowstripes":
                 guard let mode = Self.rowStripeMode(rest) else {
                     print("? stripe off|odd|even|<n>|every <n> [phase]"); return
@@ -882,6 +988,19 @@ private actor WidgetLab {
                       let interval = Int(first),
                       interval > 0 else { return nil }
                 return .every(interval)
+        }
+    }
+
+    private static func triState(_ text: String, current: Bool) -> Bool? {
+        switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "", "toggle":
+                return !current
+            case "on", "1", "true", "yes":
+                return true
+            case "off", "0", "false", "no":
+                return false
+            default:
+                return nil
         }
     }
 
@@ -1082,6 +1201,36 @@ private struct TrackerDemoCell: Sendable {
     }
 }
 
+private enum ChannelButtonKind {
+    case solo
+    case mute
+
+    var accent: UInt16 {
+        switch self {
+            case .solo: Palette.solo
+            case .mute: Palette.mute
+        }
+    }
+
+    var border: UInt16 {
+        switch self {
+            case .solo: Palette.soloBorder
+            case .mute: Palette.muteBorder
+        }
+    }
+
+    var displayColors: MK2ButtonToggleDisplayColors {
+        MK2ButtonToggleDisplayColors(
+            onFill: accent,
+            onBorder: border,
+            onText: Palette.channelButtonActiveText,
+            offFill: Palette.channelButtonFill,
+            offBorder: Palette.channelButtonBorder,
+            offText: accent
+        )
+    }
+}
+
 private extension Int {
     func floorMod(_ divisor: Int) -> Int {
         let remainder = self % divisor
@@ -1098,6 +1247,10 @@ private enum Palette {
     static let blue: UInt16 = 0x7dbf
     static let green: UInt16 = 0x464f
     static let orange: UInt16 = 0xec88
+    static let solo: UInt16 = 0x03ff
+    static let soloBorder: UInt16 = 0x5dff
+    static let mute: UInt16 = 0xf8c3
+    static let muteBorder: UInt16 = 0xf800
     static let note: UInt16 = 0xdedf
     static let instrument: UInt16 = 0x95f2
     static let effect: UInt16 = 0xec88
@@ -1107,6 +1260,9 @@ private enum Palette {
     static let cursorFill: UInt16 = 0x19aa
     static let playheadFill: UInt16 = 0x1125
     static let focusedChannelFill: UInt16 = 0x1026
+    static let channelButtonFill: UInt16 = 0x1083
+    static let channelButtonBorder: UInt16 = 0x4208
+    static let channelButtonActiveText: UInt16 = 0xffff
     static let track: UInt16 = 0x2126
     static let placeholderFill: UInt16 = 0x10a4
 }
