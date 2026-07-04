@@ -140,6 +140,28 @@ Declarative equivalent (preferred inside screens):
 Label("Resonance Bandpass 24dB", overflow: .marquee(speed: 5))
 ```
 
+### MK2 pixel typography
+
+`KontrolSurfaceKit2` has a separate pixel-display text stack:
+
+- `BitmapLabel` and `SurfaceFont` draw atlas-backed bitmap glyphs into `MK2PixelFrame`.
+  This is the tracker/grid path and remains the right default for dense, exact UI.
+- `FreeTypeTextRenderer` draws bundled scalable fonts into the same RGB565 frame. It is
+  intended for large, calmer MK2 surfaces: global dialogs, browser/settings views,
+  selection lists, long text, and icon-font-style symbols.
+
+The two renderers are independent; adding FreeType does not route bitmap labels through
+FreeType. Use `FreeTypeFontCatalog` as the global swap point for family/cut experiments.
+The current exploratory catalog includes Inter variable TTF plus IBM Plex Sans and IBM
+Plex Sans Condensed OTF cuts.
+
+For MK2 OLED output, use grayscale coverage. `FreeTypeRasterMode.grayscaleHinted` is the
+recommended default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted`
+exist for hardware comparison. LCD/subpixel rendering is intentionally not used because
+the RGB565/OLED path has no stable RGB-stripe subpixel contract.
+
+The hardware workbench is `MK2FreeTypeDemo`; see `Docs/MK2-FreeType.md`.
+
 ## 6. Declarative `Screen` and components
 
 A screen is a value that maps content onto the surface, plus input bindings. A result-builder

@@ -5,7 +5,7 @@ day-to-day usage lives in `CLAUDE.md` → "Simulation mode".
 
 Goal: run the daemon (`ccd`) without real hardware by rendering to, and taking input
 from, a separate macOS GUI app that mimics the S61 MK2 panel. **The mode must be 100%
-transparent to socket clients** — a client (MK2WidgetLabDemo, Paulinche) connects to the
+transparent to socket clients** — a client (`MK2WidgetLabDemo`, `MK2FreeTypeDemo`, Paulinche) connects to the
 daemon exactly as before and cannot tell hardware from simulator.
 
 ## Why it can be transparent
@@ -121,4 +121,5 @@ byte level with no hardware.
 2. Wire codec encode/decode round-trip.
 3. Headless sim-stub integration: ccd(sim) ↔ stub socket ↔ client registers + receives a
    blit; injecting a stub BUTTON event surfaces the right raw report to the client.
-4. Manual: launch the app, click controls, watch a client react.
+4. Manual: launch the app, click controls, watch a client react. `MK2FreeTypeDemo` is a
+   useful display-only client for checking scalable text without touching tracker state.

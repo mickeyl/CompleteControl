@@ -13,9 +13,12 @@ Two layers, plus a baseline app and a middleware demo:
 | `KompleteKontrol` (lib) | `Sources/KompleteKontrol/` | Low-level driver: USB/daemon transport, surface protocol, display frame, glyph font + names, input/MIDI decoding. |
 | `KontrolUSB` (C) | `Sources/KontrolUSB/` | libusb session, async transfers, endpoint discovery. |
 | `KontrolSurfaceKit` (lib) | `Sources/KontrolSurfaceKit/` | **The middleware** — declarative `Screen` DSL on top of the driver. Imperative setters are deprecated for client code. |
+| `KontrolSurfaceKit2` (lib) | `Sources/KontrolSurfaceKit2/` | MK2 pixel-display kit: RGB565 frames, bitmap fonts, FreeType text, widgets, input bindings, display diffing. |
+| `CFreeType` (system lib) | `Sources/CFreeType/` | SwiftPM system-library shim for Homebrew/pkg-config `freetype2`; only used by Kit2 FreeType text rendering. |
 | `ccd` (exe) | `Tools/ccd/` | Privileged launchd/foreground daemon entry point. Owns USB and transports surface/MIDI events over the socket. |
 | `KontrolProbe` (exe) | `Tools/KontrolProbe/` | **Baseline** REPL + AppKit test UI. Leave as-is unless asked. |
 | `SurfaceDemo` (exe) | `Tools/SurfaceDemo/` | Console demo exercising every `KontrolSurfaceKit` feature. |
+| `MK2FreeTypeDemo` (exe) | `Tools/MK2FreeTypeDemo/` | Hardware workbench for FreeType families, weights, sizes, and raster modes on the MK2 OLED displays. |
 
 **Platform floor: macOS 26** (decision 2026-07-02) — the pixel hot paths use Swift 6.2
 facilities (`Span.isIdentical`, `InlineArray`); do not lower the deployment target. Hot-path
@@ -32,6 +35,7 @@ git submodule update --init --recursive Vendor/libusb
 swift build                              # all targets
 swift build --product KontrolSurfaceKit  # just the kit
 swift build --product ccd                # daemon
+swift build --product MK2FreeTypeDemo    # MK2 FreeType typography workbench
 swift test                               # focused decoder tests
 swift run SurfaceDemo                     # needs the daemon + hardware to see output
 swift build -c release --product KontrolProbe
@@ -41,6 +45,8 @@ The daemon owns the USB device; a client connects over a Unix socket. `make help
 targets (`make install-daemon`, `make install-debug-daemon`, `make daemon-status`, …).
 libusb is vendored as the pinned `Vendor/libusb` submodule and compiled through the `CLibUSB`
 SwiftPM C target; do not add Homebrew/pkg-config fallback paths.
+FreeType is the exception: `CFreeType` is a SwiftPM system-library target that expects
+`pkg-config freetype2` (Homebrew `freetype`) for host-side font rasterization.
 `make install-daemon` builds and installs the release `ccd`; `make install-debug-daemon` builds and
 installs the debug `ccd` with structured trace logging. While no socket client is connected the
 daemon renders its idle diagnostic surface; once a client connects, the client owns all surface
@@ -73,6 +79,12 @@ the LCDs visually stale even though input was received.
 You usually can't see the LCDs/LEDs. What works:
 - `swift build` then run `SurfaceDemo` backgrounded for ~3s and check it stays alive + exits
   clean on SIGINT (it blanks displays on `stop()`).
+- For visible MK2 changes, rebuild and restart the active demo client. Do not leave
+  `MK2WidgetLabDemo`, `MK2SurfaceDemo`, Paulinche, and `MK2FreeTypeDemo` running together:
+  a newly registered surface client evicts the previous session.
+- For FreeType work, run `swift build --product MK2FreeTypeDemo`; the demo prints its full
+  hardware-button help at startup. If output is redirected, it flushes the help and
+  connection-state lines explicitly.
 - For idle daemon diagnostics, install the debug daemon, make sure no client such as Paulinche or
   SurfaceDemo is connected, and verify the hardware shows `NO CLIENT` plus a `REV` cell. Then press
   a surface control and a MIDI key and inspect `/tmp/media.vanille.kompletekontrol-libusb.stderr.log`
@@ -80,6 +92,34 @@ You usually can't see the LCDs/LEDs. What works:
 - `print` is **block-buffered** to a pipe — output only appears after exit/flush.
 - For the docs SVGs there are Python generators in scratch; render with `rsvg-convert` and Read
   the PNG to inspect visually.
+
+### MK2 FreeType typography
+
+FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is documented in
+`Docs/MK2-FreeType.md`.
+
+- Use `BitmapLabel`/`SurfaceFont`/`MK2PixelFrame.drawText(...)` for tracker grids and dense,
+  bitmap-sharp UI. This path remains atlas-backed and does not call FreeType.
+- Use `FreeTypeTextRenderer`/`FreeTypeTextStyle` for larger, calmer UI areas: global dialogs,
+  browser/settings views, selection lists, long text, and icon-font-style symbols.
+- Bundled exploratory fonts are Inter variable TTF plus IBM Plex Sans and IBM Plex Sans
+  Condensed OTF cuts. Swap globally through `FreeTypeFontCatalog`, not per-screen resource
+  literals.
+- `FreeTypeRasterMode.grayscaleHinted` is the OLED default. `grayscaleLightHinted`,
+  `grayscaleUnhinted`, and `monochromeHinted` are hardware comparison modes. Do not enable
+  LCD/subpixel rendering for MK2 RGB565/OLED output; it is likely to create colour fringes.
+- Performance boundary: FreeType integration should not slow bitmap rendering because the
+  bitmap path is separate. Validate with `swift test --filter PixelPipelinePerfTests`
+  (look at `PERF drawText 60 chars scale 3`) plus `FreeTypeTextRendererTests`.
+
+`MK2FreeTypeDemo` controls:
+
+- `Page Left`/`Page Right`: font family.
+- `F1`-`F3`: family state lamps; selected family bright blue, others dim.
+- `Browser`/`Instance`: weight.
+- `Preset Down`/`Preset Up`: pixel size.
+- `Plugin`: raster mode.
+- `Mixer`: sample text.
 
 ### Simulation mode — run the daemon without hardware
 
@@ -313,7 +353,8 @@ as the regression baseline for the shared middleware, but no new kit features ge
   `PixelDisplayReconciler`, pixel DSL, strip/jog/encoder inputs. Paulinche imports only this.
   Current tracker-facing widgets include `MK2ButtonToggle` (lamp + optional pixel button),
   `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue` (bounded discrete encoder values with
-  optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, and `MK2ModalDialog`.
+  optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, `MK2ModalDialog`, and the
+  FreeType text renderer/catalog for large UI typography.
   Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)
   get extracted into a small shared core where the seam is clean, or copied once where
   extraction would contort the frozen kit. This also keeps eventual MK1 deletion a

@@ -17,6 +17,7 @@ let package = Package(
         .executable(name: "SurfaceDemo", targets: ["SurfaceDemo"]),
         .executable(name: "MK2SurfaceDemo", targets: ["MK2SurfaceDemo"]),
         .executable(name: "MK2WidgetLabDemo", targets: ["MK2WidgetLabDemo"]),
+        .executable(name: "MK2FreeTypeDemo", targets: ["MK2FreeTypeDemo"]),
         .executable(name: "KontrolSimulator", targets: ["KontrolSimulator"]),
         .executable(name: "MK2USBSpy", targets: ["MK2USBSpy"]),
     ],
@@ -101,10 +102,21 @@ let package = Package(
         ),
         .target(
             name: "KontrolSurfaceKit2",
-            dependencies: ["KompleteKontrol"],
+            dependencies: ["KompleteKontrol", "CFreeType"],
             path: "Sources/KontrolSurfaceKit2",
+            resources: [
+                .copy("Resources/Fonts"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
+            ]
+        ),
+        .systemLibrary(
+            name: "CFreeType",
+            path: "Sources/CFreeType",
+            pkgConfig: "freetype2",
+            providers: [
+                .brew(["freetype"]),
             ]
         ),
         .executableTarget(
@@ -127,6 +139,14 @@ let package = Package(
             name: "MK2WidgetLabDemo",
             dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
             path: "Tools/MK2WidgetLabDemo",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "MK2FreeTypeDemo",
+            dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
+            path: "Tools/MK2FreeTypeDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

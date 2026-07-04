@@ -19,8 +19,9 @@ Supported now:
 - Foreground debug daemon and quiet release daemon
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
-- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, and `KontrolSimulator`
+- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, `MK2FreeTypeDemo`, and `KontrolSimulator`
 - MK2 button LED capability model: RGB only on Mute, Solo, and F1-F8; all other button indicators are fixed-colour monochrome (normally white, Play green, Record red)
+- MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text for larger dialogs, browser/settings surfaces, lists, long text, and icon-font experiments
 
 Not supported yet:
 
@@ -112,15 +113,18 @@ This project builds on the public reverse-engineering work around Native Instrum
 
 ## Requirements
 
-- macOS 15.0 or newer
-- Swift 6.0 toolchain
+- macOS 26.0 or newer
+- Swift 6.2 toolchain
 - Xcode command line tools
 - Git submodules
+- Homebrew `freetype` for the `CFreeType` SwiftPM system-library target
 
 libusb is vendored as a pinned submodule under `Vendor/libusb` and is compiled into the SwiftPM build. Homebrew libusb is intentionally not used.
+FreeType is intentionally different: it is linked through `pkg-config freetype2` / Homebrew because the font renderer is a normal host-side library dependency, not part of the USB transport stack.
 
 ```bash
 git submodule update --init --recursive Vendor/libusb
+brew install freetype
 ```
 
 Build:
@@ -149,6 +153,16 @@ Run the middleware demo:
 ```bash
 make run
 ```
+
+Run the MK2 FreeType font exploration demo:
+
+```bash
+make mk2-freetype-demo
+```
+
+Only one MK2 surface client should own the displays at a time. Stop `MK2WidgetLabDemo`,
+`MK2SurfaceDemo`, Paulinche, or another MK2 client before judging the FreeType demo on
+hardware.
 
 Run the old REPL baseline:
 
@@ -312,6 +326,35 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
 
 For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
 
+## MK2 FreeType Font Exploration
+
+`MK2FreeTypeDemo` is the hardware workbench for larger anti-aliased typography on the
+MK2 OLED displays. It is deliberately separate from the bitmap tracker/grid path:
+
+- `BitmapLabel` / `SurfaceFont` / `MK2PixelFrame.drawText(...)` remain the crisp,
+  atlas-backed path for tracker grids and dense controls.
+- `FreeTypeTextRenderer` / `FreeTypeTextStyle` render grayscale text into the same RGB565
+  frame for calmer UI areas such as global dialogs, browser/settings views, selection
+  lists, and longer text.
+
+Bundled exploratory families live in `KontrolSurfaceKit2` resources: Inter variable TTF,
+IBM Plex Sans OTF, and IBM Plex Sans Condensed OTF. Swap families through
+`FreeTypeFontCatalog` rather than hardcoding font resources in screens.
+
+The demo prints a full control map at startup. Hardware controls:
+
+- `Page Left` / `Page Right`: previous / next font family
+- `F1`-`F3`: family state lamps; selected family is bright blue, other available families are dim
+- `Browser` / `Instance`: previous / next weight
+- `Preset Down` / `Preset Up`: smaller / larger pixel size
+- `Plugin`: cycle raster mode (`Gray hinted`, `Gray light`, `Gray unhinted`, `Mono hinted`)
+- `Mixer`: cycle sample text
+
+Recommended OLED default is `Gray hinted`. LCD/subpixel rendering is intentionally not used
+for the MK2 RGB565/OLED path because the panel subpixel geometry is not a stable RGB-stripe
+contract and would risk colour fringes. See [Docs/MK2-FreeType.md](Docs/MK2-FreeType.md)
+for the implementation and performance notes.
+
 ## Demo UI
 
 The AppKit demo UI mirrors the S25 panel and exercises the hardware:
@@ -430,7 +473,9 @@ swift build --product ccd
 swift build --product KontrolProbe
 swift build -c release --product ccd
 swift build -c release --product KontrolProbe
+swift build --product MK2FreeTypeDemo
 swift test
+swift test --filter PixelPipelinePerfTests
 git diff --check
 ```
 
