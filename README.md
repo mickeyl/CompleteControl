@@ -20,7 +20,7 @@ Supported now:
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
 - S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, and `KontrolSimulator`
-- MK2 button LED capability model: RGB only on Mute, Solo, and F1-F8; all other button indicators are fixed-colour monochrome (normally white, Play green, Stop red)
+- MK2 button LED capability model: RGB only on Mute, Solo, and F1-F8; all other button indicators are fixed-colour monochrome (normally white, Play green, Record red)
 
 Not supported yet:
 
@@ -50,7 +50,7 @@ Not supported yet:
 MK2 uses the same broad report IDs but different payload layouts and capabilities. In
 particular, its button LED report is not a full RGB button surface: only Mute, Solo, and
 F1-F8 are RGB-capable. The remaining button indicators are fixed-colour monochrome LEDs
-with brightness control; Play is green, Stop is red, and the rest are white.
+with brightness control; Play is green, Record is red, and the rest are white.
 
 ## Why This Architecture Exists
 
@@ -298,6 +298,19 @@ benchmark [N]        collect N surface/MIDI input latency samples, then print st
 ```
 
 The benchmark collects silently in the hot path. It prints combined, surface-only, MIDI-only, and slowest-sample summaries only after the target sample count is reached.
+
+## MK2 Widget Lab and Kit2 Widgets
+
+`MK2WidgetLabDemo` is the current proving ground for `KontrolSurfaceKit2` and the upcoming Paulinche tracker integration. The tracker unit renders a left-hand pattern grid and a right-hand edit surface. The edit surface is intentionally built from small Kit2 widgets so hardware behavior and display projection evolve together:
+
+- `MK2ButtonToggle`: a Boolean hardware button binding with on/off lamp states and an optional pixel-display button. The tracker unit uses it for Mute, Solo, and Metronome.
+- `MK2ButtonRangeSelection`: a bounded range browsed by two hardware buttons; unavailable edge buttons are unlit. The tracker unit uses it for dummy instrument selection.
+- `MK2EncoderDiscreteValue`: a discrete encoder-bound value with bounds, step size, touch callback, and configurable wrap-around. The tracker unit uses non-wrapping bindings for Note, Instrument, Volume, and Effect on encoders 5-8.
+- `MK2StatusLine`: fixed-position compact header/status text for pixel-display pages.
+- `MK2ValueCell`: a labelled, fixed-size value field intended for encoder-bound controls.
+- `MK2ModalDialog`: global modal dialog projection with 4-D encoder selection/confirm and hardware-button dismiss.
+
+For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
 
 ## Demo UI
 

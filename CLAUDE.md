@@ -311,6 +311,9 @@ as the regression baseline for the shared middleware, but no new kit features ge
   literally stops changing.
 - **`KontrolSurfaceKit2`** (new target, same package) is the new major: pixel HIG,
   `PixelDisplayReconciler`, pixel DSL, strip/jog/encoder inputs. Paulinche imports only this.
+  Current tracker-facing widgets include `MK2ButtonToggle` (lamp + optional pixel button),
+  `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue` (bounded discrete encoder values with
+  optional wrap-around), `MK2StatusLine`, `MK2ValueCell`, and `MK2ModalDialog`.
   Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)
   get extracted into a small shared core where the seam is clean, or copied once where
   extraction would contort the frozen kit. This also keeps eventual MK1 deletion a

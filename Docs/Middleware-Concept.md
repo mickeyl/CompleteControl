@@ -409,8 +409,11 @@ three-page bank (OSC/FILTER, ENVELOPE, FX SENDS) paged with Preset Up / Down.
 reactively from `Surface.midi`.
 
 Direction: the first concrete client is **Paulinche**, an Amiga MOD tracker, whose core surface
-is 4-channel pattern editing (live MIDI record, transport, channel via Navigate ◀▶, instrument
-via Navigate ▲▼, exact row via the main wheel). The `PatternScreen` lives in Paulinche on top
-of this kit. Remaining kit work is pulled by it as needed: main-wheel row stepping (count
-accumulation), list/menu navigation, and `Meter` widgets. The MCU/HUI adapter is deprioritized —
-Paulinche integrates directly, not via MIDI emulation.
+is 4-channel pattern editing. `MK2WidgetLabDemo` is the current integration lab: pattern grid on
+the left display, edit projection on the right display, transport/metronome/mute/solo as
+hardware toggles, channel focus via Page Left/Right, instrument selection via Preset Up/Down,
+exact row via the 4-D encoder, and edit fields on rotary encoders 5-8. The recent
+`KontrolSurfaceKit2` widgets pulled from that lab are `MK2ButtonToggle`,
+`MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue`, `MK2StatusLine`, `MK2ValueCell`, and
+`MK2ModalDialog`. The MCU/HUI adapter is deprioritized — Paulinche integrates directly, not via
+MIDI emulation.
