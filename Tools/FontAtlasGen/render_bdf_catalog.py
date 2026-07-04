@@ -778,14 +778,12 @@ function updatePreview(row) {
   const viewBox = svg.getAttribute("viewBox").split(/\\s+/).map(Number);
   const cellW = viewBox[2] || 1;
   const cellH = viewBox[3] || 1;
-  const renderedW = Number(svg.getAttribute("width")) || cellW;
-  const renderedH = Number(svg.getAttribute("height")) || cellH;
   const previewW = Math.min(300, window.innerWidth - 72);
   const previewH = Math.round(previewW * cellH / cellW);
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   previewTitle.textContent = `${face} · ${code} · ${name}${sourceText}`;
-  previewDimensions.textContent = `${renderedW}x${renderedH} · grid ${cellW}x${cellH}`;
+  previewDimensions.textContent = `glyph ${cellW}x${cellH}`;
   previewGrid.replaceChildren(svg);
   previewGrid.style.width = `${previewW}px`;
   previewGrid.style.height = `${previewH}px`;
