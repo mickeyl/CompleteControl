@@ -24,6 +24,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FONTDIR = os.path.join(HERE, "fonts")
 CACHEDIR = os.path.join(HERE, "cache")
 NERD_NAMES_URL = "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/master/glyphnames.json"
+APP_FACES = [
+    ("Cozette.bdf", "LABEL", "regular", "used"),
+    ("Tamzen8x16r.bdf", "GRID", "regular", "used"),
+    ("Tamzen8x16b.bdf", "GRID", "bold", "used"),
+    ("Tamzen10x20r.bdf", "READOUT", "regular", "used"),
+    ("Tamzen10x20b.bdf", "READOUT", "bold", "used"),
+    ("Tamzen6x12r.bdf", "AVAILABLE", "regular", "vendored"),
+]
 
 
 class Glyph:
@@ -335,6 +343,20 @@ def write_tsv(path, rows, nerd_names):
             )
 
 
+def write_catalog_tsv(path, catalogs, nerd_names):
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("face\trole\tweight\tencoding\tstartchar\tunicode\tname\tsource\taliases\n")
+        for catalog in catalogs:
+            for glyph in catalog["rows"]:
+                codepoint = startchar_codepoint(glyph.startchar, glyph.encoding)
+                name, source, aliases = glyph_name(glyph, nerd_names)
+                fh.write(
+                    f"{catalog['name']}\t{catalog['role']}\t{catalog['weight']}\t"
+                    f"0x{glyph.encoding:04X}\t{glyph.startchar}\tU+{codepoint:04X}\t"
+                    f"{name}\t{source}\t{','.join(aliases)}\n"
+                )
+
+
 def glyph_svg(glyph, cell_w, cell_h, ascent, scale):
     pixels = []
     grid = composite(glyph, cell_w, cell_h, ascent)
@@ -352,9 +374,53 @@ def glyph_svg(glyph, cell_w, cell_h, ascent, scale):
     )
 
 
-def write_html(path, font_path, rows, cell_w, cell_h, ascent, nerd_names):
+def face_id(face_name):
+    stem = os.path.splitext(os.path.basename(face_name))[0].lower()
+    return "".join(ch if ch.isalnum() else "-" for ch in stem)
+
+
+def rows_for_glyphs(glyphs):
+    rows = [glyphs[encoding] for encoding in sorted(glyphs)]
+    if args.mode == "symbols":
+        rows = [glyph for glyph in rows if is_symbolish(glyph)]
+    if args.from_cp:
+        minimum = parse_codepoint(args.from_cp)
+        rows = [glyph for glyph in rows if startchar_codepoint(glyph.startchar, glyph.encoding) >= minimum]
+    if args.to_cp:
+        maximum = parse_codepoint(args.to_cp)
+        rows = [glyph for glyph in rows if startchar_codepoint(glyph.startchar, glyph.encoding) <= maximum]
+    return rows
+
+
+def make_catalog(face_file, role, weight, status):
+    font_path = os.path.join(FONTDIR, face_file)
+    fbb, props, glyphs = parse_bdf(font_path)
+    cell_w, cell_h, ascent = face_metrics(face_file, fbb, props, glyphs)
+    rows = rows_for_glyphs(glyphs)
+    name = os.path.splitext(os.path.basename(face_file))[0]
+    return {
+        "id": face_id(face_file),
+        "name": name,
+        "file": face_file,
+        "font_path": font_path,
+        "role": role,
+        "weight": weight,
+        "status": status,
+        "cell_w": cell_w,
+        "cell_h": cell_h,
+        "ascent": ascent,
+        "glyphs": glyphs,
+        "rows": rows,
+    }
+
+
+def write_html(path, catalogs, nerd_names):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    title = f"{os.path.basename(font_path)} {args.mode} glyph catalog"
+    if len(catalogs) == 1:
+        title = f"{catalogs[0]['name']} {args.mode} glyph catalog"
+    else:
+        title = f"Surface font glyph browser"
+    total_glyphs = sum(len(catalog["rows"]) for catalog in catalogs)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("<!doctype html>\n")
         fh.write('<html lang="en">\n<head>\n')
@@ -399,6 +465,10 @@ h1 {
   font-weight: 700;
 }
 .meta { color: var(--dim); }
+.top-controls {
+  display: grid;
+  gap: 8px;
+}
 input {
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -408,7 +478,37 @@ input {
   padding: 8px 10px;
   font: inherit;
 }
-main { padding: 12px 18px 24px; }
+.face-nav {
+  position: sticky;
+  top: 69px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(9, 10, 13, 0.94);
+  border-bottom: 1px solid var(--line);
+}
+.face-button {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.face-button.active {
+  border-color: var(--accent);
+  background: #142033;
+}
+.face-name { color: var(--text); }
+.face-role { color: var(--accent); font-size: 12px; }
+.face-metrics { color: var(--dim); font-size: 12px; }
+main { padding: 12px 398px 24px 18px; }
 table {
   width: 100%;
   border-collapse: collapse;
@@ -416,7 +516,7 @@ table {
 }
 thead th {
   position: sticky;
-  top: 68px;
+  top: 167px;
   z-index: 1;
   background: #0d1016;
   color: var(--dim);
@@ -437,6 +537,7 @@ tbody tr:hover { background: #141923; }
 .start-col { width: 110px; }
 .char-col { width: 74px; }
 .source-col { width: 108px; }
+.face-col { width: 128px; }
 .glyph-box {
   display: inline-flex;
   align-items: center;
@@ -455,7 +556,7 @@ tbody tr:hover { background: #141923; }
 }
 .hover-preview {
   position: fixed;
-  top: 86px;
+  top: 188px;
   right: 18px;
   z-index: 5;
   display: block;
@@ -505,15 +606,17 @@ tbody tr.selected {
 tbody tr.selected:hover { background: #172234; }
 @media (max-width: 820px) {
   header { grid-template-columns: 1fr; }
-  thead th { top: 116px; }
+  .face-nav { top: 117px; }
+  thead th { top: 300px; }
   .start-col, .char-col, .source-col { width: 80px; }
   .hover-preview {
-    top: 128px;
+    top: 300px;
     left: 18px;
     right: 18px;
     width: auto;
   }
   .preview-grid { width: min(300px, 100%); }
+  main { padding-right: 18px; }
 }
 </style>\n"""
         )
@@ -521,12 +624,24 @@ tbody tr.selected:hover { background: #172234; }
         fh.write("<header>\n<div>\n")
         fh.write(f"<h1>{html.escape(title)}</h1>\n")
         fh.write(
-            f'<div class="meta">{len(rows)} glyphs · cell {cell_w}x{cell_h} · '
+            f'<div class="meta">{len(catalogs)} faces · {total_glyphs} glyph rows · '
             f'names: Unicode + Nerd Fonts glyphnames.json</div>\n'
         )
         fh.write("</div>\n")
+        fh.write('<div class="top-controls">')
         fh.write('<input id="filter" type="search" placeholder="Filter by code, startchar, name, alias">\n')
+        fh.write("</div>\n")
         fh.write("</header>\n")
+        fh.write('<nav class="face-nav" aria-label="Font faces">\n')
+        for catalog in catalogs:
+            fh.write(
+                f'<button class="face-button" type="button" data-face="{html.escape(catalog["id"], quote=True)}">'
+                f'<span class="face-name">{html.escape(catalog["name"])}</span>'
+                f'<span class="face-role">{html.escape(catalog["role"])} · {html.escape(catalog["weight"])} · {html.escape(catalog["status"])}</span>'
+                f'<span class="face-metrics">{catalog["cell_w"]}x{catalog["cell_h"]} · {len(catalog["rows"])} {html.escape(args.mode)} glyphs</span>'
+                "</button>\n"
+            )
+        fh.write("</nav>\n")
         fh.write(
             '<aside id="hover-preview" class="hover-preview" aria-hidden="true">'
             '<div id="preview-title" class="preview-title"></div>'
@@ -537,6 +652,7 @@ tbody tr.selected:hover { background: #172234; }
         fh.write("<table id=\"glyphs\">\n<thead><tr>")
         for label, cls in (
             ("Glyph", "glyph-col"),
+            ("Face", "face-col"),
             ("Code", "code-col"),
             ("Unicode", "code-col"),
             ("Char", "char-col"),
@@ -548,31 +664,43 @@ tbody tr.selected:hover { background: #172234; }
             fh.write(f'<th class="{cls}">{html.escape(label)}</th>')
         fh.write("</tr></thead>\n<tbody>\n")
 
-        for glyph in rows:
-            codepoint = startchar_codepoint(glyph.startchar, glyph.encoding)
-            name, source, aliases = glyph_name(glyph, nerd_names)
-            alias_text = ", ".join(aliases)
-            search = " ".join(
-                [
-                    f"0x{glyph.encoding:X}",
-                    f"U+{codepoint:X}",
-                    glyph.startchar,
-                    name,
-                    source,
-                    alias_text,
-                ]
-            ).lower()
-            native_char = f"&#x{codepoint:X};"
-            fh.write(f'<tr data-search="{html.escape(search, quote=True)}" tabindex="-1">')
-            fh.write(f'<td><span class="glyph-box">{glyph_svg(glyph, cell_w, cell_h, ascent, 2)}</span></td>')
-            fh.write(f'<td>0x{glyph.encoding:04X}</td>')
-            fh.write(f'<td>U+{codepoint:04X}</td>')
-            fh.write(f'<td class="native-char">{native_char}</td>')
-            fh.write(f'<td>{html.escape(glyph.startchar)}</td>')
-            fh.write(f'<td class="name">{html.escape(name)}</td>')
-            fh.write(f'<td class="dim">{html.escape(source)}</td>')
-            fh.write(f'<td class="aliases">{html.escape(alias_text)}</td>')
-            fh.write("</tr>\n")
+        for catalog in catalogs:
+            for glyph in catalog["rows"]:
+                codepoint = startchar_codepoint(glyph.startchar, glyph.encoding)
+                name, source, aliases = glyph_name(glyph, nerd_names)
+                alias_text = ", ".join(aliases)
+                search = " ".join(
+                    [
+                        catalog["name"],
+                        catalog["role"],
+                        catalog["weight"],
+                        f"0x{glyph.encoding:X}",
+                        f"U+{codepoint:X}",
+                        glyph.startchar,
+                        name,
+                        source,
+                        alias_text,
+                    ]
+                ).lower()
+                native_char = f"&#x{codepoint:X};"
+                fh.write(
+                    f'<tr data-face="{html.escape(catalog["id"], quote=True)}" '
+                    f'data-search="{html.escape(search, quote=True)}" tabindex="-1">'
+                )
+                fh.write(
+                    f'<td><span class="glyph-box">'
+                    f'{glyph_svg(glyph, catalog["cell_w"], catalog["cell_h"], catalog["ascent"], 2)}'
+                    f"</span></td>"
+                )
+                fh.write(f'<td>{html.escape(catalog["name"])}</td>')
+                fh.write(f'<td>0x{glyph.encoding:04X}</td>')
+                fh.write(f'<td>U+{codepoint:04X}</td>')
+                fh.write(f'<td class="native-char">{native_char}</td>')
+                fh.write(f'<td>{html.escape(glyph.startchar)}</td>')
+                fh.write(f'<td class="name">{html.escape(name)}</td>')
+                fh.write(f'<td class="dim">{html.escape(source)}</td>')
+                fh.write(f'<td class="aliases">{html.escape(alias_text)}</td>')
+                fh.write("</tr>\n")
 
         fh.write(
             """</tbody>
@@ -581,13 +709,24 @@ tbody tr.selected:hover { background: #172234; }
 <script>
 const input = document.getElementById("filter");
 const rows = [...document.querySelectorAll("#glyphs tbody tr")];
+const faceButtons = [...document.querySelectorAll(".face-button")];
 const preview = document.getElementById("hover-preview");
 const previewTitle = document.getElementById("preview-title");
 const previewGrid = document.getElementById("preview-grid");
 let selectedRow = null;
+let activeFace = faceButtons[0]?.dataset.face || "";
 
 function visibleRows() {
-  return rows.filter((row) => !row.hidden);
+  return rows.filter((row) => !row.hidden && row.dataset.face === activeFace);
+}
+
+function applyFilters() {
+  const needle = input.value.trim().toLowerCase();
+  for (const row of rows) {
+    const matchesFace = row.dataset.face === activeFace;
+    const matchesSearch = !needle || row.dataset.search.includes(needle);
+    row.hidden = !(matchesFace && matchesSearch);
+  }
 }
 
 function updatePreview(row) {
@@ -597,9 +736,10 @@ function updatePreview(row) {
     return;
   }
   const box = row.querySelector(".glyph-box");
-  const code = row.children[2].textContent;
-  const name = row.children[5].textContent;
-  const source = row.children[6].textContent;
+  const face = row.children[1].textContent;
+  const code = row.children[3].textContent;
+  const name = row.children[6].textContent;
+  const source = row.children[7].textContent;
   const sourceText = source ? ` · ${source}` : "";
   const svg = box.querySelector("svg").cloneNode(true);
   const viewBox = svg.getAttribute("viewBox").split(/\\s+/).map(Number);
@@ -609,7 +749,7 @@ function updatePreview(row) {
   const previewH = Math.round(previewW * cellH / cellW);
   svg.removeAttribute("width");
   svg.removeAttribute("height");
-  previewTitle.textContent = `${code} · ${name}${sourceText}`;
+  previewTitle.textContent = `${face} · ${code} · ${name}${sourceText}`;
   previewGrid.replaceChildren(svg);
   previewGrid.style.width = `${previewW}px`;
   previewGrid.style.height = `${previewH}px`;
@@ -618,6 +758,12 @@ function updatePreview(row) {
 
 function selectRow(row, scroll) {
   if (!row || row.hidden) {
+    if (selectedRow) {
+      selectedRow.classList.remove("selected");
+      selectedRow.removeAttribute("aria-selected");
+      selectedRow = null;
+    }
+    updatePreview(null);
     return;
   }
   if (selectedRow) {
@@ -634,16 +780,24 @@ function selectRow(row, scroll) {
 }
 
 input.addEventListener("input", () => {
-  const needle = input.value.trim().toLowerCase();
-  for (const row of rows) {
-    row.hidden = needle && !row.dataset.search.includes(needle);
-  }
+  applyFilters();
   if (!selectedRow || selectedRow.hidden) {
-    selectRow(visibleRows()[0], false);
+    selectRow(visibleRows()[0] || null, false);
   } else {
     updatePreview(selectedRow);
   }
 });
+
+for (const button of faceButtons) {
+  button.addEventListener("click", () => {
+    activeFace = button.dataset.face;
+    for (const other of faceButtons) {
+      other.classList.toggle("active", other === button);
+    }
+    applyFilters();
+    selectRow(visibleRows()[0] || null, false);
+  });
+}
 
 for (const row of rows) {
   row.addEventListener("click", () => selectRow(row, false));
@@ -669,7 +823,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", () => updatePreview(selectedRow));
-selectRow(visibleRows()[0], false);
+faceButtons[0]?.classList.add("active");
+applyFilters();
+selectRow(visibleRows()[0] || null, false);
 </script>
 </body>
 </html>
@@ -688,6 +844,7 @@ def parse_codepoint(text):
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--face", default="Tamzen8x16r.bdf", help="BDF filename under Tools/FontAtlasGen/fonts")
+parser.add_argument("--all-faces", action="store_true", help="Build a single HTML/TSV catalog for all app font faces")
 parser.add_argument("--mode", choices=("symbols", "all"), default="symbols")
 parser.add_argument("--output", default="", help="PNG output path")
 parser.add_argument("--tsv", default="", help="Optional TSV output path; defaults beside PNG")
@@ -714,33 +871,57 @@ if args.download_nerd_names:
     download_nerd_names(args.name_source)
 nerd_names = load_nerd_names(args.name_source)
 
-font_path = os.path.join(FONTDIR, args.face)
-fbb, props, glyphs = parse_bdf(font_path)
-cell_w, cell_h, ascent = face_metrics(args.face, fbb, props, glyphs)
-
-rows = [glyphs[encoding] for encoding in sorted(glyphs)]
-if args.mode == "symbols":
-    rows = [glyph for glyph in rows if is_symbolish(glyph)]
-if args.from_cp:
-    minimum = parse_codepoint(args.from_cp)
-    rows = [glyph for glyph in rows if startchar_codepoint(glyph.startchar, glyph.encoding) >= minimum]
-if args.to_cp:
-    maximum = parse_codepoint(args.to_cp)
-    rows = [glyph for glyph in rows if startchar_codepoint(glyph.startchar, glyph.encoding) <= maximum]
-
-stem = os.path.splitext(os.path.basename(args.face))[0].lower()
-output = args.output or os.path.join(HERE, "out", f"{stem}-{args.mode}.png")
-tsv = args.tsv or os.path.splitext(output)[0] + ".tsv"
-if not args.no_png:
-    render_catalog(font_path, glyphs, cell_w, cell_h, ascent, rows, output, nerd_names)
-write_tsv(tsv, rows, nerd_names)
-if args.html:
-    write_html(args.html, font_path, rows, cell_w, cell_h, ascent, nerd_names)
-if not args.no_png:
-    print(f"rendered {len(rows)} rows -> {output}")
-print(f"wrote {tsv}")
-if args.html:
-    print(f"wrote {args.html}")
+if args.all_faces:
+    catalogs = [
+        make_catalog(face_file, role, weight, status)
+        for face_file, role, weight, status in APP_FACES
+        if os.path.exists(os.path.join(FONTDIR, face_file))
+    ]
+    output = args.output or os.path.join(HERE, "out", f"surface-fonts-{args.mode}.png")
+    tsv = args.tsv or os.path.join(HERE, "out", f"surface-fonts-{args.mode}.tsv")
+    html_path = args.html or os.path.join(HERE, "out", f"surface-fonts-{args.mode}.html")
+    if not args.no_png and catalogs:
+        first = catalogs[0]
+        render_catalog(
+            first["font_path"],
+            first["glyphs"],
+            first["cell_w"],
+            first["cell_h"],
+            first["ascent"],
+            first["rows"],
+            output,
+            nerd_names,
+        )
+    write_catalog_tsv(tsv, catalogs, nerd_names)
+    write_html(html_path, catalogs, nerd_names)
+    if not args.no_png and catalogs:
+        print(f"rendered {len(catalogs[0]['rows'])} rows -> {output}")
+    print(f"wrote {tsv}")
+    print(f"wrote {html_path}")
+else:
+    catalog = make_catalog(args.face, "CUSTOM", "regular", "selected")
+    stem = os.path.splitext(os.path.basename(args.face))[0].lower()
+    output = args.output or os.path.join(HERE, "out", f"{stem}-{args.mode}.png")
+    tsv = args.tsv or os.path.splitext(output)[0] + ".tsv"
+    if not args.no_png:
+        render_catalog(
+            catalog["font_path"],
+            catalog["glyphs"],
+            catalog["cell_w"],
+            catalog["cell_h"],
+            catalog["ascent"],
+            catalog["rows"],
+            output,
+            nerd_names,
+        )
+    write_tsv(tsv, catalog["rows"], nerd_names)
+    if args.html:
+        write_html(args.html, [catalog], nerd_names)
+    if not args.no_png:
+        print(f"rendered {len(catalog['rows'])} rows -> {output}")
+    print(f"wrote {tsv}")
+    if args.html:
+        print(f"wrote {args.html}")
 if nerd_names:
     print(f"loaded {sum(len(names) for names in nerd_names.values())} Nerd Fonts names from {args.name_source}")
 elif args.name_source:
