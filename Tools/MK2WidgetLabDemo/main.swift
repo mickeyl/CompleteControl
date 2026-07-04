@@ -79,6 +79,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "bg", arg: "<rrggbb|name|none>", summary: "focus highlight background", values: namedColors.keys.sorted() + ["none"]),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
+    ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
@@ -161,6 +162,7 @@ private actor WidgetLab {
     private var playheadRow = 0
     private var rowStripeMode = RowStripeMode.every(4)
     private var selectedInstrumentIndex = 0
+    private var modalDialog: ActiveModalDialog?
     private var playbackTimer: DispatchSourceTimer?
     private var patternRows: [TrackerDemoRow]
     private var focusedChannel = 3
@@ -217,6 +219,10 @@ private actor WidgetLab {
     // MARK: - Scene
 
     private func scene() -> MK2SurfaceScene2 {
+        if let modalDialog {
+            return modalScene(modalDialog)
+        }
+
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
         for candidate in Unit.allCases {
             lamps[candidate.functionLED] = candidate == unit
@@ -228,6 +234,7 @@ private actor WidgetLab {
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
             lamps[.metro] = metronomeEnabled ? Self.activeLamp(Self.actionWhite) : Self.availableLamp(Self.actionWhite)
+            lamps[.clear] = Self.availableLamp(Self.actionWhite)
             lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
             lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
         }
@@ -249,6 +256,9 @@ private actor WidgetLab {
         }
         bindings.onPress(.metro) { [weak self] in
             Task { await self?.toggleMetronome() }
+        }
+        bindings.onPress(.clear) { [weak self] in
+            Task { await self?.showClearPatternDialog() }
         }
         bindings.onPress(.pageLeft) { [weak self] in
             Task { await self?.moveFocusedChannel(-1) }
@@ -279,6 +289,34 @@ private actor WidgetLab {
 
         let (left, right) = frames()
         return MK2SurfaceScene2(left: left, right: right, lamps: lamps, bindings: bindings)
+    }
+
+    private func modalScene(_ modalDialog: ActiveModalDialog) -> MK2SurfaceScene2 {
+        switch modalDialog {
+            case let .clearPattern(selectedIndex):
+                return MK2ModalDialog(
+                    iconPlaceholder: "[!]",
+                    title: "PATTERN LÖSCHEN",
+                    message: [
+                        "Wollen Sie das aktuelle",
+                        "Pattern wirklich löschen?",
+                    ],
+                    actions: [
+                        MK2ModalDialogAction("Ja, löschen", detail: "Aktuelles Pattern wird geleert"),
+                    ],
+                    selectedIndex: selectedIndex,
+                    dismissHint: "Andere Hardware-Taste: Abbrechen",
+                    onSelectionChange: { [weak self] index in
+                        Task { await self?.setModalSelection(index) }
+                    },
+                    onConfirm: { [weak self] _ in
+                        Task { await self?.confirmModalDialog() }
+                    },
+                    onDismiss: { [weak self] in
+                        Task { await self?.dismissModalDialog() }
+                    }
+                ).scene()
+        }
     }
 
     private static func availableLamp(_ color: KKRGB) -> MK2LampState2 {
@@ -507,6 +545,46 @@ private actor WidgetLab {
         await render()
     }
 
+    private func showClearPatternDialog() async {
+        guard unit == .pattern else { return }
+        modalDialog = .clearPattern(selectedIndex: 0)
+        await render()
+    }
+
+    private func setModalSelection(_ index: Int) async {
+        guard let modalDialog else { return }
+        switch modalDialog {
+            case .clearPattern:
+                self.modalDialog = .clearPattern(selectedIndex: max(0, min(0, index)))
+        }
+        await render()
+    }
+
+    private func confirmModalDialog() async {
+        guard let modalDialog else { return }
+        switch modalDialog {
+            case .clearPattern:
+                await clearActivePattern()
+        }
+    }
+
+    private func dismissModalDialog() async {
+        guard modalDialog != nil else { return }
+        modalDialog = nil
+        await render()
+    }
+
+    private func clearActivePattern() async {
+        isPlaying = false
+        playbackTimer?.cancel()
+        playbackTimer = nil
+        patternRows = Self.emptyPatternRows()
+        playheadRow = 0
+        midiInputByChannel = Array(repeating: "NO MIDI", count: 4)
+        modalDialog = nil
+        await render()
+    }
+
     private func toggleRecordArm() async {
         guard unit == .pattern else { return }
         recordArmed.toggle()
@@ -664,6 +742,9 @@ private actor WidgetLab {
             case "stop":
                 await stopPlayback()
 
+            case "clear":
+                await showClearPatternDialog()
+
             case "row":
                 guard let row = Self.rowValue(rest) else { print("? row <0-63|hex>"); return }
                 await stopPlayback()
@@ -732,10 +813,11 @@ private actor WidgetLab {
     }
 
     private func snapshot(to path: String?) async {
-        let (left, right) = frames()
+        let currentScene = scene()
+        let frames = currentScene.displays.map { $0 ?? MK2PixelFrame() }
         let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-\(unit.short.lowercased()).png"
         do {
-            let written = try PixelSnapshot.write([left, right], to: target)
+            let written = try PixelSnapshot.write(frames, to: target)
             print("snapshot → \(written)")
         } catch {
             print("snapshot failed: \(error)")
@@ -804,7 +886,7 @@ private actor WidgetLab {
     }
 
     private static func demoPatternRows() -> [TrackerDemoRow] {
-        var rows = (0..<64).map { _ in TrackerDemoRow(cells: Array(repeating: TrackerDemoCell.empty, count: 4)) }
+        var rows = emptyPatternRows()
         let notes = ["C-3", "D#3", "F-3", "G-3", "A#3", "C-4", "D#4", "F-4", "G-4", "A-4", "C-5"]
         let effects = ["...", "A08", "047", "C40", "1F0", "E91", "3A0", "D20", "F06"]
 
@@ -828,6 +910,10 @@ private actor WidgetLab {
         rows[31].cells[3] = TrackerDemoCell(note: "G-4", instrument: "08", volume: "34", effect: "200")
         rows[48].cells[3] = TrackerDemoCell(note: "B-4", instrument: "09", volume: "38", effect: "F06")
         return rows
+    }
+
+    private static func emptyPatternRows() -> [TrackerDemoRow] {
+        (0..<64).map { _ in TrackerDemoRow(cells: Array(repeating: TrackerDemoCell.empty, count: 4)) }
     }
 
     private static func midiEvent(_ text: String) -> KKMIDIEvent? {
@@ -962,6 +1048,10 @@ private struct DemoInstrument: Sendable {
     var displayName: String {
         "\(number) \(name)"
     }
+}
+
+private enum ActiveModalDialog: Sendable {
+    case clearPattern(selectedIndex: Int)
 }
 
 private enum RowStripeMode: Sendable {
