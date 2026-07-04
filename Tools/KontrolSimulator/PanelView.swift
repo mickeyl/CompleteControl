@@ -136,6 +136,7 @@ final class PanelView: NSView {
     }
 
     var currentKeybedSize: KeybedSize { keybedSize }
+    var displayBlockRect: NSRect { display0.union(display1) }
 
     // MARK: - Layout
 

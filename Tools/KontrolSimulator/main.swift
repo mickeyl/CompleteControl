@@ -174,6 +174,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func trueSize(_ sender: Any?) {
         guard let magnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main) else { return }
+        if abs(scrollView.magnification - magnification) <= 0.005 {
+            alignDisplaysInViewport()
+            return
+        }
         setManualMagnification(magnification, resizeWindow: true)
     }
 
@@ -212,6 +216,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scrollView.setMagnification(clamped, centeredAt: NSPoint(x: panel.frame.midX, y: panel.frame.midY))
         updateWindowTitle()
         scheduleScrollerVisibilityRefresh()
+    }
+
+    private func alignDisplaysInViewport() {
+        refreshScrollerVisibility()
+        scrollView.layoutSubtreeIfNeeded()
+
+        let displayBlock = panel.displayBlockRect
+        let visibleSize = scrollView.documentVisibleRect.size
+        let maxOriginX = max(0, panel.bounds.width - visibleSize.width)
+        let maxOriginY = max(0, panel.bounds.height - visibleSize.height)
+        let origin = NSPoint(
+            x: min(max(0, displayBlock.midX - visibleSize.width / 2), maxOriginX),
+            y: min(max(0, displayBlock.minY), maxOriginY)
+        )
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func resizeWindowToCurrentMagnification(preserveContentWidth: Bool) {
