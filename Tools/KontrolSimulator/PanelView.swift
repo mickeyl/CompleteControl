@@ -858,9 +858,17 @@ final class PanelView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if event.hasPreciseScrollingDeltas, enclosingScrollViewCanScroll {
+            super.scrollWheel(with: event)
+            return
+        }
+
         let raw = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 6 : event.scrollingDeltaY
         let delta = raw > 0 ? 1 : (raw < 0 ? -1 : 0)
-        guard delta != 0 else { return }
+        guard delta != 0 else {
+            super.scrollWheel(with: event)
+            return
+        }
         if let encoder = encoders.first(where: { $0.rect.contains(point) }) {
             beginEncoderTouch(index: encoder.index)
             emitEncoder(index: encoder.index, delta: delta)
@@ -873,7 +881,19 @@ final class PanelView: NSView {
             beginFourDTouch()
             emitFourDWheel(delta: delta)
             scheduleFourDTouchRelease()
+        } else {
+            super.scrollWheel(with: event)
         }
+    }
+
+    private var enclosingScrollViewCanScroll: Bool {
+        guard let scrollView = enclosingScrollView else { return false }
+        let documentSize = NSSize(
+            width: frame.width * scrollView.magnification,
+            height: frame.height * scrollView.magnification
+        )
+        return documentSize.width > scrollView.contentSize.width + 0.5
+            || documentSize.height > scrollView.contentSize.height + 0.5
     }
 
     private func emitEncoder(index: Int, delta: Int) {

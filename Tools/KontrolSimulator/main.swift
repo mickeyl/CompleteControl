@@ -28,6 +28,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var keybedSizeItems: [PanelView.KeybedSize: NSMenuItem] = [:]
     private var zoomMode: ZoomMode = .manual
     private var isProgrammaticResize = false
+    private var pendingScrollerVisibilityRefresh = false
+    private var isRefreshingScrollerVisibility = false
 
     private enum ZoomMode {
         case manual
@@ -45,17 +47,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let initialSize = NSSize(width: 1040, height: 640)
-        scrollView = NSScrollView(frame: NSRect(origin: .zero, size: initialSize))
+        scrollView = SimulatorScrollView(frame: NSRect(origin: .zero, size: initialSize))
         scrollView.documentView = panel
         scrollView.allowsMagnification = true
         scrollView.minMagnification = 0.2
         scrollView.maxMagnification = 5.0
-        scrollView.hasHorizontalScroller = true
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .legacy
         scrollView.backgroundColor = PanelView.deviceBackgroundColor
         scrollView.drawsBackground = true
+        (scrollView as? SimulatorScrollView)?.onViewportChanged = { [weak self] in
+            self?.scheduleScrollerVisibilityRefresh()
+        }
 
         window = NSWindow(contentRect: NSRect(origin: .zero, size: initialSize),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -96,6 +101,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             updateViewMenuState()
         }
+        refreshScrollerVisibility()
         persistWindowPlacement()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -181,6 +187,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         updateViewMenuState()
         persistWindowPlacement()
+        refreshScrollerVisibility()
     }
 
     private func setManualMagnification(_ value: CGFloat, resizeWindow: Bool) {
@@ -201,6 +208,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let clamped = max(scrollView.minMagnification, min(scrollView.maxMagnification, value))
         scrollView.setMagnification(clamped, centeredAt: NSPoint(x: panel.frame.midX, y: panel.frame.midY))
         updateWindowTitle()
+        scheduleScrollerVisibilityRefresh()
     }
 
     private func resizeWindowToCurrentMagnification(preserveContentWidth: Bool) {
@@ -254,7 +262,51 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if self?.zoomMode == .fitToWidth {
                 self?.updateFitToWidthMagnification()
             }
+            self?.refreshScrollerVisibility()
         }
+    }
+
+    private func scheduleScrollerVisibilityRefresh() {
+        guard !pendingScrollerVisibilityRefresh, !isRefreshingScrollerVisibility else { return }
+        pendingScrollerVisibilityRefresh = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingScrollerVisibilityRefresh = false
+            self.refreshScrollerVisibility()
+        }
+    }
+
+    private func refreshScrollerVisibility() {
+        guard scrollView != nil, panel != nil else { return }
+        isRefreshingScrollerVisibility = true
+        defer { isRefreshingScrollerVisibility = false }
+
+        let documentSize = NSSize(
+            width: panel.frame.width * scrollView.magnification,
+            height: panel.frame.height * scrollView.magnification
+        )
+        var showsHorizontalScroller = scrollView.hasHorizontalScroller
+        var showsVerticalScroller = scrollView.hasVerticalScroller
+
+        for _ in 0..<3 {
+            scrollView.hasHorizontalScroller = showsHorizontalScroller
+            scrollView.hasVerticalScroller = showsVerticalScroller
+            scrollView.layoutSubtreeIfNeeded()
+
+            let contentSize = scrollView.contentSize
+            let nextShowsHorizontalScroller = documentSize.width > contentSize.width + 0.5
+            let nextShowsVerticalScroller = documentSize.height > contentSize.height + 0.5
+            if nextShowsHorizontalScroller == showsHorizontalScroller,
+               nextShowsVerticalScroller == showsVerticalScroller {
+                break
+            }
+            showsHorizontalScroller = nextShowsHorizontalScroller
+            showsVerticalScroller = nextShowsVerticalScroller
+        }
+
+        scrollView.hasHorizontalScroller = showsHorizontalScroller
+        scrollView.hasVerticalScroller = showsVerticalScroller
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func maxContentSizeForCurrentScreen() -> NSSize? {
@@ -363,10 +415,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateFitToWidthMagnification()
         updateViewMenuState()
         persistWindowPlacement()
+        scheduleScrollerVisibilityRefresh()
     }
 
     func windowDidMove(_ notification: Notification) {
         persistWindowPlacement()
+        scheduleScrollerVisibilityRefresh()
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
@@ -376,6 +430,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             updateWindowTitle()
         }
         persistWindowPlacement()
+        scheduleScrollerVisibilityRefresh()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -404,6 +459,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let width = Int(payload[5]) << 8 | Int(payload[6])
         let height = Int(payload[7]) << 8 | Int(payload[8])
         panel.applyBlit(screen: screen, x: x, y: y, w: width, h: height, be: Array(payload.dropFirst(9)))
+    }
+}
+
+private final class SimulatorScrollView: NSScrollView {
+    var onViewportChanged: (() -> Void)?
+
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        onViewportChanged?()
+    }
+
+    override func magnify(with event: NSEvent) {
+        super.magnify(with: event)
+        onViewportChanged?()
     }
 }
 
