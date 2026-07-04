@@ -650,7 +650,7 @@ private actor WidgetLab {
     private func fontLabEncoderBindings() -> [MK2EncoderDiscreteValue] {
         [
             MK2EncoderDiscreteValue(
-                encoder: 1,
+                encoder: 5,
                 value: bodyPixelSize,
                 bounds: 12...22,
                 wraps: false,
@@ -659,7 +659,7 @@ private actor WidgetLab {
                 }
             ),
             MK2EncoderDiscreteValue(
-                encoder: 2,
+                encoder: 6,
                 value: titlePixelSize,
                 bounds: 18...32,
                 wraps: false,
@@ -668,7 +668,7 @@ private actor WidgetLab {
                 }
             ),
             MK2EncoderDiscreteValue(
-                encoder: 3,
+                encoder: 7,
                 value: iconSampleIndex,
                 bounds: 0...(Self.fontIconSamples.count - 1),
                 wraps: true,
@@ -677,7 +677,7 @@ private actor WidgetLab {
                 }
             ),
             MK2EncoderDiscreteValue(
-                encoder: 4,
+                encoder: 8,
                 value: iconPixelSize,
                 bounds: 32...72,
                 step: 2,
@@ -946,7 +946,7 @@ private actor WidgetLab {
         let sample = Self.fontSamples[fontSampleIndex]
         let icon = Self.fontIconSamples[iconSampleIndex]
 
-        BitmapLabel("MAIN SAMPLE  E1 BODY  E2 TITLE  E3 ICON  E4 SIZE", font: .label, color: Palette.dim)
+        BitmapLabel("MAIN SAMPLE  E5 BODY  E6 TITLE  E7 ICON  E8 SIZE", font: .label, color: Palette.dim)
             .draw(into: &frame, x: 8, y: 8)
         BitmapLabel("\(sample.label.uppercased())  \(icon.name.uppercased())", font: .label, color: Palette.accent)
             .draw(into: &frame, x: 8, y: 25, clip: MK2PixelRect(x: 8, y: 25, width: 456, height: 14))

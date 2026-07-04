@@ -155,6 +155,22 @@ FreeType. Use `FreeTypeFontCatalog.production` as the global swap point for fami
 cuts. The current production catalog uses IBM Plex Sans Condensed Regular 16 px for body,
 IBM Plex Sans Condensed Medium 24 px for titles, and Font Awesome 7 Pro Light for icons.
 
+HIG typography should be semantic, not per-screen literal sizing:
+
+- `body`: IBM Plex Sans Condensed Regular, 16 px.
+- `title`: IBM Plex Sans Condensed Medium, 24 px.
+- `actionDialogIcon`: Font Awesome 7 Pro Light, 48 px.
+
+Global dialogs use semantic severity rather than ad hoc icon placeholders. The current
+severity set is `info`, `warning`, `error`, and `question`; each maps to a Font Awesome
+Pro Light icon plus an accent colour. The intended defaults are `circle-info`/cyan,
+`triangle-exclamation`/amber, `circle-xmark`/red, and `circle-question`/violet. Client
+code should choose the severity that describes the interaction and let `MK2ModalDialog`
+project the typography, icon, colour, rounded panels, and selection treatment. This is
+a HIG convention, not middleware enforcement: product-specific dialogs may override icon
+or colour when that makes the interaction clearer, but they should keep the same semantic
+roles unless there is a deliberate reason not to.
+
 For MK2 OLED output, use grayscale coverage. `FreeTypeRasterMode.grayscaleHinted` is the
 chosen default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted` exist
 for renderer comparison. LCD/subpixel rendering is intentionally not used because the
@@ -228,6 +244,14 @@ public struct Parameter<Value> {
   `Cell` (bar on row 0, name on row 1, value on row 2). Encoder turn → adaptive step →
   `onChange`. Encoder *touch* → momentarily show fine value / highlight. Two-way: when the
   app mutates `value`, the cell refreshes.
+- **HIG: binding geometry should match display geometry.** Bindings for F1-F8 and E1-E8
+  should, except in clearly justified edge cases, show their underlying value or function
+  label on the matching screen and at the matching horizontal position. If a value is driven
+  by E5-E8, its readout belongs on the right screen; if a mode/action is selected by F1-F8,
+  its visible label should line up with that function button's slot. This is a design rule,
+  not a hard middleware enforcement: modal dialogs, temporary overlays, mirrored controls,
+  or deliberately cross-screen workflows may break it when the interaction is clearer that
+  way, but the exception should be intentional.
 - **`ParameterBank`** holds several pages; page-left / page-right buttons switch pages; a
   header (the 9th display, or a brief overlay) shows `page n/N`. This is exactly the
   velocity/page navigation the TestUI fakes today, made first-class.
