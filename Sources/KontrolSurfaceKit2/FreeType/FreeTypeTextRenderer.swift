@@ -106,7 +106,7 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     private var library: FT_Library?
     private var faces: [FaceKey: FaceBox] = [:]
 
-    public init(catalog: FreeTypeFontCatalog = .exploratory) throws {
+    public init(catalog: FreeTypeFontCatalog = .production) throws {
         self.catalog = catalog
         var library: FT_Library?
         let error = FT_Init_FreeType(&library)

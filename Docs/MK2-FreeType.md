@@ -1,7 +1,7 @@
 # MK2 FreeType Typography
 
-Status: implemented for `KontrolSurfaceKit2` exploration and ready for hardware evaluation
-through `MK2FreeTypeDemo`.
+Status: implemented for `KontrolSurfaceKit2`; the first production typography choice is
+locked and can be checked on hardware through `MK2FreeTypeDemo`.
 
 ## Scope
 
@@ -19,33 +19,42 @@ These paths are independent. Integrating FreeType does not put FreeType in the b
 font hot path; existing bitmap labels still draw through atlas row bits and bulk
 `MK2PixelFrame.fill(...)` runs.
 
-## Bundled Fonts
+## Production Fonts
 
-`KontrolSurfaceKit2` bundles exploratory font resources under
+`KontrolSurfaceKit2` bundles production font resources under
 `Sources/KontrolSurfaceKit2/Resources/Fonts/`:
 
-- Inter variable TTF
-- IBM Plex Sans OTF: Light, Regular, Text, Medium, SemiBold, Bold
-- IBM Plex Sans Condensed OTF: Light, Regular, Text, Medium, SemiBold, Bold
+- IBM Plex Sans Condensed Regular OTF for body text.
+- IBM Plex Sans Condensed Medium OTF for title text.
+- Font Awesome 7 Pro Light OTF for icons.
 
-The global swap point is `FreeTypeFontCatalog.exploratory`. Add or replace families there
-rather than scattering resource names through UI code. Inter uses its variable `wght` axis;
-Plex uses static OTF cuts. Collection files were preferred, but the local checkouts did
-not provide relevant `.ttc`/`.otc` files for these families.
+The global swap point is `FreeTypeFontCatalog.production`. Add or replace families there
+rather than scattering resource names through UI code. The legacy
+`FreeTypeFontCatalog.exploratory` alias points at the same production catalog for source
+compatibility.
+
+Current text contract:
+
+- Body: IBM Plex Sans Condensed Regular, 16 px.
+- Title: IBM Plex Sans Condensed Medium, 24 px.
+- Icon: Font Awesome 7 Pro Light.
+- Action-dialog icon size: 48 px.
+- Raster: `FreeTypeRasterMode.grayscaleHinted`.
 
 ## Raster Modes
 
-`FreeTypeRasterMode` exposes hardware-checkable modes:
+`FreeTypeRasterMode` still exposes hardware-checkable modes:
 
 - `grayscaleHinted` (`Gray hinted`) — recommended default for the MK2 OLED/RGB565 path.
 - `grayscaleLightHinted` (`Gray light`) — often calmer at mid sizes.
 - `grayscaleUnhinted` (`Gray unhinted`) — useful to judge native outline shape.
 - `monochromeHinted` (`Mono hinted`) — comparison mode; no partial coverage.
 
-LCD/subpixel rendering is intentionally not enabled. The MK2 path renders into an RGB565
-framebuffer and the OLED subpixel layout is not a stable RGB-stripe contract. Subpixel AA
-would risk colour fringes and panel-orientation artifacts; grayscale coverage is the robust
-choice.
+`MK2FreeTypeDemo` now renders with `grayscaleHinted` fixed because that is the chosen MK2
+OLED default. LCD/subpixel rendering is intentionally not enabled. The MK2 path renders
+into an RGB565 framebuffer and the OLED subpixel layout is not a stable RGB-stripe
+contract. Subpixel AA would risk colour fringes and panel-orientation artifacts;
+grayscale coverage is the robust choice.
 
 ## Demo
 
@@ -70,13 +79,15 @@ make mk2-freetype-demo-release
 
 The demo prints its full hardware-control help at startup. Current controls:
 
-- `Page Left` / `Page Right`: previous / next font family
-- `F1`-`F3`: selected family state; active family is bright blue, other available
-  families are dim
-- `Browser` / `Instance`: previous / next weight
-- `Preset Down` / `Preset Up`: smaller / larger pixel size
-- `Plugin`: cycle raster mode
-- `Mixer`: cycle sample text
+- `F1`: typography specimens for body/title combinations.
+- `F2`: Font Awesome icon browser.
+- `F3`: global action-dialog icon test.
+- Main rotary: scroll the icon browser list by one icon.
+- `4D Up` / `4D Down`: scroll the icon browser list by one visible page.
+- `Page Left` / `Page Right`: previous / next icon.
+- `Plugin` / `Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
+  dialog copy and its default icon.
+- `Preset Down` / `Preset Up`: smaller / larger icon size.
 
 Only one MK2 surface client should own the displays at a time. Stop `MK2WidgetLabDemo`,
 `MK2SurfaceDemo`, Paulinche, or another client before judging `MK2FreeTypeDemo`; registering
@@ -100,4 +111,3 @@ git diff --check
 Use `PixelPipelinePerfTests` as the regression check for the user-facing question "did
 bitmap rendering get slower?" A FreeType-only change should not move the bitmap drawText
 timing except for normal machine noise.
-

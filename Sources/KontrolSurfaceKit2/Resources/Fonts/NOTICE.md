@@ -1,10 +1,10 @@
-# Bundled Exploratory UI Fonts
+# Bundled Production UI Fonts
 
-These fonts are bundled for MK2 FreeType rendering exploration:
+These fonts are bundled for MK2 FreeType UI rendering:
 
-- Inter variable TTF from `$HOME/Documents/late/misc/inter/docs/font-files/InterVariable.ttf`
-- IBM Plex Sans OTF cuts from `$HOME/Documents/late/misc/plex/packages/plex-sans/fonts/complete/otf/`
-- IBM Plex Sans Condensed OTF cuts from `$HOME/Documents/late/misc/plex/packages/plex-sans-condensed/fonts/complete/otf/`
+- IBM Plex Sans Condensed Regular and Medium OTF cuts from
+  `$HOME/Documents/late/misc/plex/packages/plex-sans-condensed/fonts/complete/otf/`
+- Font Awesome 7 Pro Light OTF from
+  `$HOME/Downloads/fontawesome-pro-7.3.0-desktop/otfs/`
 
-Inter and IBM Plex are distributed under the SIL Open Font License.
-
+IBM Plex is distributed under the SIL Open Font License.

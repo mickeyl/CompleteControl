@@ -4,21 +4,23 @@ import Testing
 
 @Suite("FreeType text rendering")
 struct FreeTypeTextRendererTests {
-    @Test("Exploratory catalog exposes the initial families and weights")
+    @Test("Production catalog exposes the locked text and icon families")
     func catalogShape() {
-        let catalog = FreeTypeFontCatalog.exploratory
-        #expect(catalog.families.map(\.id) == ["inter", "plex-sans", "plex-sans-condensed"])
-        for family in catalog.families {
-            #expect(family.source(for: .regular).resourceName.isEmpty == false)
-            #expect(family.source(for: .bold).resourceName.isEmpty == false)
-        }
+        let catalog = FreeTypeFontCatalog.production
+        #expect(catalog.families.map(\.id) == [
+            FreeTypeFontCatalog.textFamilyID,
+            FreeTypeFontCatalog.iconProLightFamilyID,
+        ])
+        #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .regular).resourceName == "IBMPlexSansCondensed-Regular.otf")
+        #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .medium).resourceName == "IBMPlexSansCondensed-Medium.otf")
+        #expect(catalog.family(id: FreeTypeFontCatalog.iconProLightFamilyID)?.source(for: .regular).resourceName == "FontAwesome7Pro-Light-300.otf")
     }
 
     @Test("Renderer draws grayscale antialiased text into RGB565 frame")
     func drawAntialiasedText() throws {
         let renderer = try FreeTypeTextRenderer()
         var frame = MK2PixelFrame(fill: 0)
-        let style = FreeTypeTextStyle(familyID: "inter", weight: .regular, pixelSize: 36, color: 0xffff)
+        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 36, color: 0xffff)
         try renderer.drawText("Ag", into: &frame, x: 20, y: 40, style: style)
 
         var ink = 0
@@ -42,7 +44,7 @@ struct FreeTypeTextRendererTests {
         for mode in FreeTypeRasterMode.allCases {
             var frame = MK2PixelFrame(fill: 0)
             let style = FreeTypeTextStyle(
-                familyID: "inter",
+                familyID: FreeTypeFontCatalog.textFamilyID,
                 weight: .medium,
                 pixelSize: 28,
                 color: 0xffff,
@@ -68,5 +70,21 @@ struct FreeTypeTextRendererTests {
                 #expect(partial > 0)
             }
         }
+    }
+
+    @Test("Font Awesome Pro Light icon font renders known glyphs")
+    func drawFontAwesomeIcons() throws {
+        let renderer = try FreeTypeTextRenderer()
+        var frame = MK2PixelFrame(fill: 0)
+        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.iconProLightFamilyID, weight: .regular, pixelSize: 48, color: 0xffff)
+        try renderer.drawText("\u{f2bb}", into: &frame, x: 40, y: 40, style: style)
+
+        var ink = 0
+        for y in 0..<MK2PixelFrame.height {
+            for x in 0..<MK2PixelFrame.width where frame[x, y] != 0 {
+                ink += 1
+            }
+        }
+        #expect(ink > 0)
     }
 }

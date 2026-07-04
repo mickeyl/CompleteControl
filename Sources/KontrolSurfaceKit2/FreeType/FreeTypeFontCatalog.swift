@@ -54,6 +54,9 @@ public struct FreeTypeFontFamily: Sendable, Equatable, Identifiable {
 }
 
 public struct FreeTypeFontCatalog: Sendable, Equatable {
+    public static let textFamilyID = "plex-sans-condensed"
+    public static let iconProLightFamilyID = "fontawesome-pro-light"
+
     public var families: [FreeTypeFontFamily]
 
     public init(families: [FreeTypeFontFamily]) {
@@ -64,38 +67,23 @@ public struct FreeTypeFontCatalog: Sendable, Equatable {
         families.first { $0.id == id }
     }
 
-    public static let exploratory = FreeTypeFontCatalog(families: [
+    public static let production = FreeTypeFontCatalog(families: [
         FreeTypeFontFamily(
-            id: "inter",
-            label: "Inter",
-            faces: Dictionary(uniqueKeysWithValues: FreeTypeFontWeight.allCases.map {
-                ($0, FreeTypeFontSource(resourceName: "InterVariable.ttf", variationWeight: $0.rawValue))
-            })
-        ),
-        FreeTypeFontFamily(
-            id: "plex-sans",
-            label: "IBM Plex Sans",
+            id: Self.textFamilyID,
+            label: "IBM Plex Sans Condensed",
             faces: [
-                .light: FreeTypeFontSource(resourceName: "IBMPlexSans-Light.otf"),
-                .regular: FreeTypeFontSource(resourceName: "IBMPlexSans-Regular.otf"),
-                .text: FreeTypeFontSource(resourceName: "IBMPlexSans-Text.otf"),
-                .medium: FreeTypeFontSource(resourceName: "IBMPlexSans-Medium.otf"),
-                .semiBold: FreeTypeFontSource(resourceName: "IBMPlexSans-SemiBold.otf"),
-                .bold: FreeTypeFontSource(resourceName: "IBMPlexSans-Bold.otf"),
+                .regular: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Regular.otf"),
+                .medium: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Medium.otf"),
             ]
         ),
         FreeTypeFontFamily(
-            id: "plex-sans-condensed",
-            label: "IBM Plex Sans Condensed",
+            id: Self.iconProLightFamilyID,
+            label: "Font Awesome 7 Pro Light",
             faces: [
-                .light: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Light.otf"),
-                .regular: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Regular.otf"),
-                .text: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Text.otf"),
-                .medium: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Medium.otf"),
-                .semiBold: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-SemiBold.otf"),
-                .bold: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Bold.otf"),
+                .regular: FreeTypeFontSource(resourceName: "FontAwesome7Pro-Light-300.otf"),
             ]
         ),
     ])
-}
 
+    public static let exploratory = production
+}

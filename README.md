@@ -337,18 +337,23 @@ MK2 OLED displays. It is deliberately separate from the bitmap tracker/grid path
   frame for calmer UI areas such as global dialogs, browser/settings views, selection
   lists, and longer text.
 
-Bundled exploratory families live in `KontrolSurfaceKit2` resources: Inter variable TTF,
-IBM Plex Sans OTF, and IBM Plex Sans Condensed OTF. Swap families through
-`FreeTypeFontCatalog` rather than hardcoding font resources in screens.
+Bundled production text families live in `KontrolSurfaceKit2` resources: IBM Plex Sans
+Condensed Regular/Medium. Current UI contract: body is Plex Sans Condensed Regular at
+16 px; title is Plex Sans Condensed Medium at 24 px; demo rendering uses `Gray hinted`.
+The icon browser uses Font Awesome 7 Pro Light; the repository is private because that
+font and the Pro icon metadata are bundled for hardware exploration.
 
 The demo prints a full control map at startup. Hardware controls:
 
-- `Page Left` / `Page Right`: previous / next font family
-- `F1`-`F3`: family state lamps; selected family is bright blue, other available families are dim
-- `Browser` / `Instance`: previous / next weight
-- `Preset Down` / `Preset Up`: smaller / larger pixel size
-- `Plugin`: cycle raster mode (`Gray hinted`, `Gray light`, `Gray unhinted`, `Mono hinted`)
-- `Mixer`: cycle sample text
+- `F1`: typography specimens
+- `F2`: Font Awesome icon browser
+- `F3`: global action-dialog icon test
+- Main rotary: scroll the icon browser list by one icon
+- `4D Up` / `4D Down`: scroll the icon browser list by one visible page
+- `Page Left` / `Page Right`: previous / next icon
+- `Plugin` / `Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
+  dialog copy
+- `Preset Down` / `Preset Up`: smaller / larger icon size
 
 Recommended OLED default is `Gray hinted`. LCD/subpixel rendering is intentionally not used
 for the MK2 RGB565/OLED path because the panel subpixel geometry is not a stable RGB-stripe

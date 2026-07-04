@@ -151,14 +151,14 @@ Label("Resonance Bandpass 24dB", overflow: .marquee(speed: 5))
   selection lists, long text, and icon-font-style symbols.
 
 The two renderers are independent; adding FreeType does not route bitmap labels through
-FreeType. Use `FreeTypeFontCatalog` as the global swap point for family/cut experiments.
-The current exploratory catalog includes Inter variable TTF plus IBM Plex Sans and IBM
-Plex Sans Condensed OTF cuts.
+FreeType. Use `FreeTypeFontCatalog.production` as the global swap point for families and
+cuts. The current production catalog uses IBM Plex Sans Condensed Regular 16 px for body,
+IBM Plex Sans Condensed Medium 24 px for titles, and Font Awesome 7 Pro Light for icons.
 
 For MK2 OLED output, use grayscale coverage. `FreeTypeRasterMode.grayscaleHinted` is the
-recommended default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted`
-exist for hardware comparison. LCD/subpixel rendering is intentionally not used because
-the RGB565/OLED path has no stable RGB-stripe subpixel contract.
+chosen default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted` exist
+for renderer comparison. LCD/subpixel rendering is intentionally not used because the
+RGB565/OLED path has no stable RGB-stripe subpixel contract.
 
 The hardware workbench is `MK2FreeTypeDemo`; see `Docs/MK2-FreeType.md`.
 

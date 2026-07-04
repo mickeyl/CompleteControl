@@ -102,24 +102,31 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
   bitmap-sharp UI. This path remains atlas-backed and does not call FreeType.
 - Use `FreeTypeTextRenderer`/`FreeTypeTextStyle` for larger, calmer UI areas: global dialogs,
   browser/settings views, selection lists, long text, and icon-font-style symbols.
-- Bundled exploratory fonts are Inter variable TTF plus IBM Plex Sans and IBM Plex Sans
-  Condensed OTF cuts. Swap globally through `FreeTypeFontCatalog`, not per-screen resource
-  literals.
-- `FreeTypeRasterMode.grayscaleHinted` is the OLED default. `grayscaleLightHinted`,
-  `grayscaleUnhinted`, and `monochromeHinted` are hardware comparison modes. Do not enable
-  LCD/subpixel rendering for MK2 RGB565/OLED output; it is likely to create colour fringes.
+- Bundled production fonts are IBM Plex Sans Condensed Regular/Medium for text and
+  Font Awesome 7 Pro Light for icons. The repository is private because the Pro font
+  and Pro icon metadata are bundled for hardware exploration. Swap globally through
+  `FreeTypeFontCatalog.production`, not per-screen resource literals. Body text is
+  Plex Sans Condensed Regular 16 px; titles are Plex Sans Condensed Medium 24 px;
+  action-dialog icons are 48 px.
+- `FreeTypeRasterMode.grayscaleHinted` is the OLED default and the FreeType demo renders
+  with it fixed. `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted`
+  remain renderer comparison modes. Do not enable LCD/subpixel rendering for MK2
+  RGB565/OLED output; it is likely to create colour fringes.
 - Performance boundary: FreeType integration should not slow bitmap rendering because the
   bitmap path is separate. Validate with `swift test --filter PixelPipelinePerfTests`
   (look at `PERF drawText 60 chars scale 3`) plus `FreeTypeTextRendererTests`.
 
 `MK2FreeTypeDemo` controls:
 
-- `Page Left`/`Page Right`: font family.
-- `F1`-`F3`: family state lamps; selected family bright blue, others dim.
-- `Browser`/`Instance`: weight.
-- `Preset Down`/`Preset Up`: pixel size.
-- `Plugin`: raster mode.
-- `Mixer`: sample text.
+- `F1`: typography specimens.
+- `F2`: Font Awesome icon browser.
+- `F3`: global action-dialog icon test.
+- Main rotary: scroll the icon browser list by one icon.
+- `4D Up`/`4D Down`: scroll the icon browser list by one visible page.
+- `Page Left`/`Page Right`: previous / next icon.
+- `Plugin`/`Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
+  dialog copy.
+- `Preset Down`/`Preset Up`: icon size.
 
 ### Simulation mode — run the daemon without hardware
 

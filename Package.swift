@@ -147,6 +147,9 @@ let package = Package(
             name: "MK2FreeTypeDemo",
             dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
             path: "Tools/MK2FreeTypeDemo",
+            resources: [
+                .copy("FontAwesomeIcons.pro.json"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
