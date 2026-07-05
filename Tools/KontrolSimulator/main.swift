@@ -18,6 +18,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let width = "KontrolSimulator.window.width"
         static let height = "KontrolSimulator.window.height"
         static let keybedSize = "KontrolSimulator.keybedSize"
+        static let stayOnTop = "KontrolSimulator.window.stayOnTop"
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
@@ -25,6 +26,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var scrollView: NSScrollView!
     private var panel: PanelView!
     private var fitToWidthItem: NSMenuItem?
+    private var stayOnTopItem: NSMenuItem?
     private var keybedSizeItems: [PanelView.KeybedSize: NSMenuItem] = [:]
     private var zoomMode: ZoomMode = .manual
     private var isProgrammaticResize = false
@@ -77,6 +79,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             window.center()
         }
+        applyStayOnTop(UserDefaults.standard.bool(forKey: DefaultsKey.stayOnTop))
         window.makeKeyAndOrderFront(nil)
 
         buildMenu()
@@ -138,6 +141,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fitToWidthItem = add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
         add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
         viewMenu.addItem(.separator())
+        stayOnTopItem = add(to: viewMenu, "Stay on Top", #selector(toggleStayOnTop), "")
+        viewMenu.addItem(.separator())
         for size in PanelView.KeybedSize.allCases {
             let item = add(to: viewMenu, size.title, #selector(setKeybedSizeFromMenu(_:)), "")
             item.representedObject = size.rawValue
@@ -179,6 +184,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         setManualMagnification(magnification, resizeWindow: true)
+    }
+
+    @objc private func toggleStayOnTop(_ sender: Any?) {
+        let enabled = window.level != .floating
+        applyStayOnTop(enabled)
+        UserDefaults.standard.set(enabled, forKey: DefaultsKey.stayOnTop)
+        updateViewMenuState()
     }
 
     @objc private func setKeybedSizeFromMenu(_ sender: NSMenuItem) {
@@ -351,10 +363,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateViewMenuState() {
         fitToWidthItem?.state = zoomMode == .fitToWidth ? .on : .off
+        stayOnTopItem?.state = window?.level == .floating ? .on : .off
         for (size, item) in keybedSizeItems {
             item.state = panel.currentKeybedSize == size ? .on : .off
         }
         updateWindowTitle()
+    }
+
+    private func applyStayOnTop(_ enabled: Bool) {
+        window.level = enabled ? .floating : .normal
     }
 
     private func updateWindowTitle() {

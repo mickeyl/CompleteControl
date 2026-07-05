@@ -405,27 +405,12 @@ final class PanelView: NSView {
             (.pushRight, .jogRight, 1.0, 0.0),
         ]
         for direction in directions {
-            let lampRadius: CGFloat = 4
-            let lampDistance = fourDRadius * 0.78
-            let lampCenter = NSPoint(
-                x: fourDCenter.x + CGFloat(direction.dx) * lampDistance,
-                y: fourDCenter.y + CGFloat(direction.dy) * lampDistance
-            )
-            let lamp = NSBezierPath(ovalIn: NSRect(
-                x: lampCenter.x - lampRadius,
-                y: lampCenter.y - lampRadius,
-                width: lampRadius * 2,
-                height: lampRadius * 2
-            ))
-            ledIndicatorColor(for: direction.led).setFill()
-            lamp.fill()
-
             let p = NSBezierPath()
             let isActive = activeFourD == direction.state
             let dotRadius: CGFloat = isActive ? 6 : 4
             let cx = fourDCenter.x + CGFloat(direction.dx) * a
             let cy = fourDCenter.y + CGFloat(direction.dy) * a
-            (isActive ? activeColor : NSColor(white: 0.55, alpha: 1)).setFill()
+            (isActive ? activeColor : ledIndicatorColor(for: direction.led)).setFill()
             p.appendOval(in: NSRect(x: cx - dotRadius, y: cy - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
             p.fill()
         }
