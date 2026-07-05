@@ -8,6 +8,10 @@ import Darwin
 /// dependency (linenoise-style). Falls back to plain `readLine()` when stdin is not a TTY
 /// (piped/backgrounded), so scripted use keeps working.
 final class LineReader {
+    static var hasInteractiveInput: Bool {
+        isatty(STDIN_FILENO) != 0
+    }
+
     /// Given the current whitespace-split tokens (with a trailing empty token if the line
     /// ends in a space), return the candidate words for the last token position.
     private let completer: ([String]) -> [String]
@@ -23,7 +27,7 @@ final class LineReader {
     }
 
     func readLine(prompt: String) -> String? {
-        guard isatty(STDIN_FILENO) != 0 else {
+        guard Self.hasInteractiveInput else {
             return Swift.readLine(strippingNewline: true)
         }
         var original = termios()

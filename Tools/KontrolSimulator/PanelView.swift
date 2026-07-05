@@ -201,7 +201,7 @@ final class PanelView: NSView {
         addButton(.presetUp, "PRESET ^", nil, NSRect(x: navBlockX, y: funcY + 78, width: controlW, height: controlH))
         addButton(.presetDown, "PRESET v", nil, NSRect(x: navBlockX, y: funcY + 120, width: controlW, height: controlH))
         addButton(.pageLeft, "<", nil, NSRect(x: navBlockX, y: funcY + 166, width: smallButton, height: smallButton))
-        addButton(.pageRight, ">", nil, NSRect(x: navBlockX + smallButton + 10, y: funcY + 166, width: smallButton, height: smallButton))
+        addButton(.pageRight, ">", nil, NSRect(x: navBlockX + smallButton + 10, y: funcY + 166, width: controlW - smallButton - 10, height: smallButton))
 
         addButton(.scene, "SCENE", nil, NSRect(x: modeBlockX, y: funcY, width: controlW, height: controlH))
         addButton(.pattern, "PATTERN", nil, NSRect(x: modeBlockX, y: funcY + 42, width: controlW, height: controlH))
@@ -268,17 +268,31 @@ final class PanelView: NSView {
             height: fourDWheelSize
         )
 
-        let performanceTop = max(encY + knob + 46, fourDWheelRect.maxY + 38)
-        pitchWheelRect = NSRect(x: margin, y: performanceTop + 50, width: 42, height: 130)
-        modWheelRect = NSRect(x: pitchWheelRect.maxX + 18, y: performanceTop + 50, width: 42, height: 130)
-        let keybedX = modWheelRect.maxX + 30
+        let encoderLabelBottom = encY + knob + 18
+        let keybedTop = encoderLabelBottom + 20 - 3 // light-guide strip starts 3 px into the key.
+        let performanceTop = keybedTop - 62
+        let wheelAreaX = margin
+        let wheelAreaWidth: CGFloat = 188
+        let wheelW: CGFloat = 42
+        let wheelGap: CGFloat = 18
+        let wheelGroupWidth = wheelW * 2 + wheelGap
+        let wheelGroupX = wheelAreaX + (wheelAreaWidth - wheelGroupWidth) / 2
+        let performanceButtonGap: CGFloat = 6
+        let performanceButtonW = (wheelAreaWidth - performanceButtonGap * 2) / 3
+        let performanceButtonY = performanceTop + 2
+        addButton(.fixedVel, "FIXED", "VEL", NSRect(x: wheelAreaX, y: performanceButtonY, width: performanceButtonW, height: 30))
+        addButton(.octaveDown, "OCTAVE", "-", NSRect(x: wheelAreaX + performanceButtonW + performanceButtonGap, y: performanceButtonY, width: performanceButtonW, height: 30))
+        addButton(.octaveUp, "OCTAVE", "+", NSRect(x: wheelAreaX + (performanceButtonW + performanceButtonGap) * 2, y: performanceButtonY, width: performanceButtonW, height: 30))
+        pitchWheelRect = NSRect(x: wheelGroupX, y: performanceTop + 50, width: wheelW, height: 130)
+        modWheelRect = NSRect(x: pitchWheelRect.maxX + wheelGap, y: performanceTop + 50, width: wheelW, height: 130)
+        let keybedX = wheelAreaX + wheelAreaWidth + 30
         let keybedWidth = rightControlsRight - keybedX
         let keybedRect = NSRect(x: keybedX, y: performanceTop + 62, width: keybedWidth, height: 213)
-        ribbonRect = NSRect(x: keybedX, y: performanceTop + 14, width: keybedWidth, height: 22)
-        ribbonLEDRect = NSRect(x: keybedX, y: performanceTop + 42, width: keybedWidth, height: 8)
+        ribbonLEDRect = NSRect(x: wheelAreaX + 14, y: keybedRect.maxY - 8, width: wheelAreaWidth - 28, height: 8)
+        ribbonRect = NSRect(x: wheelAreaX, y: ribbonLEDRect.minY - 28, width: wheelAreaWidth, height: 22)
         buildKeybed(in: keybedRect)
 
-        let controlsBottom = max(keybedRect.maxY + 34, fourDWheelRect.maxY + 38)
+        let controlsBottom = max(keybedRect.maxY + 34, ribbonLEDRect.maxY + 28, fourDWheelRect.maxY + 38)
         preferredContentSize = NSSize(
             width: rightControlsRight + margin,
             height: controlsBottom)
@@ -518,23 +532,26 @@ final class PanelView: NSView {
         }
 
         let count = 25
-        let gap: CGFloat = 2
-        let segmentWidth = (ribbonLEDRect.width - gap * CGFloat(count - 1)) / CGFloat(count)
+        let dotRadius = max(2, min(3.5, ribbonLEDRect.height / 2))
         for index in 0..<count {
-            let rect = NSRect(
-                x: ribbonLEDRect.minX + CGFloat(index) * (segmentWidth + gap),
-                y: ribbonLEDRect.minY,
-                width: segmentWidth,
-                height: ribbonLEDRect.height
+            let progress = count == 1 ? 0 : CGFloat(index) / CGFloat(count - 1)
+            let center = NSPoint(
+                x: ribbonLEDRect.minX + progress * ribbonLEDRect.width,
+                y: ribbonLEDRect.midY
             )
             let codeIndex = KKMK2ButtonLED.strip1.rawValue + index
             let code = ledBytes.indices.contains(codeIndex) ? ledBytes[codeIndex] : 0
-            let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
+            let path = NSBezierPath(ovalIn: NSRect(
+                x: center.x - dotRadius,
+                y: center.y - dotRadius,
+                width: dotRadius * 2,
+                height: dotRadius * 2
+            ))
             paletteColor(code: code, offWhite: 0.1).setFill()
             path.fill()
         }
 
-        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonLEDRect.maxY - 11, width: 78, height: 14),
+        drawLabel("RIBBON", in: NSRect(x: ribbonRect.minX, y: ribbonRect.minY - 18, width: 78, height: 14),
                   color: NSColor(white: 0.6, alpha: 1), size: 10, left: true)
     }
 

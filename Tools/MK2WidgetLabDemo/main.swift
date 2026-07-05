@@ -18,13 +18,20 @@ struct MK2WidgetLabDemo {
         let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
         await runner.run { _ in
             await lab.show(.font)
-            printBanner()
-            startREPL(lab)
+            let replEnabled = LineReader.hasInteractiveInput
+            printBanner(replEnabled: replEnabled)
+            if replEnabled {
+                startREPL(lab)
+            }
         }
     }
 
-    private static func printBanner() {
-        print("MK2WidgetLabDemo — units A…H via function buttons or REPL. Type 'help' or press Tab.")
+    private static func printBanner(replEnabled: Bool) {
+        if replEnabled {
+            print("MK2WidgetLabDemo — units A…H via function buttons or REPL. Type 'help' or press Tab.")
+        } else {
+            print("MK2WidgetLabDemo — units A…H via function buttons. REPL disabled: stdin is not a TTY.")
+        }
     }
 
     private static func startREPL(_ lab: WidgetLab) {
