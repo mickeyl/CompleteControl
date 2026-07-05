@@ -20,7 +20,7 @@ Supported now:
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
 - S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, `MK2FreeTypeDemo`, and `KontrolSimulator`
-- MK2 button LED capability model: RGB only on Mute, Solo, and F1-F8; all other button indicators are fixed-colour monochrome (normally white, Play green, Record red)
+- MK2 LED capability model: palette colours on Mute, Solo, F1-F8, and the 25 touch-strip segments; other panel button indicators are fixed-colour monochrome (normally white, Play green, Record red)
 - MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text for larger dialogs, browser/settings surfaces, lists, long text, and icon-font experiments
 
 Not supported yet:
@@ -49,9 +49,10 @@ Not supported yet:
 | Input report | Report `0x01`, decoded to button, encoder, touch, and strip events |
 
 MK2 uses the same broad report IDs but different payload layouts and capabilities. In
-particular, its button LED report is not a full RGB button surface: only Mute, Solo, and
-F1-F8 are RGB-capable. The remaining button indicators are fixed-colour monochrome LEDs
-with brightness control; Play is green, Record is red, and the rest are white.
+particular, its button LED report is not a full RGB button surface: Mute, Solo, F1-F8, and
+the 25 touch-strip segments are palette-capable. The remaining panel button indicators are
+fixed-colour monochrome LEDs with brightness control; Play is green, Record is red, and the
+rest are white.
 
 ## Why This Architecture Exists
 

@@ -3,14 +3,16 @@ import KompleteKontrol
 
 @Suite("MK2 button LED capabilities")
 struct MK2ButtonLEDCapabilityTests {
-    @Test("Only Mute, Solo, and F1-F8 are RGB backlit")
+    @Test("Mute, Solo, F1-F8, and touch-strip LEDs are palette backlit")
     func rgbBacklitButtons() {
+        let stripLEDs = (KKMK2ButtonLED.strip1.rawValue...KKMK2ButtonLED.strip25.rawValue)
+            .compactMap(KKMK2ButtonLED.init(rawValue:))
         let rgbButtons = Set(KKMK2ButtonLED.allCases.filter(\.isRGBBacklit))
-        #expect(rgbButtons == [
+        #expect(rgbButtons == Set([
             .m, .s,
             .function1, .function2, .function3, .function4,
             .function5, .function6, .function7, .function8,
-        ])
+        ] + stripLEDs))
     }
 
     @Test("Monochrome buttons encode requested colours as white intensity")
@@ -21,6 +23,7 @@ struct MK2ButtonLEDCapabilityTests {
         #expect(KKMK2ButtonLED.clear.ledByte(for: red) == KKMK2ButtonLED.clear.ledByte(for: white))
         #expect(KKMK2ButtonLED.clear.ledByte(for: .off) == 0)
         #expect(KKMK2ButtonLED.function1.ledByte(for: red) != KKMK2ButtonLED.function1.ledByte(for: white))
+        #expect(KKMK2ButtonLED.strip1.ledByte(for: red) != KKMK2ButtonLED.strip1.ledByte(for: white))
     }
 
     @Test("Play and Record are fixed-colour monochrome indicators")

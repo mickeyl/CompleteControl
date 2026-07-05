@@ -218,14 +218,19 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
         }
     }
 
-    /// Only these ten button LEDs are RGB-capable on the S-Series MK2 hardware. The
-    /// remaining report slots are fixed-colour monochrome indicators even though they
-    /// share the same 0x80 report.
+    /// LEDs that accept the MK2 palette byte directly in the 0x80 report.
+    /// Most panel buttons are fixed-colour indicators; M/S, F1-F8, and the
+    /// touch-strip LED slots are palette-capable.
     public var isRGBBacklit: Bool {
         switch self {
             case .m, .s,
                  .function1, .function2, .function3, .function4,
-                 .function5, .function6, .function7, .function8:
+                 .function5, .function6, .function7, .function8,
+                 .strip1, .strip2, .strip3, .strip4, .strip5,
+                 .strip6, .strip7, .strip8, .strip9, .strip10,
+                 .strip11, .strip12, .strip13, .strip14, .strip15,
+                 .strip16, .strip17, .strip18, .strip19, .strip20,
+                 .strip21, .strip22, .strip23, .strip24, .strip25:
                 true
             default:
                 false

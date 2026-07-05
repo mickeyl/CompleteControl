@@ -30,9 +30,9 @@ it is verifiable without hardware by round-tripping the builder through the real
 - **V1 fidelity:** two 480×272 displays (real blits), 8 function buttons, 8 rotary
   encoders (rotate + touch), the side buttons left/right of each display, the 4-D encoder
   (rotate + 8-way + click) — all clickable. Button LED feedback is rendered from report
-  `0x80`: RGB only for Mute, Solo, and F1-F8; the remaining button indicators are
+  `0x80`: panel-button RGB only for Mute, Solo, and F1-F8; the remaining button indicators are
   fixed-colour monochrome LEDs whose brightness controls the text on a black cap
-  (Play green, Stop red, the rest white). Deferred to V2: light-guide keybed + MIDI
+  (Play green, Record red, the rest white). Deferred to V2: light-guide keybed + MIDI
   notes, touch strip/ribbon, transport LED row.
 
 ## The seam: `KontrolDeviceSession`
@@ -111,7 +111,7 @@ byte level with no hardware.
 - **C. `SimulatorDeviceSession` + mode selection.** Implements the protocol over the
   socket. Headless test: a stub sim socket confirms ccd forwards blits and injects input.
 - **D. `KontrolSimulator.app`.** AppKit panel: displays, function buttons, encoders, side
-  buttons, 4-D, hardware-accurate RGB button LEDs and fixed-colour monochrome button
+  buttons, 4-D, hardware-accurate panel-button RGB LEDs and fixed-colour monochrome button
   text, all clickable. Manual verification (sim app + ccd + client).
 - **E. Make targets + docs.** `make run-simulator`, sim-mode ccd run target, CLAUDE.md.
 

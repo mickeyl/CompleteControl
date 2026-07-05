@@ -288,7 +288,7 @@ final class PanelView: NSView {
         let keybedX = wheelAreaX + wheelAreaWidth + 30
         let keybedWidth = rightControlsRight - keybedX
         let keybedRect = NSRect(x: keybedX, y: performanceTop + 62, width: keybedWidth, height: 213)
-        ribbonLEDRect = NSRect(x: wheelAreaX + 14, y: keybedRect.maxY - 8, width: wheelAreaWidth - 28, height: 8)
+        ribbonLEDRect = NSRect(x: wheelAreaX, y: keybedRect.maxY - 8, width: wheelAreaWidth, height: 8)
         ribbonRect = NSRect(x: wheelAreaX, y: ribbonLEDRect.minY - 28, width: wheelAreaWidth, height: 22)
         buildKeybed(in: keybedRect)
 
@@ -532,11 +532,14 @@ final class PanelView: NSView {
         }
 
         let count = 25
-        let dotRadius = max(2, min(3.5, ribbonLEDRect.height / 2))
+        let dotRadius: CGFloat = 2.3
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSGraphicsContext.current?.shouldAntialias = true
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
         for index in 0..<count {
             let progress = count == 1 ? 0 : CGFloat(index) / CGFloat(count - 1)
             let center = NSPoint(
-                x: ribbonLEDRect.minX + progress * ribbonLEDRect.width,
+                x: ribbonLEDRect.minX + dotRadius + progress * (ribbonLEDRect.width - dotRadius * 2),
                 y: ribbonLEDRect.midY
             )
             let codeIndex = KKMK2ButtonLED.strip1.rawValue + index

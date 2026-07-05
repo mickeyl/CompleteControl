@@ -171,8 +171,8 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   rides the kqueue reactor exactly where libusb pollfds do, and socket EOF = device-loss.
 - **The app**: `KontrolSimulator` (`Tools/KontrolSimulator`) — two 480×272 displays, 8 function
   buttons, side buttons, 8 encoders, the 4-D encoder, with hardware-accurate button LEDs:
-  RGB only for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest (Play green,
-  Stop red, otherwise white). All controls are clickable/scrollable. Closing the window
+  panel-button RGB only for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest
+  (Play green, Record red, otherwise white). All controls are clickable/scrollable. Closing the window
   exercises reconnect.
 - **Run it**: `make run-simulator` (GUI, one shell) + `make daemon-simulate` (foreground sim
   `ccd`, another shell — stops the launchd daemon, binds the normal client socket) + any client
@@ -295,12 +295,12 @@ The short version:
   the "dead ribbon" bug), configure via template reports `0xA1` (buttons+knobs), `0xA2`
   (wheels+strip), `0xA3` (pedals), `0xA4` (keyzones), then `0xAF 00 02`.
 - **`A0 00 10` is the real DAW/host mode** (bench 2026-07-02): function-button LEDs (0x80
-  indices 2–9), Mute/Solo (0–1), fixed-colour monochrome button indicators, and ribbon LEDs
-  (44–68) are host-controlled; the strip streams raw on report `0x02` (`[u16 const][u16 const]
+  indices 2–9), Mute/Solo (0–1), fixed-colour monochrome button indicators, and palette-capable
+  ribbon LEDs (44–68) are host-controlled; the strip streams raw on report `0x02` (`[u16 const][u16 const]
   [u16 time ms][u16 pos 0…1024, 0 = release][u16 zero]`, ~100 Hz), keys/wheels stay plain
-  USB-MIDI. Button LED capability is constrained by hardware: only Mute, Solo, and F1-F8 are
-  RGB; all other button LEDs are fixed-colour monochrome brightness channels (Play green,
-  Stop red, otherwise white). In `93 00` the firmware owns those LEDs and host writes are
+  USB-MIDI. LED capability is constrained by hardware: Mute, Solo, F1-F8, and the 25 ribbon
+  slots accept palette colours; all other panel button LEDs are fixed-colour monochrome
+  brightness channels (Play green, Record red, otherwise white). In `93 00` the firmware owns those LEDs and host writes are
   ignored. `ccd` bring-up = `configureMK2HostControl` (`A0 00 10`); the mapping engine +
   factory templates only return in the shutdown handover. Observation trap: LED writes are
   wiped the moment the writing client disconnects (idle repaint) — hold the connection while

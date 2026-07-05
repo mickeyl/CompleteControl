@@ -1918,7 +1918,7 @@ private actor WidgetLab {
         let rgb = KKMK2ButtonLED.allCases.filter(\.isRGBBacklit).map(\.protocolName).joined(separator: " ")
         let mono = KKMK2ButtonLED.allCases.filter { $0.isMonochromeBacklit && !$0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
         let strips = KKMK2ButtonLED.allCases.filter { $0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
-        print("RGB LEDs: \(rgb)")
+        print("Palette LEDs: \(rgb)")
         print("Fixed monochrome LEDs: \(mono)")
         print("Touch strip LEDs: \(strips)")
         print("Groups: all rgb mono buttons strip jog functions transport")
