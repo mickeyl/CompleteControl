@@ -2813,8 +2813,14 @@ public enum KompleteKontrolLibUSBServer {
         }
         private var idleMK2EventLog: [MK2IdleLogEntry] = []
         private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
+        private var idleMK1ButtonLEDs = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
+        private var idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        private var idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+        private var idleMK2JogTouched = false
+        private var idleMK2JogActiveLEDs: Set<KKMK2ButtonLED> = []
         private var idleDiagnosticNeedsFlush = false
         private var idleDiagnosticNeedsLightGuideFlush = false
+        private var idleDiagnosticNeedsButtonLEDFlush = false
         private var idleDiagnosticFlushGate = DaemonIdleDiagnosticFlushGate()
 
         deinit {
@@ -4109,10 +4115,16 @@ public enum KompleteKontrolLibUSBServer {
             idleMIDISummary = "OR MIDI KEY FOR TEST"
             idleHasReceivedInput = false
             idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
+            idleMK1ButtonLEDs = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
+            idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+            idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+            idleMK2JogTouched = false
+            idleMK2JogActiveLEDs = []
             idleRawSurfaceLines = []
             idleMK2EventLog = []
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
+            idleDiagnosticNeedsButtonLEDFlush = false
             idleDiagnosticFlushGate.reset()
             lock.unlock()
         }
@@ -4146,6 +4158,9 @@ public enum KompleteKontrolLibUSBServer {
             if idleMIDISummary == "OR MIDI KEY FOR TEST" {
                 idleMIDISummary = "--"
             }
+            for event in events {
+                updateIdleMK1ButtonLEDs(for: event)
+            }
             idleDiagnosticNeedsFlush = true
             lock.unlock()
         }
@@ -4156,6 +4171,17 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
             guard let session else { return false }
             return isMK2(session)
+        }
+
+        private func currentMK2LightGuideNoteOffset() -> Int? {
+            lock.lock()
+            let productID = libusbSession?.productID
+            lock.unlock()
+            guard let productID,
+                  let model = KompleteKontrolDeviceModel.productID(Int(productID)) else {
+                return nil
+            }
+            return model.lightGuideNoteOffset
         }
 
         private func acknowledgeIdleMK2SurfaceInput(_ bytes: [UInt8]) {
@@ -4188,6 +4214,9 @@ public enum KompleteKontrolLibUSBServer {
             if idleMIDISummary == "OR MIDI KEY FOR TEST" {
                 idleMIDISummary = "--"
             }
+            for event in events {
+                updateIdleMK2ControlLEDs(for: event)
+            }
             idleDiagnosticNeedsFlush = true
             lock.unlock()
         }
@@ -4195,6 +4224,7 @@ public enum KompleteKontrolLibUSBServer {
         private func acknowledgeIdleMIDIInput(_ bytes: [UInt8], timestamp: UInt64) {
             guard shouldDaemonShowIdleSurface() else { return }
             let isMK2Idle = currentSessionIsMK2()
+            let mk2LightGuideNoteOffset = isMK2Idle ? currentMK2LightGuideNoteOffset() : nil
             let events = KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)
             guard !events.isEmpty || !bytes.isEmpty else { return }
 
@@ -4211,7 +4241,11 @@ public enum KompleteKontrolLibUSBServer {
                 idleSurfaceSummary = "--"
             }
             for event in events {
-                updateIdleLightGuide(for: event)
+                if isMK2Idle {
+                    updateIdleMK2LightGuide(for: event, noteOffset: mk2LightGuideNoteOffset)
+                } else {
+                    updateIdleLightGuide(for: event)
+                }
             }
             idleDiagnosticNeedsFlush = true
             idleDiagnosticNeedsLightGuideFlush = true
@@ -4284,6 +4318,107 @@ public enum KompleteKontrolLibUSBServer {
             return "\(names[value % 12])\(octave)"
         }
 
+        private func updateIdleMK1ButtonLEDs(for event: KKInputEvent) {
+            guard case let .button(name, pressed) = event else { return }
+            let indices = idleMK1ButtonLEDIndices(for: name)
+            guard !indices.isEmpty else { return }
+            let value: UInt8 = pressed ? 0x7f : 0x00
+            var changed = false
+            for index in indices where idleMK1ButtonLEDs.indices.contains(index) && idleMK1ButtonLEDs[index] != value {
+                idleMK1ButtonLEDs[index] = value
+                changed = true
+            }
+            if changed {
+                idleDiagnosticNeedsButtonLEDFlush = true
+            }
+        }
+
+        private func idleMK1ButtonLEDIndices(for buttonName: String) -> [Int] {
+            let normalized = KKButtonLED.normalize(buttonName)
+            switch normalized {
+                case "rewind":
+                    return [KKButtonLED.rwd.rawValue]
+                case "fastforward":
+                    return [KKButtonLED.ffw.rawValue]
+                default:
+                    return KKButtonLED.indices(for: normalized) { Int($0) }
+            }
+        }
+
+        private func updateIdleMK2ControlLEDs(for event: KKMK2InputEvent) {
+            switch event {
+                case let .button(led, pressed):
+                    setIdleMK2ButtonLED(led, color: pressed ? .hsv(192, 0.72, 0.72) : .off)
+                case let .jog(direction):
+                    switch direction {
+                        case "left":
+                            idleMK2JogActiveLEDs = [.jogLeft]
+                        case "up":
+                            idleMK2JogActiveLEDs = [.jogUp]
+                        case "down":
+                            idleMK2JogActiveLEDs = [.jogDown]
+                        case "right":
+                            idleMK2JogActiveLEDs = [.jogRight]
+                        case "press":
+                            idleMK2JogActiveLEDs = Set(idleMK2JogLEDs)
+                        default:
+                            idleMK2JogActiveLEDs = []
+                    }
+                    renderIdleMK2JogLEDs()
+                case .jogCenter:
+                    idleMK2JogActiveLEDs = []
+                    renderIdleMK2JogLEDs()
+                case let .jogTouch(touched):
+                    idleMK2JogTouched = touched
+                    if !touched {
+                        idleMK2JogActiveLEDs = []
+                    }
+                    renderIdleMK2JogLEDs()
+                case let .strip(position, _):
+                    renderIdleMK2StripLEDs(position: position)
+                case .touchEncoder(_, _), .jogScroll(_, _), .knob(_, _, _), .rawChanged(_):
+                    break
+            }
+        }
+
+        private var idleMK2JogLEDs: [KKMK2ButtonLED] {
+            [.jogLeft, .jogUp, .jogDown, .jogRight]
+        }
+
+        private var idleMK2StripLEDs: [KKMK2ButtonLED] {
+            (KKMK2ButtonLED.strip1.rawValue...KKMK2ButtonLED.strip25.rawValue)
+                .compactMap(KKMK2ButtonLED.init(rawValue:))
+        }
+
+        private func renderIdleMK2JogLEDs() {
+            let activeLEDs = idleMK2JogActiveLEDs.isEmpty && idleMK2JogTouched
+                ? Set(idleMK2JogLEDs)
+                : idleMK2JogActiveLEDs
+            for led in idleMK2JogLEDs {
+                setIdleMK2ButtonLED(led, color: activeLEDs.contains(led) ? .hsv(192, 0.72, 0.72) : .off)
+            }
+        }
+
+        private func renderIdleMK2StripLEDs(position: Int?) {
+            let stripLEDs = idleMK2StripLEDs
+            guard !stripLEDs.isEmpty else { return }
+            let activeIndex = position.map {
+                max(0, min(stripLEDs.count - 1, (($0 - 1) * stripLEDs.count) / 1024))
+            }
+            for (index, led) in stripLEDs.enumerated() {
+                setIdleMK2ButtonLED(led, color: index == activeIndex ? .hsv(192, 0.72, 0.72) : .off)
+            }
+        }
+
+        private func setIdleMK2ButtonLED(_ led: KKMK2ButtonLED, color: KKRGB) {
+            let index = led.rawValue
+            guard idleMK2ButtonLEDs.indices.contains(index) else { return }
+            let value = led.ledByte(for: color)
+            guard idleMK2ButtonLEDs[index] != value else { return }
+            idleMK2ButtonLEDs[index] = value
+            idleDiagnosticNeedsButtonLEDFlush = true
+        }
+
         private func updateIdleLightGuide(for event: KKMIDIEvent) {
             guard event.kind == .noteOn || event.kind == .noteOff else { return }
             let keyIndex = Int(event.note) - 48
@@ -4299,6 +4434,22 @@ public enum KompleteKontrolLibUSBServer {
                 idleLightGuide[base + 1] = 0
                 idleLightGuide[base + 2] = 0
             }
+        }
+
+        private func updateIdleMK2LightGuide(for event: KKMIDIEvent, noteOffset: Int?) {
+            guard event.kind == .noteOn || event.kind == .noteOff else { return }
+            let keyIndex = Int(event.note) + (noteOffset ?? -36)
+            guard idleMK2LightGuide.indices.contains(keyIndex) else { return }
+            let color: KKRGB
+            if event.kind == .noteOn, event.velocity > 0 {
+                let intensity = Double(max(32, Int(event.velocity))) / 127.0
+                color = .hsv(192, 0.72, min(1.0, intensity))
+            } else {
+                color = .off
+            }
+            let value = KompleteKontrolSSeriesMK2.paletteCode(for: color)
+            guard idleMK2LightGuide[keyIndex] != value else { return }
+            idleMK2LightGuide[keyIndex] = value
         }
 
         private func writeIdleDiagnosticSurface(
@@ -4344,10 +4495,14 @@ public enum KompleteKontrolLibUSBServer {
             let midiSummary: String
             let hasInput: Bool
             let guide: [UInt8]
+            let mk1ButtonLEDs: [UInt8]
+            let mk2ButtonLEDs: [UInt8]
+            let mk2LightGuide: [UInt8]
+            let needsButtonLEDs: Bool
             let decision: DaemonIdleDiagnosticFlushDecision
 
             lock.lock()
-            guard idleDiagnosticNeedsFlush || idleDiagnosticNeedsLightGuideFlush else {
+            guard idleDiagnosticNeedsFlush || idleDiagnosticNeedsLightGuideFlush || idleDiagnosticNeedsButtonLEDFlush else {
                 lock.unlock()
                 return
             }
@@ -4360,24 +4515,36 @@ public enum KompleteKontrolLibUSBServer {
             midiSummary = idleMIDISummary
             hasInput = idleHasReceivedInput
             guide = idleLightGuide
+            mk1ButtonLEDs = idleMK1ButtonLEDs
+            mk2ButtonLEDs = idleMK2ButtonLEDs
+            mk2LightGuide = idleMK2LightGuide
+            needsButtonLEDs = idleDiagnosticNeedsButtonLEDFlush
             if decision.writeDisplay {
                 idleDiagnosticNeedsFlush = false
             }
             if decision.writeLightGuide {
                 idleDiagnosticNeedsLightGuideFlush = false
             }
+            if needsButtonLEDs {
+                idleDiagnosticNeedsButtonLEDFlush = false
+            }
             lock.unlock()
 
+            if decision.writeLightGuide {
+                writeIdleDiagnosticLightGuide(guide)
+                writeIdleDiagnosticMK2LightGuide(mk2LightGuide)
+            }
+            if needsButtonLEDs {
+                writeIdleDiagnosticButtonLEDs(mk1: mk1ButtonLEDs, mk2: mk2ButtonLEDs)
+            }
             if decision.writeDisplay {
                 writeIdleDiagnosticSurface(
                     surfaceSummary: surfaceSummary,
                     midiSummary: midiSummary,
                     hasInput: hasInput,
                     lightGuide: guide,
-                    writeLightGuide: decision.writeLightGuide
+                    writeLightGuide: false
                 )
-            } else if decision.writeLightGuide {
-                writeIdleDiagnosticLightGuide(guide)
             }
         }
 
@@ -4386,6 +4553,23 @@ public enum KompleteKontrolLibUSBServer {
             guard let session = ensureSession() else { return }
             guard !isMK2(session) else { return }
             writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
+        }
+
+        private func writeIdleDiagnosticMK2LightGuide(_ lightGuide: [UInt8]) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            guard let session = ensureSession() else { return }
+            guard isMK2(session) else { return }
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: lightGuide)
+        }
+
+        private func writeIdleDiagnosticButtonLEDs(mk1: [UInt8], mk2: [UInt8]) {
+            guard shouldDaemonShowIdleSurface() else { return }
+            guard let session = ensureSession() else { return }
+            if isMK2(session) {
+                writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2)
+            } else {
+                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: mk1)
+            }
         }
 
         private func setIdleWideText(_ text: String, row: Int, into frame: inout KKDisplayFrame) {
