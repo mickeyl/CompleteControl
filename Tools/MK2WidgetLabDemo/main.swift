@@ -63,11 +63,12 @@ struct ReplCommand {
     let values: [String] // completion candidates for the first argument (empty = free/none)
 }
 
-let ledGroupNames = ["all", "rgb", "mono", "buttons", "strip", "jog", "functions", "transport"]
+let ledGroupNames = ["all", "palette", "rgb", "mono", "buttons", "strip", "jog", "functions", "transport"]
 let ledCompletionValues = ledGroupNames
     + KKMK2ButtonLED.allCases.map(\.protocolName)
     + (1...8).map { "f\($0)" }
     + ["m", "s", "mute", "solo"]
+let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted()
 
 let replCommands: [ReplCommand] = [
     ReplCommand(name: "unit", arg: "<a-h>", summary: "switch unit", values: Unit.allCases.map { $0.letter }),
@@ -99,9 +100,11 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "rec", arg: "on|off|toggle", summary: "tracker unit: arm record", values: ["on", "off", "toggle"]),
     ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
     ReplCommand(name: "midi", arg: "<note> [velocity]", summary: "tracker unit: route MIDI to focused channel", values: []),
-    ReplCommand(name: "led", arg: "<led|group> <color|off> [0-3]", summary: "override hardware LEDs", values: ledCompletionValues),
-    ReplCommand(name: "ledclear", arg: "[led|group]", summary: "toggle LED override ownership", values: ledCompletionValues),
-    ReplCommand(name: "ledlist", arg: "", summary: "list hardware LED names and capabilities", values: []),
+    ReplCommand(name: "led", arg: "<led|group> <color|off> [0-3]", summary: "override 0x80 button/strip LEDs", values: ledCompletionValues),
+    ReplCommand(name: "ledclear", arg: "[led|group]", summary: "toggle 0x80 LED override ownership", values: ledCompletionValues),
+    ReplCommand(name: "ledlist", arg: "", summary: "list 0x80 LED names and capabilities", values: []),
+    ReplCommand(name: "guide", arg: "<all|key> <color|off>", summary: "override 0x81 light-guide keys", values: guideCompletionValues),
+    ReplCommand(name: "guideclear", arg: "[all|key]", summary: "clear light-guide override", values: guideCompletionValues),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
     ReplCommand(name: "screenshot", arg: "[path]", summary: "alias for snap", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
@@ -206,6 +209,7 @@ private actor WidgetLab {
     private var soloedChannels: Set<Int> = []
     private var focusedEditField: TrackerEditField = .note
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
+    private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
     private static let activeIntensity: UInt8 = 0x03
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
@@ -298,6 +302,7 @@ private actor WidgetLab {
         if let modalDialog {
             var scene = modalScene(modalDialog)
             applyLampOverrides(to: &scene.lamps)
+            applyGuideOverrides(to: &scene.keyColors)
             return scene
         }
 
@@ -427,12 +432,20 @@ private actor WidgetLab {
 
         let (left, right) = frames()
         applyLampOverrides(to: &lamps)
-        return MK2SurfaceScene2(left: left, right: right, lamps: lamps, bindings: bindings)
+        var keyColors: [Int: KKRGB] = [:]
+        applyGuideOverrides(to: &keyColors)
+        return MK2SurfaceScene2(left: left, right: right, lamps: lamps, keyColors: keyColors, bindings: bindings)
     }
 
     private func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
         for (led, state) in lampOverrides {
             lamps[led] = state
+        }
+    }
+
+    private func applyGuideOverrides(to keyColors: inout [Int: KKRGB]) {
+        for (index, color) in guideOverrides {
+            keyColors[index] = color
         }
     }
 
@@ -1832,6 +1845,12 @@ private actor WidgetLab {
             case "ledlist":
                 Self.printLEDList()
 
+            case "guide", "lightguide", "keys":
+                await handleGuideCommand(rest)
+
+            case "guideclear", "lightguideclear", "keyclear":
+                await clearGuideOverrides(rest)
+
             case "snap", "screenshot":
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
@@ -1856,6 +1875,53 @@ private actor WidgetLab {
         } catch {
             print("snapshot failed: \(error)")
         }
+    }
+
+    private func handleGuideCommand(_ rest: String) async {
+        let parts = rest
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        guard parts.count == 2 else {
+            print("? guide <all|0-87> <color|off>"); return
+        }
+        guard let targets = Self.guideTargets(parts[0]), !targets.isEmpty else {
+            print("? unknown light-guide target '\(parts[0])'"); return
+        }
+
+        let colorToken = parts[1].lowercased()
+        let color: KKRGB
+        if colorToken == "off" {
+            color = .off
+        } else if let parsed = Self.ledColor(parts[1]) {
+            color = parsed
+        } else {
+            print("? color <rrggbb|name|off>"); return
+        }
+
+        for index in targets {
+            guideOverrides[index] = color
+        }
+        await render()
+        print("guide \(parts[0]) = \(Self.guideColorDescription(color)) (\(targets.count) key\(targets.count == 1 ? "" : "s"))")
+    }
+
+    private func clearGuideOverrides(_ rest: String) async {
+        let target = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else {
+            let count = guideOverrides.count
+            guideOverrides.removeAll()
+            await render()
+            print("guide middleware control restored for all (\(count) override\(count == 1 ? "" : "s"))")
+            return
+        }
+        guard let targets = Self.guideTargets(target), !targets.isEmpty else {
+            print("? unknown light-guide target '\(target)'"); return
+        }
+        for index in targets {
+            guideOverrides.removeValue(forKey: index)
+        }
+        await render()
+        print("guide middleware control restored for \(target) (\(targets.count) key\(targets.count == 1 ? "" : "s"))")
     }
 
     private func handleLEDCommand(_ rest: String) async {
@@ -1918,11 +1984,12 @@ private actor WidgetLab {
         let rgb = KKMK2ButtonLED.allCases.filter(\.isRGBBacklit).map(\.protocolName).joined(separator: " ")
         let mono = KKMK2ButtonLED.allCases.filter { $0.isMonochromeBacklit && !$0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
         let strips = KKMK2ButtonLED.allCases.filter { $0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
-        print("Palette LEDs: \(rgb)")
-        print("Fixed monochrome LEDs: \(mono)")
-        print("Touch strip LEDs: \(strips)")
-        print("Groups: all rgb mono buttons strip jog functions transport")
+        print("0x80 palette LEDs: \(rgb)")
+        print("0x80 fixed monochrome LEDs: \(mono)")
+        print("0x80 touch strip LEDs: \(strips)")
+        print("0x80 groups: all palette rgb mono buttons strip jog functions transport")
         print("Usage: led <led|group> <color|off> [0-3], ledclear [led|group]")
+        print("Light guide: guide <all|0-87> <color|off>, guideclear [all|0-87]")
         print("ledclear toggles ownership: first call forces off, second call returns control to the scene.")
     }
 
@@ -2127,12 +2194,23 @@ private actor WidgetLab {
         return (r << 11) | (g << 5) | b
     }
 
+    private static func guideTargets(_ text: String) -> [Int]? {
+        let key = ledKey(text)
+        switch key {
+            case "all", "keys", "lightguide", "guide":
+                return Array(0..<88)
+            default:
+                guard let index = Int(text), (0..<88).contains(index) else { return nil }
+                return [index]
+        }
+    }
+
     private static func ledTargets(_ text: String) -> [KKMK2ButtonLED]? {
         let key = ledKey(text)
         switch key {
             case "all":
                 return KKMK2ButtonLED.allCases
-            case "rgb":
+            case "palette", "rgb":
                 return KKMK2ButtonLED.allCases.filter(\.isRGBBacklit)
             case "mono":
                 return KKMK2ButtonLED.allCases.filter(\.isMonochromeBacklit)
@@ -2218,6 +2296,10 @@ private actor WidgetLab {
             case let .pulse(color, _):
                 return "pulse \(String(format: "#%02x%02x%02x", color.red, color.green, color.blue))"
         }
+    }
+
+    private static func guideColorDescription(_ color: KKRGB) -> String {
+        color == .off ? "off" : String(format: "#%02x%02x%02x", color.red, color.green, color.blue)
     }
 }
 
