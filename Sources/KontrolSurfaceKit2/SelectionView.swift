@@ -1,4 +1,5 @@
 import Foundation
+import KompleteKontrol
 
 public struct MK2SelectionItem: Sendable, Equatable {
     public var title: String
@@ -56,6 +57,18 @@ public struct MK2SelectionNavigation: Sendable, Equatable {
         return selectedIndex != previous
     }
 
+    public func canMove(by delta: Int, itemCount: Int, wraps: Bool = false) -> Bool {
+        guard delta != 0, itemCount > 0 else { return false }
+        let bounds = 0...(itemCount - 1)
+        let next: Int
+        if wraps {
+            next = (selectedIndex + delta).wrapped(to: bounds)
+        } else {
+            next = (selectedIndex + delta).clamped(to: bounds)
+        }
+        return next != selectedIndex
+    }
+
     public mutating func select(_ index: Int, itemCount: Int) {
         guard itemCount > 0 else {
             selectedIndex = 0
@@ -88,6 +101,55 @@ public struct MK2SelectionNavigation: Sendable, Equatable {
             focusedFilterEncoder = nil
         }
     }
+
+    public mutating func move(jogDirection direction: String, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
+        guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout) else { return false }
+        return move(by: delta, itemCount: itemCount, wraps: wraps)
+    }
+
+    public func canMove(jogDirection direction: String, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
+        guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout) else { return false }
+        return canMove(by: delta, itemCount: itemCount, wraps: wraps)
+    }
+
+    public func jogLamps(
+        itemCount: Int,
+        layout: MK2SelectionJogLayout,
+        availableLamp: MK2LampState2,
+        unavailableLamp: MK2LampState2 = .off,
+        wraps: Bool = false
+    ) -> [KKMK2ButtonLED: MK2LampState2] {
+        [
+            .jogLeft: canMove(jogDirection: "left", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogRight: canMove(jogDirection: "right", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogUp: canMove(jogDirection: "up", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogDown: canMove(jogDirection: "down", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+        ]
+    }
+
+    public func applyJogLamps(
+        to lamps: inout [KKMK2ButtonLED: MK2LampState2],
+        itemCount: Int,
+        layout: MK2SelectionJogLayout,
+        availableLamp: MK2LampState2,
+        unavailableLamp: MK2LampState2 = .off,
+        wraps: Bool = false
+    ) {
+        for (led, state) in jogLamps(
+            itemCount: itemCount,
+            layout: layout,
+            availableLamp: availableLamp,
+            unavailableLamp: unavailableLamp,
+            wraps: wraps
+        ) {
+            lamps[led] = state
+        }
+    }
+}
+
+public enum MK2SelectionJogLayout: Sendable, Equatable {
+    case list(step: Int = 1)
+    case grid(cellSize: MK2SelectionCellSize, contentWidth: Int = MK2SelectionLayout.contentWidth)
 }
 
 public enum MK2SelectionLayout {
@@ -114,6 +176,32 @@ public enum MK2SelectionLayout {
 
     public static func gridRowStep(for cellSize: MK2SelectionCellSize, contentWidth: Int = contentWidth) -> Int {
         gridColumnCount(for: cellSize, contentWidth: contentWidth)
+    }
+
+    public static func jogDelta(for direction: String, layout: MK2SelectionJogLayout) -> Int? {
+        let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+            case "left":
+                return -1
+            case "right":
+                return 1
+            case "up":
+                switch layout {
+                    case let .list(step):
+                        return -max(1, step)
+                    case let .grid(cellSize, contentWidth):
+                        return -gridRowStep(for: cellSize, contentWidth: contentWidth)
+                }
+            case "down":
+                switch layout {
+                    case let .list(step):
+                        return max(1, step)
+                    case let .grid(cellSize, contentWidth):
+                        return gridRowStep(for: cellSize, contentWidth: contentWidth)
+                }
+            default:
+                return nil
+        }
     }
 }
 

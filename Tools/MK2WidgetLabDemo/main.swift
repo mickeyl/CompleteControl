@@ -56,6 +56,12 @@ struct ReplCommand {
     let values: [String] // completion candidates for the first argument (empty = free/none)
 }
 
+let ledGroupNames = ["all", "rgb", "mono", "buttons", "strip", "jog", "functions", "transport"]
+let ledCompletionValues = ledGroupNames
+    + KKMK2ButtonLED.allCases.map(\.protocolName)
+    + (1...8).map { "f\($0)" }
+    + ["m", "s", "mute", "solo"]
+
 let replCommands: [ReplCommand] = [
     ReplCommand(name: "unit", arg: "<a-h>", summary: "switch unit", values: Unit.allCases.map { $0.letter }),
     ReplCommand(name: "browsemode", arg: "", summary: "browser unit: cycle list/grid/filter mode", values: []),
@@ -78,6 +84,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
+    ReplCommand(name: "push", arg: "left|right|up|down|press", summary: "browser/selection unit: emulate 4D push", values: ["left", "right", "up", "down", "press"]),
     ReplCommand(name: "ch", arg: "<1-4>", summary: "tracker unit: set focused channel", values: ["1", "2", "3", "4"]),
     ReplCommand(name: "solo", arg: "on|off|toggle", summary: "tracker unit: solo focused channel", values: ["on", "off", "toggle"]),
     ReplCommand(name: "mute", arg: "on|off|toggle", summary: "tracker unit: mute focused channel", values: ["on", "off", "toggle"]),
@@ -85,6 +92,9 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "rec", arg: "on|off|toggle", summary: "tracker unit: arm record", values: ["on", "off", "toggle"]),
     ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
     ReplCommand(name: "midi", arg: "<note> [velocity]", summary: "tracker unit: route MIDI to focused channel", values: []),
+    ReplCommand(name: "led", arg: "<led|group> <color|off> [0-3]", summary: "override hardware LEDs", values: ledCompletionValues),
+    ReplCommand(name: "ledclear", arg: "[led|group]", summary: "toggle LED override ownership", values: ledCompletionValues),
+    ReplCommand(name: "ledlist", arg: "", summary: "list hardware LED names and capabilities", values: []),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
     ReplCommand(name: "screenshot", arg: "[path]", summary: "alias for snap", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
@@ -188,6 +198,7 @@ private actor WidgetLab {
     private var mutedChannels: Set<Int> = []
     private var soloedChannels: Set<Int> = []
     private var focusedEditField: TrackerEditField = .note
+    private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private static let availableIntensity: UInt8 = 0x01
     private static let activeIntensity: UInt8 = 0x03
     private static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
@@ -278,7 +289,9 @@ private actor WidgetLab {
 
     private func scene() -> MK2SurfaceScene2 {
         if let modalDialog {
-            return modalScene(modalDialog)
+            var scene = modalScene(modalDialog)
+            applyLampOverrides(to: &scene.lamps)
+            return scene
         }
 
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
@@ -289,8 +302,20 @@ private actor WidgetLab {
         }
         if unit == .chrome {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
+            browserNavigation.applyJogLamps(
+                to: &lamps,
+                itemCount: filteredBrowserItems().count,
+                layout: browserJogLayout,
+                availableLamp: Self.availableLamp(Self.actionWhite)
+            )
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
+            selectionNavigation.applyJogLamps(
+                to: &lamps,
+                itemCount: filteredSelectionItems().count,
+                layout: selectionJogLayout,
+                availableLamp: Self.availableLamp(Self.actionWhite)
+            )
         } else if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
@@ -394,7 +419,14 @@ private actor WidgetLab {
         }
 
         let (left, right) = frames()
+        applyLampOverrides(to: &lamps)
         return MK2SurfaceScene2(left: left, right: right, lamps: lamps, bindings: bindings)
+    }
+
+    private func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
+        for (led, state) in lampOverrides {
+            lamps[led] = state
+        }
     }
 
     private func modalScene(_ modalDialog: ActiveModalDialog) -> MK2SurfaceScene2 {
@@ -931,18 +963,12 @@ private actor WidgetLab {
 
     private func handleBrowserJog(_ direction: String) async {
         guard unit == .chrome else { return }
-        let rowStep = browserMode.isGrid
-            ? MK2SelectionLayout.gridRowStep(for: BrowserLabFixtures.gridCellSizes[0])
-            : 1
-        switch direction {
-            case "up":
-                await moveBrowserSelection(-rowStep)
-            case "down":
-                await moveBrowserSelection(rowStep)
-            case "press":
-                await confirmBrowserSelection()
-            default:
-                break
+        if direction == "press" {
+            await confirmBrowserSelection()
+            return
+        }
+        if browserNavigation.move(jogDirection: direction, itemCount: filteredBrowserItems().count, layout: browserJogLayout) {
+            await render()
         }
     }
 
@@ -1017,6 +1043,12 @@ private actor WidgetLab {
         return items[index]
     }
 
+    private var browserJogLayout: MK2SelectionJogLayout {
+        browserMode.isGrid
+            ? .grid(cellSize: BrowserLabFixtures.gridCellSizes[0])
+            : .list()
+    }
+
     private func filteredBrowserItems() -> [BrowserDemoItem] {
         guard browserMode.hasFilters else { return BrowserLabFixtures.items }
         let area = BrowserLabFixtures.areas[browserAreaIndex]
@@ -1050,18 +1082,12 @@ private actor WidgetLab {
 
     private func handleSelectionJog(_ direction: String) async {
         guard unit == .list else { return }
-        let rowStep = selectionMode.isGrid
-            ? MK2SelectionLayout.gridRowStep(for: SelectionLabFixtures.cellSizes[selectionCellSizeIndex])
-            : 1
-        switch direction {
-            case "up":
-                await moveSelection(-rowStep)
-            case "down":
-                await moveSelection(rowStep)
-            case "press":
-                await confirmSelection()
-            default:
-                break
+        if direction == "press" {
+            await confirmSelection()
+            return
+        }
+        if selectionNavigation.move(jogDirection: direction, itemCount: filteredSelectionItems().count, layout: selectionJogLayout) {
+            await render()
         }
     }
 
@@ -1179,6 +1205,12 @@ private actor WidgetLab {
         let items = filteredSelectionItems()
         guard let index = selectionNavigation.clampedSelectedIndex(itemCount: items.count) else { return nil }
         return items[index]
+    }
+
+    private var selectionJogLayout: MK2SelectionJogLayout {
+        selectionMode.isGrid
+            ? .grid(cellSize: SelectionLabFixtures.cellSizes[selectionCellSizeIndex])
+            : .list()
     }
 
     private func filteredSelectionItems() -> [SelectionDemoItem] {
@@ -1723,6 +1755,12 @@ private actor WidgetLab {
                 guard let delta = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)) else { print("? jog <delta>"); return }
                 await turnMainEncoder(delta)
 
+            case "push":
+                guard Self.jogPushDirections.contains(rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
+                    print("? push left|right|up|down|press"); return
+                }
+                await handleJogPush(rest)
+
             case "ch", "channel":
                 guard let channel = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
                       (1...4).contains(channel) else { print("? ch <1-4>"); return }
@@ -1778,6 +1816,15 @@ private actor WidgetLab {
                 guard let event = Self.midiEvent(rest) else { print("? midi <note> [velocity]"); return }
                 await receiveMIDI(event, targetChannel: focusedChannel)
 
+            case "led":
+                await handleLEDCommand(rest)
+
+            case "ledclear":
+                await clearLEDOverrides(rest)
+
+            case "ledlist":
+                Self.printLEDList()
+
             case "snap", "screenshot":
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
@@ -1802,6 +1849,74 @@ private actor WidgetLab {
         } catch {
             print("snapshot failed: \(error)")
         }
+    }
+
+    private func handleLEDCommand(_ rest: String) async {
+        let parts = rest
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        guard parts.count == 2 || parts.count == 3 else {
+            print("? led <led|group> <color|off> [0-3]"); return
+        }
+        guard let targets = Self.ledTargets(parts[0]), !targets.isEmpty else {
+            print("? unknown LED/group '\(parts[0])' — try ledlist"); return
+        }
+
+        let colorToken = parts[1].lowercased()
+        let intensity = parts.count == 3 ? Self.ledIntensity(parts[2]) : 3
+        guard let intensity else {
+            print("? brightness 0-3, off, dim, mid, full"); return
+        }
+
+        let state: MK2LampState2
+        if colorToken == "off" || intensity == 0 {
+            state = .off
+        } else if let color = Self.ledColor(parts[1]) {
+            state = .on(color, intensity: intensity)
+        } else {
+            print("? color <rrggbb|name|off>"); return
+        }
+
+        for led in targets {
+            lampOverrides[led] = state
+        }
+        await render()
+        print("led \(parts[0]) = \(Self.ledStateDescription(state)) (\(targets.count) target\(targets.count == 1 ? "" : "s"))")
+    }
+
+    private func clearLEDOverrides(_ rest: String) async {
+        let target = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetLabel = target.isEmpty ? "all" : target
+        guard let targets = Self.ledTargets(targetLabel), !targets.isEmpty else {
+            print("? unknown LED/group '\(targetLabel)' — try ledlist"); return
+        }
+
+        let hasFullOwnership = targets.allSatisfy { lampOverrides[$0] != nil }
+        if hasFullOwnership {
+            for led in targets {
+                lampOverrides.removeValue(forKey: led)
+            }
+            await render()
+            print("led middleware control restored for \(targetLabel) (\(targets.count) target\(targets.count == 1 ? "" : "s"))")
+        } else {
+            for led in targets {
+                lampOverrides[led] = .off
+            }
+            await render()
+            print("led \(targetLabel) override ownership active: off (\(targets.count) target\(targets.count == 1 ? "" : "s"))")
+        }
+    }
+
+    private static func printLEDList() {
+        let rgb = KKMK2ButtonLED.allCases.filter(\.isRGBBacklit).map(\.protocolName).joined(separator: " ")
+        let mono = KKMK2ButtonLED.allCases.filter { $0.isMonochromeBacklit && !$0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
+        let strips = KKMK2ButtonLED.allCases.filter { $0.protocolName.hasPrefix("strip") }.map(\.protocolName).joined(separator: " ")
+        print("RGB LEDs: \(rgb)")
+        print("Fixed monochrome LEDs: \(mono)")
+        print("Touch strip LEDs: \(strips)")
+        print("Groups: all rgb mono buttons strip jog functions transport")
+        print("Usage: led <led|group> <color|off> [0-3], ledclear [led|group]")
+        print("ledclear toggles ownership: first call forces off, second call returns control to the scene.")
     }
 
     // MARK: - Parsing helpers
@@ -1883,6 +1998,20 @@ private actor WidgetLab {
                 return false
             default:
                 return nil
+        }
+    }
+
+    private static let jogPushDirections: Set<String> = ["left", "right", "up", "down", "press"]
+
+    private func handleJogPush(_ direction: String) async {
+        let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch unit {
+            case .chrome:
+                await handleBrowserJog(normalized)
+            case .list:
+                await handleSelectionJog(normalized)
+            default:
+                print("? push is available in browser/selection units")
         }
     }
 
@@ -1990,6 +2119,99 @@ private actor WidgetLab {
         let b = UInt16(rgb & 0xff) >> 3
         return (r << 11) | (g << 5) | b
     }
+
+    private static func ledTargets(_ text: String) -> [KKMK2ButtonLED]? {
+        let key = ledKey(text)
+        switch key {
+            case "all":
+                return KKMK2ButtonLED.allCases
+            case "rgb":
+                return KKMK2ButtonLED.allCases.filter(\.isRGBBacklit)
+            case "mono":
+                return KKMK2ButtonLED.allCases.filter(\.isMonochromeBacklit)
+            case "buttons":
+                return KKMK2ButtonLED.allCases.filter { !$0.protocolName.hasPrefix("strip") }
+            case "strip", "strips", "touchstrip":
+                return KKMK2ButtonLED.allCases.filter { $0.protocolName.hasPrefix("strip") }
+            case "jog", "4d", "4dencoder":
+                return [.jogLeft, .jogRight, .jogUp, .jogDown]
+            case "functions", "function", "func", "f":
+                return [.function1, .function2, .function3, .function4, .function5, .function6, .function7, .function8]
+            case "transport":
+                return [.play, .record, .stop, .loop, .metro, .tempo]
+            default:
+                if let led = ledAliases[key] {
+                    return [led]
+                }
+                return nil
+        }
+    }
+
+    private static var ledAliases: [String: KKMK2ButtonLED] {
+        var aliases: [String: KKMK2ButtonLED] = [:]
+        for led in KKMK2ButtonLED.allCases {
+            aliases[ledKey(led.protocolName)] = led
+        }
+        aliases["m"] = .m
+        aliases["mute"] = .m
+        aliases["s"] = .s
+        aliases["solo"] = .s
+        aliases["left"] = .jogLeft
+        aliases["right"] = .jogRight
+        aliases["up"] = .jogUp
+        aliases["down"] = .jogDown
+        aliases["pageleft"] = .pageLeft
+        aliases["pageright"] = .pageRight
+        for index in 1...8 {
+            aliases["f\(index)"] = KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + index - 1)
+        }
+        return aliases
+    }
+
+    private static func ledKey(_ text: String) -> String {
+        text.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    private static func ledColor(_ text: String) -> KKRGB? {
+        if let hit = namedLEDColors[text.lowercased()] {
+            return hit
+        }
+        let hex = text.hasPrefix("#") ? String(text.dropFirst()) : text
+        guard hex.count == 6, let rgb = UInt32(hex, radix: 16) else { return nil }
+        return KKRGB(
+            red: UInt8((rgb >> 16) & 0xff),
+            green: UInt8((rgb >> 8) & 0xff),
+            blue: UInt8(rgb & 0xff)
+        )
+    }
+
+    private static func ledIntensity(_ text: String) -> UInt8? {
+        switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "off", "none", "0":
+                return 0
+            case "dim", "low", "half", "1":
+                return 1
+            case "mid", "medium", "2":
+                return 2
+            case "full", "high", "on", "3":
+                return 3
+            default:
+                return nil
+        }
+    }
+
+    private static func ledStateDescription(_ state: MK2LampState2) -> String {
+        switch state {
+            case .off:
+                return "off"
+            case let .on(color, intensity):
+                return "\(String(format: "#%02x%02x%02x", color.red, color.green, color.blue)) @ \(intensity)"
+            case let .blink(color, _, intensity):
+                return "blink \(String(format: "#%02x%02x%02x", color.red, color.green, color.blue)) @ \(intensity)"
+            case let .pulse(color, _):
+                return "pulse \(String(format: "#%02x%02x%02x", color.red, color.green, color.blue))"
+        }
+    }
 }
 
 private final class DemoMetronome {
@@ -2066,6 +2288,21 @@ let namedColors: [String: UInt16] = [
     "white": 0xffff, "black": 0x0000, "red": 0xf800, "green": 0x07e0,
     "blue": 0x001f, "yellow": 0xffe0, "cyan": 0x07ff, "magenta": 0xf81f,
     "orange": 0xfc00, "grey": 0x8410, "gray": 0x8410, "dim": 0x4208,
+]
+
+let namedLEDColors: [String: KKRGB] = [
+    "white": KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+    "black": KKRGB(red: 0x00, green: 0x00, blue: 0x00),
+    "red": KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+    "green": KKRGB(red: 0x00, green: 0xff, blue: 0x00),
+    "blue": KKRGB(red: 0x00, green: 0x00, blue: 0xff),
+    "yellow": KKRGB(red: 0xff, green: 0xff, blue: 0x00),
+    "cyan": KKRGB(red: 0x00, green: 0xff, blue: 0xff),
+    "magenta": KKRGB(red: 0xff, green: 0x00, blue: 0xff),
+    "orange": KKRGB(red: 0xff, green: 0x7f, blue: 0x00),
+    "grey": KKRGB(red: 0x80, green: 0x80, blue: 0x80),
+    "gray": KKRGB(red: 0x80, green: 0x80, blue: 0x80),
+    "dim": KKRGB(red: 0x40, green: 0x40, blue: 0x40),
 ]
 
 private struct FontLabSample: Sendable {

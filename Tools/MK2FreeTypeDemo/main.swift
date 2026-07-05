@@ -204,12 +204,15 @@ private actor FreeTypeDemo {
         lamps[.mixer] = Self.availableLamp
         if page == .icons {
             lamps[.instance] = Self.availableLamp
-        }
-        if page == .icons {
-            lamps[.jogLeft] = Self.availableLamp
-            lamps[.jogRight] = Self.availableLamp
-            lamps[.jogUp] = Self.availableLamp
-            lamps[.jogDown] = Self.availableLamp
+            let visible = visibleIcons()
+            MK2SelectionNavigation(selectedIndex: selectedVisibleIconIndex(in: visible))
+                .applyJogLamps(
+                    to: &lamps,
+                    itemCount: visible.count,
+                    layout: iconJogLayout,
+                    availableLamp: Self.availableLamp,
+                    wraps: true
+                )
         }
         return lamps
     }
@@ -278,17 +281,15 @@ private actor FreeTypeDemo {
     }
 
     private func jogIconList(_ direction: String) async {
-        let rowStep = iconSelectionMode.isGrid
-            ? MK2SelectionLayout.gridRowStep(for: Self.iconGridCellSize)
-            : Self.iconPageStep
-        switch direction {
-            case "up":
-                await moveIcon(-rowStep)
-            case "down":
-                await moveIcon(rowStep)
-            default:
-                break
+        if let delta = MK2SelectionLayout.jogDelta(for: direction, layout: iconJogLayout) {
+            await moveIcon(delta)
         }
+    }
+
+    private var iconJogLayout: MK2SelectionJogLayout {
+        iconSelectionMode.isGrid
+            ? .grid(cellSize: Self.iconGridCellSize)
+            : .list(step: Self.iconPageStep)
     }
 
     private func setIconSizeIndex(_ index: Int) async {

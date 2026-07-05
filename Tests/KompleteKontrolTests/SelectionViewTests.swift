@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import KompleteKontrol
 @testable import KontrolSurfaceKit2
 
 @Suite("Selection list and grid", .serialized)
@@ -32,6 +33,54 @@ struct SelectionViewTests {
         #expect(navigation.focusedFilterEncoder == nil)
         navigation.setFilterFocus(encoder: 5, enabled: false)
         #expect(navigation.focusedFilterEncoder == nil)
+    }
+
+    @Test("Navigation maps 4-D directions to list and grid movement")
+    func navigationMapsJogDirections() {
+        let cell = MK2SelectionCellSize(width: 154, height: 58)
+
+        #expect(MK2SelectionLayout.jogDelta(for: "left", layout: .grid(cellSize: cell)) == -1)
+        #expect(MK2SelectionLayout.jogDelta(for: "right", layout: .grid(cellSize: cell)) == 1)
+        #expect(MK2SelectionLayout.jogDelta(for: "up", layout: .grid(cellSize: cell)) == -3)
+        #expect(MK2SelectionLayout.jogDelta(for: "down", layout: .grid(cellSize: cell)) == 3)
+        #expect(MK2SelectionLayout.jogDelta(for: "press", layout: .grid(cellSize: cell)) == nil)
+
+        var navigation = MK2SelectionNavigation(selectedIndex: 4)
+        let movedLeft = navigation.move(jogDirection: "left", itemCount: 10, layout: .grid(cellSize: cell))
+        #expect(movedLeft)
+        #expect(navigation.selectedIndex == 3)
+        let movedDown = navigation.move(jogDirection: "down", itemCount: 10, layout: .grid(cellSize: cell))
+        #expect(movedDown)
+        #expect(navigation.selectedIndex == 6)
+        let movedUp = navigation.move(jogDirection: "up", itemCount: 10, layout: .grid(cellSize: cell))
+        #expect(movedUp)
+        #expect(navigation.selectedIndex == 3)
+    }
+
+    @Test("Navigation exposes 4-D movement availability as jog lamps")
+    func navigationMapsJogLamps() {
+        let cell = MK2SelectionCellSize(width: 154, height: 58)
+        let available = MK2LampState2.on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
+
+        let atStart = MK2SelectionNavigation(selectedIndex: 0).jogLamps(
+            itemCount: 10,
+            layout: .grid(cellSize: cell),
+            availableLamp: available
+        )
+        #expect(atStart[.jogLeft] == MK2LampState2.off)
+        #expect(atStart[.jogUp] == MK2LampState2.off)
+        #expect(atStart[.jogRight] == available)
+        #expect(atStart[.jogDown] == available)
+
+        let atEnd = MK2SelectionNavigation(selectedIndex: 9).jogLamps(
+            itemCount: 10,
+            layout: .grid(cellSize: cell),
+            availableLamp: available
+        )
+        #expect(atEnd[.jogLeft] == available)
+        #expect(atEnd[.jogUp] == available)
+        #expect(atEnd[.jogRight] == MK2LampState2.off)
+        #expect(atEnd[.jogDown] == MK2LampState2.off)
     }
 
     @Test("Layout exposes shared content metrics")
