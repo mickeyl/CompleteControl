@@ -42,6 +42,52 @@ struct EncoderDiscreteValueTests {
         #expect(box.touches == [true])
         #expect(box.values == [12])
     }
+
+    @Test("Display projection draws the standard value cell")
+    func displayDrawsValueCell() {
+        let colors = MK2ValueCellColors(
+            label: 0xffff,
+            value: 0x07e0,
+            border: 0x4208,
+            fill: 0x001f,
+            focusedValue: 0x0000,
+            focusedFill: 0xc618,
+            focusedBorder: 0xffff
+        )
+        let rect = MK2PixelRect(x: 20, y: 40, width: 80, height: 30)
+        var frame = MK2PixelFrame()
+
+        MK2EncoderDiscreteValue(
+            encoder: 5,
+            value: 19,
+            bounds: 12...22,
+            display: MK2EncoderDiscreteValueDisplay(
+                label: "BODY",
+                value: "19",
+                rect: rect,
+                isFocused: true,
+                colors: colors
+            ),
+            onChange: { _ in }
+        ).drawDisplay(into: &frame)
+
+        #expect(frame[rect.x, rect.y] == colors.focusedBorder)
+        #expect(frame[rect.x + 2, rect.y + 2] == colors.focusedFill)
+    }
+
+    @Test("Missing display projection is a no-op")
+    func missingDisplayDoesNotDraw() {
+        var frame = MK2PixelFrame()
+
+        MK2EncoderDiscreteValue(
+            encoder: 5,
+            value: 19,
+            bounds: 12...22,
+            onChange: { _ in }
+        ).drawDisplay(into: &frame)
+
+        #expect(frame[20, 40] == 0x0000)
+    }
 }
 
 private final class EncoderBox: @unchecked Sendable {

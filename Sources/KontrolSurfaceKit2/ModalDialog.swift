@@ -84,6 +84,8 @@ public enum MK2ModalDialogSeverity: Sendable, Equatable, CaseIterable {
 /// The dialog is intentionally strict: 4-D wheel up/down and rotation move selection,
 /// 4-D press confirms, and every other hardware button press dismisses the dialog.
 public struct MK2ModalDialog: Sendable {
+    private static let bodyLineAdvance = 24
+
     public var severity: MK2ModalDialogSeverity
     public var iconGlyph: String?
     public var title: String
@@ -181,9 +183,20 @@ public struct MK2ModalDialog: Sendable {
         drawTitle(title, renderer: renderer, into: &frame, x: 136, y: iconRect.y, color: tone, maxWidth: 328)
 
         var y = 76
-        for line in message.prefix(6) {
-            drawBody(line, renderer: renderer, into: &frame, x: 136, y: y, color: colors.text, maxWidth: 328)
-            y += 24
+        var remainingLines = 6
+        for paragraph in message where remainingLines > 0 {
+            let drawn = drawWrappedBody(
+                paragraph,
+                renderer: renderer,
+                into: &frame,
+                x: 136,
+                y: y,
+                color: colors.text,
+                maxWidth: 328,
+                maxLines: remainingLines
+            )
+            y += drawn * Self.bodyLineAdvance
+            remainingLines -= drawn
         }
 
         drawBody("4D: Auswahl und Bestätigung", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
@@ -252,6 +265,15 @@ public struct MK2ModalDialog: Sendable {
         }
     }
 
+    private func bodyStyle(color: UInt16) -> FreeTypeTextStyle {
+        FreeTypeTextStyle(
+            familyID: FreeTypeFontCatalog.textFamilyID,
+            weight: .regular,
+            pixelSize: 16,
+            color: color
+        )
+    }
+
     private func drawBody(
         _ text: String,
         renderer: FreeTypeTextRenderer?,
@@ -261,17 +283,76 @@ public struct MK2ModalDialog: Sendable {
         color: UInt16,
         maxWidth: Int
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
-            weight: .regular,
-            pixelSize: 16,
-            color: color
-        )
+        let style = bodyStyle(color: color)
         guard let renderer, (try? renderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
             BitmapLabel(text, font: .grid, color: color)
                 .draw(into: &frame, x: x, y: y + 3, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: 18))
             return
         }
+    }
+
+    @discardableResult
+    private func drawWrappedBody(
+        _ text: String,
+        renderer: FreeTypeTextRenderer?,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        color: UInt16,
+        maxWidth: Int,
+        maxLines: Int
+    ) -> Int {
+        let style = bodyStyle(color: color)
+        if let renderer, let layout = try? renderer.wrappedLayout(text, style: style, maxWidth: maxWidth) {
+            let count = min(maxLines, layout.lines.count)
+            for index in 0..<count {
+                try? renderer.drawText(
+                    layout.lines[index],
+                    into: &frame,
+                    x: x,
+                    y: y + index * Self.bodyLineAdvance,
+                    style: style,
+                    maxWidth: maxWidth
+                )
+            }
+            return count
+        }
+
+        let lines = wrappedBitmapLines(text, font: .grid, maxWidth: maxWidth)
+        let count = min(maxLines, lines.count)
+        for index in 0..<count {
+            BitmapLabel(lines[index], font: .grid, color: color)
+                .draw(
+                    into: &frame,
+                    x: x,
+                    y: y + index * Self.bodyLineAdvance + 3,
+                    clip: MK2PixelRect(x: x, y: y + index * Self.bodyLineAdvance, width: maxWidth, height: 18)
+                )
+        }
+        return count
+    }
+
+    private func wrappedBitmapLines(_ text: String, font: SurfaceFont, maxWidth: Int) -> [String] {
+        let words = text
+            .split(whereSeparator: { $0.unicodeScalars.allSatisfy(\.properties.isWhitespace) })
+            .map(String.init)
+        guard !words.isEmpty else { return text.isEmpty ? [] : [""] }
+
+        var lines: [String] = []
+        var current = ""
+        for word in words {
+            let candidate = current.isEmpty ? word : current + " " + word
+            if font.measure(candidate) <= maxWidth {
+                current = candidate
+            } else {
+                if !current.isEmpty { lines.append(current) }
+                current = word
+            }
+        }
+        if !current.isEmpty {
+            lines.append(current)
+        }
+        return lines
     }
 
     private func drawIcon(

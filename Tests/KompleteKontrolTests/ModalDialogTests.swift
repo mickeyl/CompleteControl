@@ -75,6 +75,22 @@ struct ModalDialogTests {
         #expect(right.countNonBackgroundPixels(in: MK2PixelRect(x: 24, y: 12, width: 432, height: 48)) > 100)
     }
 
+    @Test("Dialog wraps long message labels onto multiple body lines")
+    func wrapsLongMessageLabels() throws {
+        let dialog = makeDialog(
+            selectedIndex: 0,
+            box: ModalDialogBox(),
+            severity: .warning,
+            message: ["Wollen Sie das aktuelle Pattern wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden."]
+        )
+
+        let scene = dialog.scene()
+        let left = try #require(scene.displays[0])
+
+        #expect(left.countNonBackgroundPixels(in: MK2PixelRect(x: 136, y: 74, width: 328, height: 22)) > 100)
+        #expect(left.countNonBackgroundPixels(in: MK2PixelRect(x: 136, y: 98, width: 328, height: 22)) > 100)
+    }
+
     @Test("Dialog panels antialias rounded corners")
     func roundedPanelsAntialiasCorners() throws {
         let colors = MK2ModalDialogColors()
@@ -92,12 +108,13 @@ struct ModalDialogTests {
 private func makeDialog(
     selectedIndex: Int,
     box: ModalDialogBox,
-    severity: MK2ModalDialogSeverity = .info
+    severity: MK2ModalDialogSeverity = .info,
+    message: [String] = ["Really?"]
 ) -> MK2ModalDialog {
     MK2ModalDialog(
         severity: severity,
         title: "TEST",
-        message: ["Really?"],
+        message: message,
         actions: [
             MK2ModalDialogAction("First"),
             MK2ModalDialogAction("Second"),

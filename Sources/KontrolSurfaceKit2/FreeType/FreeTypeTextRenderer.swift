@@ -56,6 +56,16 @@ public struct FreeTypeTextMetrics: Sendable, Equatable {
     public var bodyHeight: Int { ascender - descender }
 }
 
+public struct FreeTypeTextLayout: Sendable, Equatable {
+    public var lines: [String]
+    public var lineHeight: Int
+
+    public init(lines: [String], lineHeight: Int) {
+        self.lines = lines
+        self.lineHeight = lineHeight
+    }
+}
+
 public enum FreeTypeTextError: Error, Sendable, CustomStringConvertible {
     case initFailed(Int32)
     case missingFamily(String)
@@ -177,6 +187,133 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
             penX += Int((slot.advance.x + 32) >> 6)
             if x + penX >= widthLimit { break }
         }
+    }
+
+    public func wrappedLayout(
+        _ text: String,
+        style: FreeTypeTextStyle,
+        maxWidth: Int
+    ) throws -> FreeTypeTextLayout {
+        let metrics = try metrics(style: style)
+        let width = max(0, maxWidth)
+        guard !text.isEmpty else {
+            return FreeTypeTextLayout(lines: [], lineHeight: metrics.lineHeight)
+        }
+        guard width > 0 else {
+            return FreeTypeTextLayout(lines: [text], lineHeight: metrics.lineHeight)
+        }
+
+        var lines: [String] = []
+        for paragraph in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let wrapped = try wrappedParagraph(String(paragraph), style: style, maxWidth: width)
+            if wrapped.isEmpty {
+                lines.append("")
+            } else {
+                lines.append(contentsOf: wrapped)
+            }
+        }
+        return FreeTypeTextLayout(lines: lines, lineHeight: metrics.lineHeight)
+    }
+
+    @discardableResult
+    public func drawWrappedText(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        style: FreeTypeTextStyle,
+        maxWidth: Int,
+        maxLines: Int? = nil,
+        lineSpacing: Int = 0,
+        clip: MK2PixelRect? = nil
+    ) throws -> Int {
+        let layout = try wrappedLayout(text, style: style, maxWidth: maxWidth)
+        let lineLimit = maxLines.map { max(0, $0) } ?? layout.lines.count
+        let drawnLines = min(layout.lines.count, lineLimit)
+        let lineAdvance = max(1, layout.lineHeight + lineSpacing)
+
+        for index in 0..<drawnLines {
+            try drawText(
+                layout.lines[index],
+                into: &frame,
+                x: x,
+                y: y + index * lineAdvance,
+                style: style,
+                maxWidth: maxWidth,
+                clip: clip
+            )
+        }
+        return drawnLines
+    }
+
+    private func wrappedParagraph(
+        _ paragraph: String,
+        style: FreeTypeTextStyle,
+        maxWidth: Int
+    ) throws -> [String] {
+        let words = paragraph
+            .split(whereSeparator: { $0.unicodeScalars.allSatisfy(\.properties.isWhitespace) })
+            .map(String.init)
+        guard !words.isEmpty else { return [] }
+
+        var lines: [String] = []
+        var current = ""
+        for word in words {
+            if current.isEmpty {
+                let broken = try linesForUnbreakableWord(word, style: style, maxWidth: maxWidth)
+                if broken.count == 1 {
+                    current = broken[0]
+                } else {
+                    lines.append(contentsOf: broken.dropLast())
+                    current = broken.last ?? ""
+                }
+                continue
+            }
+
+            let candidate = current + " " + word
+            if try measure(candidate, style: style) <= maxWidth {
+                current = candidate
+            } else {
+                lines.append(current)
+                let broken = try linesForUnbreakableWord(word, style: style, maxWidth: maxWidth)
+                if broken.count == 1 {
+                    current = broken[0]
+                } else {
+                    lines.append(contentsOf: broken.dropLast())
+                    current = broken.last ?? ""
+                }
+            }
+        }
+
+        if !current.isEmpty {
+            lines.append(current)
+        }
+        return lines
+    }
+
+    private func linesForUnbreakableWord(
+        _ word: String,
+        style: FreeTypeTextStyle,
+        maxWidth: Int
+    ) throws -> [String] {
+        guard try measure(word, style: style) > maxWidth else { return [word] }
+
+        var lines: [String] = []
+        var current = ""
+        for character in word {
+            let piece = String(character)
+            let candidate = current + piece
+            if !current.isEmpty, try measure(candidate, style: style) > maxWidth {
+                lines.append(current)
+                current = piece
+            } else {
+                current = candidate
+            }
+        }
+        if !current.isEmpty {
+            lines.append(current)
+        }
+        return lines
     }
 
     private static func loadFlags(for mode: FreeTypeRasterMode, render: Bool) -> FT_Int32 {

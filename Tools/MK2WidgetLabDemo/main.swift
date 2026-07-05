@@ -71,6 +71,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "title", arg: "<18-32>", summary: "font lab: title pixel size", values: []),
     ReplCommand(name: "icon", arg: "<0-6|name>", summary: "font lab: icon preset", values: []),
     ReplCommand(name: "iconsize", arg: "<32-72>", summary: "font lab: icon pixel size", values: []),
+    ReplCommand(name: "touch", arg: "<e5-e8|5-8> on|off", summary: "font lab: emulate encoder touch", values: ["e5", "e6", "e7", "e8"]),
     ReplCommand(name: "selmode", arg: "", summary: "selection unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
@@ -85,6 +86,7 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "metro", arg: "on|off|toggle", summary: "tracker unit: toggle metronome", values: ["on", "off", "toggle"]),
     ReplCommand(name: "midi", arg: "<note> [velocity]", summary: "tracker unit: route MIDI to focused channel", values: []),
     ReplCommand(name: "snap", arg: "[path]", summary: "write a two-screen PNG snapshot", values: []),
+    ReplCommand(name: "screenshot", arg: "[path]", summary: "alias for snap", values: []),
     ReplCommand(name: "help", arg: "", summary: "show this help", values: []),
     ReplCommand(name: "quit", arg: "", summary: "exit", values: []),
 ]
@@ -164,6 +166,7 @@ private actor WidgetLab {
     private var titlePixelSize = 24
     private var iconSampleIndex = 1
     private var iconPixelSize = 48
+    private var fontFocusedEncoder: Int?
     private var selectionMode: SelectionDemoMode = .plainList
     private var selectionNavigation = MK2SelectionNavigation()
     private var selectionTypeIndex = 0
@@ -812,12 +815,17 @@ private actor WidgetLab {
     }
 
     private func fontLabEncoderBindings() -> [MK2EncoderDiscreteValue] {
-        [
+        let icon = Self.fontIconSamples[iconSampleIndex]
+        return [
             MK2EncoderDiscreteValue(
                 encoder: 5,
                 value: bodyPixelSize,
                 bounds: 12...22,
                 wraps: false,
+                display: fontLabValueDisplay(label: "BODY", value: "\(bodyPixelSize)", encoder: 5, x: 8, color: Palette.text),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setFontFocusedEncoder(5, touched: touched) }
+                },
                 onChange: { [weak self] value in
                     Task { await self?.setBodyPixelSize(value) }
                 }
@@ -827,6 +835,10 @@ private actor WidgetLab {
                 value: titlePixelSize,
                 bounds: 18...32,
                 wraps: false,
+                display: fontLabValueDisplay(label: "TITLE", value: "\(titlePixelSize)", encoder: 6, x: 126, color: Palette.text),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setFontFocusedEncoder(6, touched: touched) }
+                },
                 onChange: { [weak self] value in
                     Task { await self?.setTitlePixelSize(value) }
                 }
@@ -836,6 +848,10 @@ private actor WidgetLab {
                 value: iconSampleIndex,
                 bounds: 0...(Self.fontIconSamples.count - 1),
                 wraps: true,
+                display: fontLabValueDisplay(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, x: 244, color: icon.color),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setFontFocusedEncoder(7, touched: touched) }
+                },
                 onChange: { [weak self] value in
                     Task { await self?.setIconSampleIndex(value) }
                 }
@@ -846,11 +862,36 @@ private actor WidgetLab {
                 bounds: 32...72,
                 step: 2,
                 wraps: false,
+                display: fontLabValueDisplay(label: "SIZE", value: "\(iconPixelSize)", encoder: 8, x: 362, color: icon.color),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setFontFocusedEncoder(8, touched: touched) }
+                },
                 onChange: { [weak self] value in
                     Task { await self?.setIconPixelSize(value) }
                 }
             ),
         ]
+    }
+
+    private func fontLabValueDisplay(label: String, value: String, encoder: Int, x: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
+        MK2EncoderDiscreteValueDisplay(
+            label: label,
+            value: value,
+            rect: MK2PixelRect(x: x, y: 218, width: 102, height: 38),
+            isFocused: fontFocusedEncoder == encoder,
+            valueFont: .readoutBold,
+            cornerRadius: 7,
+            colors: editCellColors(value: color)
+        )
+    }
+
+    private func setFontFocusedEncoder(_ encoder: Int, touched: Bool) async {
+        if touched {
+            fontFocusedEncoder = encoder
+        } else if fontFocusedEncoder == encoder {
+            fontFocusedEncoder = nil
+        }
+        await render()
     }
 
     private func setFontSampleIndex(_ value: Int) {
@@ -1407,31 +1448,25 @@ private actor WidgetLab {
             .draw(into: &frame, x: 8, y: 25, clip: MK2PixelRect(x: 8, y: 25, width: 456, height: 14))
 
         let dialog = MK2PixelRect(x: 8, y: 48, width: 456, height: 150)
-        frame.fill(dialog, Palette.dialogSurface)
-        frame.stroke(dialog, icon.color)
+        let dialogRadius = 8
+        frame.fillRounded(dialog, radius: dialogRadius, icon.color, antialiased: true)
+        frame.fillRounded(
+            MK2PixelRect(x: dialog.x + 1, y: dialog.y + 1, width: dialog.width - 2, height: dialog.height - 2),
+            radius: dialogRadius - 1,
+            Palette.dialogSurface,
+            antialiased: true
+        )
         drawFreeTypeIcon(icon.glyph, into: &frame, x: 28, y: 70, size: iconPixelSize, color: icon.color)
         drawFreeTypeTitle(sample.title, into: &frame, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
-        drawFreeTypeBody(sample.body, into: &frame, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336)
-        drawFreeTypeBody(sample.detail, into: &frame, x: 112, y: 132, size: max(12, min(18, bodyPixelSize - 1)), color: Palette.dim, maxWidth: 336)
+        let bodyLines = drawFreeTypeBody(sample.body, into: &frame, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336, maxLines: 2)
+        let detailSize = max(12, min(18, bodyPixelSize - 1))
+        let detailY = 104 + bodyLines * freeTypeLineAdvance(size: bodyPixelSize) + 2
+        drawFreeTypeBody(sample.detail, into: &frame, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
 
-        let valueY = 218
-        drawFontLabValue(label: "BODY", value: "\(bodyPixelSize)", x: 8, y: valueY, color: Palette.text, into: &frame)
-        drawFontLabValue(label: "TITLE", value: "\(titlePixelSize)", x: 126, y: valueY, color: Palette.text, into: &frame)
-        drawFontLabValue(label: "ICON", value: "\(iconSampleIndex + 1)", x: 244, y: valueY, color: icon.color, into: &frame)
-        drawFontLabValue(label: "SIZE", value: "\(iconPixelSize)", x: 362, y: valueY, color: icon.color, into: &frame)
+        for binding in fontLabEncoderBindings() {
+            binding.drawDisplay(into: &frame)
+        }
         return frame
-    }
-
-    private func drawFontLabValue(label: String, value: String, x: Int, y: Int, color: UInt16, into frame: inout MK2PixelFrame) {
-        MK2ValueCell(
-            label: label,
-            value: value,
-            rect: MK2PixelRect(x: x, y: y, width: 102, height: 38),
-            isFocused: false,
-            valueFont: .readoutBold,
-            cornerRadius: 7,
-            colors: editCellColors(value: color)
-        ).draw(into: &frame)
     }
 
     private func drawFreeTypeTitle(
@@ -1446,6 +1481,7 @@ private actor WidgetLab {
         drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .medium, color: color, maxWidth: maxWidth)
     }
 
+    @discardableResult
     private func drawFreeTypeBody(
         _ text: String,
         into frame: inout MK2PixelFrame,
@@ -1453,11 +1489,13 @@ private actor WidgetLab {
         y: Int,
         size: Int,
         color: UInt16,
-        maxWidth: Int
-    ) {
-        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .regular, color: color, maxWidth: maxWidth)
+        maxWidth: Int,
+        maxLines: Int = 1
+    ) -> Int {
+        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .regular, color: color, maxWidth: maxWidth, maxLines: maxLines)
     }
 
+    @discardableResult
     private func drawFreeTypeText(
         _ text: String,
         into frame: inout MK2PixelFrame,
@@ -1466,20 +1504,69 @@ private actor WidgetLab {
         size: Int,
         weight: FreeTypeFontWeight,
         color: UInt16,
-        maxWidth: Int
-    ) {
+        maxWidth: Int,
+        maxLines: Int = 1
+    ) -> Int {
         let style = FreeTypeTextStyle(
             familyID: FreeTypeFontCatalog.textFamilyID,
             weight: weight,
             pixelSize: size,
             color: color
         )
-        guard let freeTypeRenderer,
-              (try? freeTypeRenderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
-            BitmapLabel(text, font: weight == .medium ? .gridBold : .grid, color: color)
-                .draw(into: &frame, x: x, y: y + 3, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: max(18, size + 6)))
-            return
+        let lineAdvance = freeTypeLineAdvance(size: size)
+        let lineLimit = max(1, maxLines)
+
+        if let freeTypeRenderer {
+            if lineLimit == 1,
+               (try? freeTypeRenderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil {
+                return 1
+            }
+            if let layout = try? freeTypeRenderer.wrappedLayout(text, style: style, maxWidth: maxWidth) {
+                let count = min(lineLimit, max(1, layout.lines.count))
+                for index in 0..<count {
+                    let line = layout.lines.indices.contains(index) ? layout.lines[index] : ""
+                    try? freeTypeRenderer.drawText(line, into: &frame, x: x, y: y + index * lineAdvance, style: style, maxWidth: maxWidth)
+                }
+                return count
+            }
         }
+
+        let font: SurfaceFont = weight == .medium ? .gridBold : .grid
+        let lines = wrappedBitmapLines(text, font: font, maxWidth: maxWidth)
+        let count = min(lineLimit, max(1, lines.count))
+        for index in 0..<count {
+            let line = lines.indices.contains(index) ? lines[index] : ""
+            BitmapLabel(line, font: font, color: color)
+                .draw(into: &frame, x: x, y: y + index * lineAdvance + 3, clip: MK2PixelRect(x: x, y: y + index * lineAdvance, width: maxWidth, height: max(18, size + 6)))
+        }
+        return count
+    }
+
+    private func freeTypeLineAdvance(size: Int) -> Int {
+        max(18, size + 4)
+    }
+
+    private func wrappedBitmapLines(_ text: String, font: SurfaceFont, maxWidth: Int) -> [String] {
+        let words = text
+            .split(whereSeparator: { $0.unicodeScalars.allSatisfy(\.properties.isWhitespace) })
+            .map(String.init)
+        guard !words.isEmpty else { return text.isEmpty ? [] : [""] }
+
+        var lines: [String] = []
+        var current = ""
+        for word in words {
+            let candidate = current.isEmpty ? word : current + " " + word
+            if font.measure(candidate) <= maxWidth {
+                current = candidate
+            } else {
+                if !current.isEmpty { lines.append(current) }
+                current = word
+            }
+        }
+        if !current.isEmpty {
+            lines.append(current)
+        }
+        return lines
     }
 
     private func drawFreeTypeIcon(
@@ -1605,6 +1692,12 @@ private actor WidgetLab {
                       (32...72).contains(value) else { print("? iconsize <32-72>"); return }
                 await setIconPixelSize(value)
 
+            case "touch":
+                guard let event = Self.encoderTouchEvent(rest), (5...8).contains(event.encoder) else {
+                    print("? touch <e5-e8|5-8> on|off"); return
+                }
+                await setFontFocusedEncoder(event.encoder, touched: event.touched)
+
             case "browsemode":
                 await cycleBrowserMode()
 
@@ -1685,7 +1778,7 @@ private actor WidgetLab {
                 guard let event = Self.midiEvent(rest) else { print("? midi <note> [velocity]"); return }
                 await receiveMIDI(event, targetChannel: focusedChannel)
 
-            case "snap":
+            case "snap", "screenshot":
                 await snapshot(to: rest.isEmpty ? nil : rest)
 
             case "help", "?":
@@ -1788,6 +1881,25 @@ private actor WidgetLab {
                 return true
             case "off", "0", "false", "no":
                 return false
+            default:
+                return nil
+        }
+    }
+
+    private static func encoderTouchEvent(_ text: String) -> (encoder: Int, touched: Bool)? {
+        let parts = text
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map { String($0).lowercased() }
+        guard parts.count == 2 else { return nil }
+
+        let encoderText = parts[0].hasPrefix("e") ? String(parts[0].dropFirst()) : parts[0]
+        guard let encoder = Int(encoderText) else { return nil }
+
+        switch parts[1] {
+            case "on", "1", "true", "yes", "down":
+                return (encoder, true)
+            case "off", "0", "false", "no", "up":
+                return (encoder, false)
             default:
                 return nil
         }

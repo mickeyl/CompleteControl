@@ -87,4 +87,57 @@ struct FreeTypeTextRendererTests {
         }
         #expect(ink > 0)
     }
+
+    @Test("Wrapped layout breaks body copy at word boundaries")
+    func wrappedLayoutBreaksAtWords() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 16, color: 0xffff)
+        let maxWidth = try renderer.measure("Wollen Sie das aktuelle Pattern", style: style) - 1
+
+        let layout = try renderer.wrappedLayout(
+            "Wollen Sie das aktuelle Pattern wirklich löschen?",
+            style: style,
+            maxWidth: maxWidth
+        )
+
+        #expect(layout.lines == [
+            "Wollen Sie das aktuelle",
+            "Pattern wirklich löschen?",
+        ])
+        #expect(layout.lineHeight > 0)
+    }
+
+    @Test("Wrapped drawing advances onto later lines")
+    func drawWrappedTextDrawsMultipleLines() throws {
+        let renderer = try FreeTypeTextRenderer()
+        var frame = MK2PixelFrame(fill: 0)
+        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 16, color: 0xffff)
+        let maxWidth = try renderer.measure("Wollen Sie das aktuelle Pattern", style: style) - 1
+
+        let drawn = try renderer.drawWrappedText(
+            "Wollen Sie das aktuelle Pattern wirklich löschen?",
+            into: &frame,
+            x: 20,
+            y: 40,
+            style: style,
+            maxWidth: maxWidth,
+            lineSpacing: 5
+        )
+
+        #expect(drawn == 2)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 20, y: 60, width: maxWidth, height: 28)) > 0)
+    }
+}
+
+private extension MK2PixelFrame {
+    func countNonBackgroundPixels(in rect: MK2PixelRect) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where self[x, y] != 0x0000 {
+                count += 1
+            }
+        }
+        return count
+    }
 }
