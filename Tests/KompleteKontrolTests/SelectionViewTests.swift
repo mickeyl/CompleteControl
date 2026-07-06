@@ -186,7 +186,7 @@ struct SelectionViewTests {
             background: 0x0000,
             selectionFill: 0xffff
         )
-        let rowRect = MK2PixelRect(x: 8, y: 76, width: 464, height: 27)
+        let rowRect = MK2PixelRect(x: 8, y: 74, width: 464, height: 29)
         var frame = MK2PixelFrame()
 
         MK2SelectionList(
@@ -202,6 +202,43 @@ struct SelectionViewTests {
                 in: MK2PixelRect(x: rowRect.x, y: rowRect.y, width: 7, height: 7),
                 where: { $0 != colors.background && $0 != colors.selectionFill }
             )
+        )
+    }
+
+    @Test("Tall list selection highlight covers the detail descender area")
+    func tallListSelectionCoversDetailDescenders() {
+        let colors = MK2SelectionViewColors(
+            background: 0x0000,
+            text: 0x07e0,
+            dim: 0x8410,
+            muted: 0x39e7,
+            selectionFill: 0x001f
+        )
+        var frame = MK2PixelFrame()
+
+        MK2SelectionList(
+            title: "TEST",
+            items: [
+                MK2SelectionItem(
+                    title: "Kick Resin",
+                    detail: "Round transient, short tail",
+                    badge: "Drums",
+                    iconGlyph: "\u{f001}"
+                ),
+            ],
+            selectedIndex: 0,
+            filters: [
+                MK2SelectionFilter(label: "TYPE", value: "All", encoder: 5),
+            ],
+            rowHeight: 44,
+            colors: colors
+        ).draw(into: &frame)
+
+        #expect(
+            frame.countPixels(
+                in: MK2PixelRect(x: 32, y: 86, width: 416, height: 1),
+                matching: colors.selectionFill
+            ) > 300
         )
     }
 

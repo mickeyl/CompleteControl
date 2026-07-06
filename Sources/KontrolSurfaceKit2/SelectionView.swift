@@ -294,12 +294,26 @@ public struct MK2SelectionList: Sendable {
         into frame: inout MK2PixelFrame,
         renderer: FreeTypeTextRenderer?
     ) {
-        let rect = MK2PixelRect(x: MK2SelectionLayout.contentX, y: y + 1, width: MK2SelectionLayout.contentWidth, height: rowHeight - 3)
+        let rect = MK2PixelRect(
+            x: MK2SelectionLayout.contentX,
+            y: y + 1,
+            width: MK2SelectionLayout.contentWidth,
+            height: max(1, rowHeight - 1)
+        )
         if selected {
             frame.fillRounded(rect, radius: 7, colors.selectionFill, antialiased: true)
         }
         if let iconGlyph = item.iconGlyph {
-            MK2SelectionDrawing.drawIcon(iconGlyph, into: &frame, renderer: renderer, x: 20, y: y + 1, size: min(22, rowHeight - 6), color: selected ? colors.text : colors.dim)
+            let iconSize = min(22, rowHeight - 6)
+            MK2SelectionDrawing.drawIcon(
+                iconGlyph,
+                into: &frame,
+                renderer: renderer,
+                x: 20,
+                y: y + max(0, (rowHeight - iconSize) / 2),
+                size: iconSize,
+                color: selected ? colors.text : colors.dim
+            )
         }
         let textX = item.iconGlyph == nil ? 20 : 58
         MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + 3, color: selected ? colors.text : colors.dim, maxWidth: item.badge == nil ? 392 : 322)
