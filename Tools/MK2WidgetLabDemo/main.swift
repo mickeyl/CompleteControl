@@ -15,6 +15,10 @@ struct MK2WidgetLabDemo {
     static func main() async {
         let surface = MK2Surface2(options: .init(tickHz: 60))
         let lab = WidgetLab(surface: surface)
+        if let snapshotDir = ProcessInfo.processInfo.environment["WIDGETLAB_SNAPSHOT_DIR"] {
+            await lab.snapshotImplementedUnits(to: snapshotDir)
+            return
+        }
         let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
         await runner.run { _ in
             await lab.show(.font)
@@ -1862,6 +1866,15 @@ private actor WidgetLab {
 
             default:
                 print("? unknown '\(verb)' — try help")
+        }
+    }
+
+    // Headless verification hook: render each implemented unit's two-screen scene to a PNG
+    // without a surface/daemon connection. Driven by WIDGETLAB_SNAPSHOT_DIR at launch.
+    func snapshotImplementedUnits(to directory: String) async {
+        for candidate in Unit.allCases where candidate.implemented {
+            unit = candidate
+            await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
         }
     }
 

@@ -56,6 +56,7 @@ public struct FreeTypeFontFamily: Sendable, Equatable, Identifiable {
 public struct FreeTypeFontCatalog: Sendable, Equatable {
     public static let textFamilyID = "plex-sans-condensed"
     public static let iconProLightFamilyID = "fontawesome-pro-light"
+    public static let monoFamilyID = "jetbrains-mono"
 
     public var families: [FreeTypeFontFamily]
 
@@ -81,6 +82,14 @@ public struct FreeTypeFontCatalog: Sendable, Equatable {
             label: "Font Awesome 7 Pro Light",
             faces: [
                 .regular: FreeTypeFontSource(resourceName: "FontAwesome7Pro-Light-300.otf"),
+            ]
+        ),
+        FreeTypeFontFamily(
+            id: Self.monoFamilyID,
+            label: "JetBrains Mono",
+            faces: [
+                .regular: FreeTypeFontSource(resourceName: "JetBrainsMono-Regular.ttf"),
+                .bold: FreeTypeFontSource(resourceName: "JetBrainsMono-Bold.ttf"),
             ]
         ),
     ])
