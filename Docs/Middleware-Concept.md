@@ -152,18 +152,23 @@ Label("Resonance Bandpass 24dB", overflow: .marquee(speed: 5))
   selection lists, long text, and icon-font-style symbols.
 
 The two renderers are independent; adding FreeType does not route bitmap labels through
-FreeType. Use `FreeTypeFontCatalog.production` as the global swap point for families and
-cuts. The current production catalog uses IBM Plex Sans Condensed Regular 16 px for body,
-IBM Plex Sans Condensed Medium 17 px for caption chrome, IBM Plex Sans Condensed Medium
-24 px for titles, and Font Awesome 7 Pro Light for icons.
+FreeType. Use `MK2HIG` as the global swap point for families, cuts, semantic weights, and
+sizes; `FreeTypeFontCatalog.production` loads the resources named by those HIG tokens. The
+current HIG uses IBM Plex Sans Condensed Regular 16 px for body, IBM Plex Sans Condensed
+Medium 16 px for caption chrome, IBM Plex Sans Condensed Medium 24 px for titles, and Font
+Awesome 7 Pro Light for icons.
 
 HIG typography should be semantic, not per-screen literal sizing:
 
 - `body`: IBM Plex Sans Condensed Regular, 16 px.
-- `caption`: IBM Plex Sans Condensed Medium, 17 px, uppercase for regular screen
+- `caption`: IBM Plex Sans Condensed Medium, 16 px, uppercase for regular screen
   header title/subtitle chrome.
 - `title`: IBM Plex Sans Condensed Medium, 24 px.
 - `actionDialogIcon`: Font Awesome 7 Pro Light, 48 px.
+
+Production HIG constants live in `Sources/KontrolSurfaceKit2/MK2HIG.swift`. Adjust shared
+font family IDs, resource names, semantic weights, typography sizes, fixed-metric font
+metrics, and chrome colors there instead of patching individual screens.
 
 Global dialogs use semantic severity rather than ad hoc icon placeholders. The current
 severity set is `info`, `warning`, `error`, and `question`; each maps to a Font Awesome
@@ -482,8 +487,10 @@ uses the inverted value-cell treatment. Rounded rectangles use antialiased corne
 pixel fill path optimized to shade only the corner regions instead of supersampling large
 interior panels on every encoder tick. Regular one-display screen geometry lives in
 `MK2ScreenLayout`: a header/function area, content area, and optional footer/encoder area.
-`MK2RegularScreenChrome` renders header title/subtitle chrome with the caption style and
-hint footers with the body style. `MK2SelectionLayout` is now the selection-specific
+`MK2RegularScreenChrome` renders header title/subtitle chrome with the caption style from
+`MK2HIG` on a very dark-blue header band with subtle blue top and bottom edges, and hint
+footers with the body style.
+`MK2SelectionLayout` is now the selection-specific
 compatibility layer over those regular screen rectangles plus grid row-step helpers. Apps
 and demos should use these layout objects instead of copying pixel constants from the
 renderer. Dense tracker grids remain full-screen specialty renderers.

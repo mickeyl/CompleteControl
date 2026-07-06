@@ -54,9 +54,9 @@ public struct FreeTypeFontFamily: Sendable, Equatable, Identifiable {
 }
 
 public struct FreeTypeFontCatalog: Sendable, Equatable {
-    public static let textFamilyID = "plex-sans-condensed"
-    public static let iconProLightFamilyID = "fontawesome-pro-light"
-    public static let monoFamilyID = "jetbrains-mono"
+    public static let textFamilyID = MK2HIG.Fonts.textFamilyID
+    public static let iconProLightFamilyID = MK2HIG.Fonts.iconProLightFamilyID
+    public static let monoFamilyID = MK2HIG.Fonts.monoFamilyID
 
     public var families: [FreeTypeFontFamily]
 
@@ -71,25 +71,25 @@ public struct FreeTypeFontCatalog: Sendable, Equatable {
     public static let production = FreeTypeFontCatalog(families: [
         FreeTypeFontFamily(
             id: Self.textFamilyID,
-            label: "IBM Plex Sans Condensed",
+            label: MK2HIG.Fonts.textFamilyName,
             faces: [
-                .regular: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Regular.otf"),
-                .medium: FreeTypeFontSource(resourceName: "IBMPlexSansCondensed-Medium.otf"),
+                .regular: FreeTypeFontSource(resourceName: MK2HIG.Fonts.textRegularResourceName),
+                .medium: FreeTypeFontSource(resourceName: MK2HIG.Fonts.textMediumResourceName),
             ]
         ),
         FreeTypeFontFamily(
             id: Self.iconProLightFamilyID,
-            label: "Font Awesome 7 Pro Light",
+            label: MK2HIG.Fonts.iconProLightFamilyName,
             faces: [
-                .regular: FreeTypeFontSource(resourceName: "FontAwesome7Pro-Light-300.otf"),
+                .regular: FreeTypeFontSource(resourceName: MK2HIG.Fonts.iconProLightResourceName),
             ]
         ),
         FreeTypeFontFamily(
             id: Self.monoFamilyID,
-            label: "JetBrains Mono",
+            label: MK2HIG.Fonts.monoFamilyName,
             faces: [
-                .regular: FreeTypeFontSource(resourceName: "JetBrainsMono-Regular.ttf"),
-                .bold: FreeTypeFontSource(resourceName: "JetBrainsMono-Bold.ttf"),
+                .regular: FreeTypeFontSource(resourceName: MK2HIG.Fonts.monoRegularResourceName),
+                .bold: FreeTypeFontSource(resourceName: MK2HIG.Fonts.monoBoldResourceName),
             ]
         ),
     ])

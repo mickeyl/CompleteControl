@@ -8,22 +8,22 @@ struct FreeTypeTextRendererTests {
     func catalogShape() {
         let catalog = FreeTypeFontCatalog.production
         #expect(catalog.families.map(\.id) == [
-            FreeTypeFontCatalog.textFamilyID,
-            FreeTypeFontCatalog.iconProLightFamilyID,
-            FreeTypeFontCatalog.monoFamilyID,
+            MK2HIG.Fonts.textFamilyID,
+            MK2HIG.Fonts.iconProLightFamilyID,
+            MK2HIG.Fonts.monoFamilyID,
         ])
-        #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .regular).resourceName == "IBMPlexSansCondensed-Regular.otf")
-        #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .medium).resourceName == "IBMPlexSansCondensed-Medium.otf")
-        #expect(catalog.family(id: FreeTypeFontCatalog.iconProLightFamilyID)?.source(for: .regular).resourceName == "FontAwesome7Pro-Light-300.otf")
-        #expect(catalog.family(id: FreeTypeFontCatalog.monoFamilyID)?.source(for: .regular).resourceName == "JetBrainsMono-Regular.ttf")
-        #expect(catalog.family(id: FreeTypeFontCatalog.monoFamilyID)?.source(for: .bold).resourceName == "JetBrainsMono-Bold.ttf")
+        #expect(catalog.family(id: MK2HIG.Fonts.textFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.textRegularResourceName)
+        #expect(catalog.family(id: MK2HIG.Fonts.textFamilyID)?.source(for: .medium).resourceName == MK2HIG.Fonts.textMediumResourceName)
+        #expect(catalog.family(id: MK2HIG.Fonts.iconProLightFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.iconProLightResourceName)
+        #expect(catalog.family(id: MK2HIG.Fonts.monoFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.monoRegularResourceName)
+        #expect(catalog.family(id: MK2HIG.Fonts.monoFamilyID)?.source(for: .bold).resourceName == MK2HIG.Fonts.monoBoldResourceName)
     }
 
     @Test("Renderer draws grayscale antialiased text into RGB565 frame")
     func drawAntialiasedText() throws {
         let renderer = try FreeTypeTextRenderer()
         var frame = MK2PixelFrame(fill: 0)
-        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 36, color: 0xffff)
+        let style = MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: 36, color: 0xffff)
         try renderer.drawText("Ag", into: &frame, x: 20, y: 40, style: style)
 
         var ink = 0
@@ -44,8 +44,8 @@ struct FreeTypeTextRendererTests {
     @Test("Cached runs redraw with independent colour and position")
     func cachedRunsRedrawWithIndependentColorAndPosition() throws {
         let renderer = try FreeTypeTextRenderer()
-        let white = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0xffff)
-        let green = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0x07e0)
+        let white = MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: 24, color: 0xffff)
+        let green = MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: 24, color: 0x07e0)
         var first = MK2PixelFrame(fill: 0)
         var second = MK2PixelFrame(fill: 0)
 
@@ -61,7 +61,7 @@ struct FreeTypeTextRendererTests {
     @Test("Proportional text shapes ligatures through HarfBuzz")
     func proportionalTextShapesLigaturesThroughHarfBuzz() throws {
         let renderer = try FreeTypeTextRenderer()
-        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0xffff)
+        let style = MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: 24, color: 0xffff)
 
         let glyphs = try renderer.debugShapedGlyphIDs("office", style: style)
 
@@ -75,8 +75,8 @@ struct FreeTypeTextRendererTests {
         for mode in FreeTypeRasterMode.allCases {
             var frame = MK2PixelFrame(fill: 0)
             let style = FreeTypeTextStyle(
-                familyID: FreeTypeFontCatalog.textFamilyID,
-                weight: .medium,
+                familyID: MK2HIG.Fonts.textFamilyID,
+                weight: MK2HIG.Fonts.titleWeight,
                 pixelSize: 28,
                 color: 0xffff,
                 rasterMode: mode
@@ -107,7 +107,7 @@ struct FreeTypeTextRendererTests {
     func drawFontAwesomeIcons() throws {
         let renderer = try FreeTypeTextRenderer()
         var frame = MK2PixelFrame(fill: 0)
-        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.iconProLightFamilyID, weight: .regular, pixelSize: 48, color: 0xffff)
+        let style = MK2HIG.actionDialogIconStyle(color: 0xffff)
         try renderer.drawText("\u{f2bb}", into: &frame, x: 40, y: 40, style: style)
 
         var ink = 0
@@ -122,7 +122,7 @@ struct FreeTypeTextRendererTests {
     @Test("Wrapped layout breaks body copy at word boundaries")
     func wrappedLayoutBreaksAtWords() throws {
         let renderer = try FreeTypeTextRenderer()
-        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 16, color: 0xffff)
+        let style = MK2HIG.bodyTextStyle(color: 0xffff)
         let maxWidth = try renderer.measure("Wollen Sie das aktuelle Pattern", style: style) - 1
 
         let layout = try renderer.wrappedLayout(
@@ -142,7 +142,7 @@ struct FreeTypeTextRendererTests {
     func drawWrappedTextDrawsMultipleLines() throws {
         let renderer = try FreeTypeTextRenderer()
         var frame = MK2PixelFrame(fill: 0)
-        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 16, color: 0xffff)
+        let style = MK2HIG.bodyTextStyle(color: 0xffff)
         let maxWidth = try renderer.measure("Wollen Sie das aktuelle Pattern", style: style) - 1
 
         let drawn = try renderer.drawWrappedText(

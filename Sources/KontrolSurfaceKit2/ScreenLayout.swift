@@ -113,32 +113,41 @@ public enum MK2ScreenLayout {
 
 public struct MK2ScreenChromeColors: Sendable, Equatable {
     public var background: UInt16
+    public var headerFill: UInt16
+    public var headerTopLine: UInt16
     public var text: UInt16
     public var dim: UInt16
     public var accent: UInt16
     public var border: UInt16
+    public var headerRule: UInt16
     public var footerFill: UInt16
 
     public init(
-        background: UInt16 = 0x0841,
-        text: UInt16 = 0xffff,
-        dim: UInt16 = 0x8410,
-        accent: UInt16 = 0xffe0,
-        border: UInt16 = 0x4208,
-        footerFill: UInt16 = 0x1083
+        background: UInt16 = MK2HIG.Chrome.background,
+        headerFill: UInt16 = MK2HIG.Chrome.headerFill,
+        headerTopLine: UInt16 = MK2HIG.Chrome.headerTopLine,
+        text: UInt16 = MK2HIG.Chrome.text,
+        dim: UInt16 = MK2HIG.Chrome.dim,
+        accent: UInt16 = MK2HIG.Chrome.accent,
+        border: UInt16 = MK2HIG.Chrome.border,
+        headerRule: UInt16 = MK2HIG.Chrome.headerBottomLine,
+        footerFill: UInt16 = MK2HIG.Chrome.footerFill
     ) {
         self.background = background
+        self.headerFill = headerFill
+        self.headerTopLine = headerTopLine
         self.text = text
         self.dim = dim
         self.accent = accent
         self.border = border
+        self.headerRule = headerRule
         self.footerFill = footerFill
     }
 }
 
 public struct MK2RegularScreenChrome: Sendable {
-    public static let captionPixelSize = 17
-    public static let bodyPixelSize = 16
+    public static let captionPixelSize = MK2HIG.Typography.captionPixelSize
+    public static let bodyPixelSize = MK2HIG.Typography.bodyPixelSize
 
     public var header: MK2ScreenHeader
     public var footer: MK2ScreenFooter
@@ -169,17 +178,26 @@ public struct MK2RegularScreenChrome: Sendable {
             case .none:
                 return
             case let .title(title, subtitle, subtitleAlignment):
+                drawHeaderBackdrop(into: &frame)
                 drawCaption(title, into: &frame, renderer: renderer, x: 8, y: 8, color: colors.accent, maxWidth: 220)
                 guard let subtitle else { return }
                 switch subtitleAlignment {
                     case .leading:
                         drawCaption(subtitle, into: &frame, renderer: renderer, x: 8, y: 25, color: colors.dim, maxWidth: 456)
                     case .trailing:
-                        drawCaption(subtitle, into: &frame, renderer: renderer, x: 236, y: 8, color: colors.dim, maxWidth: 236)
+                        drawTrailingCaption(subtitle, into: &frame, renderer: renderer, y: 8, color: colors.dim, maxWidth: 236)
                 }
             case let .status(items):
+                drawHeaderBackdrop(into: &frame)
                 MK2StatusLine(y: 8, items: items).draw(into: &frame)
         }
+    }
+
+    private func drawHeaderBackdrop(into frame: inout MK2PixelFrame) {
+        let headerRect = layout.headerRect
+        frame.fill(headerRect, colors.headerFill)
+        frame.fill(MK2PixelRect(x: 0, y: headerRect.y, width: headerRect.width, height: 1), colors.headerTopLine)
+        frame.fill(MK2PixelRect(x: 0, y: headerRect.maxY - 1, width: headerRect.width, height: 1), colors.headerRule)
     }
 
     public func drawFooter(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -210,11 +228,26 @@ public struct MK2RegularScreenChrome: Sendable {
             renderer: renderer,
             x: x,
             y: y,
-            weight: .medium,
+            weight: MK2HIG.Fonts.captionWeight,
             pixelSize: Self.captionPixelSize,
             color: color,
             maxWidth: maxWidth
         )
+    }
+
+    private func drawTrailingCaption(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        renderer: FreeTypeTextRenderer?,
+        y: Int,
+        color: UInt16,
+        maxWidth: Int
+    ) {
+        let text = text.uppercased()
+        let style = MK2HIG.captionTextStyle(color: color)
+        guard let renderer else { return }
+        let width = min(maxWidth, (try? renderer.measure(text, style: style)) ?? maxWidth)
+        try? renderer.drawText(text, into: &frame, x: 472 - width, y: y, style: style, maxWidth: maxWidth)
     }
 
     private func drawBody(
@@ -232,7 +265,7 @@ public struct MK2RegularScreenChrome: Sendable {
             renderer: renderer,
             x: x,
             y: y,
-            weight: .regular,
+            weight: MK2HIG.Fonts.bodyWeight,
             pixelSize: Self.bodyPixelSize,
             color: color,
             maxWidth: maxWidth
@@ -250,8 +283,7 @@ public struct MK2RegularScreenChrome: Sendable {
         color: UInt16,
         maxWidth: Int
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
+        let style = MK2HIG.textStyle(
             weight: weight,
             pixelSize: pixelSize,
             color: color

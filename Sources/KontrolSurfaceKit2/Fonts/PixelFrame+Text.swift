@@ -25,7 +25,7 @@ public extension MK2PixelFrame {
             weight: font.renderWeight,
             pixelSize: font.pixelSize * scale,
             color: color,
-            rasterMode: .grayscaleHinted)
+            rasterMode: MK2HIG.Fonts.rasterMode)
         try? renderer.drawMonospaced(
             text,
             into: &self,

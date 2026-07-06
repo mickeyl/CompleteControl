@@ -257,12 +257,7 @@ public struct MK2ModalDialog: Sendable {
         color: UInt16,
         maxWidth: Int
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
-            weight: .medium,
-            pixelSize: 24,
-            color: color
-        )
+        let style = MK2HIG.titleTextStyle(color: color)
         guard let renderer, (try? renderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
             BitmapLabel(text, font: .gridBold, color: color)
                 .draw(into: &frame, x: x, y: y + 4, clip: MK2PixelRect(x: x, y: y, width: maxWidth, height: 24))
@@ -271,12 +266,7 @@ public struct MK2ModalDialog: Sendable {
     }
 
     private func bodyStyle(color: UInt16) -> FreeTypeTextStyle {
-        FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
-            weight: .regular,
-            pixelSize: 16,
-            color: color
-        )
+        MK2HIG.bodyTextStyle(color: color)
     }
 
     private func drawBody(
@@ -368,12 +358,7 @@ public struct MK2ModalDialog: Sendable {
         rect: MK2PixelRect,
         color: UInt16
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
-            weight: .regular,
-            pixelSize: 48,
-            color: color
-        )
+        let style = MK2HIG.actionDialogIconStyle(color: color)
         if let renderer, let width = try? renderer.measure(glyph, style: style) {
             let x = rect.x + (rect.width - width) / 2
             let y = rect.y + 22

@@ -270,10 +270,10 @@ private actor WidgetLab {
     private var browserConfirmation = "Noch nichts geöffnet"
     private var sampleText = "Paulinche 0123 ÄÖÜ"
     private var fontSampleIndex = 0
-    private var bodyPixelSize = 16
-    private var titlePixelSize = 24
+    private var bodyPixelSize = MK2HIG.Typography.bodyPixelSize
+    private var titlePixelSize = MK2HIG.Typography.titlePixelSize
     private var iconSampleIndex = 1
-    private var iconPixelSize = 48
+    private var iconPixelSize = MK2HIG.Typography.actionDialogIconPixelSize
     private var fontFocusedEncoder: Int?
     private var iconIndex: Int
     private var iconSelectionMode: IconSelectionMode = .plainList
@@ -310,12 +310,12 @@ private actor WidgetLab {
     private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
     private static let soloColor = KKRGB(red: 0x00, green: 0x7f, blue: 0xff)
     private static let muteColor = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
-    private static let textFamilyID = FreeTypeFontCatalog.textFamilyID
-    private static let bodySize = 16
-    private static let titleSize = 24
+    private static let textFamilyID = MK2HIG.Fonts.textFamilyID
+    private static let bodySize = MK2HIG.Typography.bodyPixelSize
+    private static let titleSize = MK2HIG.Typography.titlePixelSize
     private static let iconPageStep = 7
     private static let iconGridCellSize = MK2SelectionCellSize(width: 58, height: 58)
-    private static let actionDialogIconSize = 48
+    private static let actionDialogIconSize = MK2HIG.Typography.actionDialogIconPixelSize
     private static let iconStyleLabel = "Pro Light"
     private static let iconLetterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
     private static let iconSizes = [20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 88]
@@ -429,8 +429,6 @@ private actor WidgetLab {
             if fontSubDemo == .icons || fontSubDemo == .actionDialog {
                 lamps[.pageLeft] = Self.availableLamp(Self.actionWhite)
                 lamps[.pageRight] = Self.availableLamp(Self.actionWhite)
-                lamps[.plugin] = Self.availableLamp(Self.actionWhite)
-                lamps[.mixer] = Self.availableLamp(Self.actionWhite)
                 lamps[.presetDown] = Self.availableLamp(Self.actionWhite)
                 lamps[.presetUp] = Self.availableLamp(Self.actionWhite)
             }
@@ -508,8 +506,6 @@ private actor WidgetLab {
             } else if fontSubDemo == .icons || fontSubDemo == .actionDialog {
                 bindings.onPress(.pageLeft) { [weak self] in Task { await self?.moveIcon(-1) } }
                 bindings.onPress(.pageRight) { [weak self] in Task { await self?.moveIcon(1) } }
-                bindings.onPress(.plugin) { [weak self] in Task { await self?.moveIcon(-16) } }
-                bindings.onPress(.mixer) { [weak self] in Task { await self?.mixerAction() } }
                 MK2ButtonRangeSelection(
                     value: iconSizeIndex,
                     bounds: 0...(Self.iconSizes.count - 1),
@@ -755,7 +751,7 @@ private actor WidgetLab {
         drawFreeTypeTitle(icon.label, into: &frame, x: 18, y: 158, size: Self.titleSize, color: Palette.text, maxWidth: 432)
         drawFreeTypeBody(icon.name, into: &frame, x: 18, y: 194, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
         drawFreeTypeBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, currentIconSize, Self.iconStyleLabel), into: &frame, x: 18, y: 222, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("INSTANCE demo  E8 mode  4D/Page icons  E5 A-Z filter", into: &frame, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeBody("INSTANCE demo  4D/Page icons  E5 A-Z filter", into: &frame, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -822,7 +818,7 @@ private actor WidgetLab {
         drawFreeTypeTitle(candidate.title, into: &frame, x: 74, y: 133, size: Self.titleSize, color: Palette.text, maxWidth: 332)
         drawFreeTypeBody(candidate.body, into: &frame, x: 74, y: 171, size: Self.bodySize, color: Palette.dim, maxWidth: 332)
         drawFreeTypeBody("[\(candidate.action)]        CANCEL", into: &frame, x: 142, y: 204, size: Self.bodySize, color: Palette.text, maxWidth: 240)
-        drawFreeTypeBody("Mixer wechselt Dialogcopy. Page/Plugin browsen Icons.", into: &frame, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeBody("Page Left/Right browsen Icons. Preset ändert Größe.", into: &frame, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -1411,18 +1407,6 @@ private actor WidgetLab {
     private func setIconFilterFocus(encoder: Int, touched: Bool) async {
         guard unit == .font, fontSubDemo == .icons, iconSelectionMode.hasFilter else { return }
         iconFilterNavigation.touchFilter(encoder: encoder, touched: touched)
-        await render()
-    }
-
-    private func mixerAction() async {
-        guard unit == .font, fontSubDemo == .actionDialog else {
-            await moveIcon(16)
-            return
-        }
-        actionIndex = (actionIndex + 1).wrapped(to: 0...(Self.actionCandidates.count - 1))
-        if let index = icons.firstIndex(where: { $0.name == Self.actionCandidates[actionIndex].iconName }) {
-            iconIndex = index
-        }
         await render()
     }
 
@@ -2028,7 +2012,7 @@ private actor WidgetLab {
         color: UInt16,
         maxWidth: Int
     ) {
-        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .medium, color: color, maxWidth: maxWidth)
+        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: MK2HIG.Fonts.titleWeight, color: color, maxWidth: maxWidth)
     }
 
     @discardableResult
@@ -2042,7 +2026,7 @@ private actor WidgetLab {
         maxWidth: Int,
         maxLines: Int = 1
     ) -> Int {
-        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: .regular, color: color, maxWidth: maxWidth, maxLines: maxLines)
+        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: MK2HIG.Fonts.bodyWeight, color: color, maxWidth: maxWidth, maxLines: maxLines)
     }
 
     @discardableResult
@@ -2057,8 +2041,7 @@ private actor WidgetLab {
         maxWidth: Int,
         maxLines: Int = 1
     ) -> Int {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
+        let style = MK2HIG.textStyle(
             weight: weight,
             pixelSize: size,
             color: color
@@ -2081,7 +2064,7 @@ private actor WidgetLab {
             }
         }
 
-        let font: SurfaceFont = weight == .medium ? .gridBold : .grid
+        let font: SurfaceFont = weight == MK2HIG.Fonts.titleWeight ? .gridBold : .grid
         let lines = wrappedBitmapLines(text, font: font, maxWidth: maxWidth)
         let count = min(lineLimit, max(1, lines.count))
         for index in 0..<count {
@@ -2127,12 +2110,7 @@ private actor WidgetLab {
         size: Int,
         color: UInt16
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
-            weight: .regular,
-            pixelSize: size,
-            color: color
-        )
+        let style = MK2HIG.iconStyle(pixelSize: size, color: color)
         guard let freeTypeRenderer,
               (try? freeTypeRenderer.drawText(glyph, into: &frame, x: x, y: y, style: style, maxWidth: max(80, size + 20))) != nil else {
             BitmapLabel("?", font: .readoutBold, color: color)
@@ -2149,12 +2127,7 @@ private actor WidgetLab {
         size: Int,
         color: UInt16
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
-            weight: .regular,
-            pixelSize: size,
-            color: color
-        )
+        let style = MK2HIG.iconStyle(pixelSize: size, color: color)
         let width = (try? freeTypeRenderer?.measure(glyph, style: style)) ?? size
         guard let freeTypeRenderer,
               (try? freeTypeRenderer.drawText(glyph, into: &frame, x: centerX - width / 2, y: y, style: style, maxWidth: max(80, size + 20))) != nil else {

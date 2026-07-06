@@ -541,12 +541,7 @@ private enum MK2SelectionDrawing {
         color: UInt16,
         maxWidth: Int
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.textFamilyID,
-            weight: .regular,
-            pixelSize: 16,
-            color: color
-        )
+        let style = MK2HIG.bodyTextStyle(color: color)
         guard let renderer,
               (try? renderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil else {
             BitmapLabel(text, font: .grid, color: color)
@@ -564,12 +559,7 @@ private enum MK2SelectionDrawing {
         size: Int,
         color: UInt16
     ) {
-        let style = FreeTypeTextStyle(
-            familyID: FreeTypeFontCatalog.iconProLightFamilyID,
-            weight: .regular,
-            pixelSize: size,
-            color: color
-        )
+        let style = MK2HIG.iconStyle(pixelSize: size, color: color)
         guard let renderer,
               (try? renderer.drawText(glyph, into: &frame, x: x, y: y, style: style, maxWidth: size + 12)) != nil else {
             BitmapLabel("*", font: .gridBold, color: color)

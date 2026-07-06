@@ -113,8 +113,11 @@ struct SelectionViewTests {
         ).draw(into: &frame, renderer: renderer)
 
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 8, width: 80, height: 14)) > 10)
-        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 236, y: 8, width: 80, height: 14)) > 10)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: 0x1083) > 10_000)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 420, y: 8, width: 52, height: 14)) > 10)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 36), matching: MK2HIG.Chrome.headerFill) > 15_000)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 37, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.footerFill) > 10_000)
     }
 
     @Test("Regular screen hint footer uses body typography")

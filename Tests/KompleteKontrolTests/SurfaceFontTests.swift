@@ -15,26 +15,26 @@ struct SurfaceFontMetricsTests {
 
     @Test("Face metrics reproduce the retired bitmap cell sizes exactly")
     func faceMetrics() {
-        #expect(SurfaceFont.grid.advance == 8)
-        #expect(SurfaceFont.grid.cellHeight == 16)
-        #expect(SurfaceFont.grid.ascent == 12)
-        #expect(SurfaceFont.label.advance == 6)
-        #expect(SurfaceFont.label.cellHeight == 13)
-        #expect(SurfaceFont.label.ascent == 10)
-        #expect(SurfaceFont.readout.advance == 10)
-        #expect(SurfaceFont.readout.cellHeight == 20)
+        #expect(SurfaceFont.grid.advance == MK2HIG.SurfaceFontMetrics.gridAdvance)
+        #expect(SurfaceFont.grid.cellHeight == MK2HIG.SurfaceFontMetrics.gridCellHeight)
+        #expect(SurfaceFont.grid.ascent == MK2HIG.SurfaceFontMetrics.gridAscent)
+        #expect(SurfaceFont.label.advance == MK2HIG.SurfaceFontMetrics.labelAdvance)
+        #expect(SurfaceFont.label.cellHeight == MK2HIG.SurfaceFontMetrics.labelCellHeight)
+        #expect(SurfaceFont.label.ascent == MK2HIG.SurfaceFontMetrics.labelAscent)
+        #expect(SurfaceFont.readout.advance == MK2HIG.SurfaceFontMetrics.readoutAdvance)
+        #expect(SurfaceFont.readout.cellHeight == MK2HIG.SurfaceFontMetrics.readoutCellHeight)
     }
 
     @Test("Every face lowers to a JetBrains Mono weight")
     func facesUseMono() {
         for font in [SurfaceFont.grid, .gridBold, .label, .readout, .readoutBold] {
-            #expect(font.familyID == FreeTypeFontCatalog.monoFamilyID)
+            #expect(font.familyID == MK2HIG.Fonts.monoFamilyID)
         }
         // Regular vs Bold is the only weight axis; "bold" == Bold (700) so the emphasis
         // faces stay legibly heavier than Regular at 13 px.
-        #expect(SurfaceFont.grid.renderWeight == .regular)
-        #expect(SurfaceFont.gridBold.renderWeight == .bold)
-        #expect(SurfaceFont.readoutBold.renderWeight == .bold)
+        #expect(SurfaceFont.grid.renderWeight == MK2HIG.Fonts.surfaceRegularWeight)
+        #expect(SurfaceFont.gridBold.renderWeight == MK2HIG.Fonts.surfaceBoldWeight)
+        #expect(SurfaceFont.readoutBold.renderWeight == MK2HIG.Fonts.surfaceBoldWeight)
     }
 
     @Test("Role/weight resolution; label has no bold face so it falls back")

@@ -29,7 +29,7 @@ public struct SurfaceFont: Sendable {
         self.advance = advance
         self.cellHeight = cellHeight
         self.ascent = ascent
-        self.familyID = FreeTypeFontCatalog.monoFamilyID
+        self.familyID = MK2HIG.Fonts.monoFamilyID
         self.renderWeight = renderWeight
         self.pixelSize = pixelSize
     }
@@ -38,11 +38,41 @@ public struct SurfaceFont: Sendable {
     // advances; cell height and ascent are carried over verbatim so nothing moves. "Bold"
     // maps to the Bold (700) cut: the 400→500 step is too subtle to survive hinting at
     // 13 px, whereas 400→700 stays legibly heavier for grid/readout emphasis.
-    public static let grid = SurfaceFont(advance: 8, cellHeight: 16, ascent: 12, renderWeight: .regular, pixelSize: 13)
-    public static let gridBold = SurfaceFont(advance: 8, cellHeight: 16, ascent: 12, renderWeight: .bold, pixelSize: 13)
-    public static let label = SurfaceFont(advance: 6, cellHeight: 13, ascent: 10, renderWeight: .regular, pixelSize: 10)
-    public static let readout = SurfaceFont(advance: 10, cellHeight: 20, ascent: 14, renderWeight: .regular, pixelSize: 16)
-    public static let readoutBold = SurfaceFont(advance: 10, cellHeight: 20, ascent: 14, renderWeight: .bold, pixelSize: 16)
+    public static let grid = SurfaceFont(
+        advance: MK2HIG.SurfaceFontMetrics.gridAdvance,
+        cellHeight: MK2HIG.SurfaceFontMetrics.gridCellHeight,
+        ascent: MK2HIG.SurfaceFontMetrics.gridAscent,
+        renderWeight: MK2HIG.Fonts.surfaceRegularWeight,
+        pixelSize: MK2HIG.SurfaceFontMetrics.gridPixelSize
+    )
+    public static let gridBold = SurfaceFont(
+        advance: MK2HIG.SurfaceFontMetrics.gridAdvance,
+        cellHeight: MK2HIG.SurfaceFontMetrics.gridCellHeight,
+        ascent: MK2HIG.SurfaceFontMetrics.gridAscent,
+        renderWeight: MK2HIG.Fonts.surfaceBoldWeight,
+        pixelSize: MK2HIG.SurfaceFontMetrics.gridPixelSize
+    )
+    public static let label = SurfaceFont(
+        advance: MK2HIG.SurfaceFontMetrics.labelAdvance,
+        cellHeight: MK2HIG.SurfaceFontMetrics.labelCellHeight,
+        ascent: MK2HIG.SurfaceFontMetrics.labelAscent,
+        renderWeight: MK2HIG.Fonts.surfaceRegularWeight,
+        pixelSize: MK2HIG.SurfaceFontMetrics.labelPixelSize
+    )
+    public static let readout = SurfaceFont(
+        advance: MK2HIG.SurfaceFontMetrics.readoutAdvance,
+        cellHeight: MK2HIG.SurfaceFontMetrics.readoutCellHeight,
+        ascent: MK2HIG.SurfaceFontMetrics.readoutAscent,
+        renderWeight: MK2HIG.Fonts.surfaceRegularWeight,
+        pixelSize: MK2HIG.SurfaceFontMetrics.readoutPixelSize
+    )
+    public static let readoutBold = SurfaceFont(
+        advance: MK2HIG.SurfaceFontMetrics.readoutAdvance,
+        cellHeight: MK2HIG.SurfaceFontMetrics.readoutCellHeight,
+        ascent: MK2HIG.SurfaceFontMetrics.readoutAscent,
+        renderWeight: MK2HIG.Fonts.surfaceBoldWeight,
+        pixelSize: MK2HIG.SurfaceFontMetrics.readoutPixelSize
+    )
 
     /// Resolve a role/weight to a concrete face.
     public static func face(_ role: Role, _ weight: Weight = .regular) -> SurfaceFont {

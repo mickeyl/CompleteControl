@@ -33,15 +33,16 @@ cell, so ligatures are not enabled there.
 - IBM Plex Sans Condensed Medium OTF for title text.
 - Font Awesome 7 Pro Light OTF for icons.
 
-The global swap point is `FreeTypeFontCatalog.production`. Add or replace families there
-rather than scattering resource names through UI code. The legacy
+The global HIG swap point is `Sources/KontrolSurfaceKit2/MK2HIG.swift`: family IDs,
+resource names, semantic weights, typography sizes, and raster mode are defined there.
+`FreeTypeFontCatalog.production` loads the families named by those HIG tokens. The legacy
 `FreeTypeFontCatalog.exploratory` alias points at the same production catalog for source
 compatibility.
 
 Current text contract:
 
 - Body: IBM Plex Sans Condensed Regular, 16 px.
-- Caption: IBM Plex Sans Condensed Medium, 17 px, rendered uppercase for regular
+- Caption: IBM Plex Sans Condensed Medium, 16 px, rendered uppercase for regular
   screen chrome such as header title/subtitle labels.
 - Title: IBM Plex Sans Condensed Medium, 24 px.
 - Icon: Font Awesome 7 Pro Light.
