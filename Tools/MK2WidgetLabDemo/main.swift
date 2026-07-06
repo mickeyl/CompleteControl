@@ -722,9 +722,11 @@ private actor WidgetLab {
         drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "INSTANCE: \(fontSubDemo.next.shortTitle)")
         drawFreeTypeTitle("Browser Selection", into: &frame, x: 18, y: 56, size: Self.titleSize, color: Palette.text, maxWidth: 432)
         drawFreeTypeBody("Body Regular 16 px. Ruhiger Text für längere MK2-OLED-Flächen.", into: &frame, x: 18, y: 91, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeTitle("Settings", into: &frame, x: 18, y: 132, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody("Listen, Dialoge, Browser-Panes und Preferences teilen einen Rhythmus.", into: &frame, x: 18, y: 167, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("Tracker-Grids bleiben bitmap-scharf und ohne Ligaturen.", into: &frame, x: 18, y: 209, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeTitle("Settings", into: &frame, x: 18, y: 126, size: Self.titleSize, color: Palette.text, maxWidth: 432)
+        let settingsLines = drawFreeTypeBody("Listen, Dialoge, Browser-Panes und Preferences teilen einen gemeinsamen Rhythmus.", into: &frame, x: 18, y: 160, size: Self.bodySize, color: Palette.dim, maxWidth: 432, maxLines: 2)
+        let ligatureY = 160 + settingsLines * freeTypeLineAdvance(size: Self.bodySize) + 8
+        BitmapLabel("PROPORTIONAL LIGATURE TEST", font: .label, color: Palette.empty).draw(into: &frame, x: 18, y: ligatureY)
+        drawFreeTypeTitle("office affine efficient", into: &frame, x: 18, y: ligatureY + 16, size: 20, color: Palette.text, maxWidth: 432)
         BitmapLabel("BITMAP GRID 0123456789 ffi", font: .grid, color: Palette.accent).draw(into: &frame, x: 18, y: 252)
         return frame
     }
