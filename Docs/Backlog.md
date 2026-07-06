@@ -29,13 +29,15 @@
   `MK2ScreenBuildResult`, so element-owned 4-D lamps and bindings are merged instead of
   copied into demo-local scene glue.
 - Reusable DSL content elements now cover wrapped text, value cells, encoder footers,
-  status lines, empty states, progress bars, browser detail panes, and selection
-  list/grid wrappers. Still open before Paulinche integration: page/tabs, parameter pages,
-  richer meter widgets, and filter-focus encoder helpers.
+  status lines, empty states, progress bars, browser detail panes, selection list/grid
+  wrappers, compact page indicators, tab bars, and parameter pages with screen-owned
+  encoder bindings. Still open before Paulinche integration: richer meter widgets,
+  filter-focus encoder helpers, and a complete snapshot acceptance set.
 - Make input binding screen-owned: screens can already declare buttons, discrete encoders,
-  lamps, light-guide colors, and basic selection 4-D navigation next to rendering. WidgetLab
-  Browser/Selection picker screens now own their 4-D navigation and filter encoder
-  bindings. Next, add a more compact grouped filter-encoder declaration for product code.
+  grouped discrete encoder sets, lamps, light-guide colors, and basic selection 4-D
+  navigation next to rendering. WidgetLab Browser/Selection picker screens now own their
+  4-D navigation and filter encoder bindings; the tracker detail screen now owns its
+  edit-field encoder bindings through `MK2ParameterPageElement`.
 - Done in WidgetLab tracker demo: Shift is the only first-class key modifier in Kit2.
   `Clear` deletes the currently selected row immediately, without a confirmation dialog;
   `Shift + Clear` clears the whole pattern and keeps the existing confirmation dialog.

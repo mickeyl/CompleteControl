@@ -399,6 +399,25 @@ public struct MK2EncoderDiscreteValueElement: MK2ScreenElement {
     }
 }
 
+public struct MK2EncoderDiscreteValuesElement: MK2ScreenElement {
+    public var values: [MK2EncoderDiscreteValue]
+    public var drawsDisplays: Bool
+
+    public init(_ values: [MK2EncoderDiscreteValue], drawsDisplays: Bool = true) {
+        self.values = values
+        self.drawsDisplays = drawsDisplays
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        for value in values {
+            value.apply(bindings: &result.bindings)
+            if drawsDisplays {
+                value.drawDisplay(into: &frame)
+            }
+        }
+    }
+}
+
 public struct MK2SelectionListElement: MK2ScreenElement {
     public var list: MK2SelectionList
 
@@ -773,9 +792,141 @@ public struct MK2EncoderBindingElement: MK2ScreenElement {
     }
 }
 
+public struct MK2PageIndicatorElement: MK2ScreenElement {
+    public var currentIndex: Int
+    public var pageCount: Int
+    public var x: Int
+    public var y: Int
+    public var dotSize: Int
+    public var spacing: Int
+    public var activeColor: UInt16
+    public var inactiveColor: UInt16
+    public var relativeToContent: Bool
+
+    public init(
+        currentIndex: Int,
+        pageCount: Int,
+        x: Int,
+        y: Int,
+        dotSize: Int = 5,
+        spacing: Int = 5,
+        activeColor: UInt16 = MK2HIG.Chrome.accent,
+        inactiveColor: UInt16 = MK2HIG.Chrome.border,
+        relativeToContent: Bool = true
+    ) {
+        self.currentIndex = currentIndex
+        self.pageCount = max(0, pageCount)
+        self.x = x
+        self.y = y
+        self.dotSize = max(1, dotSize)
+        self.spacing = max(0, spacing)
+        self.activeColor = activeColor
+        self.inactiveColor = inactiveColor
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        guard pageCount > 0 else { return }
+        let contentRect = context.layout?.contentRect
+        let originX = relativeToContent ? contentRect?.x ?? 0 : 0
+        let originY = relativeToContent ? contentRect?.y ?? 0 : 0
+        let current = currentIndex.clamped(to: 0...(pageCount - 1))
+        for index in 0..<pageCount {
+            let rect = MK2PixelRect(
+                x: originX + x + index * (dotSize + spacing),
+                y: originY + y,
+                width: dotSize,
+                height: dotSize
+            )
+            frame.fillRounded(rect, radius: dotSize / 2, index == current ? activeColor : inactiveColor, antialiased: true)
+        }
+    }
+}
+
+public struct MK2TabBarElement: MK2ScreenElement {
+    public struct Item: Sendable, Equatable {
+        public var title: String
+
+        public init(_ title: String) {
+            self.title = title
+        }
+    }
+
+    public var items: [Item]
+    public var selectedIndex: Int
+    public var rect: MK2PixelRect
+    public var selectedFill: UInt16
+    public var border: UInt16
+    public var text: UInt16
+    public var dim: UInt16
+    public var relativeToContent: Bool
+
+    public init(
+        items: [Item],
+        selectedIndex: Int,
+        rect: MK2PixelRect,
+        selectedFill: UInt16 = MK2HIG.Chrome.footerFill,
+        border: UInt16 = MK2HIG.Chrome.border,
+        text: UInt16 = MK2HIG.Chrome.text,
+        dim: UInt16 = MK2HIG.Chrome.dim,
+        relativeToContent: Bool = true
+    ) {
+        self.items = items
+        self.selectedIndex = selectedIndex
+        self.rect = rect
+        self.selectedFill = selectedFill
+        self.border = border
+        self.text = text
+        self.dim = dim
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        guard !items.isEmpty else { return }
+        let contentRect = context.layout?.contentRect
+        let drawRect = relativeToContent
+            ? MK2PixelRect(x: (contentRect?.x ?? 0) + rect.x, y: (contentRect?.y ?? 0) + rect.y, width: rect.width, height: rect.height)
+            : rect
+        frame.stroke(drawRect, border)
+        let selected = selectedIndex.clamped(to: 0...(items.count - 1))
+        let tabWidth = max(1, drawRect.width / items.count)
+        for (index, item) in items.enumerated() {
+            let x = drawRect.x + index * tabWidth
+            let width = index == items.count - 1 ? drawRect.maxX - x : tabWidth
+            let tabRect = MK2PixelRect(x: x, y: drawRect.y, width: width, height: drawRect.height)
+            if index == selected {
+                frame.fill(tabRect.insetBy(dx: 1, dy: 1), selectedFill)
+            }
+            if index > 0 {
+                frame.fill(MK2PixelRect(x: x, y: drawRect.y, width: 1, height: drawRect.height), border)
+            }
+            let label = item.title.uppercased()
+            let labelWidth = min(max(0, width - 6), label.count * SurfaceFont.label.advance)
+            let labelX = x + max(3, (width - labelWidth) / 2)
+            BitmapLabel(label, font: .label, color: index == selected ? text : dim)
+                .draw(
+                    into: &frame,
+                    x: labelX,
+                    y: drawRect.y + max(0, (drawRect.height - SurfaceFont.label.cellHeight) / 2),
+                    clip: MK2PixelRect(x: x + 3, y: drawRect.y, width: max(0, width - 6), height: drawRect.height)
+                )
+        }
+    }
+}
+
+private extension Int {
+    func clamped(to bounds: ClosedRange<Int>) -> Int {
+        Swift.min(bounds.upperBound, Swift.max(bounds.lowerBound, self))
+    }
+}
+
 private extension MK2PixelRect {
     var origin: MK2Point {
         MK2Point(x: x, y: y)
+    }
+
+    func insetBy(dx: Int, dy: Int) -> MK2PixelRect {
+        MK2PixelRect(x: x + dx, y: y + dy, width: max(0, width - dx * 2), height: max(0, height - dy * 2))
     }
 }
 

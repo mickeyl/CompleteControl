@@ -151,7 +151,7 @@ struct ScreenDSLTests {
     func encoderDiscreteValueElementOwnsBindings() {
         let box = ScreenDSLBox()
         let result = MK2FullScreenDSL {
-            MK2EncoderDiscreteValueElement(
+            MK2EncoderDiscreteValuesElement([
                 MK2EncoderDiscreteValue(
                     encoder: 5,
                     value: 2,
@@ -164,15 +164,80 @@ struct ScreenDSLTests {
                         box.lastValue = value
                     }
                 ),
-                drawsDisplay: false
-            )
+                MK2EncoderDiscreteValue(
+                    encoder: 6,
+                    value: 1,
+                    bounds: 0...4,
+                    wraps: false,
+                    onChange: { value in
+                        box.secondValue = value
+                    }
+                ),
+            ], drawsDisplays: false)
         }.build()
 
         result.bindings.encoderTouch[5]?(true)
         result.bindings.encoder[5]?(1, 0, 0)
+        result.bindings.encoder[6]?(-1, 0, 0)
 
         #expect(box.touched)
         #expect(box.lastValue == 3)
+        #expect(box.secondValue == 0)
+    }
+
+    @Test("Page indicator and tab bar draw compact navigation chrome")
+    func pageIndicatorAndTabBarDraw() {
+        let result = MK2RegularScreenDSL(header: .title(title: "Pages")) {
+            MK2PageIndicatorElement(currentIndex: 1, pageCount: 3, x: 8, y: 16)
+            MK2TabBarElement(
+                items: [.init("Main"), .init("Filter"), .init("Mod")],
+                selectedIndex: 1,
+                rect: MK2PixelRect(x: 8, y: 40, width: 220, height: 26)
+            )
+        }.build()
+
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 58, width: 40, height: 8), matching: MK2HIG.Chrome.accent) > 0)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 88, width: 220, height: 26), notMatching: MK2HIG.Chrome.background) > 40)
+    }
+
+    @Test("Parameter page draws value slots and owns encoder bindings")
+    func parameterPageDrawsAndBindsEncoders() {
+        let box = ScreenDSLBox()
+        let result = MK2RegularScreenDSL(header: .title(title: "Params")) {
+            MK2ParameterPageElement(
+                slots: [
+                    MK2ParameterPageSlot(
+                        label: "Cutoff",
+                        value: "64",
+                        encoderValue: MK2EncoderDiscreteValue(
+                            encoder: 1,
+                            value: 3,
+                            bounds: 0...7,
+                            onTouch: { touched in
+                                box.touched = touched
+                            },
+                            onChange: { value in
+                                box.lastValue = value
+                            }
+                        )
+                    ),
+                    MK2ParameterPageSlot(label: "Reso", value: "22", isFocused: true),
+                    MK2ParameterPageSlot(label: "Env", value: "+12"),
+                    MK2ParameterPageSlot(label: "Drive", value: "Off"),
+                ],
+                rect: MK2PixelRect(x: 8, y: 16, width: 440, height: 96),
+                pageIndex: 1,
+                pageCount: 3
+            )
+        }.build()
+
+        result.bindings.encoderTouch[1]?(true)
+        result.bindings.encoder[1]?(2, 0, 0)
+
+        #expect(box.touched)
+        #expect(box.lastValue == 5)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 440, height: 40), notMatching: MK2HIG.Chrome.background) > 80)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 420, y: 148, width: 32, height: 10), matching: MK2HIG.Chrome.accent) > 0)
     }
 
     @Test("Shift is a first-class button modifier")
@@ -210,6 +275,7 @@ private final class ScreenDSLBox: @unchecked Sendable {
     var confirmed = 0
     var touched = false
     var lastValue = 0
+    var secondValue = 0
 }
 
 private extension MK2PixelFrame {

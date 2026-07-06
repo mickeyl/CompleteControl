@@ -550,10 +550,6 @@ private actor WidgetLab {
             }
             .apply(lamps: &lamps, bindings: &bindings)
 
-            for binding in editFieldEncoderBindings() {
-                binding.apply(bindings: &bindings)
-            }
-
             MK2ButtonRangeSelection(
                 value: selectedInstrumentIndex,
                 bounds: Self.instrumentIndexBounds,
@@ -647,7 +643,7 @@ private actor WidgetLab {
             case .list:
                 return (selectionStatusResult(), selectionPickerResult())
             case .pattern:
-                return (screenResult(frame: trackerGridFrame()), screenResult(frame: trackerDetailFrame()))
+                return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
             default:
                 return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
@@ -984,9 +980,7 @@ private actor WidgetLab {
                     Task { await self?.confirmBrowserSelection() }
                 }
             )
-            for binding in browserEncoderBindings() {
-                MK2EncoderDiscreteValueElement(binding, drawsDisplay: false)
-            }
+            MK2EncoderDiscreteValuesElement(browserEncoderBindings(), drawsDisplays: false)
         }
     }
 
@@ -1087,9 +1081,7 @@ private actor WidgetLab {
                     Task { await self?.confirmSelection() }
                 }
             )
-            for binding in selectionEncoderBindings() {
-                MK2EncoderDiscreteValueElement(binding, drawsDisplay: false)
-            }
+            MK2EncoderDiscreteValuesElement(selectionEncoderBindings(), drawsDisplays: false)
         }
     }
 
@@ -1151,60 +1143,33 @@ private actor WidgetLab {
     }
 
     private func trackerDetailFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
+        trackerDetailResult().screen.frame
+    }
+
+    private func trackerDetailResult() -> MK2ScreenBuildResult {
         let cell = patternRows[playheadRow].cells[focusedChannel]
-
         let selectedInstrumentText = "INST \(selectedInstrument.displayName)"
-
-        MK2StatusLine(y: 8, items: [
+        let statusItems = [
             MK2StatusLineItem("EDIT", x: 8, color: Palette.blue),
             MK2StatusLineItem("CH\(focusedChannel + 1)", x: 92, color: Palette.dim),
             MK2StatusLineItem("ROW \(hex2(playheadRow))", x: 158, color: Palette.text, font: .gridBold),
-        ]).draw(into: &frame)
-        BitmapLabel(selectedInstrumentText, font: .grid, color: Palette.instrument)
-            .draw(into: &frame, x: 232, y: 8, clip: MK2PixelRect(x: 232, y: 8, width: 240, height: SurfaceFont.grid.cellHeight))
+        ]
+        let slots = trackerEditParameterSlots(cell: cell)
 
-        frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
-
-        let fieldY = 232
-        let fieldCornerRadius = 7
-        MK2ValueCell(
-            label: "NOTE",
-            value: cell.note,
-            rect: MK2PixelRect(x: 8, y: fieldY, width: 96, height: 36),
-            isFocused: focusedEditField == .note,
-            valueFont: .readoutBold,
-            cornerRadius: fieldCornerRadius,
-            colors: editCellColors(value: Palette.text)
-        ).draw(into: &frame)
-        MK2ValueCell(
-            label: "INST",
-            value: cell.instrument,
-            rect: MK2PixelRect(x: 128, y: fieldY, width: 80, height: 36),
-            isFocused: focusedEditField == .instrument,
-            valueFont: .readoutBold,
-            cornerRadius: fieldCornerRadius,
-            colors: editCellColors(value: Palette.instrument)
-        ).draw(into: &frame)
-        MK2ValueCell(
-            label: "VOL",
-            value: cell.volume,
-            rect: MK2PixelRect(x: 252, y: fieldY, width: 80, height: 36),
-            isFocused: focusedEditField == .volume,
-            valueFont: .readoutBold,
-            cornerRadius: fieldCornerRadius,
-            colors: editCellColors(value: Palette.text)
-        ).draw(into: &frame)
-        MK2ValueCell(
-            label: "FX",
-            value: cell.effect,
-            rect: MK2PixelRect(x: 376, y: fieldY, width: 88, height: 36),
-            isFocused: focusedEditField == .effect,
-            valueFont: .readoutBold,
-            cornerRadius: fieldCornerRadius,
-            colors: editCellColors(value: Palette.effect)
-        ).draw(into: &frame)
-        return frame
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 8, items: statusItems).draw(into: &frame)
+                BitmapLabel(selectedInstrumentText, font: .grid, color: Palette.instrument)
+                    .draw(into: &frame, x: 232, y: 8, clip: MK2PixelRect(x: 232, y: 8, width: 240, height: SurfaceFont.grid.cellHeight))
+                frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
+            }
+            MK2ParameterPageElement(
+                slots: slots,
+                rect: MK2PixelRect(x: 8, y: 215, width: 456, height: 57),
+                columns: 4,
+                relativeToContent: false
+            )
+        }.build(renderer: freeTypeRenderer)
     }
 
     private func drawTrackerCell(_ cell: TrackerDemoCell, channel: Int, into frame: inout MK2PixelFrame, x: Int, y: Int, highlighted: Bool) {
@@ -1234,6 +1199,30 @@ private actor WidgetLab {
             focusedFill: Palette.editFieldFocusedFill,
             focusedBorder: Palette.text
         )
+    }
+
+    private func trackerEditParameterSlots(cell: TrackerDemoCell) -> [MK2ParameterPageSlot] {
+        TrackerEditField.allCases.map { field in
+            MK2ParameterPageSlot(
+                label: field.label,
+                value: editDisplayValue(for: field, cell: cell),
+                isFocused: focusedEditField == field,
+                encoderValue: MK2EncoderDiscreteValue(
+                    encoder: field.encoder,
+                    value: editValue(for: field, cell: cell),
+                    bounds: field.bounds,
+                    wraps: false,
+                    onTouch: { [weak self] touched in
+                        guard touched else { return }
+                        Task { await self?.focusEditField(field) }
+                    },
+                    onChange: { [weak self] value in
+                        Task { await self?.setFocusedEditValue(value, field: field) }
+                    }
+                ),
+                colors: editCellColors(value: field.valueColor)
+            )
+        }
     }
 
     private func drawPatternOverview(into frame: inout MK2PixelFrame, x: Int, y: Int, height: Int) {
@@ -1911,25 +1900,6 @@ private actor WidgetLab {
         await render()
     }
 
-    private func editFieldEncoderBindings() -> [MK2EncoderDiscreteValue] {
-        let cell = patternRows[playheadRow].cells[focusedChannel]
-        return TrackerEditField.allCases.map { field in
-            MK2EncoderDiscreteValue(
-                encoder: field.encoder,
-                value: editValue(for: field, cell: cell),
-                bounds: field.bounds,
-                wraps: false,
-                onTouch: { [weak self] touched in
-                    guard touched else { return }
-                    Task { await self?.focusEditField(field) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setFocusedEditValue(value, field: field) }
-                }
-            )
-        }
-    }
-
     private func editValue(for field: TrackerEditField, cell: TrackerDemoCell) -> Int {
         switch field {
             case .note:
@@ -1940,6 +1910,19 @@ private actor WidgetLab {
                 Int(cell.volume, radix: 16) ?? 0
             case .effect:
                 Int(cell.effect, radix: 16) ?? 0
+        }
+    }
+
+    private func editDisplayValue(for field: TrackerEditField, cell: TrackerDemoCell) -> String {
+        switch field {
+            case .note:
+                cell.note
+            case .instrument:
+                cell.instrument
+            case .volume:
+                cell.volume
+            case .effect:
+                cell.effect
         }
     }
 
@@ -3121,6 +3104,26 @@ private enum TrackerEditField: CaseIterable, Sendable {
             case .instrument: 1...16
             case .volume: 0...64
             case .effect: 0...0xfff
+        }
+    }
+
+    var label: String {
+        switch self {
+            case .note: "NOTE"
+            case .instrument: "INST"
+            case .volume: "VOL"
+            case .effect: "FX"
+        }
+    }
+
+    var valueColor: UInt16 {
+        switch self {
+            case .note, .volume:
+                Palette.text
+            case .instrument:
+                Palette.instrument
+            case .effect:
+                Palette.effect
         }
     }
 }
