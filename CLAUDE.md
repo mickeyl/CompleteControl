@@ -22,19 +22,21 @@ Resume from `master`. The MK2 screen-formalization work is active:
   and picker screens through these DSL elements.
 - `MK2SelectionInputElement` is the first screen-owned navigation helper: it derives
   4-D jog lamps, direction movement, main-rotary movement, and confirm from
-  `MK2SelectionNavigation` plus `MK2SelectionLayout`.
+  `MK2SelectionNavigation` plus `MK2SelectionLayout`. WidgetLab Browser Lab and Selection
+  Lab merge these `MK2ScreenBuildResult`s into their scene, so their picker navigation
+  now comes from the screen instead of demo-local jog glue.
+- `MK2EncoderDiscreteValueElement` lets screens own discrete encoder bindings. Browser Lab
+  and Selection Lab now attach their filter encoder bindings to their picker screen
+  results, leaving only mode switching and domain-specific mutation in WidgetLab.
 
 Next code stages:
 
-1. Wire WidgetLab Browser Lab and Selection Lab scene construction through DSL
-   `MK2ScreenBuildResult`s so their screen-owned input elements replace demo-local
-   jog lamp and binding code.
-2. Expand the reusable element set with page/tabs, parameter pages, richer meter widgets,
-   and filter-focus encoder helpers.
-3. Add WidgetLab snapshot coverage for every formal screen/component class and keep
+1. Expand the reusable element set with page/tabs, parameter pages, richer meter widgets,
+   and a less verbose way to declare groups of filter encoders.
+2. Add WidgetLab snapshot coverage for every formal screen/component class and keep
    hardware acceptance focused on Unit A Font/Icon Lab, Selection Lab, Browser Lab, and
    the tracker Clear/Shift+Clear workflow.
-4. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
+3. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
    can render and bind inputs without demo-local glue.
 
 ## Layout

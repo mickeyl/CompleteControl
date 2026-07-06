@@ -446,20 +446,8 @@ private actor WidgetLab {
             }
         } else if unit == .chrome {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
-            browserNavigation.applyJogLamps(
-                to: &lamps,
-                itemCount: filteredBrowserItems().count,
-                layout: browserJogLayout,
-                availableLamp: Self.availableLamp(Self.actionWhite)
-            )
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
-            selectionNavigation.applyJogLamps(
-                to: &lamps,
-                itemCount: filteredSelectionItems().count,
-                layout: selectionJogLayout,
-                availableLamp: Self.availableLamp(Self.actionWhite)
-            )
         } else if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
@@ -537,21 +525,9 @@ private actor WidgetLab {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleBrowserMode() }
             }
-            bindings.jog = { [weak self] direction in
-                Task { await self?.handleBrowserJog(direction) }
-            }
-            for binding in browserEncoderBindings() {
-                binding.apply(bindings: &bindings)
-            }
         } else if unit == .list {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleSelectionMode() }
-            }
-            bindings.jog = { [weak self] direction in
-                Task { await self?.handleSelectionJog(direction) }
-            }
-            for binding in selectionEncoderBindings() {
-                binding.apply(bindings: &bindings)
             }
         } else if unit == .pattern {
             MK2ButtonToggle(
@@ -595,11 +571,17 @@ private actor WidgetLab {
             }
         }
 
-        let (left, right) = frames()
+        let (leftResult, rightResult) = screenResults()
+        lamps.merge(leftResult.lamps) { _, next in next }
+        lamps.merge(rightResult.lamps) { _, next in next }
+        bindings.merge(leftResult.bindings)
+        bindings.merge(rightResult.bindings)
+
         applyLampOverrides(to: &lamps)
-        var keyColors: [Int: KKRGB] = [:]
+        var keyColors = leftResult.keyColors
+        keyColors.merge(rightResult.keyColors) { _, next in next }
         applyGuideOverrides(to: &keyColors)
-        return MK2SurfaceScene2(left: left, right: right, lamps: lamps, keyColors: keyColors, bindings: bindings)
+        return MK2SurfaceScene2(left: leftResult.screen.frame, right: rightResult.screen.frame, lamps: lamps, keyColors: keyColors, bindings: bindings)
     }
 
     private func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
@@ -651,13 +633,28 @@ private actor WidgetLab {
     }
 
     private func frames() -> (MK2PixelFrame, MK2PixelFrame) {
+        let results = screenResults()
+        return (results.0.screen.frame, results.1.screen.frame)
+    }
+
+    private func screenResults() -> (MK2ScreenBuildResult, MK2ScreenBuildResult) {
         switch unit {
-            case .font: fontFrames()
-            case .chrome: (browserDetailFrame(), browserPickerFrame())
-            case .list: (selectionStatusFrame(), selectionPickerFrame())
-            case .pattern: (trackerGridFrame(), trackerDetailFrame())
-            default: (comingSoonFrame(), placeholderRightFrame())
+            case .font:
+                let frames = fontFrames()
+                return (screenResult(frame: frames.0), screenResult(frame: frames.1))
+            case .chrome:
+                return (browserDetailResult(), browserPickerResult())
+            case .list:
+                return (selectionStatusResult(), selectionPickerResult())
+            case .pattern:
+                return (screenResult(frame: trackerGridFrame()), screenResult(frame: trackerDetailFrame()))
+            default:
+                return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
+    }
+
+    private func screenResult(frame: MK2PixelFrame, kind: MK2ScreenKind = .fullScreen) -> MK2ScreenBuildResult {
+        MK2ScreenBuildResult(screen: MK2Screen(kind: kind, frame: frame))
     }
 
     private func regularScreenFrame(
@@ -665,19 +662,29 @@ private actor WidgetLab {
         footer: MK2ScreenFooter = .none,
         @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
     ) -> MK2PixelFrame {
+        regularScreenResult(header: header, footer: footer, content: content).screen.frame
+    }
+
+    private func regularScreenResult(
+        header: MK2ScreenHeader,
+        footer: MK2ScreenFooter = .none,
+        @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
+    ) -> MK2ScreenBuildResult {
         MK2RegularScreenDSL(header: header, footer: footer, content: content)
             .build(renderer: freeTypeRenderer)
-            .screen
-            .frame
     }
 
     private func fullScreenFrame(
         @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
     ) -> MK2PixelFrame {
+        fullScreenResult(content: content).screen.frame
+    }
+
+    private func fullScreenResult(
+        @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
+    ) -> MK2ScreenBuildResult {
         MK2FullScreenDSL(content: content)
             .build(renderer: freeTypeRenderer)
-            .screen
-            .frame
     }
 
     // MARK: - Font lab
@@ -886,10 +893,14 @@ private actor WidgetLab {
     // MARK: - Browser lab
 
     private func browserDetailFrame() -> MK2PixelFrame {
+        browserDetailResult().screen.frame
+    }
+
+    private func browserDetailResult() -> MK2ScreenBuildResult {
         let items = filteredBrowserItems()
         let selected = selectedBrowserItem()
 
-        return regularScreenFrame(
+        return regularScreenResult(
             header: .title(title: "Browser Lab", subtitle: browserMode.shortTitle),
             footer: .hint(browserConfirmation)
         ) {
@@ -922,6 +933,10 @@ private actor WidgetLab {
     }
 
     private func browserPickerFrame() -> MK2PixelFrame {
+        browserPickerResult().screen.frame
+    }
+
+    private func browserPickerResult() -> MK2ScreenBuildResult {
         let items = filteredBrowserItems().map(\.selectionItem)
         let filters = browserMode.hasFilters ? browserFilters() : []
         let colors = MK2SelectionViewColors(
@@ -935,7 +950,7 @@ private actor WidgetLab {
             filterFill: Palette.filterFill
         )
         let subtitle = browserMode.hasFilters ? "4D select, E5/E6 filter" : "4D select, INSTANCE mode"
-        return fullScreenFrame {
+        return fullScreenResult {
             if browserMode.isGrid {
                 MK2SelectionGridElement(
                     title: browserMode.shortTitle,
@@ -957,17 +972,36 @@ private actor WidgetLab {
                     colors: colors
                 )
             }
+            MK2SelectionInputElement(
+                navigation: browserNavigation,
+                itemCount: items.count,
+                layout: browserJogLayout,
+                availableLamp: Self.availableLamp(Self.actionWhite),
+                onMove: { [weak self] delta in
+                    Task { await self?.moveBrowserSelection(delta) }
+                },
+                onConfirm: { [weak self] in
+                    Task { await self?.confirmBrowserSelection() }
+                }
+            )
+            for binding in browserEncoderBindings() {
+                MK2EncoderDiscreteValueElement(binding, drawsDisplay: false)
+            }
         }
     }
 
     // MARK: - Selection lab
 
     private func selectionStatusFrame() -> MK2PixelFrame {
+        selectionStatusResult().screen.frame
+    }
+
+    private func selectionStatusResult() -> MK2ScreenBuildResult {
         let items = filteredSelectionItems()
         let selected = selectedSelectionItem()
         let selectedTitle = selected?.title
 
-        return regularScreenFrame(
+        return regularScreenResult(
             header: .title(title: "Selection Lab", subtitle: selectionMode.shortTitle),
             footer: .hint(selectionConfirmation)
         ) {
@@ -1001,6 +1035,10 @@ private actor WidgetLab {
     }
 
     private func selectionPickerFrame() -> MK2PixelFrame {
+        selectionPickerResult().screen.frame
+    }
+
+    private func selectionPickerResult() -> MK2ScreenBuildResult {
         let items = filteredSelectionItems().map(\.selectionItem)
         let filters = selectionMode.hasFilters ? selectionFilters() : []
         let subtitle = selectionMode.hasFilters ? "4D select, E5-E7 filter" : "4D select, INSTANCE mode"
@@ -1015,7 +1053,7 @@ private actor WidgetLab {
             filterFill: Palette.filterFill
         )
 
-        return fullScreenFrame {
+        return fullScreenResult {
             if selectionMode.isGrid {
                 MK2SelectionGridElement(
                     title: selectionMode.shortTitle,
@@ -1036,6 +1074,21 @@ private actor WidgetLab {
                     rowHeight: selectionMode.hasFilters ? 44 : 30,
                     colors: colors
                 )
+            }
+            MK2SelectionInputElement(
+                navigation: selectionNavigation,
+                itemCount: items.count,
+                layout: selectionJogLayout,
+                availableLamp: Self.availableLamp(Self.actionWhite),
+                onMove: { [weak self] delta in
+                    Task { await self?.moveSelection(delta) }
+                },
+                onConfirm: { [weak self] in
+                    Task { await self?.confirmSelection() }
+                }
+            )
+            for binding in selectionEncoderBindings() {
+                MK2EncoderDiscreteValueElement(binding, drawsDisplay: false)
             }
         }
     }

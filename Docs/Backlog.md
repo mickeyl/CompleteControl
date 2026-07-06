@@ -24,18 +24,18 @@
 
 - Continue hardening `MK2ScreenDSL` on top of `MK2ScreenLayout`: the first declarative
   `RegularScreen`, `FullScreen`, and `DoubleScreen` builders exist with formal
-  header/footer/content slots, HIG chrome, screen elements, and scene merging. Next,
-  route WidgetLab screen construction through `MK2ScreenBuildResult` so element-owned
-  lamps, light-guide colors, and bindings are merged instead of copied into demo-local
-  scene glue.
+  header/footer/content slots, HIG chrome, screen elements, and scene merging. WidgetLab
+  Browser Lab and Selection Lab now route picker screen construction through
+  `MK2ScreenBuildResult`, so element-owned 4-D lamps and bindings are merged instead of
+  copied into demo-local scene glue.
 - Reusable DSL content elements now cover wrapped text, value cells, encoder footers,
   status lines, empty states, progress bars, browser detail panes, and selection
   list/grid wrappers. Still open before Paulinche integration: page/tabs, parameter pages,
   richer meter widgets, and filter-focus encoder helpers.
-- Make input binding screen-owned: screens can already declare buttons, encoders, lamps,
-  light-guide colors, and basic selection 4-D navigation next to rendering. Next, move
-  WidgetLab Browser/Selection to consume `MK2SelectionInputElement` directly and add
-  reusable filter-focus gestures.
+- Make input binding screen-owned: screens can already declare buttons, discrete encoders,
+  lamps, light-guide colors, and basic selection 4-D navigation next to rendering. WidgetLab
+  Browser/Selection picker screens now own their 4-D navigation and filter encoder
+  bindings. Next, add a more compact grouped filter-encoder declaration for product code.
 - Done in WidgetLab tracker demo: Shift is the only first-class key modifier in Kit2.
   `Clear` deletes the currently selected row immediately, without a confirmation dialog;
   `Shift + Clear` clears the whole pattern and keeps the existing confirmation dialog.

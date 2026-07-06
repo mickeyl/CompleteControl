@@ -382,6 +382,23 @@ public struct MK2EncoderFooterElement: MK2ScreenElement {
     }
 }
 
+public struct MK2EncoderDiscreteValueElement: MK2ScreenElement {
+    public var value: MK2EncoderDiscreteValue
+    public var drawsDisplay: Bool
+
+    public init(_ value: MK2EncoderDiscreteValue, drawsDisplay: Bool = true) {
+        self.value = value
+        self.drawsDisplay = drawsDisplay
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        value.apply(bindings: &result.bindings)
+        if drawsDisplay {
+            value.drawDisplay(into: &frame)
+        }
+    }
+}
+
 public struct MK2SelectionListElement: MK2ScreenElement {
     public var list: MK2SelectionList
 

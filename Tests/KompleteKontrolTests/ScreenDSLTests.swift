@@ -147,6 +147,34 @@ struct ScreenDSLTests {
         #expect(box.confirmed == 1)
     }
 
+    @Test("Encoder discrete value element owns filter encoder bindings")
+    func encoderDiscreteValueElementOwnsBindings() {
+        let box = ScreenDSLBox()
+        let result = MK2FullScreenDSL {
+            MK2EncoderDiscreteValueElement(
+                MK2EncoderDiscreteValue(
+                    encoder: 5,
+                    value: 2,
+                    bounds: 0...4,
+                    wraps: true,
+                    onTouch: { touched in
+                        box.touched = touched
+                    },
+                    onChange: { value in
+                        box.lastValue = value
+                    }
+                ),
+                drawsDisplay: false
+            )
+        }.build()
+
+        result.bindings.encoderTouch[5]?(true)
+        result.bindings.encoder[5]?(1, 0, 0)
+
+        #expect(box.touched)
+        #expect(box.lastValue == 3)
+    }
+
     @Test("Shift is a first-class button modifier")
     func shiftModifiedButtonPressRoutesSeparately() async {
         let box = ScreenDSLBox()
@@ -180,6 +208,8 @@ private final class ScreenDSLBox: @unchecked Sendable {
     var patternClears = 0
     var lastDelta = 0
     var confirmed = 0
+    var touched = false
+    var lastValue = 0
 }
 
 private extension MK2PixelFrame {
