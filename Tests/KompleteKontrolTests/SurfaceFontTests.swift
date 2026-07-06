@@ -2,9 +2,18 @@ import Foundation
 import Testing
 @testable import KontrolSurfaceKit2
 
-@Suite("SurfaceFont metrics & atlas")
+@Suite("SurfaceFont metrics & JetBrains Mono lowering")
 struct SurfaceFontMetricsTests {
-    @Test("Face metrics match the vendored bitmap cell sizes")
+    // Ink over an advance-wide, cell-high column starting at `x` — the field one scalar
+    // occupies. Non-zero means the FreeType lowering put pixels in that character cell.
+    private func cellInk(_ frame: MK2PixelFrame, x: Int, y: Int, font: SurfaceFont) -> Bool {
+        for py in y..<(y + font.cellHeight) {
+            for px in x..<(x + font.advance) where frame[px, py] != 0 { return true }
+        }
+        return false
+    }
+
+    @Test("Face metrics reproduce the retired bitmap cell sizes exactly")
     func faceMetrics() {
         #expect(SurfaceFont.grid.advance == 8)
         #expect(SurfaceFont.grid.cellHeight == 16)
@@ -16,18 +25,23 @@ struct SurfaceFontMetricsTests {
         #expect(SurfaceFont.readout.cellHeight == 20)
     }
 
-    @Test("Atlas blob is fully decoded for every face")
-    func atlasDecoded() {
+    @Test("Every face lowers to a JetBrains Mono weight")
+    func facesUseMono() {
         for font in [SurfaceFont.grid, .gridBold, .label, .readout, .readoutBold] {
-            #expect(font.bitmap.count == font.glyphCount * font.bytesPerRow * font.cellHeight)
+            #expect(font.familyID == FreeTypeFontCatalog.monoFamilyID)
         }
+        // Regular vs Bold is the only weight axis; "bold" == Bold (700) so the emphasis
+        // faces stay legibly heavier than Regular at 13 px.
+        #expect(SurfaceFont.grid.renderWeight == .regular)
+        #expect(SurfaceFont.gridBold.renderWeight == .bold)
+        #expect(SurfaceFont.readoutBold.renderWeight == .bold)
     }
 
     @Test("Role/weight resolution; label has no bold face so it falls back")
     func roleResolution() {
         #expect(SurfaceFont.face(.grid, .bold).advance == SurfaceFont.gridBold.advance)
         #expect(SurfaceFont.face(.readout, .bold).cellHeight == SurfaceFont.readoutBold.cellHeight)
-        // Cozette ships a single label face — bold label must stay the regular cell.
+        // The label role ships a single face — bold label stays the regular cell.
         #expect(SurfaceFont.face(.label, .bold).cellHeight == SurfaceFont.label.cellHeight)
         #expect(SurfaceFont.face(.label, .bold).advance == 6)
     }
@@ -40,27 +54,16 @@ struct SurfaceFontMetricsTests {
         #expect(SurfaceFont.label.measure("ABCDE") == 5 * 6)
     }
 
-    @Test("Space is blank, a letter has ink, out-of-range falls back to '?'")
-    func glyphInk() {
+    @Test("Space is blank, a letter inks, and the pen keeps a fixed pitch")
+    func fixedPitchInk() {
         let font = SurfaceFont.grid
-        let spaceInk = (0..<font.cellHeight).reduce(UInt16(0)) {
-            $0 | font.rowBits(glyph: font.glyphIndex(for: " "), row: $1)
-        }
-        #expect(spaceInk == 0)
-
-        let letterInk = (0..<font.cellHeight).reduce(UInt16(0)) {
-            $0 | font.rowBits(glyph: font.glyphIndex(for: "A"), row: $1)
-        }
-        #expect(letterInk != 0)
-
-        // Ink must stay within the advance-wide field (no stray high bits).
-        for row in 0..<font.cellHeight {
-            #expect(font.rowBits(glyph: font.glyphIndex(for: "A"), row: row) < (UInt16(1) << font.advance))
-        }
-
-        // A scalar outside 0x20…0xFF resolves to the '?' slot.
-        let euro: Unicode.Scalar = "€"
-        #expect(font.glyphIndex(for: euro) == font.glyphIndex(for: "?"))
+        var frame = MK2PixelFrame(fill: 0)
+        // Two letters straddling a space: each letter cell inks, the space cell stays clear,
+        // and every glyph sits in its own fixed-advance column (no drift, no overlap spill).
+        frame.drawText("A A", font: font, x: 100, y: 100, color: 0xffff)
+        #expect(cellInk(frame, x: 100, y: 100, font: font))          // 'A'
+        #expect(!cellInk(frame, x: 100 + font.advance, y: 100, font: font))   // ' '
+        #expect(cellInk(frame, x: 100 + 2 * font.advance, y: 100, font: font)) // 'A'
     }
 }
 

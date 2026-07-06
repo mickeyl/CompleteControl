@@ -4,16 +4,19 @@ import Testing
 
 @Suite("FreeType text rendering")
 struct FreeTypeTextRendererTests {
-    @Test("Production catalog exposes the locked text and icon families")
+    @Test("Production catalog exposes the locked text, icon, and mono families")
     func catalogShape() {
         let catalog = FreeTypeFontCatalog.production
         #expect(catalog.families.map(\.id) == [
             FreeTypeFontCatalog.textFamilyID,
             FreeTypeFontCatalog.iconProLightFamilyID,
+            FreeTypeFontCatalog.monoFamilyID,
         ])
         #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .regular).resourceName == "IBMPlexSansCondensed-Regular.otf")
         #expect(catalog.family(id: FreeTypeFontCatalog.textFamilyID)?.source(for: .medium).resourceName == "IBMPlexSansCondensed-Medium.otf")
         #expect(catalog.family(id: FreeTypeFontCatalog.iconProLightFamilyID)?.source(for: .regular).resourceName == "FontAwesome7Pro-Light-300.otf")
+        #expect(catalog.family(id: FreeTypeFontCatalog.monoFamilyID)?.source(for: .regular).resourceName == "JetBrainsMono-Regular.ttf")
+        #expect(catalog.family(id: FreeTypeFontCatalog.monoFamilyID)?.source(for: .bold).resourceName == "JetBrainsMono-Bold.ttf")
     }
 
     @Test("Renderer draws grayscale antialiased text into RGB565 frame")

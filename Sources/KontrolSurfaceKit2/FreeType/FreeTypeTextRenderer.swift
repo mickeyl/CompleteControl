@@ -115,6 +115,12 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     private let catalog: FreeTypeFontCatalog
     private var library: FT_Library?
     private var faces: [FaceKey: FaceBox] = [:]
+    private let renderLock = NSLock()
+
+    /// Process-wide renderer backing the monospace `SurfaceFont` path. All bitmap-font
+    /// drawing now lowers to JetBrains Mono through this instance, so it is shared and
+    /// its FreeType face state is guarded by `renderLock`.
+    public static let shared: FreeTypeTextRenderer? = try? FreeTypeTextRenderer()
 
     public init(catalog: FreeTypeFontCatalog = .production) throws {
         self.catalog = catalog
@@ -186,6 +192,58 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
             }
             penX += Int((slot.advance.x + 32) >> 6)
             if x + penX >= widthLimit { break }
+        }
+    }
+
+    /// Draw `text` as a fixed-pitch run: the pen steps by exactly `advance` per scalar
+    /// regardless of the glyph's natural advance, reproducing a monospace bitmap grid so
+    /// character-per-row capacity and column positions stay identical to the old atlas
+    /// path. Glyphs self-center via their side bearing (JetBrains Mono is monospace).
+    /// `advance`, `ascent`, and `cellHeight` are in device pixels (already scaled).
+    public func drawMonospaced(
+        _ text: String,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        style: FreeTypeTextStyle,
+        advance: Int,
+        ascent: Int,
+        cellHeight: Int,
+        background: UInt16? = nil,
+        maxWidth: Int? = nil,
+        clip: MK2PixelRect? = nil
+    ) throws {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
+        let face = try configuredFace(style: style).face
+        let bounds = clip.flatMap { $0.clipped(to: MK2PixelFrame.bounds) } ?? MK2PixelFrame.bounds
+        let scalars = Array(text.unicodeScalars)
+        let widthLimit = maxWidth.map { min(x + max(0, $0), MK2PixelFrame.width) } ?? MK2PixelFrame.width
+
+        if let background {
+            let bgRect = MK2PixelRect(x: x, y: y, width: scalars.count * advance, height: cellHeight)
+            if let filled = bgRect.clipped(to: bounds) { frame.fill(filled, background) }
+        }
+
+        let baselineY = y + ascent
+        var penX = x
+        for scalar in scalars {
+            if penX >= bounds.maxX || penX >= widthLimit { break }
+            let loadError = FT_Load_Char(face, FT_ULong(scalar.value), Self.loadFlags(for: style.rasterMode, render: true))
+            if loadError == 0, let glyph = face.pointee.glyph {
+                let slot = glyph.pointee
+                draw(
+                    bitmap: slot.bitmap,
+                    into: &frame,
+                    x: penX + Int(slot.bitmap_left),
+                    y: baselineY - Int(slot.bitmap_top),
+                    color: style.color,
+                    limitX: widthLimit,
+                    clip: bounds
+                )
+            }
+            penX += advance
         }
     }
 
