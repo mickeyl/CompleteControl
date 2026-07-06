@@ -49,6 +49,104 @@ struct ScreenDSLTests {
         #expect(scene.keyColors[12] == KKRGB(red: 1, green: 2, blue: 3))
     }
 
+    @Test("Reusable content elements draw through the screen DSL")
+    func reusableContentElementsDraw() {
+        let renderer = try? FreeTypeTextRenderer()
+        let colors = MK2ValueCellColors(
+            label: 0xffff,
+            value: 0x07e0,
+            border: 0x4208,
+            fill: 0x1083,
+            focusedValue: 0x0000,
+            focusedFill: 0xc618,
+            focusedBorder: 0xffff
+        )
+
+        let result = MK2RegularScreenDSL(
+            header: .title(title: "Editor", subtitle: "Values"),
+            footer: .encoderArea()
+        ) {
+            MK2StatusLineElement(items: [
+                MK2StatusLineItem("EDIT", x: 8, color: 0xffff),
+            ])
+            MK2ContentText(
+                "A long body line should wrap into a second visible row when the available width is tight.",
+                x: 8,
+                y: 24,
+                maxWidth: 148,
+                color: 0xffff,
+                maxLines: 2,
+                lineSpacing: 2
+            )
+            MK2ValueCellElement(label: "VOL", value: "40", rect: MK2PixelRect(x: 8, y: 112, width: 80, height: 30), colors: colors)
+            MK2ProgressBarElement(rect: MK2PixelRect(x: 108, y: 118, width: 120, height: 14), progress: 0.5)
+            MK2EncoderFooterElement([
+                MK2EncoderDiscreteValueDisplay(label: "FX", value: "A09", rect: MK2PixelRect(x: 252, y: 218, width: 80, height: 34), colors: colors),
+            ])
+        }.build(renderer: renderer)
+
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 90, width: 148, height: 44), notMatching: MK2HIG.Chrome.background) > 20)
+        #expect(result.screen.frame[16, 164] == colors.border)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 117, y: 165, width: 60, height: 12), matching: MK2HIG.Chrome.accent) > 10)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 252, y: 196, width: 90, height: 56), notMatching: MK2HIG.Chrome.background) > 10)
+    }
+
+    @Test("Selection elements wrap existing list and grid widgets")
+    func selectionElementsDrawExistingWidgets() {
+        let items = [
+            MK2SelectionItem(title: "Piano Noir", detail: "Felt", badge: "A"),
+            MK2SelectionItem(title: "Tape Strings", detail: "Warm", badge: "B"),
+        ]
+
+        let list = MK2FullScreenDSL {
+            MK2SelectionListElement(title: "Browser List", subtitle: "2 items", items: items, selectedIndex: 0, rowHeight: 44)
+        }.build(renderer: try? FreeTypeTextRenderer())
+        let grid = MK2FullScreenDSL {
+            MK2SelectionGridElement(
+                title: "Browser Grid",
+                subtitle: "2 items",
+                items: items,
+                selectedIndex: 1,
+                cellSize: MK2SelectionCellSize(width: 120, height: 58)
+            )
+        }.build(renderer: try? FreeTypeTextRenderer())
+
+        #expect(list.screen.frame.countPixels(in: MK2PixelRect(x: 12, y: 48, width: 456, height: 70), notMatching: MK2HIG.Chrome.background) > 100)
+        #expect(grid.screen.frame.countPixels(in: MK2PixelRect(x: 12, y: 48, width: 456, height: 80), notMatching: MK2HIG.Chrome.background) > 100)
+    }
+
+    @Test("Selection input owns jog lamps and movement bindings")
+    func selectionInputOwnsNavigationBindings() {
+        let box = ScreenDSLBox()
+        let result = MK2FullScreenDSL {
+            MK2SelectionInputElement(
+                navigation: MK2SelectionNavigation(selectedIndex: 0),
+                itemCount: 8,
+                layout: .grid(cellSize: MK2SelectionCellSize(width: 110, height: 58)),
+                onMove: { delta in
+                    box.lastDelta = delta
+                    box.count += 1
+                },
+                onConfirm: {
+                    box.confirmed += 1
+                }
+            )
+        }.build()
+
+        #expect(result.lamps[.jogLeft] == .off)
+        #expect(result.lamps[.jogRight] == .white)
+        #expect(result.lamps[.jogUp] == .off)
+        #expect(result.lamps[.jogDown] == .white)
+
+        result.bindings.jog?("down")
+        #expect(box.lastDelta == 4)
+        result.bindings.jogScroll?(1, 0)
+        #expect(box.lastDelta == 1)
+        #expect(box.count == 2)
+        result.bindings.jogCenter?()
+        #expect(box.confirmed == 1)
+    }
+
     @Test("Shift is a first-class button modifier")
     func shiftModifiedButtonPressRoutesSeparately() async {
         let box = ScreenDSLBox()
@@ -80,6 +178,8 @@ private final class ScreenDSLBox: @unchecked Sendable {
     var count = 0
     var rowClears = 0
     var patternClears = 0
+    var lastDelta = 0
+    var confirmed = 0
 }
 
 private extension MK2PixelFrame {

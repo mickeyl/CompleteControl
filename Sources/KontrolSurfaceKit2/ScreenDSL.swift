@@ -222,6 +222,8 @@ public struct MK2ContentText: MK2ScreenElement {
     public var role: Role
     public var color: UInt16
     public var relativeToContent: Bool
+    public var maxLines: Int?
+    public var lineSpacing: Int
 
     public init(
         _ text: String,
@@ -230,7 +232,9 @@ public struct MK2ContentText: MK2ScreenElement {
         maxWidth: Int? = nil,
         role: Role = .body,
         color: UInt16 = MK2HIG.Chrome.text,
-        relativeToContent: Bool = true
+        relativeToContent: Bool = true,
+        maxLines: Int? = nil,
+        lineSpacing: Int = 0
     ) {
         self.text = text
         self.x = x
@@ -239,6 +243,8 @@ public struct MK2ContentText: MK2ScreenElement {
         self.role = role
         self.color = color
         self.relativeToContent = relativeToContent
+        self.maxLines = maxLines
+        self.lineSpacing = max(0, lineSpacing)
     }
 
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
@@ -248,18 +254,39 @@ public struct MK2ContentText: MK2ScreenElement {
         let availableWidth = maxWidth ?? max(0, MK2PixelFrame.width - drawX - MK2ScreenLayout.contentInset)
         let style = textStyle()
 
-        guard let renderer = context.renderer,
-              (try? renderer.drawText(text, into: &frame, x: drawX, y: drawY, style: style, maxWidth: availableWidth)) != nil else {
-            let font: SurfaceFont
-            switch role {
-                case .title:
-                    font = .gridBold
-                case .caption, .body, .custom:
-                    font = .grid
+        if let renderer = context.renderer {
+            if let maxLines, maxLines > 1,
+               (try? renderer.drawWrappedText(
+                    text,
+                    into: &frame,
+                    x: drawX,
+                    y: drawY,
+                    style: style,
+                    maxWidth: availableWidth,
+                    maxLines: maxLines,
+                    lineSpacing: lineSpacing
+               )) != nil {
+                return
             }
-            BitmapLabel(text, font: font, color: color)
-                .draw(into: &frame, x: drawX, y: drawY + 3, clip: MK2PixelRect(x: drawX, y: drawY, width: availableWidth, height: 26))
-            return
+
+            if (try? renderer.drawText(text, into: &frame, x: drawX, y: drawY, style: style, maxWidth: availableWidth)) != nil {
+                return
+            }
+        }
+
+        let font: SurfaceFont
+        switch role {
+            case .title:
+                font = .gridBold
+            case .caption, .body, .custom:
+                font = .grid
+        }
+        let lines = maxLines.map { wrappedBitmapLines(text, font: font, maxWidth: availableWidth, maxLines: max(1, $0)) } ?? [text]
+        let lineAdvance = font.cellHeight + lineSpacing
+        for (index, line) in lines.enumerated() {
+            let y = drawY + 3 + index * lineAdvance
+            BitmapLabel(line, font: font, color: color)
+                .draw(into: &frame, x: drawX, y: y, clip: MK2PixelRect(x: drawX, y: y, width: availableWidth, height: font.cellHeight))
         }
     }
 
@@ -273,6 +300,371 @@ public struct MK2ContentText: MK2ScreenElement {
                 MK2HIG.captionTextStyle(color: color)
             case let .custom(weight, pixelSize):
                 MK2HIG.textStyle(weight: weight, pixelSize: pixelSize, color: color)
+        }
+    }
+}
+
+public struct MK2StatusLineElement: MK2ScreenElement {
+    public var y: Int
+    public var items: [MK2StatusLineItem]
+    public var relativeToContent: Bool
+
+    public init(y: Int = 0, items: [MK2StatusLineItem], relativeToContent: Bool = true) {
+        self.y = y
+        self.items = items
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        let originY = relativeToContent ? context.layout?.contentRect.y ?? 0 : 0
+        MK2StatusLine(y: originY + y, items: items).draw(into: &frame)
+    }
+}
+
+public struct MK2ValueCellElement: MK2ScreenElement {
+    public var cell: MK2ValueCell
+    public var relativeToContent: Bool
+
+    public init(_ cell: MK2ValueCell, relativeToContent: Bool = true) {
+        self.cell = cell
+        self.relativeToContent = relativeToContent
+    }
+
+    public init(
+        label: String,
+        value: String,
+        rect: MK2PixelRect,
+        isFocused: Bool = false,
+        valueFont: SurfaceFont = .readoutBold,
+        labelFont: SurfaceFont = .label,
+        cornerRadius: Int = 0,
+        colors: MK2ValueCellColors,
+        relativeToContent: Bool = true
+    ) {
+        self.cell = MK2ValueCell(
+            label: label,
+            value: value,
+            rect: rect,
+            isFocused: isFocused,
+            valueFont: valueFont,
+            labelFont: labelFont,
+            cornerRadius: cornerRadius,
+            colors: colors
+        )
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        var cell = cell
+        if relativeToContent, let contentRect = context.layout?.contentRect {
+            cell.rect = MK2PixelRect(
+                x: contentRect.x + cell.rect.x,
+                y: contentRect.y + cell.rect.y,
+                width: cell.rect.width,
+                height: cell.rect.height
+            )
+        }
+        cell.draw(into: &frame)
+    }
+}
+
+public struct MK2EncoderFooterElement: MK2ScreenElement {
+    public var displays: [MK2EncoderDiscreteValueDisplay]
+
+    public init(_ displays: [MK2EncoderDiscreteValueDisplay]) {
+        self.displays = displays
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        for display in displays {
+            display.draw(into: &frame)
+        }
+    }
+}
+
+public struct MK2SelectionListElement: MK2ScreenElement {
+    public var list: MK2SelectionList
+
+    public init(_ list: MK2SelectionList) {
+        self.list = list
+    }
+
+    public init(
+        title: String,
+        subtitle: String? = nil,
+        items: [MK2SelectionItem],
+        selectedIndex: Int,
+        filters: [MK2SelectionFilter] = [],
+        rowHeight: Int = 36,
+        colors: MK2SelectionViewColors = MK2SelectionViewColors()
+    ) {
+        self.list = MK2SelectionList(
+            title: title,
+            subtitle: subtitle,
+            items: items,
+            selectedIndex: selectedIndex,
+            filters: filters,
+            rowHeight: rowHeight,
+            colors: colors
+        )
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        list.draw(into: &frame, renderer: context.renderer)
+    }
+}
+
+public struct MK2SelectionGridElement: MK2ScreenElement {
+    public var grid: MK2SelectionGrid
+
+    public init(_ grid: MK2SelectionGrid) {
+        self.grid = grid
+    }
+
+    public init(
+        title: String,
+        subtitle: String? = nil,
+        items: [MK2SelectionItem],
+        selectedIndex: Int,
+        cellSize: MK2SelectionCellSize,
+        filters: [MK2SelectionFilter] = [],
+        colors: MK2SelectionViewColors = MK2SelectionViewColors(),
+        cellContent: MK2SelectionGrid.CellContent = .iconAndText
+    ) {
+        self.grid = MK2SelectionGrid(
+            title: title,
+            subtitle: subtitle,
+            items: items,
+            selectedIndex: selectedIndex,
+            cellSize: cellSize,
+            filters: filters,
+            colors: colors,
+            cellContent: cellContent
+        )
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        grid.draw(into: &frame, renderer: context.renderer)
+    }
+}
+
+public struct MK2SelectionInputElement: MK2ScreenElement {
+    public var navigation: MK2SelectionNavigation
+    public var itemCount: Int
+    public var layout: MK2SelectionJogLayout
+    public var availableLamp: MK2LampState2
+    public var unavailableLamp: MK2LampState2
+    public var wraps: Bool
+    public var bindsMainEncoder: Bool
+    private let onMove: @Sendable (_ delta: Int) -> Void
+    private let onConfirm: (@Sendable () -> Void)?
+
+    public init(
+        navigation: MK2SelectionNavigation,
+        itemCount: Int,
+        layout: MK2SelectionJogLayout,
+        availableLamp: MK2LampState2 = .white,
+        unavailableLamp: MK2LampState2 = .off,
+        wraps: Bool = false,
+        bindsMainEncoder: Bool = true,
+        onMove: @escaping @Sendable (_ delta: Int) -> Void,
+        onConfirm: (@Sendable () -> Void)? = nil
+    ) {
+        self.navigation = navigation
+        self.itemCount = itemCount
+        self.layout = layout
+        self.availableLamp = availableLamp
+        self.unavailableLamp = unavailableLamp
+        self.wraps = wraps
+        self.bindsMainEncoder = bindsMainEncoder
+        self.onMove = onMove
+        self.onConfirm = onConfirm
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        navigation.applyJogLamps(
+            to: &result.lamps,
+            itemCount: itemCount,
+            layout: layout,
+            availableLamp: availableLamp,
+            unavailableLamp: unavailableLamp,
+            wraps: wraps
+        )
+
+        result.bindings.jog = { direction in
+            guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout),
+                  navigation.canMove(by: delta, itemCount: itemCount, wraps: wraps) else { return }
+            onMove(delta)
+        }
+
+        if bindsMainEncoder {
+            result.bindings.jogScroll = { delta, _ in
+                guard itemCount > 0, delta != 0 else { return }
+                onMove(delta)
+            }
+        }
+
+        if let onConfirm {
+            result.bindings.jogCenter = {
+                guard navigation.clampedSelectedIndex(itemCount: itemCount) != nil else { return }
+                onConfirm()
+            }
+        }
+    }
+}
+
+public struct MK2EmptyStateElement: MK2ScreenElement {
+    public var title: String
+    public var detail: String?
+    public var iconGlyph: String?
+    public var iconColor: UInt16
+
+    public init(
+        title: String,
+        detail: String? = nil,
+        iconGlyph: String? = nil,
+        iconColor: UInt16 = MK2HIG.Chrome.accent
+    ) {
+        self.title = title
+        self.detail = detail
+        self.iconGlyph = iconGlyph
+        self.iconColor = iconColor
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        let contentRect = context.layout?.contentRect ?? MK2PixelFrame.bounds
+        let centerY = contentRect.y + max(0, contentRect.height - 96) / 2
+        var textX = contentRect.x + 8
+        if let iconGlyph, let renderer = context.renderer {
+            try? renderer.drawText(
+                iconGlyph,
+                into: &frame,
+                x: contentRect.x + 8,
+                y: centerY,
+                style: MK2HIG.iconStyle(pixelSize: 40, color: iconColor),
+                maxWidth: 48
+            )
+            textX += 64
+        }
+        if let renderer = context.renderer {
+            _ = try? renderer.drawText(title, into: &frame, x: textX, y: centerY + 4, style: MK2HIG.titleTextStyle(color: MK2HIG.Chrome.text), maxWidth: contentRect.maxX - textX - 8)
+            if let detail {
+                _ = try? renderer.drawWrappedText(detail, into: &frame, x: textX, y: centerY + 42, style: MK2HIG.bodyTextStyle(color: MK2HIG.Chrome.dim), maxWidth: contentRect.maxX - textX - 8, maxLines: 2, lineSpacing: 2)
+            }
+        } else {
+            BitmapLabel(title, font: .gridBold, color: MK2HIG.Chrome.text).draw(into: &frame, x: textX, y: centerY + 8)
+            if let detail {
+                BitmapLabel(detail, font: .grid, color: MK2HIG.Chrome.dim)
+                    .draw(into: &frame, x: textX, y: centerY + 34, clip: MK2PixelRect(x: textX, y: centerY + 34, width: max(0, contentRect.maxX - textX - 8), height: SurfaceFont.grid.cellHeight))
+            }
+        }
+    }
+}
+
+public struct MK2BrowserDetailElement: MK2ScreenElement {
+    public var title: String
+    public var detail: String
+    public var metadata: String?
+    public var iconGlyph: String?
+    public var y: Int
+    public var iconColor: UInt16
+    public var accentColor: UInt16
+    public var relativeToContent: Bool
+
+    public init(
+        title: String,
+        detail: String,
+        metadata: String? = nil,
+        iconGlyph: String? = nil,
+        y: Int = 84,
+        iconColor: UInt16 = MK2HIG.Chrome.accent,
+        accentColor: UInt16 = MK2HIG.Chrome.accent,
+        relativeToContent: Bool = true
+    ) {
+        self.title = title
+        self.detail = detail
+        self.metadata = metadata
+        self.iconGlyph = iconGlyph
+        self.y = y
+        self.iconColor = iconColor
+        self.accentColor = accentColor
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        let contentRect = context.layout?.contentRect ?? MK2PixelFrame.bounds
+        let originX = relativeToContent ? contentRect.x : 0
+        let originY = relativeToContent ? contentRect.y : 0
+        var textX = originX + 8
+        let topY = originY + y
+
+        if let iconGlyph, let renderer = context.renderer {
+            _ = try? renderer.drawText(
+                iconGlyph,
+                into: &frame,
+                x: originX + 16,
+                y: topY + 2,
+                style: MK2HIG.iconStyle(pixelSize: 48, color: iconColor),
+                maxWidth: 56
+            )
+            textX += 76
+        }
+
+        let textWidth = max(0, MK2PixelFrame.width - textX - 24)
+        if let renderer = context.renderer {
+            _ = try? renderer.drawText(title, into: &frame, x: textX, y: topY, style: MK2HIG.titleTextStyle(color: MK2HIG.Chrome.text), maxWidth: textWidth)
+            _ = try? renderer.drawWrappedText(detail, into: &frame, x: textX, y: topY + 38, style: MK2HIG.bodyTextStyle(color: MK2HIG.Chrome.dim), maxWidth: textWidth, maxLines: 2, lineSpacing: 2)
+            if let metadata {
+                _ = try? renderer.drawText(metadata, into: &frame, x: textX, y: topY + 78, style: MK2HIG.bodyTextStyle(color: accentColor), maxWidth: textWidth)
+            }
+        } else {
+            BitmapLabel(title, font: .gridBold, color: MK2HIG.Chrome.text)
+                .draw(into: &frame, x: textX, y: topY + 4, clip: MK2PixelRect(x: textX, y: topY + 4, width: textWidth, height: SurfaceFont.gridBold.cellHeight))
+            BitmapLabel(detail, font: .grid, color: MK2HIG.Chrome.dim)
+                .draw(into: &frame, x: textX, y: topY + 34, clip: MK2PixelRect(x: textX, y: topY + 34, width: textWidth, height: SurfaceFont.grid.cellHeight))
+            if let metadata {
+                BitmapLabel(metadata, font: .grid, color: accentColor)
+                    .draw(into: &frame, x: textX, y: topY + 66, clip: MK2PixelRect(x: textX, y: topY + 66, width: textWidth, height: SurfaceFont.grid.cellHeight))
+            }
+        }
+    }
+}
+
+public struct MK2ProgressBarElement: MK2ScreenElement {
+    public var rect: MK2PixelRect
+    public var progress: Double
+    public var fill: UInt16
+    public var track: UInt16
+    public var border: UInt16
+    public var relativeToContent: Bool
+
+    public init(
+        rect: MK2PixelRect,
+        progress: Double,
+        fill: UInt16 = MK2HIG.Chrome.accent,
+        track: UInt16 = MK2HIG.Chrome.footerFill,
+        border: UInt16 = MK2HIG.Chrome.border,
+        relativeToContent: Bool = true
+    ) {
+        self.rect = rect
+        self.progress = progress
+        self.fill = fill
+        self.track = track
+        self.border = border
+        self.relativeToContent = relativeToContent
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        let contentRect = context.layout?.contentRect
+        let drawRect = relativeToContent
+            ? MK2PixelRect(x: (contentRect?.x ?? 0) + rect.x, y: (contentRect?.y ?? 0) + rect.y, width: rect.width, height: rect.height)
+            : rect
+        frame.fill(drawRect, track)
+        frame.stroke(drawRect, border)
+        let clamped = max(0, min(1, progress))
+        let fillWidth = max(0, min(drawRect.width - 2, Int((Double(max(0, drawRect.width - 2)) * clamped).rounded())))
+        if fillWidth > 0 {
+            frame.fill(MK2PixelRect(x: drawRect.x + 1, y: drawRect.y + 1, width: fillWidth, height: max(0, drawRect.height - 2)), fill)
         }
     }
 }
@@ -368,6 +760,41 @@ private extension MK2PixelRect {
     var origin: MK2Point {
         MK2Point(x: x, y: y)
     }
+}
+
+private func wrappedBitmapLines(_ text: String, font: SurfaceFont, maxWidth: Int, maxLines: Int) -> [String] {
+    let maxCharacters = max(1, maxWidth / max(1, font.advance))
+    var lines: [String] = []
+    var current = ""
+
+    for word in text.split(separator: " ").map(String.init) {
+        let candidate = current.isEmpty ? word : current + " " + word
+        if candidate.count <= maxCharacters {
+            current = candidate
+            continue
+        }
+
+        if !current.isEmpty {
+            lines.append(current)
+            current = ""
+        }
+
+        var remainder = word
+        while remainder.count > maxCharacters {
+            let index = remainder.index(remainder.startIndex, offsetBy: maxCharacters)
+            lines.append(String(remainder[..<index]))
+            remainder = String(remainder[index...])
+            if lines.count >= maxLines {
+                return Array(lines.prefix(maxLines))
+            }
+        }
+        current = remainder
+    }
+
+    if !current.isEmpty {
+        lines.append(current)
+    }
+    return Array(lines.prefix(maxLines))
 }
 
 private struct MK2Point: Sendable {

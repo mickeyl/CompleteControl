@@ -671,6 +671,15 @@ private actor WidgetLab {
             .frame
     }
 
+    private func fullScreenFrame(
+        @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
+    ) -> MK2PixelFrame {
+        MK2FullScreenDSL(content: content)
+            .build(renderer: freeTypeRenderer)
+            .screen
+            .frame
+    }
+
     // MARK: - Font lab
 
     private func fontFrames() -> (MK2PixelFrame, MK2PixelFrame) {
@@ -877,29 +886,42 @@ private actor WidgetLab {
     // MARK: - Browser lab
 
     private func browserDetailFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
         let items = filteredBrowserItems()
         let selected = selectedBrowserItem()
-        BitmapLabel("BROWSER LAB", font: .label, color: Palette.accent)
-            .draw(into: &frame, x: 8, y: 8)
-        drawFreeTypeTitle(browserMode.title, into: &frame, x: 16, y: 40, size: 24, color: Palette.text, maxWidth: 420)
-        drawFreeTypeBody("INSTANCE schaltet List/Grid/Filter. 4D wählt, 4D-Press öffnet.", into: &frame, x: 16, y: 78, size: 16, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("Treffer: \(items.count) / \(BrowserLabFixtures.items.count)", into: &frame, x: 16, y: 118, size: 16, color: Palette.text, maxWidth: 432)
 
-        if let selected {
-            drawFreeTypeIcon(selected.icon, into: &frame, x: 24, y: 148, size: 48, color: Palette.accent)
-            drawFreeTypeTitle(selected.title, into: &frame, x: 92, y: 146, size: 24, color: Palette.text, maxWidth: 344)
-            drawFreeTypeBody(selected.detail, into: &frame, x: 92, y: 184, size: 16, color: Palette.dim, maxWidth: 344)
-            drawFreeTypeBody("\(selected.area) · \(selected.source) · \(selected.status)", into: &frame, x: 92, y: 222, size: 16, color: Palette.blue, maxWidth: 344)
-        } else {
-            drawFreeTypeBody("Keine Einträge für diese Filter.", into: &frame, x: 16, y: 154, size: 16, color: Palette.empty, maxWidth: 432)
+        return regularScreenFrame(
+            header: .title(title: "Browser Lab", subtitle: browserMode.shortTitle),
+            footer: .hint(browserConfirmation)
+        ) {
+            MK2ContentText(browserMode.title, x: 8, y: 0, role: .title)
+            MK2ContentText(
+                "INSTANCE schaltet List/Grid/Filter. 4D wählt, 4D-Press öffnet.",
+                x: 8,
+                y: 40,
+                maxWidth: 432,
+                color: Palette.dim,
+                maxLines: 2,
+                lineSpacing: 2
+            )
+            MK2ContentText("Treffer: \(items.count) / \(BrowserLabFixtures.items.count)", x: 8, y: 80, maxWidth: 432)
+
+            if let selected {
+                MK2BrowserDetailElement(
+                    title: selected.title,
+                    detail: selected.detail,
+                    metadata: "\(selected.area) · \(selected.source) · \(selected.status)",
+                    iconGlyph: selected.icon,
+                    y: 112,
+                    iconColor: Palette.accent,
+                    accentColor: Palette.blue
+                )
+            } else {
+                MK2EmptyStateElement(title: "Keine Einträge", detail: "Für diese Filter gibt es keine Browser-Treffer.")
+            }
         }
-        drawFreeTypeBody(browserConfirmation, into: &frame, x: 16, y: 250, size: 16, color: Palette.empty, maxWidth: 432)
-        return frame
     }
 
     private func browserPickerFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
         let items = filteredBrowserItems().map(\.selectionItem)
         let filters = browserMode.hasFilters ? browserFilters() : []
         let colors = MK2SelectionViewColors(
@@ -912,28 +934,30 @@ private actor WidgetLab {
             border: Palette.border,
             filterFill: Palette.filterFill
         )
-        if browserMode.isGrid {
-            MK2SelectionGrid(
-                title: browserMode.shortTitle,
-                subtitle: browserMode.hasFilters ? "4D select, E5/E6 filter" : "4D select, INSTANCE mode",
-                items: items,
-                selectedIndex: browserNavigation.selectedIndex,
-                cellSize: BrowserLabFixtures.gridCellSizes[0],
-                filters: filters,
-                colors: colors
-            ).draw(into: &frame, renderer: freeTypeRenderer)
-        } else {
-            MK2SelectionList(
-                title: browserMode.shortTitle,
-                subtitle: browserMode.hasFilters ? "4D select, E5/E6 filter" : "4D select, INSTANCE mode",
-                items: items,
-                selectedIndex: browserNavigation.selectedIndex,
-                filters: filters,
-                rowHeight: browserMode.hasFilters ? 44 : 36,
-                colors: colors
-            ).draw(into: &frame, renderer: freeTypeRenderer)
+        let subtitle = browserMode.hasFilters ? "4D select, E5/E6 filter" : "4D select, INSTANCE mode"
+        return fullScreenFrame {
+            if browserMode.isGrid {
+                MK2SelectionGridElement(
+                    title: browserMode.shortTitle,
+                    subtitle: subtitle,
+                    items: items,
+                    selectedIndex: browserNavigation.selectedIndex,
+                    cellSize: BrowserLabFixtures.gridCellSizes[0],
+                    filters: filters,
+                    colors: colors
+                )
+            } else {
+                MK2SelectionListElement(
+                    title: browserMode.shortTitle,
+                    subtitle: subtitle,
+                    items: items,
+                    selectedIndex: browserNavigation.selectedIndex,
+                    filters: filters,
+                    rowHeight: browserMode.hasFilters ? 44 : 36,
+                    colors: colors
+                )
+            }
         }
-        return frame
     }
 
     // MARK: - Selection lab
@@ -953,29 +977,30 @@ private actor WidgetLab {
                 x: 8,
                 y: 40,
                 maxWidth: 432,
-                color: Palette.dim
+                color: Palette.dim,
+                maxLines: 2,
+                lineSpacing: 2
             )
             MK2ContentText(
                 "4D dreht durch die Auswahl, 4D-Press bestätigt.",
                 x: 8,
-                y: 74,
+                y: 88,
                 maxWidth: 432,
                 color: Palette.dim
             )
             MK2ContentText(
                 "Treffer: \(items.count) / \(SelectionLabFixtures.items.count)",
                 x: 8,
-                y: 112,
+                y: 126,
                 maxWidth: 432
             )
             if let selectedTitle {
-                MK2ContentText("Aktuell: \(selectedTitle)", x: 8, y: 140, maxWidth: 432, color: Palette.blue)
+                MK2ContentText("Aktuell: \(selectedTitle)", x: 8, y: 154, maxWidth: 432, color: Palette.blue)
             }
         }
     }
 
     private func selectionPickerFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
         let items = filteredSelectionItems().map(\.selectionItem)
         let filters = selectionMode.hasFilters ? selectionFilters() : []
         let subtitle = selectionMode.hasFilters ? "4D select, E5-E7 filter" : "4D select, INSTANCE mode"
@@ -990,28 +1015,29 @@ private actor WidgetLab {
             filterFill: Palette.filterFill
         )
 
-        if selectionMode.isGrid {
-            MK2SelectionGrid(
-                title: selectionMode.shortTitle,
-                subtitle: subtitle,
-                items: items,
-                selectedIndex: selectionNavigation.selectedIndex,
-                cellSize: SelectionLabFixtures.cellSizes[selectionCellSizeIndex],
-                filters: filters,
-                colors: colors
-            ).draw(into: &frame, renderer: freeTypeRenderer)
-        } else {
-            MK2SelectionList(
-                title: selectionMode.shortTitle,
-                subtitle: subtitle,
-                items: items,
-                selectedIndex: selectionNavigation.selectedIndex,
-                filters: filters,
-                rowHeight: selectionMode.hasFilters ? 44 : 30,
-                colors: colors
-            ).draw(into: &frame, renderer: freeTypeRenderer)
+        return fullScreenFrame {
+            if selectionMode.isGrid {
+                MK2SelectionGridElement(
+                    title: selectionMode.shortTitle,
+                    subtitle: subtitle,
+                    items: items,
+                    selectedIndex: selectionNavigation.selectedIndex,
+                    cellSize: SelectionLabFixtures.cellSizes[selectionCellSizeIndex],
+                    filters: filters,
+                    colors: colors
+                )
+            } else {
+                MK2SelectionListElement(
+                    title: selectionMode.shortTitle,
+                    subtitle: subtitle,
+                    items: items,
+                    selectedIndex: selectionNavigation.selectedIndex,
+                    filters: filters,
+                    rowHeight: selectionMode.hasFilters ? 44 : 30,
+                    colors: colors
+                )
+            }
         }
-        return frame
     }
 
     // MARK: - Tracker unit

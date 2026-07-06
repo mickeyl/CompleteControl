@@ -6,7 +6,7 @@ This file is the working context for an agent picking the project up. Pair it wi
 
 ## Next Session
 
-Resume from branch `harfbuzz`. The first MK2 screen-formalization stage is underway:
+Resume from `master`. The MK2 screen-formalization work is active:
 
 - `MK2ScreenDSL` now provides declarative `MK2RegularScreenDSL`, `MK2FullScreenDSL`, and
   `MK2DoubleScreenDSL` builders on top of the formal screen model. Regular screens own
@@ -16,17 +16,21 @@ Resume from branch `harfbuzz`. The first MK2 screen-formalization stage is under
   `.unmodified`/`.shift` button bindings. WidgetLab tracker behavior demonstrates the rule:
   `Clear` clears the selected row immediately; `Shift+Clear` opens the pattern-clear
   confirmation dialog.
-- `MK2WidgetLabDemo` Selection Lab's left status screen is the first real regular screen
-  rendered through the new DSL. Continue migrating other non-tracker regular screens to
-  this path before Paulinche consumes the API.
+- Reusable DSL elements now cover wrapped content text, status lines, value cells,
+  encoder footers, selection list/grid wrappers, empty states, progress bars, and browser
+  detail panes. WidgetLab Browser Lab and Selection Lab now render their regular/detail
+  and picker screens through these DSL elements.
+- `MK2SelectionInputElement` is the first screen-owned navigation helper: it derives
+  4-D jog lamps, direction movement, main-rotary movement, and confirm from
+  `MK2SelectionNavigation` plus `MK2SelectionLayout`.
 
 Next code stages:
 
-1. Expand reusable DSL elements: wrapped body text, browser detail panes, value rows,
-   status rows, page/tabs, empty/error states, meters/progress, and encoder footers.
-2. Move screen-owned navigation helpers into the DSL/component layer: list-vs-grid row
-   steps, clamp/wrap, confirm, and filter-focus coordination backed by
-   `MK2SelectionNavigation` and `MK2SelectionLayout`.
+1. Wire WidgetLab Browser Lab and Selection Lab scene construction through DSL
+   `MK2ScreenBuildResult`s so their screen-owned input elements replace demo-local
+   jog lamp and binding code.
+2. Expand the reusable element set with page/tabs, parameter pages, richer meter widgets,
+   and filter-focus encoder helpers.
 3. Add WidgetLab snapshot coverage for every formal screen/component class and keep
    hardware acceptance focused on Unit A Font/Icon Lab, Selection Lab, Browser Lab, and
    the tracker Clear/Shift+Clear workflow.
