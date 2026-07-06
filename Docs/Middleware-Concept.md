@@ -177,7 +177,7 @@ chosen default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHint
 for renderer comparison. LCD/subpixel rendering is intentionally not used because the
 RGB565/OLED path has no stable RGB-stripe subpixel contract.
 
-The hardware workbench is `MK2FreeTypeDemo`; see `Docs/MK2-FreeType.md`.
+The hardware workbench is `MK2WidgetLabDemo` Unit A; see `Docs/MK2-FreeType.md`.
 
 ## 6. Declarative `Screen` and components
 
@@ -478,10 +478,11 @@ interior panels on every encoder tick. Selection geometry lives in `MK2Selection
 apps and demos should use those content/filter rectangles and grid row-step helpers instead
 of copying pixel constants from the renderer.
 
-In the lab, `Instance` cycles plain list, plain grid, filtered list, and filtered grid; the
+In the selection labs, `Instance` cycles plain list, plain grid, filtered list, and filtered grid; the
 4-D encoder moves selection by one item in lists, one visual row in grids, and confirms on
-press. `MK2FreeTypeDemo` uses the same selection elements for the Font Awesome icon browser:
-`Instance` cycles list/grid/filter variants, and `E5` filters by first letter (`ALL`, `A`-`Z`).
+press. `MK2WidgetLabDemo` Unit A uses the same selection elements for the Font Awesome icon
+browser: `Instance` cycles Font Lab sub-demos, `E8` cycles list/grid/filter variants, and
+`E5` filters by first letter (`ALL`, `A`-`Z`).
 `MK2SelectionNavigation` owns the reusable selection-index and filter-focus mechanics so
 app-specific labs keep filtering and rendering decisions local without copying clamp/wrap/focus
 code. The MCU/HUI adapter is deprioritized — Paulinche integrates directly, not via MIDI

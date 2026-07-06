@@ -19,7 +19,7 @@ Supported now:
 - Foreground debug daemon and quiet release daemon
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
-- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, `MK2FreeTypeDemo`, and `KontrolSimulator`
+- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, and `KontrolSimulator`
 - MK2 LED capability model: palette colours on Mute, Solo, F1-F8, and the 25 touch-strip segments; other panel button indicators are fixed-colour monochrome (normally white, Play green, Record red)
 - MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text for larger dialogs, browser/settings surfaces, lists, long text, and icon-font experiments
 
@@ -156,15 +156,14 @@ Run the middleware demo:
 make run
 ```
 
-Run the MK2 FreeType font exploration demo:
+Run the MK2 Widget Lab demo, including the FreeType typography/icon sub-demos in Unit A:
 
 ```bash
-make mk2-freetype-demo
+make mk2-widget-lab-demo
 ```
 
 Only one MK2 surface client should own the displays at a time. Stop `MK2WidgetLabDemo`,
-`MK2SurfaceDemo`, Paulinche, or another MK2 client before judging the FreeType demo on
-hardware.
+`MK2SurfaceDemo`, Paulinche, or another MK2 client before judging the lab on hardware.
 
 Run the old REPL baseline:
 
@@ -359,8 +358,10 @@ screens as a PNG.
 
 ## MK2 FreeType Font Exploration
 
-`MK2FreeTypeDemo` is the hardware workbench for larger anti-aliased typography on the
-MK2 OLED displays. It is deliberately separate from the bitmap tracker/grid path:
+`MK2WidgetLabDemo` Unit A is the hardware workbench for larger anti-aliased typography on
+the MK2 OLED displays. `Instance` cycles the Surface Font, Typography, Font Awesome icon
+browser, and action-dialog sub-demos. This path is deliberately separate from the bitmap
+tracker/grid path:
 
 - `BitmapLabel` / `SurfaceFont` / `MK2PixelFrame.drawText(...)` remain the crisp,
   atlas-backed path for tracker grids and dense controls.
@@ -513,7 +514,7 @@ swift build --product ccd
 swift build --product KontrolProbe
 swift build -c release --product ccd
 swift build -c release --product KontrolProbe
-swift build --product MK2FreeTypeDemo
+swift build --product MK2WidgetLabDemo
 swift test
 swift test --filter PixelPipelinePerfTests
 git diff --check

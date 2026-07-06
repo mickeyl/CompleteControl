@@ -10,7 +10,7 @@ Resume from pushed `master` at `bcc038e Centralize MK2 selection layout metrics`
 
 First, hardware-test the current MK2 selection stack before changing more code:
 
-- `MK2FreeTypeDemo`: icon browser list/grid/filtered list/filtered grid, 4-D Up/Down,
+- `MK2WidgetLabDemo` Unit A / Font Lab: icon browser list/grid/filtered list/filtered grid, 4-D Up/Down,
   main rotary, and `E5` first-letter filter. Confirm the 2 px shorter header leaves the
   fourth icon-grid selection box fully visible without making list rows feel too tight.
 - `MK2WidgetLabDemo`: Selection Lab and Browser Lab list/grid/filter modes. Confirm grid
@@ -20,7 +20,7 @@ If the hardware pass is good, continue by formalizing selection input, not by ad
 demo-local handlers. The intended next code step is a small reusable selection input helper
 for list-vs-grid row steps, clamp, confirm, and filter-focus coordination, backed by
 `MK2SelectionNavigation` and `MK2SelectionLayout`. After that helper exists, migrate
-`MK2FreeTypeDemo`, WidgetLab Selection Lab, and WidgetLab Browser Lab to it. Then start the
+WidgetLab Font/Icon Lab, Selection Lab, and Browser Lab to it. Then start the
 first Paulinche integration prep: identify Browser/Settings views, global action dialogs,
 and selection projections that should consume the Kit2 list/grid/dialog widgets.
 
@@ -39,7 +39,7 @@ Two layers, plus a baseline app and a middleware demo:
 | `ccd` (exe) | `Tools/ccd/` | Privileged launchd/foreground daemon entry point. Owns USB and transports surface/MIDI events over the socket. |
 | `KontrolProbe` (exe) | `Tools/KontrolProbe/` | **Baseline** REPL + AppKit test UI. Leave as-is unless asked. |
 | `SurfaceDemo` (exe) | `Tools/SurfaceDemo/` | Console demo exercising every `KontrolSurfaceKit` feature. |
-| `MK2FreeTypeDemo` (exe) | `Tools/MK2FreeTypeDemo/` | Hardware workbench for FreeType families, weights, sizes, and raster modes on the MK2 OLED displays. |
+| `MK2WidgetLabDemo` (exe) | `Tools/MK2WidgetLabDemo/` | Hardware workbench for Kit2 widgets; Unit A contains the FreeType typography/icon/dialog lab, with `Instance` switching sub-demos. |
 
 **Platform floor: macOS 26** (decision 2026-07-02) — the pixel hot paths use Swift 6.2
 facilities (`Span.isIdentical`, `InlineArray`); do not lower the deployment target. Hot-path
@@ -56,7 +56,7 @@ git submodule update --init --recursive Vendor/libusb
 swift build                              # all targets
 swift build --product KontrolSurfaceKit  # just the kit
 swift build --product ccd                # daemon
-swift build --product MK2FreeTypeDemo    # MK2 FreeType typography workbench
+swift build --product MK2WidgetLabDemo   # MK2 widget and FreeType typography workbench
 swift test                               # focused decoder tests
 swift run SurfaceDemo                     # needs the daemon + hardware to see output
 swift build -c release --product KontrolProbe
@@ -102,11 +102,10 @@ You usually can't see the LCDs/LEDs. What works:
 - `swift build` then run `SurfaceDemo` backgrounded for ~3s and check it stays alive + exits
   clean on SIGINT (it blanks displays on `stop()`).
 - For visible MK2 changes, rebuild and restart the active demo client. Do not leave
-  `MK2WidgetLabDemo`, `MK2SurfaceDemo`, Paulinche, and `MK2FreeTypeDemo` running together:
+  `MK2WidgetLabDemo`, `MK2SurfaceDemo`, and Paulinche running together:
   a newly registered surface client evicts the previous session.
-- For FreeType work, run `swift build --product MK2FreeTypeDemo`; the demo prints its full
-  hardware-button help at startup. If output is redirected, it flushes the help and
-  connection-state lines explicitly.
+- For FreeType work, run `swift build --product MK2WidgetLabDemo`; Unit A contains the
+  typography, icon browser, and action-dialog sub-demos. `Instance` cycles those sub-demos.
 - For idle daemon diagnostics, install the debug daemon, make sure no client such as Paulinche or
   SurfaceDemo is connected, and verify the hardware shows `NO CLIENT` plus a `REV` cell. Then press
   a surface control and a MIDI key and inspect `/tmp/media.vanille.kompletekontrol-libusb.stderr.log`
@@ -134,7 +133,7 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
   `FreeTypeFontCatalog.production`, not per-screen resource literals. Body text is
   Plex Sans Condensed Regular 16 px; titles are Plex Sans Condensed Medium 24 px;
   action-dialog icons are 48 px.
-- `FreeTypeRasterMode.grayscaleHinted` is the OLED default and the FreeType demo renders
+- `FreeTypeRasterMode.grayscaleHinted` is the OLED default and WidgetLab Unit A renders
   with it fixed. `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted`
   remain renderer comparison modes. Do not enable LCD/subpixel rendering for MK2
   RGB565/OLED output; it is likely to create colour fringes.
@@ -142,16 +141,17 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
   bitmap path is separate. Validate with `swift test --filter PixelPipelinePerfTests`
   (look at `PERF drawText 60 chars scale 3`) plus `FreeTypeTextRendererTests`.
 
-`MK2FreeTypeDemo` controls:
+`MK2WidgetLabDemo` Unit A controls:
 
-- `F1`: typography specimens.
-- `F2`: Font Awesome icon browser.
-- `F3`: global action-dialog icon test.
+- `F1`: select the Font Lab unit.
+- `Instance`: cycle Surface Font, Typography, Font Awesome icon browser, and global action-dialog sub-demos.
 - Main rotary: scroll the icon browser list by one icon.
 - `4D Up`/`4D Down`: scroll the icon browser list by one visible page.
 - `Page Left`/`Page Right`: previous / next icon.
 - `Plugin`/`Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
   dialog copy.
+- `E8`: icon-browser list/grid/filter-list/filter-grid mode.
+- `E5`: filtered icon-browser modes: first-letter filter.
 - `Preset Down`/`Preset Up`: icon size.
 
 ### Simulation mode — run the daemon without hardware
@@ -395,9 +395,9 @@ as the regression baseline for the shared middleware, but no new kit features ge
   do not conflate active filters with focused encoder values: active filters colour labels,
   while only the touched/turned value is inverted. Demos should use `MK2SelectionLayout` for
   content/filter rectangles and grid row-step behavior instead of copying pixel constants.
-  `MK2WidgetLabDemo` cycles plain/filtered list/grid variants with the `Instance` button;
-  `MK2FreeTypeDemo` uses the same selection elements for its Font Awesome icon browser with
-  `Instance` modes and an `E5` first-letter filter. `MK2WidgetLabDemo` unit `B` is the
+  `MK2WidgetLabDemo` cycles lab sub-demos with the `Instance` button. Its Font/Icon Lab
+  uses the same selection elements for the Font Awesome icon browser with `E8` modes and
+  an `E5` first-letter filter. `MK2WidgetLabDemo` unit `B` is the
   browser/settings prototype: left detail/preview,
   right selection list/grid, `Instance` modes, 4-D move/confirm, and `E5`/`E6` filters.
   Genuinely generic pieces (`SurfaceClock`, `GestureRecognizer`, daemon-client transport)

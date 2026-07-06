@@ -1,7 +1,7 @@
 # MK2 FreeType Typography
 
 Status: implemented for `KontrolSurfaceKit2`; the first production typography choice is
-locked and can be checked on hardware through `MK2FreeTypeDemo`.
+locked and can be checked on hardware through `MK2WidgetLabDemo` Unit A.
 
 ## Scope
 
@@ -55,7 +55,7 @@ Current text contract:
 - `grayscaleUnhinted` (`Gray unhinted`) — useful to judge native outline shape.
 - `monochromeHinted` (`Mono hinted`) — comparison mode; no partial coverage.
 
-`MK2FreeTypeDemo` now renders with `grayscaleHinted` fixed because that is the chosen MK2
+`MK2WidgetLabDemo` Unit A now renders with `grayscaleHinted` fixed because that is the chosen MK2
 OLED default. LCD/subpixel rendering is intentionally not enabled. The MK2 path renders
 into an RGB565 framebuffer and the OLED subpixel layout is not a stable RGB-stripe
 contract. Subpixel AA would risk colour fringes and panel-orientation artifacts;
@@ -66,36 +66,39 @@ grayscale coverage is the robust choice.
 Build:
 
 ```bash
-make mk2-freetype-demo-build
+make mk2-widget-lab-demo-build
 ```
 
 Run on hardware through the daemon:
 
 ```bash
-make mk2-freetype-demo
+make mk2-widget-lab-demo
 ```
 
 Release build/run:
 
 ```bash
-make mk2-freetype-demo-build-release
-make mk2-freetype-demo-release
+make mk2-widget-lab-demo-build-release
+make mk2-widget-lab-demo-release
 ```
 
-The demo prints its full hardware-control help at startup. Current controls:
+Legacy `make mk2-freetype-demo*` targets remain aliases to the Widget Lab targets.
+Current controls:
 
-- `F1`: typography specimens for body/title combinations.
-- `F2`: Font Awesome icon browser.
-- `F3`: global action-dialog icon test.
+- `F1`: select Unit A / Font Lab.
+- `Instance`: cycle Surface Font, Typography, Font Awesome icon browser, and global
+  action-dialog sub-demos.
 - Main rotary: scroll the icon browser list by one icon.
 - `4D Up` / `4D Down`: scroll the icon browser list by one visible page.
 - `Page Left` / `Page Right`: previous / next icon.
 - `Plugin` / `Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
   dialog copy and its default icon.
+- `E8`: icon-browser list/grid/filter-list/filter-grid mode.
+- `E5`: filtered icon-browser modes: first-letter filter.
 - `Preset Down` / `Preset Up`: smaller / larger icon size.
 
 Only one MK2 surface client should own the displays at a time. Stop `MK2WidgetLabDemo`,
-`MK2SurfaceDemo`, Paulinche, or another client before judging `MK2FreeTypeDemo`; registering
+`MK2SurfaceDemo`, Paulinche, or another client before judging the Widget Lab; registering
 a new client evicts the previous session.
 
 ## Performance Notes
@@ -107,7 +110,7 @@ covered by `FreeTypeTextRendererTests`.
 Recommended checks after touching this area:
 
 ```bash
-swift build --product MK2FreeTypeDemo
+swift build --product MK2WidgetLabDemo
 swift test --filter 'FreeTypeTextRendererTests|SurfaceFontMetricsTests|BitmapTextTests|PixelPipelinePerfTests'
 swift test
 git diff --check
