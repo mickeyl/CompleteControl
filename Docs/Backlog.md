@@ -27,3 +27,27 @@
   IBM Plex Sans Condensed Regular 16 px for body and Medium 24 px for titles, rendered
   with `grayscaleHinted`. Icon work uses Font Awesome 7 Pro Light, with 48 px icons for
   action dialogs. The bitmap-font rendering path remains separate for tracker/grid sharpness.
+
+- Experiment (branch `freetype`): the whole `SurfaceFont`/`BitmapLabel`/`drawText` path
+  now lowers to FreeType + JetBrains Mono (Regular + Bold), reproducing the retired
+  Tamzen atlas metrics exactly so no layout moves. See `FreeTypeTextRenderer.drawMonospaced`.
+
+- Text should render whole **glyph runs, not glyph-by-glyph.** Per-glyph rasterization
+  (the current `drawMonospaced` / `drawText`) is the wrong shape: it re-runs the hinter +
+  rasterizer for every glyph on every frame, and it throws away kerning because the pen
+  advances one isolated glyph at a time. Runs fix both:
+  - **Kerning:** a run lets FreeType apply pair kerning / (ideally) HarfBuzz shaping, which
+    only exists across adjacent glyphs. Matters for the proportional path (Plex titles/body);
+    moot for the fixed-pitch monospace faces, but the renderer is shared so the run API
+    should carry kerning for the proportional case.
+  - **Caching at block granularity:** cache larger units — shaped runs, whole words, or the
+    fixed set of tracker cells (e.g. the 256 hex cells, note names) — keyed by
+    `(face, pixelSize, weight, rasterMode, text)`. A cached block draw becomes a bitmap
+    copy/alpha-blend with no shaping or rasterization, recovering most of the old atlas
+    speed (which came from run-length `memset_pattern4` fills) even at `-Onone`.
+  - Measure via `PixelPipelinePerfTests` (`PERF drawText …`); current per-glyph cost is
+    ~0.5 ms / 60 chars at scale 3, dominated by `FT_Load_Char` rasterization, not the blit.
+
+- Caveat to revisit: capital umlauts (`ÄÖÜ`) clip at the top of the 16 px grid cell because
+  JetBrains Mono's diacritics + descenders want ~17 px. The tracker grid is ASCII so it is
+  unaffected, but grid text with capital umlauts (e.g. instrument names) loses its dots.
