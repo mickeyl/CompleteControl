@@ -32,21 +32,23 @@
   now lowers to FreeType + JetBrains Mono (Regular + Bold), reproducing the retired
   Tamzen atlas metrics exactly so no layout moves. See `FreeTypeTextRenderer.drawMonospaced`.
 
-- Text should render whole **glyph runs, not glyph-by-glyph.** Per-glyph rasterization
-  (the current `drawMonospaced` / `drawText`) is the wrong shape: it re-runs the hinter +
-  rasterizer for every glyph on every frame, and it throws away kerning because the pen
-  advances one isolated glyph at a time. Runs fix both:
+- Done as an intermediate step: FreeType text now renders through cached **glyph runs** in
+  `FreeTypeTextRenderer` for both proportional `drawText`/wrapped text and fixed-pitch
+  `drawMonospaced`/`SurfaceFont`. The cache stores alpha masks and metrics for reusable
+  glyphs plus complete text runs, keyed by family, weight, pixel size, raster mode, layout,
+  and text. Drawing a repeated run is now a bitmap alpha-blend with no FreeType load/render
+  call.
+
+- Still open: replace the simple scalar run builder with real shaping where it matters.
   - **Kerning:** a run lets FreeType apply pair kerning / (ideally) HarfBuzz shaping, which
     only exists across adjacent glyphs. Matters for the proportional path (Plex titles/body);
     moot for the fixed-pitch monospace faces, but the renderer is shared so the run API
-    should carry kerning for the proportional case.
-  - **Caching at block granularity:** cache larger units — shaped runs, whole words, or the
-    fixed set of tracker cells (e.g. the 256 hex cells, note names) — keyed by
-    `(face, pixelSize, weight, rasterMode, text)`. A cached block draw becomes a bitmap
-    copy/alpha-blend with no shaping or rasterization, recovering most of the old atlas
-    speed (which came from run-length `memset_pattern4` fills) even at `-Onone`.
-  - Measure via `PixelPipelinePerfTests` (`PERF drawText …`); current per-glyph cost is
-    ~0.5 ms / 60 chars at scale 3, dominated by `FT_Load_Char` rasterization, not the blit.
+    should eventually carry full shaping for the proportional case.
+  - **Caching at block granularity:** keep tuning cache granularity for shaped runs, whole
+    words, or the fixed set of tracker cells (e.g. the 256 hex cells, note names).
+  - Add a dedicated `SurfaceFont`/FreeType benchmark; the current `PixelPipelinePerfTests`
+    `PERF drawText ...` line measures the older 5x7 pixel-font helper, not the JetBrains
+    Mono `SurfaceFont` path.
 
 - Caveat to revisit: capital umlauts (`ÄÖÜ`) clip at the top of the 16 px grid cell because
   JetBrains Mono's diacritics + descenders want ~17 px. The tracker grid is ASCII so it is

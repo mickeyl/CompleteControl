@@ -98,6 +98,54 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         var faceIndex: Int
     }
 
+    private enum RunLayout: Hashable {
+        case proportional
+        case monospaced(advance: Int)
+    }
+
+    private struct TextRunKey: Hashable {
+        var familyID: String
+        var weight: FreeTypeFontWeight
+        var pixelSize: Int
+        var rasterMode: FreeTypeRasterMode
+        var layout: RunLayout
+        var text: String
+    }
+
+    private struct GlyphKey: Hashable {
+        var familyID: String
+        var weight: FreeTypeFontWeight
+        var pixelSize: Int
+        var rasterMode: FreeTypeRasterMode
+        var glyphIndex: FT_UInt
+    }
+
+    private struct CachedGlyph {
+        var advanceX: Int = 0
+        var bitmapLeft: Int = 0
+        var bitmapTop: Int = 0
+        var width: Int = 0
+        var height: Int = 0
+        var alpha: [UInt8] = []
+        var lastUsed: UInt64 = 0
+    }
+
+    private struct GlyphPlacement {
+        var glyph: CachedGlyph
+        var x: Int
+        var y: Int
+    }
+
+    private struct CachedTextRun {
+        var advanceWidth: Int = 0
+        var boundsX: Int = 0
+        var boundsY: Int = 0
+        var width: Int = 0
+        var height: Int = 0
+        var alpha: [UInt8] = []
+        var lastUsed: UInt64 = 0
+    }
+
     private final class FaceBox {
         let source: FreeTypeFontSource
         let face: FT_Face
@@ -115,7 +163,12 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     private let catalog: FreeTypeFontCatalog
     private var library: FT_Library?
     private var faces: [FaceKey: FaceBox] = [:]
+    private var glyphs: [GlyphKey: CachedGlyph] = [:]
+    private var textRuns: [TextRunKey: CachedTextRun] = [:]
+    private var runClock: UInt64 = 0
     private let renderLock = NSLock()
+    private static let maxCachedGlyphs = 2048
+    private static let maxCachedTextRuns = 1024
 
     /// Process-wide renderer backing the monospace `SurfaceFont` path. All bitmap-font
     /// drawing now lowers to JetBrains Mono through this instance, so it is shared and
@@ -138,27 +191,18 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     }
 
     public func metrics(style: FreeTypeTextStyle) throws -> FreeTypeTextMetrics {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
         let face = try configuredFace(style: style).face
-        guard let size = face.pointee.size else {
-            return FreeTypeTextMetrics(ascender: style.pixelSize, descender: 0, lineHeight: style.pixelSize)
-        }
-        let metrics = size.pointee.metrics
-        return FreeTypeTextMetrics(
-            ascender: Int(metrics.ascender >> 6),
-            descender: Int(metrics.descender >> 6),
-            lineHeight: Int(metrics.height >> 6)
-        )
+        return metrics(for: face, pixelSize: style.pixelSize)
     }
 
     public func measure(_ text: String, style: FreeTypeTextStyle) throws -> Int {
-        let face = try configuredFace(style: style).face
-        var penX = 0
-        for scalar in text.unicodeScalars {
-            let error = FT_Load_Char(face, FT_ULong(scalar.value), Self.loadFlags(for: style.rasterMode, render: false))
-            guard error == 0, let glyph = face.pointee.glyph else { continue }
-            penX += Int((glyph.pointee.advance.x + 32) >> 6)
-        }
-        return penX
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
+        return try cachedRun(text, style: style, layout: .proportional).advanceWidth
     }
 
     public func drawText(
@@ -170,29 +214,16 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         maxWidth: Int? = nil,
         clip: MK2PixelRect? = nil
     ) throws {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
         let face = try configuredFace(style: style).face
-        let metrics = try metrics(style: style)
+        let metrics = metrics(for: face, pixelSize: style.pixelSize)
+        let run = try cachedRun(text, style: style, layout: .proportional)
         let bounds = clip.flatMap { $0.clipped(to: MK2PixelFrame.bounds) } ?? MK2PixelFrame.bounds
-        let widthLimit = maxWidth.map { x + max(0, $0) } ?? MK2PixelFrame.width
+        let widthLimit = maxWidth.map { min(x + max(0, $0), MK2PixelFrame.width) } ?? MK2PixelFrame.width
         let baselineY = y + metrics.ascender
-        var penX = 0
-
-        for scalar in text.unicodeScalars {
-            let loadError = FT_Load_Char(face, FT_ULong(scalar.value), Self.loadFlags(for: style.rasterMode, render: true))
-            guard loadError == 0, let glyph = face.pointee.glyph else { continue }
-            let slot = glyph.pointee
-            let bitmap = slot.bitmap
-            let bitmapLeft = Int(slot.bitmap_left)
-            let bitmapTop = Int(slot.bitmap_top)
-            let drawX = x + penX + bitmapLeft
-            let drawY = baselineY - bitmapTop
-
-            if drawX < widthLimit {
-                draw(bitmap: bitmap, into: &frame, x: drawX, y: drawY, color: style.color, limitX: widthLimit, clip: bounds)
-            }
-            penX += Int((slot.advance.x + 32) >> 6)
-            if x + penX >= widthLimit { break }
-        }
+        draw(run: run, into: &frame, x: x, baselineY: baselineY, color: style.color, limitX: widthLimit, clip: bounds)
     }
 
     /// Draw `text` as a fixed-pitch run: the pen steps by exactly `advance` per scalar
@@ -216,7 +247,6 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         renderLock.lock()
         defer { renderLock.unlock() }
 
-        let face = try configuredFace(style: style).face
         let bounds = clip.flatMap { $0.clipped(to: MK2PixelFrame.bounds) } ?? MK2PixelFrame.bounds
         let scalars = Array(text.unicodeScalars)
         let widthLimit = maxWidth.map { min(x + max(0, $0), MK2PixelFrame.width) } ?? MK2PixelFrame.width
@@ -227,24 +257,8 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         }
 
         let baselineY = y + ascent
-        var penX = x
-        for scalar in scalars {
-            if penX >= bounds.maxX || penX >= widthLimit { break }
-            let loadError = FT_Load_Char(face, FT_ULong(scalar.value), Self.loadFlags(for: style.rasterMode, render: true))
-            if loadError == 0, let glyph = face.pointee.glyph {
-                let slot = glyph.pointee
-                draw(
-                    bitmap: slot.bitmap,
-                    into: &frame,
-                    x: penX + Int(slot.bitmap_left),
-                    y: baselineY - Int(slot.bitmap_top),
-                    color: style.color,
-                    limitX: widthLimit,
-                    clip: bounds
-                )
-            }
-            penX += advance
-        }
+        let run = try cachedRun(text, style: style, layout: .monospaced(advance: advance))
+        draw(run: run, into: &frame, x: x, baselineY: baselineY, color: style.color, limitX: widthLimit, clip: bounds)
     }
 
     public func wrappedLayout(
@@ -388,6 +402,203 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         }
     }
 
+    private func cachedRun(_ text: String, style: FreeTypeTextStyle, layout: RunLayout) throws -> CachedTextRun {
+        let key = TextRunKey(
+            familyID: style.familyID,
+            weight: style.weight,
+            pixelSize: style.pixelSize,
+            rasterMode: style.rasterMode,
+            layout: layout,
+            text: text
+        )
+        runClock &+= 1
+        if var cached = textRuns[key] {
+            cached.lastUsed = runClock
+            textRuns[key] = cached
+            return cached
+        }
+
+        let face = try configuredFace(style: style).face
+        var run = buildRun(text, face: face, style: style, layout: layout)
+        run.lastUsed = runClock
+        if textRuns.count >= Self.maxCachedTextRuns {
+            evictOldestTextRun()
+        }
+        textRuns[key] = run
+        return run
+    }
+
+    private func buildRun(_ text: String, face: FT_Face, style: FreeTypeTextStyle, layout: RunLayout) -> CachedTextRun {
+        let loadFlags = Self.loadFlags(for: style.rasterMode, render: true)
+        var placements: [GlyphPlacement] = []
+        placements.reserveCapacity(text.unicodeScalars.count)
+
+        var penX = 0
+        var previousGlyph: FT_UInt = 0
+        var hasPixels = false
+        var minX = 0
+        var minY = 0
+        var maxX = 0
+        var maxY = 0
+
+        for scalar in text.unicodeScalars {
+            let glyphIndex = FT_Get_Char_Index(face, FT_ULong(scalar.value))
+            if case .proportional = layout,
+               previousGlyph != 0,
+               glyphIndex != 0 {
+                var delta = FT_Vector()
+                if FT_Get_Kerning(face, previousGlyph, glyphIndex, FT_UInt(FT_KERNING_DEFAULT.rawValue), &delta) == 0 {
+                    penX += Int((delta.x + 32) >> 6)
+                }
+            }
+
+            if let glyph = cachedGlyph(glyphIndex: glyphIndex, face: face, style: style, loadFlags: loadFlags) {
+                let glyphX = penX + glyph.bitmapLeft
+                let glyphY = -glyph.bitmapTop
+                if glyph.width > 0, glyph.height > 0 {
+                    placements.append(GlyphPlacement(
+                        glyph: glyph,
+                        x: glyphX,
+                        y: glyphY
+                    ))
+                    if hasPixels {
+                        minX = min(minX, glyphX)
+                        minY = min(minY, glyphY)
+                        maxX = max(maxX, glyphX + glyph.width)
+                        maxY = max(maxY, glyphY + glyph.height)
+                    } else {
+                        minX = glyphX
+                        minY = glyphY
+                        maxX = glyphX + glyph.width
+                        maxY = glyphY + glyph.height
+                        hasPixels = true
+                    }
+                }
+
+                switch layout {
+                    case .proportional:
+                        penX += glyph.advanceX
+                    case let .monospaced(advance):
+                        penX += advance
+                }
+            } else if case let .monospaced(advance) = layout {
+                penX += advance
+            }
+            previousGlyph = glyphIndex
+        }
+
+        var run = CachedTextRun()
+        run.advanceWidth = penX
+        guard hasPixels else { return run }
+
+        run.boundsX = minX
+        run.boundsY = minY
+        run.width = maxX - minX
+        run.height = maxY - minY
+        run.alpha = Array(repeating: 0, count: run.width * run.height)
+
+        for placement in placements {
+            for row in 0..<placement.glyph.height {
+                for column in 0..<placement.glyph.width {
+                    let sourceAlpha = placement.glyph.alpha[row * placement.glyph.width + column]
+                    guard sourceAlpha > 0 else { continue }
+                    let targetX = placement.x - run.boundsX + column
+                    let targetY = placement.y - run.boundsY + row
+                    let targetIndex = targetY * run.width + targetX
+                    let targetAlpha = run.alpha[targetIndex]
+                    run.alpha[targetIndex] = UInt8(Int(sourceAlpha) + (Int(targetAlpha) * (255 - Int(sourceAlpha)) + 127) / 255)
+                }
+            }
+        }
+        return run
+    }
+
+    private func cachedGlyph(glyphIndex: FT_UInt, face: FT_Face, style: FreeTypeTextStyle, loadFlags: FT_Int32) -> CachedGlyph? {
+        let key = GlyphKey(
+            familyID: style.familyID,
+            weight: style.weight,
+            pixelSize: style.pixelSize,
+            rasterMode: style.rasterMode,
+            glyphIndex: glyphIndex
+        )
+        runClock &+= 1
+        if var cached = glyphs[key] {
+            cached.lastUsed = runClock
+            glyphs[key] = cached
+            return cached
+        }
+
+        guard FT_Load_Glyph(face, glyphIndex, loadFlags) == 0, let glyph = face.pointee.glyph else {
+            return nil
+        }
+        let slot = glyph.pointee
+        let copied = copyAlpha(bitmap: slot.bitmap)
+        let cached = CachedGlyph(
+            advanceX: Int((slot.advance.x + 32) >> 6),
+            bitmapLeft: Int(slot.bitmap_left),
+            bitmapTop: Int(slot.bitmap_top),
+            width: copied.width,
+            height: copied.height,
+            alpha: copied.alpha,
+            lastUsed: runClock
+        )
+        if glyphs.count >= Self.maxCachedGlyphs {
+            evictOldestGlyph()
+        }
+        glyphs[key] = cached
+        return cached
+    }
+
+    private func copyAlpha(bitmap: FT_Bitmap) -> (width: Int, height: Int, alpha: [UInt8]) {
+        guard let buffer = bitmap.buffer,
+              bitmap.width > 0,
+              bitmap.rows > 0 else {
+            return (0, 0, [])
+        }
+
+        let width = Int(bitmap.width)
+        let height = Int(bitmap.rows)
+        let pitch = Int(bitmap.pitch)
+        let absolutePitch = abs(pitch)
+        var alpha = Array(repeating: UInt8(0), count: width * height)
+        for row in 0..<height {
+            let sourceRow = pitch >= 0 ? row : height - 1 - row
+            let source = buffer.advanced(by: sourceRow * absolutePitch)
+            for column in 0..<width {
+                if bitmap.pixel_mode == FT_PIXEL_MODE_MONO.rawValue {
+                    let byte = source[column / 8]
+                    let mask = UInt8(0x80 >> (column & 7))
+                    alpha[row * width + column] = byte & mask == 0 ? 0 : 255
+                } else if bitmap.pixel_mode == FT_PIXEL_MODE_GRAY.rawValue {
+                    alpha[row * width + column] = source[column]
+                }
+            }
+        }
+        return (width, height, alpha)
+    }
+
+    private func evictOldestTextRun() {
+        guard let oldest = textRuns.min(by: { $0.value.lastUsed < $1.value.lastUsed })?.key else { return }
+        textRuns.removeValue(forKey: oldest)
+    }
+
+    private func evictOldestGlyph() {
+        guard let oldest = glyphs.min(by: { $0.value.lastUsed < $1.value.lastUsed })?.key else { return }
+        glyphs.removeValue(forKey: oldest)
+    }
+
+    private func metrics(for face: FT_Face, pixelSize: Int) -> FreeTypeTextMetrics {
+        guard let size = face.pointee.size else {
+            return FreeTypeTextMetrics(ascender: pixelSize, descender: 0, lineHeight: pixelSize)
+        }
+        let metrics = size.pointee.metrics
+        return FreeTypeTextMetrics(
+            ascender: Int(metrics.ascender >> 6),
+            descender: Int(metrics.descender >> 6),
+            lineHeight: Int(metrics.height >> 6)
+        )
+    }
+
     private func configuredFace(style: FreeTypeTextStyle) throws -> FaceBox {
         guard let family = catalog.family(id: style.familyID) else {
             throw FreeTypeTextError.missingFamily(style.familyID)
@@ -460,76 +671,26 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     }
 
     private func draw(
-        bitmap: FT_Bitmap,
+        run: CachedTextRun,
         into frame: inout MK2PixelFrame,
         x: Int,
-        y: Int,
+        baselineY: Int,
         color: UInt16,
         limitX: Int,
         clip: MK2PixelRect
     ) {
-        guard let buffer = bitmap.buffer,
-              bitmap.width > 0,
-              bitmap.rows > 0 else { return }
-
-        if bitmap.pixel_mode == FT_PIXEL_MODE_MONO.rawValue {
-            drawMono(bitmap: bitmap, buffer: buffer, into: &frame, x: x, y: y, color: color, limitX: limitX, clip: clip)
-        } else if bitmap.pixel_mode == FT_PIXEL_MODE_GRAY.rawValue {
-            drawGray(bitmap: bitmap, buffer: buffer, into: &frame, x: x, y: y, color: color, limitX: limitX, clip: clip)
-        }
-    }
-
-    private func drawGray(
-        bitmap: FT_Bitmap,
-        buffer: UnsafeMutablePointer<UInt8>,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        color: UInt16,
-        limitX: Int,
-        clip: MK2PixelRect
-    ) {
-        let width = Int(bitmap.width)
-        let rows = Int(bitmap.rows)
-        let pitch = Int(bitmap.pitch)
-        for row in 0..<rows {
-            let targetY = y + row
+        guard !run.alpha.isEmpty, run.width > 0, run.height > 0 else { return }
+        let drawX = x + run.boundsX
+        let drawY = baselineY + run.boundsY
+        for row in 0..<run.height {
+            let targetY = drawY + row
             guard targetY >= clip.y, targetY < clip.maxY else { continue }
-            let rowBase = pitch >= 0 ? row * pitch : (rows - 1 - row) * -pitch
-            for column in 0..<width {
-                let targetX = x + column
+            for column in 0..<run.width {
+                let targetX = drawX + column
                 guard targetX >= clip.x, targetX < clip.maxX, targetX < limitX else { continue }
-                let alpha = buffer[rowBase + column]
+                let alpha = run.alpha[row * run.width + column]
                 guard alpha > 0 else { continue }
                 frame[targetX, targetY] = Self.blendRGB565(color, over: frame[targetX, targetY], alpha: alpha)
-            }
-        }
-    }
-
-    private func drawMono(
-        bitmap: FT_Bitmap,
-        buffer: UnsafeMutablePointer<UInt8>,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        color: UInt16,
-        limitX: Int,
-        clip: MK2PixelRect
-    ) {
-        let width = Int(bitmap.width)
-        let rows = Int(bitmap.rows)
-        let pitch = Int(bitmap.pitch)
-        for row in 0..<rows {
-            let targetY = y + row
-            guard targetY >= clip.y, targetY < clip.maxY else { continue }
-            let rowBase = pitch >= 0 ? row * pitch : (rows - 1 - row) * -pitch
-            for column in 0..<width {
-                let targetX = x + column
-                guard targetX >= clip.x, targetX < clip.maxX, targetX < limitX else { continue }
-                let byte = buffer[rowBase + column / 8]
-                let mask = UInt8(0x80 >> (column & 7))
-                guard byte & mask != 0 else { continue }
-                frame[targetX, targetY] = color
             }
         }
     }

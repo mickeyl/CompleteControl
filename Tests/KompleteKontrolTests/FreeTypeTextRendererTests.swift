@@ -41,6 +41,23 @@ struct FreeTypeTextRendererTests {
         #expect(partial > 0)
     }
 
+    @Test("Cached runs redraw with independent colour and position")
+    func cachedRunsRedrawWithIndependentColorAndPosition() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let white = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0xffff)
+        let green = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0x07e0)
+        var first = MK2PixelFrame(fill: 0)
+        var second = MK2PixelFrame(fill: 0)
+
+        try renderer.drawText("Cache", into: &first, x: 20, y: 40, style: white)
+        try renderer.drawText("Cache", into: &second, x: 44, y: 64, style: green)
+
+        #expect(first.countNonBackgroundPixels(in: MK2PixelFrame.bounds) > 0)
+        #expect(second.countNonBackgroundPixels(in: MK2PixelFrame.bounds) > 0)
+        #expect(second.countMatchingPixels(0x07e0, in: MK2PixelRect(x: 44, y: 64, width: 120, height: 40)) > 0)
+        #expect(second.countNonBackgroundPixels(in: MK2PixelRect(x: 20, y: 40, width: 20, height: 20)) == 0)
+    }
+
     @Test("Every raster mode draws; antialiasing modes create partial coverage")
     func rasterModesDraw() throws {
         let renderer = try FreeTypeTextRenderer()
@@ -138,6 +155,17 @@ private extension MK2PixelFrame {
         var count = 0
         for y in clipped.y..<clipped.maxY {
             for x in clipped.x..<clipped.maxX where self[x, y] != 0x0000 {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    func countMatchingPixels(_ color: UInt16, in rect: MK2PixelRect) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where self[x, y] == color {
                 count += 1
             }
         }
