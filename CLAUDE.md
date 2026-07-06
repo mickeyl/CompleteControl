@@ -6,23 +6,32 @@ This file is the working context for an agent picking the project up. Pair it wi
 
 ## Next Session
 
-Resume from pushed `master` at `bcc038e Centralize MK2 selection layout metrics`.
+Resume from branch `harfbuzz`. The first MK2 screen-formalization stage is underway:
 
-First, hardware-test the current MK2 selection stack before changing more code:
+- `MK2ScreenDSL` now provides declarative `MK2RegularScreenDSL`, `MK2FullScreenDSL`, and
+  `MK2DoubleScreenDSL` builders on top of the formal screen model. Regular screens own
+  header/footer chrome from `MK2HIG`; screen elements can contribute pixels, lamps,
+  light-guide colors, and input bindings.
+- `MK2InputBindings2` supports Shift as the only first-class modifier via
+  `.unmodified`/`.shift` button bindings. WidgetLab tracker behavior demonstrates the rule:
+  `Clear` clears the selected row immediately; `Shift+Clear` opens the pattern-clear
+  confirmation dialog.
+- `MK2WidgetLabDemo` Selection Lab's left status screen is the first real regular screen
+  rendered through the new DSL. Continue migrating other non-tracker regular screens to
+  this path before Paulinche consumes the API.
 
-- `MK2WidgetLabDemo` Unit A / Font Lab: icon browser list/grid/filtered list/filtered grid, 4-D Up/Down,
-  main rotary, and `E5` first-letter filter. Confirm the 2 px shorter header leaves the
-  fourth icon-grid selection box fully visible without making list rows feel too tight.
-- `MK2WidgetLabDemo`: Selection Lab and Browser Lab list/grid/filter modes. Confirm grid
-  Up/Down moves by one visual row, not by one item or by sliding the page unexpectedly.
+Next code stages:
 
-If the hardware pass is good, continue by formalizing selection input, not by adding more
-demo-local handlers. The intended next code step is a small reusable selection input helper
-for list-vs-grid row steps, clamp, confirm, and filter-focus coordination, backed by
-`MK2SelectionNavigation` and `MK2SelectionLayout`. After that helper exists, migrate
-WidgetLab Font/Icon Lab, Selection Lab, and Browser Lab to it. Then start the
-first Paulinche integration prep: identify Browser/Settings views, global action dialogs,
-and selection projections that should consume the Kit2 list/grid/dialog widgets.
+1. Expand reusable DSL elements: wrapped body text, browser detail panes, value rows,
+   status rows, page/tabs, empty/error states, meters/progress, and encoder footers.
+2. Move screen-owned navigation helpers into the DSL/component layer: list-vs-grid row
+   steps, clamp/wrap, confirm, and filter-focus coordination backed by
+   `MK2SelectionNavigation` and `MK2SelectionLayout`.
+3. Add WidgetLab snapshot coverage for every formal screen/component class and keep
+   hardware acceptance focused on Unit A Font/Icon Lab, Selection Lab, Browser Lab, and
+   the tracker Clear/Shift+Clear workflow.
+4. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
+   can render and bind inputs without demo-local glue.
 
 ## Layout
 
@@ -411,18 +420,26 @@ as the regression baseline for the shared middleware, but no new kit features ge
   transport, the prepared escape hatch is a shared-memory framebuffer for the display path
   (bulk via shm, control via socket — the CoreAudio/JACK pattern), not in-process linking.
 
-MK2 kit work Paulinche will pull, in rough priority (protocol side is done — see
-`../docs/MK2-Porting-Plan.md` "Path forward"):
+MK2 kit work Paulinche will pull, in rough priority. The protocol side and basic Kit2
+rendering pieces are in; before wiring Paulinche, make the Kit2 screen DSL production-grade:
 
-1. **`PixelDisplayReconciler` + pixel DSL** (`Canvas`, `BitmapLabel`, `Meter`, `PatternGrid`)
-   with dirty-span diffing into the jnlive scatter-blit format; granularity gated on the
-   recorded MK2 display benchmarks.
-2. **Input surfacing through the kit**: raw strip (`.strip` position 0…1024 + release), jog
-   gestures (byte-6 touch/click/pushes + detents), encoder deltas (modulo 1000).
-3. **Strip/ribbon projection** as a DSL element: semantic position/fill over the 0x80 strip
-   indices where host-owned, without pretending it is part of the RGB button surface.
-4. **List/menu navigation** (sample/pattern browsing via 4-D + browse/back/enter).
-5. **Encoder sensitivity as a global + rotary-local modifier** in the DSL — local *factorizes*
+1. **Formal `MK2ScreenDSL` on top of the new screen model**: declarative `RegularScreen`,
+   `FullScreen`, and `DoubleScreen` builders with first-class header/footer/content slots,
+   using `MK2HIG` tokens for typography, fonts, colors, and fixed metrics.
+2. **Standard content components**: list/grid selection is in; complete the reusable set with
+   value rows, encoder footers, parameter pages, status rows, empty/error states,
+   progress/meter elements, tabs/page indicators, and browser detail panes.
+3. **Screen-owned input bindings**: screens should declare their buttons, encoders, 4-D
+   navigation, and modifiers alongside rendering, so Paulinche does not hand-wire hardware
+   behavior per view. Shift is the single first-class key modifier; other chords should be
+   explicit product gestures rather than a general modifier system.
+4. **Snapshot and hardware acceptance set**: every screen class needs a WidgetLab realization
+   plus snapshot coverage, so HIG changes and layout regressions are visible before client
+   integration.
+5. **Paulinche adapter preparation**: define a small semantic `SurfaceProjection` boundary
+   where Paulinche emits product state and commands, Kit2 renders screens, and hardware input
+   returns as semantic events.
+6. **Encoder sensitivity as a global + rotary-local modifier** in the DSL — local *factorizes*
    (cumulative, not override) with global. See agent memory `encoder-sensitivity-modifier-plan`.
 
 Cross-session memory (client + plans) lives outside the repo under the project's

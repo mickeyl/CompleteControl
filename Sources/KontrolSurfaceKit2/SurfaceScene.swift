@@ -32,9 +32,28 @@ public struct MIDIFocus: Sendable {
 }
 
 public struct MK2InputBindings2: Sendable {
+    public enum ModifierRequirement: Sendable, Hashable {
+        case any
+        case unmodified
+        case shift
+    }
+
+    public struct ModifiedButton: Sendable, Hashable {
+        public var led: KKMK2ButtonLED
+        public var requirement: ModifierRequirement
+
+        public init(_ led: KKMK2ButtonLED, _ requirement: ModifierRequirement) {
+            self.led = led
+            self.requirement = requirement
+        }
+    }
+
     public var buttonDown: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     public var buttonUp: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
     public var buttonHold: [KKMK2ButtonLED: @Sendable () -> Void] = [:]
+    public var modifiedButtonDown: [ModifiedButton: @Sendable () -> Void] = [:]
+    public var modifiedButtonUp: [ModifiedButton: @Sendable () -> Void] = [:]
+    public var modifiedButtonHold: [ModifiedButton: @Sendable () -> Void] = [:]
     /// `timestampNanos` is the daemon-side reception time (KKTiming clock): velocity-
     /// sensitive consumers must measure from it, not from processing time — handler
     /// invocations bunch up behind rendering and would fake fast turns otherwise.
@@ -56,16 +75,59 @@ public struct MK2InputBindings2: Sendable {
 
     public init() {}
 
-    public mutating func onPress(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
-        buttonDown[led] = handler
+    public mutating func onPress(
+        _ led: KKMK2ButtonLED,
+        modifiers: ModifierRequirement = .any,
+        _ handler: @escaping @Sendable () -> Void
+    ) {
+        if modifiers == .any {
+            buttonDown[led] = handler
+        } else {
+            modifiedButtonDown[ModifiedButton(led, modifiers)] = handler
+        }
     }
 
-    public mutating func onRelease(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
-        buttonUp[led] = handler
+    public mutating func onRelease(
+        _ led: KKMK2ButtonLED,
+        modifiers: ModifierRequirement = .any,
+        _ handler: @escaping @Sendable () -> Void
+    ) {
+        if modifiers == .any {
+            buttonUp[led] = handler
+        } else {
+            modifiedButtonUp[ModifiedButton(led, modifiers)] = handler
+        }
     }
 
-    public mutating func onHold(_ led: KKMK2ButtonLED, _ handler: @escaping @Sendable () -> Void) {
-        buttonHold[led] = handler
+    public mutating func onHold(
+        _ led: KKMK2ButtonLED,
+        modifiers: ModifierRequirement = .any,
+        _ handler: @escaping @Sendable () -> Void
+    ) {
+        if modifiers == .any {
+            buttonHold[led] = handler
+        } else {
+            modifiedButtonHold[ModifiedButton(led, modifiers)] = handler
+        }
+    }
+
+    public mutating func merge(_ other: MK2InputBindings2) {
+        buttonDown.merge(other.buttonDown) { _, next in next }
+        buttonUp.merge(other.buttonUp) { _, next in next }
+        buttonHold.merge(other.buttonHold) { _, next in next }
+        modifiedButtonDown.merge(other.modifiedButtonDown) { _, next in next }
+        modifiedButtonUp.merge(other.modifiedButtonUp) { _, next in next }
+        modifiedButtonHold.merge(other.modifiedButtonHold) { _, next in next }
+        encoder.merge(other.encoder) { _, next in next }
+        encoderTouch.merge(other.encoderTouch) { _, next in next }
+        encoderDoubleTouch.merge(other.encoderDoubleTouch) { _, next in next }
+        if let jog = other.jog { self.jog = jog }
+        if let jogCenter = other.jogCenter { self.jogCenter = jogCenter }
+        if let jogScroll = other.jogScroll { self.jogScroll = jogScroll }
+        if let jogTouch = other.jogTouch { self.jogTouch = jogTouch }
+        if let strip = other.strip { self.strip = strip }
+        if let midi = other.midi { self.midi = midi }
+        if let midiFocus = other.midiFocus { self.midiFocus = midiFocus }
     }
 }
 

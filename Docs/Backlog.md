@@ -22,6 +22,26 @@
 
 ## KontrolSurfaceKit2
 
+- Continue hardening `MK2ScreenDSL` on top of `MK2ScreenLayout`: the first declarative
+  `RegularScreen`, `FullScreen`, and `DoubleScreen` builders exist with formal
+  header/footer/content slots, HIG chrome, screen elements, and scene merging. Next,
+  migrate the remaining non-tracker WidgetLab screens and remove demo-local layout glue.
+- Complete the reusable screen component set before Paulinche integration: value rows,
+  encoder footers, parameter pages, status rows, empty/error states, progress/meter elements,
+  tabs/page indicators, and browser detail panes.
+- Make input binding screen-owned: screens can already declare buttons, encoders, lamps,
+  and light-guide colors next to rendering. Extend this to 4-D navigation and reusable
+  selection/filter gestures so Paulinche does not hand-wire hardware events per view.
+- Done in WidgetLab tracker demo: Shift is the only first-class key modifier in Kit2.
+  `Clear` deletes the currently selected row immediately, without a confirmation dialog;
+  `Shift + Clear` clears the whole pattern and keeps the existing confirmation dialog.
+  Keep future modifier behavior in the DSL/input layer, not as view-local chord handling.
+- Add a WidgetLab realization plus snapshot coverage for each formal screen/component class
+  before Paulinche starts consuming them.
+- Prepare the Paulinche boundary as a small semantic `SurfaceProjection`: Paulinche emits
+  product state and commands, Kit2 renders screens, and hardware input returns as semantic
+  events.
+
 - Done: FreeType font rendering is available through `KontrolSurfaceKit2` and
   `MK2WidgetLabDemo` Unit A for large, well-hinted typography. The production text choice is
   IBM Plex Sans Condensed Regular 16 px for body and Medium 24 px for titles, rendered

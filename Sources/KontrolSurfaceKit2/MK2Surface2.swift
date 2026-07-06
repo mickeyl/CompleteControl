@@ -116,6 +116,44 @@ public actor MK2Surface2 {
         scene = next
     }
 
+    public func present(_ screen: MK2DoubleScreenDSL) {
+        present(screen.scene())
+    }
+
+    public func present(
+        left: MK2RegularScreenDSL,
+        right: MK2RegularScreenDSL,
+        renderer: FreeTypeTextRenderer? = nil,
+        lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
+        keyColors: [Int: KKRGB] = [:],
+        bindings: MK2InputBindings2 = MK2InputBindings2()
+    ) {
+        present(MK2DoubleScreenDSL(
+            left: left.build(renderer: renderer),
+            right: right.build(renderer: renderer),
+            lamps: lamps,
+            keyColors: keyColors,
+            bindings: bindings
+        ))
+    }
+
+    public func present(
+        left: MK2FullScreenDSL,
+        right: MK2FullScreenDSL,
+        renderer: FreeTypeTextRenderer? = nil,
+        lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
+        keyColors: [Int: KKRGB] = [:],
+        bindings: MK2InputBindings2 = MK2InputBindings2()
+    ) {
+        present(MK2DoubleScreenDSL(
+            left: left.build(renderer: renderer),
+            right: right.build(renderer: renderer),
+            lamps: lamps,
+            keyColors: keyColors,
+            bindings: bindings
+        ))
+    }
+
     private func startTimer() {
         let intervalNs = UInt64(1_000_000_000 / max(1, options.tickHz))
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
@@ -364,10 +402,11 @@ public actor MK2Surface2 {
                 case let .button(led, pressed):
                     if pressed {
                         beginButtonHold(led)
-                        scene.bindings.buttonDown[led]?()
+                        buttonHandler(for: led, event: .press)?()
                     } else {
+                        let handler = buttonHandler(for: led, event: .release)
                         endButtonHold(led)
-                        scene.bindings.buttonUp[led]?()
+                        handler?()
                     }
                 case let .knob(index, delta, value):
                     scene.bindings.encoder[index]?(delta, value, timestampNanos)
@@ -401,7 +440,7 @@ public actor MK2Surface2 {
     private func beginButtonHold(_ led: KKMK2ButtonLED) {
         pressedButtons.insert(led)
         buttonHoldTasks[led]?.cancel()
-        guard let handler = scene.bindings.buttonHold[led] else { return }
+        guard let handler = buttonHandler(for: led, event: .hold) else { return }
 
         nextButtonHoldToken &+= 1
         let token = nextButtonHoldToken
@@ -414,6 +453,30 @@ public actor MK2Surface2 {
                 return
             }
             await self?.fireButtonHold(led, token: token, handler: handler)
+        }
+    }
+
+    private enum ButtonBindingEvent {
+        case press
+        case release
+        case hold
+    }
+
+    private func buttonHandler(
+        for led: KKMK2ButtonLED,
+        event: ButtonBindingEvent
+    ) -> (@Sendable () -> Void)? {
+        let requirement: MK2InputBindings2.ModifierRequirement =
+            led != .shift && pressedButtons.contains(.shift) ? .shift : .unmodified
+        let key = MK2InputBindings2.ModifiedButton(led, requirement)
+
+        switch event {
+            case .press:
+                return scene.bindings.modifiedButtonDown[key] ?? scene.bindings.buttonDown[led]
+            case .release:
+                return scene.bindings.modifiedButtonUp[key] ?? scene.bindings.buttonUp[led]
+            case .hold:
+                return scene.bindings.modifiedButtonHold[key] ?? scene.bindings.buttonHold[led]
         }
     }
 

@@ -95,7 +95,8 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "selmode", arg: "", summary: "selection unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
-    ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
+    ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear selected row", values: []),
+    ReplCommand(name: "patternclear", arg: "", summary: "tracker unit: clear pattern with confirmation", values: []),
     ReplCommand(name: "row", arg: "<0-63|hex>", summary: "tracker unit: set stopped playhead row", values: []),
     ReplCommand(name: "jog", arg: "<delta>", summary: "tracker unit: emulate 4D row rotation", values: []),
     ReplCommand(name: "push", arg: "left|right|up|down|press", summary: "browser/selection unit: emulate 4D push", values: ["left", "right", "up", "down", "press"]),
@@ -464,6 +465,7 @@ private actor WidgetLab {
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
             lamps[.clear] = Self.availableLamp(Self.actionWhite)
+            lamps[.shift] = Self.availableLamp(Self.actionWhite)
             lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
             lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
         }
@@ -483,7 +485,10 @@ private actor WidgetLab {
         bindings.onPress(.record) { [weak self] in
             Task { await self?.toggleRecordArm() }
         }
-        bindings.onPress(.clear) { [weak self] in
+        bindings.onPress(.clear, modifiers: .unmodified) { [weak self] in
+            Task { await self?.clearSelectedPatternRow() }
+        }
+        bindings.onPress(.clear, modifiers: .shift) { [weak self] in
             Task { await self?.showClearPatternDialog() }
         }
         bindings.onPress(.pageLeft) { [weak self] in
@@ -653,6 +658,17 @@ private actor WidgetLab {
             case .pattern: (trackerGridFrame(), trackerDetailFrame())
             default: (comingSoonFrame(), placeholderRightFrame())
         }
+    }
+
+    private func regularScreenFrame(
+        header: MK2ScreenHeader,
+        footer: MK2ScreenFooter = .none,
+        @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
+    ) -> MK2PixelFrame {
+        MK2RegularScreenDSL(header: header, footer: footer, content: content)
+            .build(renderer: freeTypeRenderer)
+            .screen
+            .frame
     }
 
     // MARK: - Font lab
@@ -923,20 +939,39 @@ private actor WidgetLab {
     // MARK: - Selection lab
 
     private func selectionStatusFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
         let items = filteredSelectionItems()
         let selected = selectedSelectionItem()
-        BitmapLabel("SELECTION LAB", font: .label, color: Palette.accent)
-            .draw(into: &frame, x: 8, y: 8)
-        drawFreeTypeTitle(selectionMode.title, into: &frame, x: 16, y: 42, size: 24, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody("INSTANCE schaltet Plain List, Plain Grid, Filtered List und Filtered Grid.", into: &frame, x: 16, y: 82, size: 16, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("4D dreht durch die Auswahl, 4D-Press bestätigt.", into: &frame, x: 16, y: 126, size: 16, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("Treffer: \(items.count) / \(SelectionLabFixtures.items.count)", into: &frame, x: 16, y: 164, size: 16, color: Palette.text, maxWidth: 432)
-        if let selected {
-            drawFreeTypeBody("Aktuell: \(selected.title)", into: &frame, x: 16, y: 192, size: 16, color: Palette.blue, maxWidth: 432)
+        let selectedTitle = selected?.title
+
+        return regularScreenFrame(
+            header: .title(title: "Selection Lab", subtitle: selectionMode.shortTitle),
+            footer: .hint(selectionConfirmation)
+        ) {
+            MK2ContentText(selectionMode.title, x: 8, y: 0, role: .title)
+            MK2ContentText(
+                "INSTANCE schaltet Plain List, Plain Grid, Filtered List und Filtered Grid.",
+                x: 8,
+                y: 40,
+                maxWidth: 432,
+                color: Palette.dim
+            )
+            MK2ContentText(
+                "4D dreht durch die Auswahl, 4D-Press bestätigt.",
+                x: 8,
+                y: 74,
+                maxWidth: 432,
+                color: Palette.dim
+            )
+            MK2ContentText(
+                "Treffer: \(items.count) / \(SelectionLabFixtures.items.count)",
+                x: 8,
+                y: 112,
+                maxWidth: 432
+            )
+            if let selectedTitle {
+                MK2ContentText("Aktuell: \(selectedTitle)", x: 8, y: 140, maxWidth: 432, color: Palette.blue)
+            }
         }
-        drawFreeTypeBody(selectionConfirmation, into: &frame, x: 16, y: 236, size: 16, color: Palette.empty, maxWidth: 432)
-        return frame
     }
 
     private func selectionPickerFrame() -> MK2PixelFrame {
@@ -1916,6 +1951,12 @@ private actor WidgetLab {
         await render()
     }
 
+    private func clearSelectedPatternRow() async {
+        guard unit == .pattern, patternRows.indices.contains(playheadRow) else { return }
+        patternRows[playheadRow] = TrackerDemoRow(cells: Array(repeating: TrackerDemoCell.empty, count: 4))
+        await render()
+    }
+
     private func toggleRecordArm() async {
         guard unit == .pattern else { return }
         recordArmed.toggle()
@@ -2278,6 +2319,8 @@ private actor WidgetLab {
                 await stopPlayback()
 
             case "clear":
+                await clearSelectedPatternRow()
+            case "patternclear":
                 await showClearPatternDialog()
 
             case "row":
