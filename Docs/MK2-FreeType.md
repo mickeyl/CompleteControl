@@ -13,11 +13,16 @@ The MK2 pixel-display stack now has two text rendering paths:
 - **FreeType fonts**: `FreeTypeTextRenderer`, `FreeTypeTextStyle`,
   `FreeTypeFontCatalog`, and `FreeTypeRasterMode`. This path is for calmer, larger
   surfaces such as global dialogs, browser/settings views, selection lists, long text,
-  and icon-font-style symbol work.
+  and icon-font-style symbol work. Proportional text runs are shaped by HarfBuzz before
+  FreeType rasterization, so standard ligatures and OpenType positioning can apply.
 
 These paths are independent. Integrating FreeType does not put FreeType in the bitmap
 font hot path; existing bitmap labels still draw through atlas row bits and bulk
 `MK2PixelFrame.fill(...)` runs.
+
+The fixed-pitch `SurfaceFont` path is intentionally unshaped even though it now lowers
+to JetBrains Mono through FreeType. Tracker/grid text must keep one scalar per fixed
+cell, so ligatures are not enabled there.
 
 ## Production Fonts
 

@@ -51,6 +51,7 @@ struct SurfaceFontMetricsTests {
         #expect(SurfaceFont.grid.measure("ABCD") == 4 * 8)
         #expect(SurfaceFont.grid.measure("ABCD", scale: 2) == 4 * 8 * 2)
         #expect(SurfaceFont.grid.measure("ÄÖÜ") == 3 * 8)   // precomposed, one cell each
+        #expect(SurfaceFont.grid.measure("ffi") == 3 * 8)   // no ligature collapse in tracker cells
         #expect(SurfaceFont.label.measure("ABCDE") == 5 * 6)
     }
 
@@ -64,6 +65,18 @@ struct SurfaceFontMetricsTests {
         #expect(cellInk(frame, x: 100, y: 100, font: font))          // 'A'
         #expect(!cellInk(frame, x: 100 + font.advance, y: 100, font: font))   // ' '
         #expect(cellInk(frame, x: 100 + 2 * font.advance, y: 100, font: font)) // 'A'
+    }
+
+    @Test("Potential ligature text still occupies one fixed cell per scalar")
+    func potentialLigatureTextStaysFixedPitch() {
+        let font = SurfaceFont.grid
+        var frame = MK2PixelFrame(fill: 0)
+
+        frame.drawText("ffi", font: font, x: 100, y: 100, color: 0xffff)
+
+        #expect(cellInk(frame, x: 100, y: 100, font: font))
+        #expect(cellInk(frame, x: 100 + font.advance, y: 100, font: font))
+        #expect(cellInk(frame, x: 100 + 2 * font.advance, y: 100, font: font))
     }
 }
 

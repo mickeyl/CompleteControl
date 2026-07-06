@@ -33,8 +33,9 @@ Two layers, plus a baseline app and a middleware demo:
 | `KompleteKontrol` (lib) | `Sources/KompleteKontrol/` | Low-level driver: USB/daemon transport, surface protocol, display frame, glyph font + names, input/MIDI decoding. |
 | `KontrolUSB` (C) | `Sources/KontrolUSB/` | libusb session, async transfers, endpoint discovery. |
 | `KontrolSurfaceKit` (lib) | `Sources/KontrolSurfaceKit/` | **The middleware** — declarative `Screen` DSL on top of the driver. Imperative setters are deprecated for client code. |
-| `KontrolSurfaceKit2` (lib) | `Sources/KontrolSurfaceKit2/` | MK2 pixel-display kit: RGB565 frames, bitmap fonts, FreeType text, widgets, input bindings, display diffing. |
+| `KontrolSurfaceKit2` (lib) | `Sources/KontrolSurfaceKit2/` | MK2 pixel-display kit: RGB565 frames, bitmap fonts, HarfBuzz-shaped/FreeType-rendered text, widgets, input bindings, display diffing. |
 | `CFreeType` (system lib) | `Sources/CFreeType/` | SwiftPM system-library shim for Homebrew/pkg-config `freetype2`; only used by Kit2 FreeType text rendering. |
+| `CHarfBuzz` (system lib) | `Sources/CHarfBuzz/` | SwiftPM system-library shim for Homebrew/pkg-config `harfbuzz`; used to shape proportional FreeType text runs. |
 | `ccd` (exe) | `Tools/ccd/` | Privileged launchd/foreground daemon entry point. Owns USB and transports surface/MIDI events over the socket. |
 | `KontrolProbe` (exe) | `Tools/KontrolProbe/` | **Baseline** REPL + AppKit test UI. Leave as-is unless asked. |
 | `SurfaceDemo` (exe) | `Tools/SurfaceDemo/` | Console demo exercising every `KontrolSurfaceKit` feature. |
@@ -65,8 +66,9 @@ The daemon owns the USB device; a client connects over a Unix socket. `make help
 targets (`make install-daemon`, `make install-debug-daemon`, `make daemon-status`, …).
 libusb is vendored as the pinned `Vendor/libusb` submodule and compiled through the `CLibUSB`
 SwiftPM C target; do not add Homebrew/pkg-config fallback paths.
-FreeType is the exception: `CFreeType` is a SwiftPM system-library target that expects
-`pkg-config freetype2` (Homebrew `freetype`) for host-side font rasterization.
+FreeType and HarfBuzz are the exceptions: `CFreeType` and `CHarfBuzz` are SwiftPM
+system-library targets that expect `pkg-config freetype2` and `pkg-config harfbuzz`
+(Homebrew `freetype harfbuzz`) for host-side text shaping/rasterization.
 `make install-daemon` builds and installs the release `ccd`; `make install-debug-daemon` builds and
 installs the debug `ccd` with structured trace logging. While no socket client is connected the
 daemon renders its idle diagnostic surface; once a client connects, the client owns all surface
@@ -122,6 +124,10 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
   bitmap-sharp UI. This path remains atlas-backed and does not call FreeType.
 - Use `FreeTypeTextRenderer`/`FreeTypeTextStyle` for larger, calmer UI areas: global dialogs,
   browser/settings views, selection lists, long text, and icon-font-style symbols.
+  Proportional text is shaped through HarfBuzz, so standard ligatures and positioning are
+  available outside tracker/grid text.
+- Keep tracker/grid text on `SurfaceFont` / `drawMonospaced`; that path intentionally avoids
+  HarfBuzz shaping and ligatures so one scalar remains one fixed cell.
 - Bundled production fonts are IBM Plex Sans Condensed Regular/Medium for text and
   Font Awesome 7 Pro Light for icons. The repository is private because the Pro font
   and Pro icon metadata are bundled for hardware exploration. Swap globally through

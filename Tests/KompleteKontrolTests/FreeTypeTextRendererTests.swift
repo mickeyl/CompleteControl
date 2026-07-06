@@ -58,6 +58,17 @@ struct FreeTypeTextRendererTests {
         #expect(second.countNonBackgroundPixels(in: MK2PixelRect(x: 20, y: 40, width: 20, height: 20)) == 0)
     }
 
+    @Test("Proportional text shapes ligatures through HarfBuzz")
+    func proportionalTextShapesLigaturesThroughHarfBuzz() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let style = FreeTypeTextStyle(familyID: FreeTypeFontCatalog.textFamilyID, weight: .regular, pixelSize: 24, color: 0xffff)
+
+        let glyphs = try renderer.debugShapedGlyphIDs("office", style: style)
+
+        #expect(glyphs.count == 5) // o, f, fi, c, e
+        #expect(glyphs.count < "office".unicodeScalars.count)
+    }
+
     @Test("Every raster mode draws; antialiasing modes create partial coverage")
     func rasterModesDraw() throws {
         let renderer = try FreeTypeTextRenderer()

@@ -102,7 +102,7 @@ let package = Package(
         ),
         .target(
             name: "KontrolSurfaceKit2",
-            dependencies: ["KompleteKontrol", "CFreeType"],
+            dependencies: ["KompleteKontrol", "CFreeType", "CHarfBuzz"],
             path: "Sources/KontrolSurfaceKit2",
             resources: [
                 .copy("Resources/Fonts"),
@@ -117,6 +117,14 @@ let package = Package(
             pkgConfig: "freetype2",
             providers: [
                 .brew(["freetype"]),
+            ]
+        ),
+        .systemLibrary(
+            name: "CHarfBuzz",
+            path: "Sources/CHarfBuzz",
+            pkgConfig: "harfbuzz",
+            providers: [
+                .brew(["harfbuzz"]),
             ]
         ),
         .executableTarget(

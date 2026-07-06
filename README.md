@@ -118,14 +118,15 @@ This project builds on the public reverse-engineering work around Native Instrum
 - Swift 6.2 toolchain
 - Xcode command line tools
 - Git submodules
-- Homebrew `freetype` for the `CFreeType` SwiftPM system-library target
+- Homebrew `freetype` and `harfbuzz` for the `CFreeType` and `CHarfBuzz`
+  SwiftPM system-library targets
 
 libusb is vendored as a pinned submodule under `Vendor/libusb` and is compiled into the SwiftPM build. Homebrew libusb is intentionally not used.
-FreeType is intentionally different: it is linked through `pkg-config freetype2` / Homebrew because the font renderer is a normal host-side library dependency, not part of the USB transport stack.
+FreeType and HarfBuzz are intentionally different: they are linked through `pkg-config` / Homebrew because the font renderer is a normal host-side library dependency, not part of the USB transport stack.
 
 ```bash
 git submodule update --init --recursive Vendor/libusb
-brew install freetype
+brew install freetype harfbuzz
 ```
 
 Build:
@@ -363,9 +364,11 @@ MK2 OLED displays. It is deliberately separate from the bitmap tracker/grid path
 
 - `BitmapLabel` / `SurfaceFont` / `MK2PixelFrame.drawText(...)` remain the crisp,
   atlas-backed path for tracker grids and dense controls.
-- `FreeTypeTextRenderer` / `FreeTypeTextStyle` render grayscale text into the same RGB565
-  frame for calmer UI areas such as global dialogs, browser/settings views, selection
-  lists, and longer text.
+- `FreeTypeTextRenderer` / `FreeTypeTextStyle` shape proportional text with HarfBuzz,
+  render glyphs with FreeType, and cache complete alpha-mask text runs into the same
+  RGB565 frame for calmer UI areas such as global dialogs, browser/settings views,
+  selection lists, and longer text. The fixed-pitch `SurfaceFont` tracker path remains
+  unshaped: no ligatures, one cell per scalar.
 
 Bundled production text families live in `KontrolSurfaceKit2` resources: IBM Plex Sans
 Condensed Regular/Medium. Current UI contract: body is Plex Sans Condensed Regular at

@@ -1,4 +1,5 @@
 import CFreeType
+import CHarfBuzz
 import Foundation
 
 public enum FreeTypeRasterMode: Int, CaseIterable, Sendable, Equatable {
@@ -136,6 +137,13 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         var y: Int
     }
 
+    private struct ShapedGlyph {
+        var glyphIndex: FT_UInt
+        var xOffset: Int
+        var yOffset: Int
+        var xAdvance: Int
+    }
+
     private struct CachedTextRun {
         var advanceWidth: Int = 0
         var boundsX: Int = 0
@@ -260,6 +268,16 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         let run = try cachedRun(text, style: style, layout: .monospaced(advance: advance))
         draw(run: run, into: &frame, x: x, baselineY: baselineY, color: style.color, limitX: widthLimit, clip: bounds)
     }
+
+    #if DEBUG
+    func debugShapedGlyphIDs(_ text: String, style: FreeTypeTextStyle) throws -> [FT_UInt] {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
+        let face = try configuredFace(style: style).face
+        return shape(text, face: face).map(\.glyphIndex)
+    }
+    #endif
 
     public func wrappedLayout(
         _ text: String,
@@ -429,12 +447,63 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     }
 
     private func buildRun(_ text: String, face: FT_Face, style: FreeTypeTextStyle, layout: RunLayout) -> CachedTextRun {
+        switch layout {
+            case .proportional:
+                return buildShapedRun(text, face: face, style: style)
+            case let .monospaced(advance):
+                return buildMonospacedRun(text, face: face, style: style, advance: advance)
+        }
+    }
+
+    private func buildShapedRun(_ text: String, face: FT_Face, style: FreeTypeTextStyle) -> CachedTextRun {
+        let shapedGlyphs = shape(text, face: face)
+        let loadFlags = Self.loadFlags(for: style.rasterMode, render: true)
+        var placements: [GlyphPlacement] = []
+        placements.reserveCapacity(shapedGlyphs.count)
+
+        var penX = 0
+        var hasPixels = false
+        var minX = 0
+        var minY = 0
+        var maxX = 0
+        var maxY = 0
+
+        for shaped in shapedGlyphs {
+            if let glyph = cachedGlyph(glyphIndex: shaped.glyphIndex, face: face, style: style, loadFlags: loadFlags) {
+                let glyphX = penX + shaped.xOffset + glyph.bitmapLeft
+                let glyphY = -glyph.bitmapTop - shaped.yOffset
+                if glyph.width > 0, glyph.height > 0 {
+                    placements.append(GlyphPlacement(
+                        glyph: glyph,
+                        x: glyphX,
+                        y: glyphY
+                    ))
+                    if hasPixels {
+                        minX = min(minX, glyphX)
+                        minY = min(minY, glyphY)
+                        maxX = max(maxX, glyphX + glyph.width)
+                        maxY = max(maxY, glyphY + glyph.height)
+                    } else {
+                        minX = glyphX
+                        minY = glyphY
+                        maxX = glyphX + glyph.width
+                        maxY = glyphY + glyph.height
+                        hasPixels = true
+                    }
+                }
+            }
+            penX += shaped.xAdvance
+        }
+
+        return composeRun(advanceWidth: penX, placements: placements, hasPixels: hasPixels, minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+
+    private func buildMonospacedRun(_ text: String, face: FT_Face, style: FreeTypeTextStyle, advance: Int) -> CachedTextRun {
         let loadFlags = Self.loadFlags(for: style.rasterMode, render: true)
         var placements: [GlyphPlacement] = []
         placements.reserveCapacity(text.unicodeScalars.count)
 
         var penX = 0
-        var previousGlyph: FT_UInt = 0
         var hasPixels = false
         var minX = 0
         var minY = 0
@@ -443,15 +512,6 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
 
         for scalar in text.unicodeScalars {
             let glyphIndex = FT_Get_Char_Index(face, FT_ULong(scalar.value))
-            if case .proportional = layout,
-               previousGlyph != 0,
-               glyphIndex != 0 {
-                var delta = FT_Vector()
-                if FT_Get_Kerning(face, previousGlyph, glyphIndex, FT_UInt(FT_KERNING_DEFAULT.rawValue), &delta) == 0 {
-                    penX += Int((delta.x + 32) >> 6)
-                }
-            }
-
             if let glyph = cachedGlyph(glyphIndex: glyphIndex, face: face, style: style, loadFlags: loadFlags) {
                 let glyphX = penX + glyph.bitmapLeft
                 let glyphY = -glyph.bitmapTop
@@ -474,21 +534,63 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
                         hasPixels = true
                     }
                 }
-
-                switch layout {
-                    case .proportional:
-                        penX += glyph.advanceX
-                    case let .monospaced(advance):
-                        penX += advance
-                }
-            } else if case let .monospaced(advance) = layout {
-                penX += advance
             }
-            previousGlyph = glyphIndex
+            penX += advance
         }
 
+        return composeRun(advanceWidth: penX, placements: placements, hasPixels: hasPixels, minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+
+    private func shape(_ text: String, face: FT_Face) -> [ShapedGlyph] {
+        guard !text.isEmpty,
+              let buffer = hb_buffer_create() else { return [] }
+        defer { hb_buffer_destroy(buffer) }
+
+        text.withCString { pointer in
+            hb_buffer_add_utf8(buffer, pointer, -1, 0, -1)
+        }
+        hb_buffer_guess_segment_properties(buffer)
+
+        guard let font = hb_ft_font_create_referenced(face) else { return [] }
+        defer { hb_font_destroy(font) }
+
+        hb_shape(font, buffer, nil, 0)
+
+        var length: UInt32 = 0
+        guard let infos = hb_buffer_get_glyph_infos(buffer, &length),
+              let positions = hb_buffer_get_glyph_positions(buffer, &length) else { return [] }
+
+        var shaped: [ShapedGlyph] = []
+        shaped.reserveCapacity(Int(length))
+        for index in 0..<Int(length) {
+            let info = infos.advanced(by: index).pointee
+            let position = positions.advanced(by: index).pointee
+            shaped.append(ShapedGlyph(
+                glyphIndex: FT_UInt(info.codepoint),
+                xOffset: Self.round26Dot6(position.x_offset),
+                yOffset: Self.round26Dot6(position.y_offset),
+                xAdvance: Self.round26Dot6(position.x_advance)
+            ))
+        }
+        return shaped
+    }
+
+    private static func round26Dot6(_ value: hb_position_t) -> Int {
+        let raw = Int(value)
+        return raw >= 0 ? (raw + 32) >> 6 : -((-raw + 32) >> 6)
+    }
+
+    private func composeRun(
+        advanceWidth: Int,
+        placements: [GlyphPlacement],
+        hasPixels: Bool,
+        minX: Int,
+        minY: Int,
+        maxX: Int,
+        maxY: Int
+    ) -> CachedTextRun {
         var run = CachedTextRun()
-        run.advanceWidth = penX
+        run.advanceWidth = advanceWidth
         guard hasPixels else { return run }
 
         run.boundsX = minX
