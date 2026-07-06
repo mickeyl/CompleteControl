@@ -41,6 +41,8 @@ compatibility.
 Current text contract:
 
 - Body: IBM Plex Sans Condensed Regular, 16 px.
+- Caption: IBM Plex Sans Condensed Medium, 17 px, rendered uppercase for regular
+  screen chrome such as header title/subtitle labels.
 - Title: IBM Plex Sans Condensed Medium, 24 px.
 - Icon: Font Awesome 7 Pro Light.
 - Action-dialog icon size: 48 px.

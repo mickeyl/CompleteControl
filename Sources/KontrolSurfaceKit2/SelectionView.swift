@@ -153,21 +153,19 @@ public enum MK2SelectionJogLayout: Sendable, Equatable {
 }
 
 public enum MK2SelectionLayout {
-    public static let contentX = 8
-    public static let contentY = 43
-    public static let contentWidth = 464
-    public static let contentHeight = 221
-    public static let filteredContentHeight = 134
-    public static let filterAreaY = 184
-    public static let filterAreaHeight = 88
+    private static let regularLayout = MK2ScreenLayout.regular()
+    private static let filteredLayout = MK2ScreenLayout.regular(footer: .filters())
+
+    public static let contentX = regularLayout.contentRect.x
+    public static let contentY = regularLayout.contentRect.y
+    public static let contentWidth = regularLayout.contentRect.width
+    public static let contentHeight = regularLayout.contentRect.height
+    public static let filteredContentHeight = filteredLayout.contentRect.height
+    public static let filterAreaY = filteredLayout.footerRect?.y ?? 184
+    public static let filterAreaHeight = filteredLayout.footerRect?.height ?? 88
 
     public static func contentRect(hasFilters: Bool) -> MK2PixelRect {
-        MK2PixelRect(
-            x: contentX,
-            y: contentY,
-            width: contentWidth,
-            height: hasFilters ? filteredContentHeight : contentHeight
-        )
+        (hasFilters ? filteredLayout : regularLayout).contentRect
     }
 
     public static func gridColumnCount(for cellSize: MK2SelectionCellSize, contentWidth: Int = contentWidth) -> Int {
@@ -267,8 +265,8 @@ public struct MK2SelectionList: Sendable {
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
-        frame.fill(MK2PixelFrame.bounds, colors.background)
-        MK2SelectionDrawing.drawHeader(title: title, subtitle: subtitle, into: &frame, colors: colors)
+        MK2SelectionDrawing.screenChrome(title: title, subtitle: subtitle, filters: filters, colors: colors)
+            .draw(into: &frame, renderer: renderer)
         let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
         guard !items.isEmpty else {
             MK2SelectionDrawing.drawEmpty("Keine Einträge", into: &frame, rect: content, colors: colors)
@@ -356,8 +354,8 @@ public struct MK2SelectionGrid: Sendable {
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
-        frame.fill(MK2PixelFrame.bounds, colors.background)
-        MK2SelectionDrawing.drawHeader(title: title, subtitle: subtitle, into: &frame, colors: colors)
+        MK2SelectionDrawing.screenChrome(title: title, subtitle: subtitle, filters: filters, colors: colors)
+            .draw(into: &frame, renderer: renderer)
         let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
         guard !items.isEmpty else {
             MK2SelectionDrawing.drawEmpty("Keine Einträge", into: &frame, rect: content, colors: colors)
@@ -466,13 +464,19 @@ public struct MK2SelectionCellSize: Sendable, Equatable {
 }
 
 private enum MK2SelectionDrawing {
-    static func drawHeader(title: String, subtitle: String?, into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors) {
-        BitmapLabel(title, font: .label, color: colors.accent)
-            .draw(into: &frame, x: 8, y: 8, clip: MK2PixelRect(x: 8, y: 8, width: 220, height: 14))
-        if let subtitle {
-            BitmapLabel(subtitle, font: .label, color: colors.dim)
-                .draw(into: &frame, x: 236, y: 8, clip: MK2PixelRect(x: 236, y: 8, width: 236, height: 14))
-        }
+    static func screenChrome(title: String, subtitle: String?, filters: [MK2SelectionFilter], colors: MK2SelectionViewColors) -> MK2RegularScreenChrome {
+        MK2RegularScreenChrome(
+            header: .title(title: title, subtitle: subtitle, subtitleAlignment: .trailing),
+            footer: filters.isEmpty ? .none : .filters(),
+            colors: MK2ScreenChromeColors(
+                background: colors.background,
+                text: colors.text,
+                dim: colors.dim,
+                accent: colors.accent,
+                border: colors.border,
+                footerFill: colors.filterFill
+            )
+        )
     }
 
     static func drawEmpty(_ text: String, into frame: inout MK2PixelFrame, rect: MK2PixelRect, colors: MK2SelectionViewColors) {
@@ -482,9 +486,7 @@ private enum MK2SelectionDrawing {
 
     static func drawFilters(_ filters: [MK2SelectionFilter], into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors) {
         guard !filters.isEmpty else { return }
-        let area = MK2PixelRect(x: 0, y: MK2SelectionLayout.filterAreaY, width: MK2PixelFrame.width, height: MK2SelectionLayout.filterAreaHeight)
-        frame.fillRounded(area, radius: 8, colors.filterFill, antialiased: true)
-        frame.fill(MK2PixelRect(x: 0, y: area.y, width: MK2PixelFrame.width, height: 1), colors.border)
+        let area = MK2ScreenLayout.regular(footer: .filters()).footerRect ?? MK2PixelRect(x: 0, y: MK2SelectionLayout.filterAreaY, width: MK2PixelFrame.width, height: MK2SelectionLayout.filterAreaHeight)
         let slotWidth = MK2PixelFrame.width / 4
         let visibleFilters = Array(filters.prefix(4))
         for index in visibleFilters.indices {

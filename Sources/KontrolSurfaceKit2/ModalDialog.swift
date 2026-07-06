@@ -129,12 +129,17 @@ public struct MK2ModalDialog: Sendable {
         var bindings = MK2InputBindings2()
         bindNavigation(into: &bindings)
         bindDismissButtons(into: &bindings)
-        let renderer = try? FreeTypeTextRenderer()
-        return MK2SurfaceScene2(
-            left: leftFrame(renderer: renderer),
-            right: rightFrame(renderer: renderer),
+        return doubleScreen().scene(
             lamps: [:],
             bindings: bindings
+        )
+    }
+
+    public func doubleScreen() -> MK2DoubleScreen {
+        let renderer = try? FreeTypeTextRenderer()
+        return MK2DoubleScreen(
+            left: .fullScreen(leftFrame(renderer: renderer)),
+            right: .fullScreen(rightFrame(renderer: renderer))
         )
     }
 

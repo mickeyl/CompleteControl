@@ -85,15 +85,48 @@ struct SelectionViewTests {
 
     @Test("Layout exposes shared content metrics")
     func layoutExposesSharedContentMetrics() {
+        let regular = MK2ScreenLayout.regular()
+        let filteredScreen = MK2ScreenLayout.regular(footer: .filters())
         let full = MK2SelectionLayout.contentRect(hasFilters: false)
         let filtered = MK2SelectionLayout.contentRect(hasFilters: true)
         let iconCell = MK2SelectionCellSize(width: 58, height: 58)
 
+        #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 38))
+        #expect(regular.contentRect == full)
+        #expect(filteredScreen.contentRect == filtered)
+        #expect(filteredScreen.footerRect == MK2PixelRect(x: 0, y: 184, width: 480, height: 88))
         #expect(full == MK2PixelRect(x: 8, y: 43, width: 464, height: 221))
         #expect(filtered == MK2PixelRect(x: 8, y: 43, width: 464, height: 134))
         #expect(MK2SelectionLayout.gridColumnCount(for: iconCell) == 8)
         #expect(MK2SelectionLayout.gridRowStep(for: iconCell) == 8)
         #expect(MK2SelectionGrid.columnCount(for: iconCell) == MK2SelectionLayout.gridColumnCount(for: iconCell))
+    }
+
+    @Test("Regular screen chrome draws title and footer regions")
+    func regularScreenChromeDrawsTitleAndFooterRegions() {
+        var frame = MK2PixelFrame()
+        let renderer = try? FreeTypeTextRenderer()
+
+        MK2RegularScreenChrome(
+            header: .title(title: "TITLE", subtitle: "SUB", subtitleAlignment: .trailing),
+            footer: .filters()
+        ).draw(into: &frame, renderer: renderer)
+
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 8, width: 80, height: 14)) > 10)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 236, y: 8, width: 80, height: 14)) > 10)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: 0x1083) > 10_000)
+    }
+
+    @Test("Regular screen hint footer uses body typography")
+    func regularScreenHintFooterUsesBodyTypography() {
+        var frame = MK2PixelFrame()
+        let renderer = try? FreeTypeTextRenderer()
+
+        MK2RegularScreenChrome(
+            footer: .hint("4D confirms the selected action")
+        ).draw(into: &frame, renderer: renderer)
+
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 18, y: 251, width: 300, height: 18)) > 40)
     }
 
     @Test("List draws selected row and filter area")
@@ -252,6 +285,19 @@ struct SelectionViewTests {
             | Int(data[offset + 1]) << 16
             | Int(data[offset + 2]) << 8
             | Int(data[offset + 3])
+    }
+}
+
+private extension MK2PixelFrame {
+    func countNonBackgroundPixels(in rect: MK2PixelRect, background: UInt16 = 0x0841) -> Int {
+        guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
+        var count = 0
+        for y in clipped.y..<clipped.maxY {
+            for x in clipped.x..<clipped.maxX where self[x, y] != background {
+                count += 1
+            }
+        }
+        return count
     }
 }
 

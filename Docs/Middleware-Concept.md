@@ -154,11 +154,14 @@ Label("Resonance Bandpass 24dB", overflow: .marquee(speed: 5))
 The two renderers are independent; adding FreeType does not route bitmap labels through
 FreeType. Use `FreeTypeFontCatalog.production` as the global swap point for families and
 cuts. The current production catalog uses IBM Plex Sans Condensed Regular 16 px for body,
-IBM Plex Sans Condensed Medium 24 px for titles, and Font Awesome 7 Pro Light for icons.
+IBM Plex Sans Condensed Medium 17 px for caption chrome, IBM Plex Sans Condensed Medium
+24 px for titles, and Font Awesome 7 Pro Light for icons.
 
 HIG typography should be semantic, not per-screen literal sizing:
 
 - `body`: IBM Plex Sans Condensed Regular, 16 px.
+- `caption`: IBM Plex Sans Condensed Medium, 17 px, uppercase for regular screen
+  header title/subtitle chrome.
 - `title`: IBM Plex Sans Condensed Medium, 24 px.
 - `actionDialogIcon`: Font Awesome 7 Pro Light, 48 px.
 
@@ -170,7 +173,9 @@ code should choose the severity that describes the interaction and let `MK2Modal
 project the typography, icon, colour, rounded panels, and selection treatment. This is
 a HIG convention, not middleware enforcement: product-specific dialogs may override icon
 or colour when that makes the interaction clearer, but they should keep the same semantic
-roles unless there is a deliberate reason not to.
+roles unless there is a deliberate reason not to. Global confirmation-style dialogs are
+modeled as a `MK2DoubleScreen`: they own both displays as one semantic surface instead of
+being treated as two independent regular screens.
 
 For MK2 OLED output, use grayscale coverage. `FreeTypeRasterMode.grayscaleHinted` is the
 chosen default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHinted` exist
@@ -463,6 +468,7 @@ hardware toggles, channel focus via Page Left/Right, instrument selection via Pr
 exact row via the 4-D encoder, and edit fields on rotary encoders 5-8. The recent
 `KontrolSurfaceKit2` widgets pulled from that lab are `MK2ButtonToggle`,
 `MK2ButtonRangeSelection`, `MK2EncoderDiscreteValue`, `MK2StatusLine`, `MK2ValueCell`,
+`MK2ScreenLayout`, `MK2RegularScreenChrome`, `MK2DoubleScreen`,
 `MK2SelectionNavigation`, `MK2SelectionLayout`, `MK2SelectionList`, `MK2SelectionGrid`, and
 `MK2ModalDialog`.
 
@@ -474,9 +480,13 @@ projection stays aligned with the physical encoder. Active filters and focused e
 are separate states: active filters colour their label, while only the touched/turned encoder
 uses the inverted value-cell treatment. Rounded rectangles use antialiased corners, with the
 pixel fill path optimized to shade only the corner regions instead of supersampling large
-interior panels on every encoder tick. Selection geometry lives in `MK2SelectionLayout`;
-apps and demos should use those content/filter rectangles and grid row-step helpers instead
-of copying pixel constants from the renderer.
+interior panels on every encoder tick. Regular one-display screen geometry lives in
+`MK2ScreenLayout`: a header/function area, content area, and optional footer/encoder area.
+`MK2RegularScreenChrome` renders header title/subtitle chrome with the caption style and
+hint footers with the body style. `MK2SelectionLayout` is now the selection-specific
+compatibility layer over those regular screen rectangles plus grid row-step helpers. Apps
+and demos should use these layout objects instead of copying pixel constants from the
+renderer. Dense tracker grids remain full-screen specialty renderers.
 
 In the selection labs, `Instance` cycles plain list, plain grid, filtered list, and filtered grid; the
 4-D encoder moves selection by one item in lists, one visual row in grids, and confirms on

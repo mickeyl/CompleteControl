@@ -9,8 +9,11 @@ struct ModalDialogTests {
     func ownsDisplaysAndLamps() {
         let dialog = makeDialog(selectedIndex: 0, box: ModalDialogBox())
 
+        let screens = dialog.doubleScreen()
         let scene = dialog.scene()
 
+        #expect(screens.left.kind == .fullScreen)
+        #expect(screens.right.kind == .fullScreen)
         #expect(scene.displays.count == 2)
         #expect(scene.displays[0] != nil)
         #expect(scene.displays[1] != nil)
