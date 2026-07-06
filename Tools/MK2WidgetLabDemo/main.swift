@@ -163,7 +163,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .chrome || self == .list || self == .pattern }
+    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern }
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -640,6 +640,8 @@ private actor WidgetLab {
                 return (screenResult(frame: frames.0), screenResult(frame: frames.1))
             case .chrome:
                 return (browserDetailResult(), browserPickerResult())
+            case .meter:
+                return (meterOverviewResult(), meterDetailResult())
             case .list:
                 return (selectionStatusResult(), selectionPickerResult())
             case .pattern:
@@ -980,7 +982,7 @@ private actor WidgetLab {
                     Task { await self?.confirmBrowserSelection() }
                 }
             )
-            MK2EncoderDiscreteValuesElement(browserEncoderBindings(), drawsDisplays: false)
+            MK2SelectionFilterEncoderElement(browserFilterEncoderBindings())
         }
     }
 
@@ -1081,8 +1083,72 @@ private actor WidgetLab {
                     Task { await self?.confirmSelection() }
                 }
             )
-            MK2EncoderDiscreteValuesElement(selectionEncoderBindings(), drawsDisplays: false)
+            MK2SelectionFilterEncoderElement(selectionFilterEncoderBindings())
         }
+    }
+
+    // MARK: - Meter lab
+
+    private func meterOverviewResult() -> MK2ScreenBuildResult {
+        regularScreenResult(
+            header: .title(title: "Meter Lab", subtitle: "levels + peak"),
+            footer: .hint("Ballistik bleibt Produktzustand.")
+        ) {
+            MK2ContentText("Meter Elements", x: 8, y: 0, role: .title)
+            MK2ContentText(
+                "Mehrkanal-Pegel, Peak-Marker und Warnfarben laufen als normale Screen-DSL-Elemente.",
+                x: 8,
+                y: 40,
+                maxWidth: 432,
+                color: Palette.dim,
+                maxLines: 2,
+                lineSpacing: 2
+            )
+            MK2MeterElement(
+                channels: [
+                    MK2MeterChannel(label: "L", level: demoMeterLevel(0), peak: demoMeterPeak(0)),
+                    MK2MeterChannel(label: "R", level: demoMeterLevel(1), peak: demoMeterPeak(1)),
+                ],
+                rect: MK2PixelRect(x: 8, y: 112, width: 420, height: 34),
+                fill: Palette.green,
+                dangerFill: Palette.mute
+            )
+            MK2ContentText("Stereo horizontal, Labels links, Peak als heller Marker.", x: 8, y: 164, maxWidth: 432, color: Palette.empty)
+        }
+    }
+
+    private func meterDetailResult() -> MK2ScreenBuildResult {
+        regularScreenResult(header: .title(title: "Channel Meters", subtitle: "4ch tracker")) {
+            MK2MeterElement(
+                channels: (0..<4).map { channel in
+                    MK2MeterChannel(level: demoMeterLevel(channel), peak: demoMeterPeak(channel))
+                },
+                rect: MK2PixelRect(x: 40, y: 16, width: 168, height: 166),
+                orientation: .vertical,
+                channelGap: 12,
+                fill: Palette.green,
+                dangerFill: Palette.mute
+            )
+            MK2MeterElement(
+                channels: (0..<4).map { channel in
+                    MK2MeterChannel(label: "CH\(channel + 1)", level: demoMeterLevel(channel, phaseOffset: 5), peak: demoMeterPeak(channel, phaseOffset: 5))
+                },
+                rect: MK2PixelRect(x: 238, y: 22, width: 210, height: 122),
+                fill: Palette.blue,
+                dangerFill: Palette.mute
+            )
+            MK2ContentText("vertical + compact horizontal", x: 238, y: 162, maxWidth: 220, color: Palette.empty)
+        }
+    }
+
+    private func demoMeterLevel(_ channel: Int, phaseOffset: Int = 0) -> Double {
+        let phase = Double((playheadRow + channel * 7 + phaseOffset).floorMod(32)) / 31.0
+        let wave = 0.5 + 0.5 * sin(phase * Double.pi * 2.0)
+        return min(0.98, 0.12 + wave * (0.58 + Double(channel) * 0.06))
+    }
+
+    private func demoMeterPeak(_ channel: Int, phaseOffset: Int = 0) -> Double {
+        min(1.0, demoMeterLevel(channel, phaseOffset: phaseOffset) + 0.14 + Double(channel) * 0.02)
     }
 
     // MARK: - Tracker unit
@@ -1590,27 +1656,27 @@ private actor WidgetLab {
         await render()
     }
 
-    private func browserEncoderBindings() -> [MK2EncoderDiscreteValue] {
+    private func browserFilterEncoderBindings() -> [MK2SelectionFilterEncoderBinding] {
         guard browserMode.hasFilters else { return [] }
         return [
-            MK2EncoderDiscreteValue(
+            MK2SelectionFilterEncoderBinding(
                 encoder: 5,
                 value: browserAreaIndex,
                 bounds: 0...(BrowserLabFixtures.areas.count - 1),
                 wraps: true,
-                onTouch: { [weak self] touched in
+                onFocus: { [weak self] _, touched in
                     Task { await self?.setBrowserFilterFocus(encoder: 5, touched: touched) }
                 },
                 onChange: { [weak self] value in
                     Task { await self?.setBrowserArea(value) }
                 }
             ),
-            MK2EncoderDiscreteValue(
+            MK2SelectionFilterEncoderBinding(
                 encoder: 6,
                 value: browserSourceIndex,
                 bounds: 0...(BrowserLabFixtures.sources.count - 1),
                 wraps: true,
-                onTouch: { [weak self] touched in
+                onFocus: { [weak self] _, touched in
                     Task { await self?.setBrowserFilterFocus(encoder: 6, touched: touched) }
                 },
                 onChange: { [weak self] value in
@@ -1709,39 +1775,39 @@ private actor WidgetLab {
         await render()
     }
 
-    private func selectionEncoderBindings() -> [MK2EncoderDiscreteValue] {
+    private func selectionFilterEncoderBindings() -> [MK2SelectionFilterEncoderBinding] {
         guard selectionMode.hasFilters else { return [] }
         var bindings = [
-            MK2EncoderDiscreteValue(
+            MK2SelectionFilterEncoderBinding(
                 encoder: 5,
                 value: selectionTypeIndex,
                 bounds: 0...(SelectionLabFixtures.types.count - 1),
                 wraps: true,
-                onTouch: { [weak self] touched in
+                onFocus: { [weak self] _, touched in
                     Task { await self?.setSelectionFilterFocus(encoder: 5, touched: touched) }
                 },
                 onChange: { [weak self] value in
                     Task { await self?.setSelectionType(value) }
                 }
             ),
-            MK2EncoderDiscreteValue(
+            MK2SelectionFilterEncoderBinding(
                 encoder: 6,
                 value: selectionToneIndex,
                 bounds: 0...(SelectionLabFixtures.tones.count - 1),
                 wraps: true,
-                onTouch: { [weak self] touched in
+                onFocus: { [weak self] _, touched in
                     Task { await self?.setSelectionFilterFocus(encoder: 6, touched: touched) }
                 },
                 onChange: { [weak self] value in
                     Task { await self?.setSelectionTone(value) }
                 }
             ),
-            MK2EncoderDiscreteValue(
+            MK2SelectionFilterEncoderBinding(
                 encoder: 7,
                 value: selectionBankIndex,
                 bounds: 0...(SelectionLabFixtures.banks.count - 1),
                 wraps: true,
-                onTouch: { [weak self] touched in
+                onFocus: { [weak self] _, touched in
                     Task { await self?.setSelectionFilterFocus(encoder: 7, touched: touched) }
                 },
                 onChange: { [weak self] value in
@@ -1751,12 +1817,12 @@ private actor WidgetLab {
         ]
         if selectionMode.isGrid {
             bindings.append(
-                MK2EncoderDiscreteValue(
+                MK2SelectionFilterEncoderBinding(
                     encoder: 8,
                     value: selectionCellSizeIndex,
                     bounds: 0...(SelectionLabFixtures.cellSizes.count - 1),
                     wraps: true,
-                    onTouch: { [weak self] touched in
+                    onFocus: { [weak self] _, touched in
                         Task { await self?.setSelectionFilterFocus(encoder: 8, touched: touched) }
                     },
                     onChange: { [weak self] value in
@@ -2490,15 +2556,42 @@ private actor WidgetLab {
     func snapshotImplementedUnits(to directory: String) async {
         for candidate in Unit.allCases where candidate.implemented {
             unit = candidate
-            if candidate == .font {
-                for subDemo in FontSubDemo.allCases {
-                    fontSubDemo = subDemo
-                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(subDemo.shortTitle.lowercased()).png")
-                }
-            } else {
-                await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
+            switch candidate {
+                case .font:
+                    for subDemo in FontSubDemo.allCases {
+                        fontSubDemo = subDemo
+                        if subDemo == .icons {
+                            for mode in IconSelectionMode.allCases {
+                                iconSelectionMode = mode
+                                clampIconToVisibleSelection()
+                                await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(subDemo.shortTitle.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
+                            }
+                        } else {
+                            await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(subDemo.shortTitle.lowercased()).png")
+                        }
+                    }
+                case .chrome:
+                    for mode in BrowserDemoMode.allCases {
+                        browserMode = mode
+                        clampBrowserSelection()
+                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
+                    }
+                case .list:
+                    for mode in SelectionDemoMode.allCases {
+                        selectionMode = mode
+                        clampSelectionIndex()
+                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
+                    }
+                default:
+                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
             }
         }
+    }
+
+    private static func snapshotSlug(_ text: String) -> String {
+        text.lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .joined(separator: "-")
     }
 
     private func snapshot(to path: String?) async {

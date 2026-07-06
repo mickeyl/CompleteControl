@@ -18,9 +18,9 @@ Resume from `master`. The MK2 screen-formalization work is active:
   confirmation dialog.
 - Reusable DSL elements now cover wrapped content text, status lines, value cells,
   encoder footers, selection list/grid wrappers, empty states, progress bars, browser
-  detail panes, compact page indicators, tab bars, and parameter pages. WidgetLab Browser
-  Lab and Selection Lab now render their regular/detail and picker screens through these
-  DSL elements.
+  detail panes, compact page indicators, tab bars, parameter pages, and meters. WidgetLab
+  Browser Lab and Selection Lab now render their regular/detail and picker screens through
+  these DSL elements.
 - `MK2SelectionInputElement` is the first screen-owned navigation helper: it derives
   4-D jog lamps, direction movement, main-rotary movement, and confirm from
   `MK2SelectionNavigation` plus `MK2SelectionLayout`. WidgetLab Browser Lab and Selection
@@ -33,15 +33,20 @@ Resume from `master`. The MK2 screen-formalization work is active:
 - `MK2ParameterPageElement` renders up to eight parameter slots and applies each slot's
   discrete encoder binding. The WidgetLab tracker detail screen uses it for NOTE/INST/VOL/FX,
   so those edit-field bindings now come from the screen result.
+- `MK2MeterElement` renders horizontal or vertical multi-channel levels with peak markers
+  and warning/danger colours. WidgetLab Unit C is now implemented as the meter acceptance
+  screen.
+- `MK2SelectionFilterEncoderElement` and `MK2SelectionFilterEncoderBinding` package the
+  repeated selection-filter pattern: encoder touch updates filter focus, encoder turns
+  update the product filter value. Browser Lab and Selection Lab use it in their picker
+  screen results.
 
 Next code stages:
 
-1. Expand the reusable element set with richer meter widgets and product-facing
-   filter-focus encoder helpers.
-2. Add WidgetLab snapshot coverage for every formal screen/component class and keep
+1. Add WidgetLab snapshot coverage for every formal screen/component class and keep
    hardware acceptance focused on Unit A Font/Icon Lab, Selection Lab, Browser Lab, and
    the tracker Clear/Shift+Clear workflow.
-3. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
+2. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
    can render and bind inputs without demo-local glue.
 
 ## Layout
@@ -439,7 +444,7 @@ rendering pieces are in; before wiring Paulinche, make the Kit2 screen DSL produ
    using `MK2HIG` tokens for typography, fonts, colors, and fixed metrics.
 2. **Standard content components**: list/grid selection, value rows, encoder footers,
    parameter pages, status rows, empty/error states, progress bars, tabs/page indicators,
-   and browser detail panes are in; complete the reusable set with richer meter elements.
+   browser detail panes, and meter elements are in.
 3. **Screen-owned input bindings**: screens should declare their buttons, encoders, 4-D
    navigation, and modifiers alongside rendering, so Paulinche does not hand-wire hardware
    behavior per view. Shift is the single first-class key modifier; other chords should be

@@ -185,6 +185,33 @@ struct ScreenDSLTests {
         #expect(box.secondValue == 0)
     }
 
+    @Test("Selection filter encoder element owns focus and value bindings")
+    func selectionFilterEncoderElementOwnsBindings() {
+        let box = ScreenDSLBox()
+        let result = MK2FullScreenDSL {
+            MK2SelectionFilterEncoderElement([
+                MK2SelectionFilterEncoderBinding(
+                    encoder: 5,
+                    value: 1,
+                    bounds: 0...3,
+                    onFocus: { encoder, touched in
+                        box.secondValue = touched ? encoder : -encoder
+                    },
+                    onChange: { value in
+                        box.lastValue = value
+                    }
+                ),
+            ])
+        }.build()
+
+        result.bindings.encoderTouch[5]?(true)
+        result.bindings.encoder[5]?(1, 0, 0)
+        result.bindings.encoderTouch[5]?(false)
+
+        #expect(box.secondValue == -5)
+        #expect(box.lastValue == 2)
+    }
+
     @Test("Page indicator and tab bar draw compact navigation chrome")
     func pageIndicatorAndTabBarDraw() {
         let result = MK2RegularScreenDSL(header: .title(title: "Pages")) {
@@ -238,6 +265,34 @@ struct ScreenDSLTests {
         #expect(box.lastValue == 5)
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 440, height: 40), notMatching: MK2HIG.Chrome.background) > 80)
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 420, y: 148, width: 32, height: 10), matching: MK2HIG.Chrome.accent) > 0)
+    }
+
+    @Test("Meter element draws levels and peak markers")
+    func meterElementDrawsLevelsAndPeaks() {
+        let result = MK2FullScreenDSL {
+            MK2MeterElement(
+                channels: [
+                    MK2MeterChannel(label: "L", level: 0.50, peak: 0.80),
+                    MK2MeterChannel(label: "R", level: 0.95, peak: 1.0),
+                ],
+                rect: MK2PixelRect(x: 20, y: 40, width: 220, height: 34),
+                relativeToContent: false
+            )
+            MK2MeterElement(
+                channels: [
+                    MK2MeterChannel(level: 0.30, peak: 0.45),
+                    MK2MeterChannel(level: 0.74, peak: 0.90),
+                ],
+                rect: MK2PixelRect(x: 280, y: 40, width: 54, height: 100),
+                orientation: .vertical,
+                relativeToContent: false
+            )
+        }.build()
+
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 42, width: 80, height: 12), matching: 0x464f) > 20)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 62, width: 180, height: 12), matching: 0xf8c3) > 20)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 200, y: 42, width: 5, height: 12), matching: MK2HIG.Chrome.text) > 0)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 310, y: 65, width: 24, height: 60), matching: MK2HIG.Chrome.accent) > 20)
     }
 
     @Test("Shift is a first-class button modifier")
