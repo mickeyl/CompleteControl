@@ -19,6 +19,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let height = "KontrolSimulator.window.height"
         static let keybedSize = "KontrolSimulator.keybedSize"
         static let stayOnTop = "KontrolSimulator.window.stayOnTop"
+        static let cheatSheetVisible = "KontrolSimulator.cheatSheet.visible"
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
@@ -27,6 +28,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panel: PanelView!
     private var fitToWidthItem: NSMenuItem?
     private var stayOnTopItem: NSMenuItem?
+    private var cheatSheetItem: NSMenuItem?
+    private var cheatSheetWindow: NSWindow?
     private var keybedSizeItems: [PanelView.KeybedSize: NSMenuItem] = [:]
     private var zoomMode: ZoomMode = .manual
     private var isProgrammaticResize = false
@@ -49,7 +52,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let initialSize = NSSize(width: 1040, height: 640)
-        scrollView = SimulatorScrollView(frame: NSRect(origin: .zero, size: initialSize))
+        let simulatorScrollView = SimulatorScrollView(frame: NSRect(origin: .zero, size: initialSize))
+        simulatorScrollView.onKeyDown = { [weak self] event in
+            self?.panel.handleKeyDown(event) ?? false
+        }
+        simulatorScrollView.onKeyUp = { [weak self] event in
+            self?.panel.handleKeyUp(event) ?? false
+        }
+        simulatorScrollView.onFlagsChanged = { [weak self] event in
+            self?.panel.handleFlagsChanged(event) ?? false
+        }
+        scrollView = simulatorScrollView
         scrollView.documentView = panel
         scrollView.allowsMagnification = true
         scrollView.minMagnification = 0.2
@@ -73,6 +86,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = Self.baseWindowTitle
         window.delegate = self
         window.contentView = scrollView
+        window.initialFirstResponder = scrollView
         let restoredFrame = restoredWindowFrame()
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
@@ -81,8 +95,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         applyStayOnTop(UserDefaults.standard.bool(forKey: DefaultsKey.stayOnTop))
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(scrollView)
 
         buildMenu()
+        if UserDefaults.standard.bool(forKey: DefaultsKey.cheatSheetVisible) {
+            showCheatSheet(persist: false)
+        }
 
         panel.onInput = { [weak self] frame in self?.link.send(frame) }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
@@ -123,12 +141,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
-        let appMenu = NSMenu(title: "KontrolSimulator")
+        let appMenu = NSMenu(title: "KompleteSimulator")
         appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "About KontrolSimulator",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About KompleteSimulator",
+                        action: #selector(showAboutPanel), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit KontrolSimulator",
+        appMenu.addItem(withTitle: "Quit KompleteSimulator",
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         let viewItem = NSMenuItem()
@@ -142,6 +160,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
         viewMenu.addItem(.separator())
         stayOnTopItem = add(to: viewMenu, "Stay on Top", #selector(toggleStayOnTop), "")
+        cheatSheetItem = add(to: viewMenu, "Keyboard Cheat Sheet", #selector(toggleCheatSheet), "")
         viewMenu.addItem(.separator())
         for size in PanelView.KeybedSize.allCases {
             let item = add(to: viewMenu, size.title, #selector(setKeybedSizeFromMenu(_:)), "")
@@ -191,6 +210,41 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         applyStayOnTop(enabled)
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.stayOnTop)
         updateViewMenuState()
+    }
+
+    @objc private func showAboutPanel(_ sender: Any?) {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        style.lineSpacing = 2
+        let credits = NSAttributedString(
+            string: """
+            A virtual Komplete Kontrol S-Series MK2 surface for hardware-free development, daemon testing, and surface UI iteration.
+
+            Part of CompleteControl.
+            Copyright (c) 2026 Dr. Michael Lauer.
+            Not affiliated with or endorsed by Native Instruments.
+            """,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: style,
+            ]
+        )
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "KompleteSimulator",
+            .applicationIcon: SimulatorAppIcon.make(),
+            .version: "CompleteControl Simulator",
+            .applicationVersion: "S-Series MK2",
+            .credits: credits,
+        ])
+    }
+
+    @objc private func toggleCheatSheet(_ sender: Any?) {
+        if cheatSheetWindow?.isVisible == true {
+            hideCheatSheet()
+        } else {
+            showCheatSheet(persist: true)
+        }
     }
 
     @objc private func setKeybedSizeFromMenu(_ sender: NSMenuItem) {
@@ -364,6 +418,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateViewMenuState() {
         fitToWidthItem?.state = zoomMode == .fitToWidth ? .on : .off
         stayOnTopItem?.state = window?.level == .floating ? .on : .off
+        cheatSheetItem?.state = cheatSheetWindow?.isVisible == true ? .on : .off
         for (size, item) in keybedSizeItems {
             item.state = panel.currentKeybedSize == size ? .on : .off
         }
@@ -372,6 +427,56 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func applyStayOnTop(_ enabled: Bool) {
         window.level = enabled ? .floating : .normal
+        cheatSheetWindow?.level = enabled ? .floating : .normal
+    }
+
+    private func showCheatSheet(persist: Bool) {
+        let sheet = cheatSheetWindow ?? makeCheatSheetWindow()
+        cheatSheetWindow = sheet
+        sheet.level = window.level == .floating ? .floating : .normal
+        sheet.orderFront(nil)
+        if persist {
+            UserDefaults.standard.set(true, forKey: DefaultsKey.cheatSheetVisible)
+        }
+        updateViewMenuState()
+    }
+
+    private func hideCheatSheet() {
+        cheatSheetWindow?.close()
+    }
+
+    private func makeCheatSheetWindow() -> NSWindow {
+        let panel = NSPanel(
+            contentRect: NSRect(x: window.frame.maxX + 16, y: window.frame.maxY - 420, width: 420, height: 420),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Simulator Keyboard Cheat Sheet"
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.delegate = self
+        panel.setFrameAutosaveName("KontrolSimulator.KeyboardCheatSheet")
+
+        let scrollView = NSScrollView(frame: panel.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 420, height: 420))
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor(white: 0.09, alpha: 1)
+
+        let textView = NSTextView(frame: scrollView.bounds)
+        textView.autoresizingMask = [.width, .height]
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = true
+        textView.backgroundColor = NSColor(white: 0.09, alpha: 1)
+        textView.textColor = NSColor(white: 0.86, alpha: 1)
+        textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textContainerInset = NSSize(width: 14, height: 12)
+        textView.string = PanelView.keyboardCheatSheetText
+        scrollView.documentView = textView
+        panel.contentView = scrollView
+        return panel
     }
 
     private func updateWindowTitle() {
@@ -453,6 +558,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Window resize
 
     func windowDidResize(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         guard !isProgrammaticResize else {
             persistWindowPlacement()
             return
@@ -465,11 +571,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         persistWindowPlacement()
         scheduleScrollerVisibilityRefresh()
     }
 
     func windowDidChangeScreen(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
         if zoomMode == .fitToWidth {
             updateFitToWidthMagnification()
         } else {
@@ -480,7 +588,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        if closingWindow === cheatSheetWindow {
+            UserDefaults.standard.set(false, forKey: DefaultsKey.cheatSheetVisible)
+            updateViewMenuState()
+            return
+        }
+        guard closingWindow === window else { return }
+        panel.releaseKeyboardInputs()
         persistWindowPlacement()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        panel.releaseKeyboardInputs()
     }
 
     // MARK: - Daemon output
@@ -511,6 +632,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 private final class SimulatorScrollView: NSScrollView {
     var onViewportChanged: (() -> Void)?
     var onMagnificationChanged: (() -> Void)?
+    var onKeyDown: ((NSEvent) -> Bool)?
+    var onKeyUp: ((NSEvent) -> Bool)?
+    var onFlagsChanged: ((NSEvent) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { true }
 
     override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
@@ -521,6 +647,21 @@ private final class SimulatorScrollView: NSScrollView {
         super.magnify(with: event)
         onMagnificationChanged?()
         onViewportChanged?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyDown?(event) == true { return }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if onKeyUp?(event) == true { return }
+        super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        if onFlagsChanged?(event) == true { return }
+        super.flagsChanged(with: event)
     }
 }
 

@@ -78,10 +78,49 @@ final class PanelView: NSView {
     private var activeFourDWheel = false
     private var pendingEncoderTouchReleases: [Int: DispatchWorkItem] = [:]
     private var pendingFourDTouchRelease: DispatchWorkItem?
+    private var keyboardButtons: Set<KKMK2ButtonLED> = []
+    private var keyboardFourD: MK2InputReportBuilder.FourDState?
 
     private enum WheelKind {
         case pitch
         case mod
+    }
+
+    static let keyboardCheatSheetText = """
+    Komplete Kontrol MK2 Simulator Keys
+
+    4-D Encoder
+      Arrow keys             Push left/up/down/right
+      Return / Keypad Enter  Press 4-D encoder
+      Mouse wheel on 4-D     Rotate 4-D encoder
+
+    Core Buttons
+      Shift                  SHIFT
+      M                      Mute
+      S                      Solo
+      I                      Instance
+      Space                  Play
+      R                      Record
+      Escape                 Stop
+
+    Mode / Navigation
+      B                      Browser
+      P                      Plugin
+      X                      Mixer
+      [ / ]                  Page left / right
+      , / .                  Preset down / up
+      C                      Clear
+      K                      Key Mode
+      T                      Track
+      L                      Loop
+
+    Function Buttons
+      1 ... 8                F1 ... F8
+    """
+
+    private enum KeyboardAction {
+        case button(KKMK2ButtonLED)
+        case fourD(MK2InputReportBuilder.FourDState)
     }
 
     override var isFlipped: Bool { true }
@@ -892,6 +931,58 @@ final class PanelView: NSView {
         }
     }
 
+    func handleKeyDown(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              let action = keyboardAction(for: event) else {
+            return false
+        }
+        if event.isARepeat {
+            return true
+        }
+        switch action {
+            case let .button(led):
+                pressKeyboardButton(led)
+            case let .fourD(state):
+                pressKeyboardFourD(state)
+        }
+        return true
+    }
+
+    func handleKeyUp(_ event: NSEvent) -> Bool {
+        guard let action = keyboardAction(for: event) else { return false }
+        switch action {
+            case let .button(led):
+                releaseKeyboardButton(led)
+            case let .fourD(state):
+                releaseKeyboardFourD(state)
+        }
+        return true
+    }
+
+    func handleFlagsChanged(_ event: NSEvent) -> Bool {
+        let shiftDown = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+        if shiftDown {
+            pressKeyboardButton(.shift)
+        } else {
+            releaseKeyboardButton(.shift)
+        }
+        return true
+    }
+
+    func releaseKeyboardInputs() {
+        for led in keyboardButtons {
+            pressedButtons.remove(led)
+            onInput?(.button(led: led, pressed: false))
+        }
+        keyboardButtons.removeAll()
+        if keyboardFourD != nil {
+            onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
+            keyboardFourD = nil
+            activeFourD = nil
+        }
+        needsDisplay = true
+    }
+
     private var enclosingScrollViewCanScroll: Bool {
         guard let scrollView = enclosingScrollView else { return false }
         let documentSize = NSSize(
@@ -900,6 +991,93 @@ final class PanelView: NSView {
         )
         return documentSize.width > scrollView.contentSize.width + 0.5
             || documentSize.height > scrollView.contentSize.height + 0.5
+    }
+
+    private func keyboardAction(for event: NSEvent) -> KeyboardAction? {
+        switch event.keyCode {
+            case 36, 76:
+                return .fourD(.click)
+            case 53:
+                return .button(.stop)
+            case 123:
+                return .fourD(.pushLeft)
+            case 124:
+                return .fourD(.pushRight)
+            case 125:
+                return .fourD(.pushDown)
+            case 126:
+                return .fourD(.pushUp)
+            default:
+                break
+        }
+
+        guard let key = event.charactersIgnoringModifiers?.lowercased() else { return nil }
+        switch key {
+            case "1": return .button(.function1)
+            case "2": return .button(.function2)
+            case "3": return .button(.function3)
+            case "4": return .button(.function4)
+            case "5": return .button(.function5)
+            case "6": return .button(.function6)
+            case "7": return .button(.function7)
+            case "8": return .button(.function8)
+            case " ": return .button(.play)
+            case "m": return .button(.m)
+            case "s": return .button(.s)
+            case "i": return .button(.instance)
+            case "r": return .button(.record)
+            case "b": return .button(.browser)
+            case "p": return .button(.plugin)
+            case "x": return .button(.mixer)
+            case "[": return .button(.pageLeft)
+            case "]": return .button(.pageRight)
+            case ",": return .button(.presetDown)
+            case ".": return .button(.presetUp)
+            case "c": return .button(.clear)
+            case "k": return .button(.keyMode)
+            case "t": return .button(.track)
+            case "l": return .button(.loop)
+            default: return nil
+        }
+    }
+
+    private func pressKeyboardButton(_ led: KKMK2ButtonLED) {
+        guard !keyboardButtons.contains(led) else { return }
+        keyboardButtons.insert(led)
+        pressedButtons.insert(led)
+        interactionAudio.playClick()
+        onInput?(.button(led: led, pressed: true))
+        needsDisplay = true
+    }
+
+    private func releaseKeyboardButton(_ led: KKMK2ButtonLED) {
+        guard keyboardButtons.contains(led) else { return }
+        keyboardButtons.remove(led)
+        if activeButton != led {
+            pressedButtons.remove(led)
+        }
+        onInput?(.button(led: led, pressed: false))
+        needsDisplay = true
+    }
+
+    private func pressKeyboardFourD(_ state: MK2InputReportBuilder.FourDState) {
+        guard keyboardFourD != state else { return }
+        if keyboardFourD != nil {
+            onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
+        }
+        keyboardFourD = state
+        activeFourD = state
+        interactionAudio.playClick()
+        onInput?(.fourDState(state.rawValue))
+        needsDisplay = true
+    }
+
+    private func releaseKeyboardFourD(_ state: MK2InputReportBuilder.FourDState) {
+        guard keyboardFourD == state else { return }
+        keyboardFourD = nil
+        activeFourD = nil
+        onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
+        needsDisplay = true
     }
 
     private func emitEncoder(index: Int, delta: Int) {
