@@ -40,14 +40,18 @@ Resume from `master`. The MK2 screen-formalization work is active:
   repeated selection-filter pattern: encoder touch updates filter focus, encoder turns
   update the product filter value. Browser Lab and Selection Lab use it in their picker
   screen results.
+- `MK2PaulinchePatternRenderer` is the first Paulinche-shaped Kit2 renderer without a
+  Paulinche dependency. It consumes a small `MK2PaulinchePatternScene` fixture model and
+  renders the two fullscreen tracker panes: pattern grid on the left, edit parameters,
+  meters, and soft-key labels/bindings on the right.
 
 Next code stages:
 
-1. Add WidgetLab snapshot coverage for every formal screen/component class and keep
-   hardware acceptance focused on Unit A Font/Icon Lab, Selection Lab, Browser Lab, and
-   the tracker Clear/Shift+Clear workflow.
-2. Define the first `SurfaceProjection` boundary for Paulinche only after those widgets
-   can render and bind inputs without demo-local glue.
+1. Expand the isolated Paulinche-shaped renderer from PATTERN into SONG/INSTRUMENT scene
+   fixtures, still without adding a Paulinche package dependency.
+2. Add the real adapter boundary only after the fixture renderers cover the scene shapes:
+   Paulinche emits semantic `SurfaceScene`, CompleteControl maps it to Kit2 scene models,
+   and hardware input returns through semantic soft-key/encoder events.
 
 ## Layout
 

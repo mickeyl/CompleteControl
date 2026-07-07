@@ -49,7 +49,9 @@
   before Paulinche starts consuming them.
 - Prepare the Paulinche boundary as a small semantic `SurfaceProjection`: Paulinche emits
   product state and commands, Kit2 renders screens, and hardware input returns as semantic
-  events.
+  events. Started without coupling the packages: `MK2PaulinchePatternRenderer` renders a
+  Paulinche-shaped PATTERN fixture to two MK2 fullscreen panes and binds soft keys through
+  function buttons.
 
 - Done: FreeType font rendering is available through `KontrolSurfaceKit2` and
   `MK2WidgetLabDemo` Unit A for large, well-hinted typography. The production text choice is
