@@ -16,7 +16,6 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
     public var playheadProgress: Double?
     public var waveform: [Double]
     public var parameters: [MK2PaulinchePatternParameter]
-    public var meters: [MK2PaulinchePatternMeter]
     public var softKeys: [MK2PaulincheSoftKey]
 
     public init(
@@ -28,7 +27,6 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         playheadProgress: Double? = nil,
         waveform: [Double] = [],
         parameters: [MK2PaulinchePatternParameter],
-        meters: [MK2PaulinchePatternMeter] = [],
         softKeys: [MK2PaulincheSoftKey] = []
     ) {
         self.title = title
@@ -39,16 +37,23 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         self.playheadProgress = playheadProgress.map { MK2PaulincheRendererSupport.clamped01($0) }
         self.waveform = waveform.map { Swift.max(-1, Swift.min(1, $0)) }
         self.parameters = Array(parameters.prefix(8))
-        self.meters = meters
         self.softKeys = Array(softKeys.prefix(8))
     }
 }
 
 public struct MK2PaulincheInstrumentActions: Sendable {
     public var onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
+    public var onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)?
+    public var onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)?
 
-    public init(onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil) {
+    public init(
+        onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
+        onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)? = nil,
+        onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)? = nil
+    ) {
         self.onSoftKey = onSoftKey
+        self.onEncoderTouch = onEncoderTouch
+        self.onEncoderChange = onEncoderChange
     }
 }
 
@@ -58,10 +63,9 @@ public enum MK2PaulincheInstrumentRenderer {
         actions: MK2PaulincheInstrumentActions = MK2PaulincheInstrumentActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
-        let textRenderer = renderer ?? (try? FreeTypeTextRenderer())
-        return MK2DoubleScreenDSL(
-            left: identityScreen(scene, actions: actions, renderer: textRenderer),
-            right: parameterScreen(scene, actions: actions, renderer: textRenderer)
+        MK2DoubleScreenDSL(
+            left: identityScreen(scene, actions: actions, renderer: renderer),
+            right: parameterScreen(scene, actions: actions, renderer: renderer)
         )
     }
 
@@ -97,32 +101,44 @@ public enum MK2PaulincheInstrumentRenderer {
     ) -> MK2ScreenBuildResult {
         MK2RegularScreenDSL(
             header: .title(title: scene.kind.label, subtitle: String(format: "INS %02d", scene.instrumentIndex + 1), subtitleAlignment: .trailing),
-            footer: .filters(height: 42)
+            footer: .filters(height: 42),
+            progress: scene.playheadProgress.map { MK2ScreenProgressBar(placement: .bottom, progress: $0) }
         ) {
+            MK2ParameterPageElement(slots: parameterSlots(scene.parameters), columns: 4)
+            parameterEncoderBindings(scene.parameters, actions: actions)
             MK2RenderBlock { frame, context in
-                guard let content = context.layout?.contentRect else { return }
-                MK2PaulincheRendererSupport.drawParameterSlots(
-                    scene.parameters,
-                    in: MK2PixelRect(x: content.x + 8, y: content.y + 8, width: 448, height: scene.meters.isEmpty ? 132 : 104),
-                    into: &frame,
-                    renderer: renderer
-                )
-                if !scene.meters.isEmpty {
-                    MK2PaulincheRendererSupport.drawMeters(
-                        scene.meters,
-                        in: MK2PixelRect(x: content.x + 16, y: content.y + 150, width: 432, height: 32),
-                        into: &frame,
-                        renderer: renderer
-                    )
-                }
                 drawFooterSoftKeys(scene.softKeys, into: &frame, context: context, renderer: renderer)
-            }
-            MK2EncoderDiscreteValuesElement(parameterEncoderValues(scene.parameters), drawsDisplays: false)
-            if let progress = scene.playheadProgress {
-                MK2ProgressBarElement(rect: MK2PixelRect(x: 16, y: scene.meters.isEmpty ? 150 : 134, width: 432, height: 12), progress: progress)
             }
             MK2PaulincheRendererSupport.softKeyBindings(scene.softKeys, onSoftKey: actions.onSoftKey)
         }.build(renderer: renderer)
+    }
+
+    private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
+        parameters.prefix(8).map { parameter in
+            MK2ParameterPageSlot(
+                label: parameter.label,
+                value: parameter.value,
+                isFocused: parameter.isFocused
+            )
+        }
+    }
+
+    private static func parameterEncoderBindings(
+        _ parameters: [MK2PaulinchePatternParameter],
+        actions: MK2PaulincheInstrumentActions
+    ) -> [any MK2ScreenElement] {
+        parameters.prefix(8).enumerated().map { index, _ in
+            let encoder = index + 1
+            return MK2EncoderBindingElement(
+                encoder,
+                onTouch: { touched in
+                    actions.onEncoderTouch?(encoder, touched)
+                },
+                onChange: { delta, _, _ in
+                    actions.onEncoderChange?(encoder, delta)
+                }
+            )
+        }
     }
 
     private static func drawInstrumentIdentity(
@@ -162,7 +178,7 @@ public enum MK2PaulincheInstrumentRenderer {
             let amplitude = samples[sampleIndex]
             let height = max(1, Int((abs(amplitude) * Double(inner.height - 2) / 2).rounded()))
             let y = amplitude >= 0 ? midY - height : midY
-            frame.fill(MK2PixelRect(x: inner.x + xOffset, y: y, width: 1, height: height), 0x464f)
+            frame.fill(MK2PixelRect(x: inner.x + xOffset, y: y, width: 1, height: height), MK2PaulincheRendererSupport.Palette.green)
         }
 
         if let playheadProgress {
@@ -179,18 +195,6 @@ public enum MK2PaulincheInstrumentRenderer {
     ) {
         guard let footer = context.layout?.footerRect else { return }
         MK2PaulincheRendererSupport.drawSoftKeyStrip(softKeys, into: &frame, renderer: renderer, y: footer.y, height: footer.height)
-    }
-
-    private static func parameterEncoderValues(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2EncoderDiscreteValue] {
-        parameters.prefix(8).enumerated().map { index, _ in
-            MK2EncoderDiscreteValue(
-                encoder: index + 1,
-                value: 0,
-                bounds: -128...127,
-                wraps: false,
-                onChange: { _ in }
-            )
-        }
     }
 }
 

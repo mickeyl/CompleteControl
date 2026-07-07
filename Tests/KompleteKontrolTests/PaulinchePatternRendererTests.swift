@@ -6,23 +6,41 @@ import Testing
 
 @Suite("Paulinche pattern renderer")
 struct PaulinchePatternRendererTests {
-    @Test("Pattern scene renders grid, editor and meter panes")
-    func patternSceneRendersBothScreens() {
-        let renderer = try? FreeTypeTextRenderer()
-        let scene = Self.fixture()
+    private static let background: UInt16 = 0x0841
+    private static let cursorFill: UInt16 = 0x19aa
+    private static let playheadFill: UInt16 = 0x1125
+    private static let muteFill: UInt16 = 0xf8c3
+    private static let soloFill: UInt16 = 0x03ff
 
-        let rendered = MK2PaulinchePatternRenderer.render(scene, renderer: renderer)
+    @Test("Pattern grid renders full-screen in the widget-lab layout")
+    func patternGridRendersLabLayout() {
+        let scene = Self.fixture()
+        let rendered = MK2PaulinchePatternRenderer.render(scene)
 
         #expect(rendered.left.screen.kind == .fullScreen)
         #expect(rendered.right.screen.kind == .fullScreen)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 70, width: 460, height: 185), notMatching: MK2HIG.Chrome.background) > 1_000)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 6, y: 176, width: 456, height: 16), matching: 0x2128) > 200)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 298, y: 50, width: 40, height: 18), matching: 0xfaa0) > 10)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 421, y: 50, width: 40, height: 18), matching: 0xffe0) > 10)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 18, y: 58, width: 444, height: 118), notMatching: MK2HIG.Chrome.background) > 700)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 58, y: 110, width: 380, height: 64), matching: 0x464f) > 120)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 215, width: 480, height: 57), notMatching: MK2HIG.Chrome.background) > 300)
+
+        let grid = rendered.left.screen.frame
+        // Status line row, channel headers, and grid text all live above a full-bleed background.
+        #expect(grid.countPixels(in: MK2PixelRect(x: 8, y: 8, width: 460, height: 16), notMatching: Self.background) > 100)
+        // The cursor row (index 0x1F, visible slot 7) is filled edge to edge while stopped.
+        let cursorRow = MK2PixelRect(x: 0, y: 60 + 7 * 16, width: 480, height: 16)
+        #expect(grid.countPixels(in: cursorRow, matching: Self.cursorFill) > 3_000)
+        // Mute chip on channel 3 and solo chip on channel 4 render in their accent fills.
+        #expect(grid.countPixels(in: MK2PixelRect(x: 315, y: 34, width: 14, height: 16), matching: Self.muteFill) > 40)
+        #expect(grid.countPixels(in: MK2PixelRect(x: 438, y: 34, width: 14, height: 16), matching: Self.soloFill) > 40)
+        // The pattern overview minimap occupies the right edge.
+        #expect(grid.countPixels(in: MK2PixelRect(x: 466, y: 62, width: 9, height: 200), notMatching: Self.background) > 150)
+    }
+
+    @Test("Playback row uses the playhead fill")
+    func playbackRowUsesPlayheadFill() {
+        var scene = Self.fixture()
+        scene.isPlaying = true
+        let rendered = MK2PaulinchePatternRenderer.render(scene)
+        let cursorRow = MK2PixelRect(x: 0, y: 60 + 7 * 16, width: 480, height: 16)
+        #expect(rendered.left.screen.frame.countPixels(in: cursorRow, matching: Self.playheadFill) > 3_000)
+        #expect(rendered.left.screen.frame.countPixels(in: cursorRow, matching: Self.cursorFill) == 0)
     }
 
     @Test("Pattern scene leaves function buttons to hardware actions")
@@ -41,8 +59,17 @@ struct PaulinchePatternRendererTests {
         #expect(rendered.bindings.buttonDown[.function5] == nil)
     }
 
-    @Test("Pattern edit footer binds standard encoder values")
-    func patternEditFooterBindsStandardEncoderValues() {
+    @Test("Pattern edit screen draws the parameter page and no meters")
+    func patternEditScreenDrawsParameterPage() {
+        let rendered = MK2PaulinchePatternRenderer.render(Self.fixture())
+        let edit = rendered.right.screen.frame
+        #expect(edit.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: Self.background) > 300)
+        // The area between the status line and the parameter page stays empty (no meters, no hint text).
+        #expect(edit.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 130), notMatching: Self.background) == 0)
+    }
+
+    @Test("Pattern edit footer forwards encoder deltas and touches")
+    func patternEditFooterForwardsEncoders() {
         let scene = Self.fixture()
         let recorder = PatternEncoderActionRecorder()
         let rendered = MK2PaulinchePatternRenderer.surfaceScene(
@@ -77,37 +104,55 @@ struct PaulinchePatternRendererTests {
         #expect(rendered.bindings.encoder[4] == nil)
     }
 
+    @Test("Pattern screens can be captured as a two-screen snapshot")
+    func patternSnapshotSmoke() throws {
+        var scene = Self.fixture()
+        scene.isPlaying = true
+        let rendered = MK2PaulinchePatternRenderer.render(scene, renderer: try? FreeTypeTextRenderer())
+        let png = PixelSnapshot.pngData(frames: [rendered.left.screen.frame, rendered.right.screen.frame])
+        #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
+            try PixelSnapshot.write(
+                [rendered.left.screen.frame, rendered.right.screen.frame],
+                to: "\(dir)/paulinche-pattern.png"
+            )
+        }
+    }
+
     private static func fixture() -> MK2PaulinchePatternScene {
-        let rows = (0..<14).map { row in
-            MK2PaulinchePatternRow(
-                index: 0x18 + row,
-                channelCells: [
-                    row % 4 == 0 ? "C-4 01 .. ..." : "--- -- .. ...",
-                    row % 5 == 0 ? "D#4 02 40 A09" : "--- -- .. ...",
-                    row % 3 == 0 ? "F-3 03 20 C20" : "--- -- .. ...",
-                    row == 7 ? "A-3 04 50 F06" : "--- -- .. ...",
-                ],
-                isPlaybackRow: row == 4
+        let rows = (0..<13).map { visible in
+            let rowIndex = 0x18 + visible
+            return MK2PaulinchePatternRow(
+                index: rowIndex,
+                cells: [
+                    visible % 4 == 0 ? MK2PaulinchePatternCell(note: "C-4", instrument: "01") : MK2PaulinchePatternCell(),
+                    visible % 5 == 0 ? MK2PaulinchePatternCell(note: "D#4", instrument: "02", effect: "A09") : MK2PaulinchePatternCell(),
+                    visible % 3 == 0 ? MK2PaulinchePatternCell(note: "F-3", instrument: "03", effect: "C20") : MK2PaulinchePatternCell(),
+                    visible == 7 ? MK2PaulinchePatternCell(note: "A-3", instrument: "04", effect: "F06") : MK2PaulinchePatternCell(),
+                ]
             )
         }
         return MK2PaulinchePatternScene(
             title: "PAULINCHE",
-            subtitle: "PAT 03 ROW 1F INST",
-            rowProgress: 0.48,
+            subtitle: "O01/04",
+            isPlaying: false,
+            rowCount: 64,
             selectedRowIndex: 0x1f,
             selectedChannelIndex: 3,
+            instrumentLabel: "INST 04 Pulse Lead",
             rows: rows,
+            rowActivity: (0..<64).map { $0 % 4 == 0 },
+            channels: [
+                MK2PaulinchePatternChannel(label: "CHANNEL 1"),
+                MK2PaulinchePatternChannel(label: "CHANNEL 2"),
+                MK2PaulinchePatternChannel(label: "CHANNEL 3", isMuted: true),
+                MK2PaulinchePatternChannel(label: "CHANNEL 4", isSoloed: true),
+            ],
             parameters: [
                 MK2PaulinchePatternParameter(label: "NOTE", value: "A-3"),
                 MK2PaulinchePatternParameter(label: "INST", value: "04", isFocused: true),
                 MK2PaulinchePatternParameter(label: "VOL", value: "50"),
                 MK2PaulinchePatternParameter(label: "FX", value: "F06"),
-            ],
-            meters: [
-                MK2PaulinchePatternMeter(label: "CH1", level: 0.36, peak: 0.52),
-                MK2PaulinchePatternMeter(label: "CH2", level: 0.62, peak: 0.74),
-                MK2PaulinchePatternMeter(label: "CH3", level: 0.28, peak: 0.42, isMuted: true),
-                MK2PaulinchePatternMeter(label: "CH4", level: 0.86, peak: 0.92, isSoloed: true),
             ],
             softKeys: [
                 MK2PaulincheSoftKey(label: "Clear", commandID: "clearCell"),

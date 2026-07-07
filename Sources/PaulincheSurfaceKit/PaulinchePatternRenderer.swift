@@ -2,15 +2,41 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
+public struct MK2PaulinchePatternCell: Sendable, Equatable {
+    public var note: String?
+    public var instrument: String?
+    public var effect: String?
+
+    public init(note: String? = nil, instrument: String? = nil, effect: String? = nil) {
+        self.note = note
+        self.instrument = instrument
+        self.effect = effect
+    }
+
+    public var isEmpty: Bool {
+        note == nil && instrument == nil && effect == nil
+    }
+}
+
 public struct MK2PaulinchePatternRow: Sendable, Equatable {
     public var index: Int
-    public var channelCells: [String]
-    public var isPlaybackRow: Bool
+    public var cells: [MK2PaulinchePatternCell]
 
-    public init(index: Int, channelCells: [String], isPlaybackRow: Bool = false) {
+    public init(index: Int, cells: [MK2PaulinchePatternCell]) {
         self.index = max(0, index)
-        self.channelCells = channelCells
-        self.isPlaybackRow = isPlaybackRow
+        self.cells = cells
+    }
+}
+
+public struct MK2PaulinchePatternChannel: Sendable, Equatable {
+    public var label: String
+    public var isMuted: Bool
+    public var isSoloed: Bool
+
+    public init(label: String, isMuted: Bool = false, isSoloed: Bool = false) {
+        self.label = label
+        self.isMuted = isMuted
+        self.isSoloed = isSoloed
     }
 }
 
@@ -23,22 +49,6 @@ public struct MK2PaulinchePatternParameter: Sendable, Equatable {
         self.label = label
         self.value = value
         self.isFocused = isFocused
-    }
-}
-
-public struct MK2PaulinchePatternMeter: Sendable, Equatable {
-    public var label: String
-    public var level: Double
-    public var peak: Double?
-    public var isMuted: Bool
-    public var isSoloed: Bool
-
-    public init(label: String, level: Double, peak: Double? = nil, isMuted: Bool = false, isSoloed: Bool = false) {
-        self.label = label
-        self.level = level
-        self.peak = peak
-        self.isMuted = isMuted
-        self.isSoloed = isSoloed
     }
 }
 
@@ -59,36 +69,45 @@ public struct MK2PaulincheSoftKey: Sendable, Equatable {
 public struct MK2PaulinchePatternScene: Sendable, Equatable {
     public var title: String
     public var subtitle: String
-    public var rowProgress: Double
+    public var isPlaying: Bool
+    public var rowCount: Int
     public var selectedRowIndex: Int
     public var selectedChannelIndex: Int
     public var channelPage: Int
+    public var instrumentLabel: String
     public var rows: [MK2PaulinchePatternRow]
+    public var rowActivity: [Bool]
+    public var channels: [MK2PaulinchePatternChannel]
     public var parameters: [MK2PaulinchePatternParameter]
-    public var meters: [MK2PaulinchePatternMeter]
     public var softKeys: [MK2PaulincheSoftKey]
 
     public init(
         title: String,
         subtitle: String,
-        rowProgress: Double = 0,
+        isPlaying: Bool = false,
+        rowCount: Int,
         selectedRowIndex: Int,
         selectedChannelIndex: Int,
         channelPage: Int = 0,
+        instrumentLabel: String = "",
         rows: [MK2PaulinchePatternRow],
+        rowActivity: [Bool] = [],
+        channels: [MK2PaulinchePatternChannel] = [],
         parameters: [MK2PaulinchePatternParameter],
-        meters: [MK2PaulinchePatternMeter] = [],
         softKeys: [MK2PaulincheSoftKey] = []
     ) {
         self.title = title
         self.subtitle = subtitle
-        self.rowProgress = MK2PaulincheRendererSupport.clamped01(rowProgress)
+        self.isPlaying = isPlaying
+        self.rowCount = max(1, rowCount)
         self.selectedRowIndex = max(0, selectedRowIndex)
         self.selectedChannelIndex = max(0, selectedChannelIndex)
         self.channelPage = max(0, channelPage)
+        self.instrumentLabel = instrumentLabel
         self.rows = rows
+        self.rowActivity = rowActivity
+        self.channels = channels
         self.parameters = Array(parameters.prefix(8))
-        self.meters = meters
         self.softKeys = Array(softKeys.prefix(8))
     }
 }
@@ -109,16 +128,21 @@ public struct MK2PaulinchePatternActions: Sendable {
     }
 }
 
+/// Renders the tracker pattern screens in the layout developed in the MK2 widget lab:
+/// a full-bleed grid on the left (bitmap-atlas fonts only, no FreeType in the hot path)
+/// and a full-screen edit pane with a parameter page on the right.
 public enum MK2PaulinchePatternRenderer {
+    public static let visibleRowCount = 13
+
     public static func render(
         _ scene: MK2PaulinchePatternScene,
         actions: MK2PaulinchePatternActions = MK2PaulinchePatternActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
-        let textRenderer = renderer ?? (try? FreeTypeTextRenderer())
-        let left = patternGridScreen(scene, renderer: textRenderer)
-        let right = editScreen(scene, actions: actions, renderer: textRenderer)
-        return MK2DoubleScreenDSL(left: left, right: right)
+        MK2DoubleScreenDSL(
+            left: patternGridScreen(scene, renderer: renderer),
+            right: editScreen(scene, actions: actions, renderer: renderer)
+        )
     }
 
     public static func surfaceScene(
@@ -129,234 +153,235 @@ public enum MK2PaulinchePatternRenderer {
         render(scene, actions: actions, renderer: renderer).scene()
     }
 
+    // MARK: - Left screen: pattern grid
+
+    private static let gridTop = 60
+    private static let rowHeight = 16
+    private static let rowIndexX = 8
+    private static let channelXs = [48, 153, 258, 363]
+    private static let rulerXs = [36, 141, 246, 351, 456]
+    private static let rowStripeInterval = 4
+
     private static func patternGridScreen(
         _ scene: MK2PaulinchePatternScene,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
         MK2FullScreenDSL(background: MK2PaulincheRendererSupport.Palette.background) {
             MK2RenderBlock { frame, _ in
-                drawTrackerHeader(scene, into: &frame, renderer: renderer)
-                drawPatternGrid(scene, into: &frame, renderer: renderer)
+                drawGridStatusLine(scene, into: &frame)
+                drawChannelHeaders(scene, into: &frame)
+                drawPatternGrid(scene, into: &frame)
+                drawPatternOverview(scene, into: &frame, x: 466, y: 62, height: 200)
             }
         }.build(renderer: renderer)
     }
+
+    private static func drawGridStatusLine(_ scene: MK2PaulinchePatternScene, into frame: inout MK2PixelFrame) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        BitmapLabel(scene.title, font: .grid, color: Palette.blue)
+            .draw(into: &frame, x: 8, y: 8, clip: MK2PixelRect(x: 8, y: 8, width: 124, height: SurfaceFont.grid.cellHeight))
+        BitmapLabel("LEN \(scene.rowCount)", font: .grid, color: Palette.dim).draw(into: &frame, x: 138, y: 8)
+        BitmapLabel("ROW \(hex2(scene.selectedRowIndex))", font: .gridBold, color: Palette.text).draw(into: &frame, x: 232, y: 8)
+        BitmapLabel(scene.isPlaying ? "PLAY" : "STOP", font: .gridBold, color: scene.isPlaying ? Palette.green : Palette.orange)
+            .draw(into: &frame, x: 330, y: 8)
+        BitmapLabel(scene.subtitle, font: .grid, color: Palette.dim)
+            .draw(into: &frame, x: 398, y: 8, clip: MK2PixelRect(x: 398, y: 8, width: 74, height: SurfaceFont.grid.cellHeight))
+    }
+
+    private static func drawChannelHeaders(_ scene: MK2PaulinchePatternScene, into frame: inout MK2PixelFrame) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        for (index, x) in rulerXs.dropLast().enumerated() {
+            guard scene.channels.indices.contains(index) else { continue }
+            let channel = scene.channels[index]
+            let absoluteChannel = scene.channelPage * 4 + index
+            let active = absoluteChannel == scene.selectedChannelIndex
+            BitmapLabel(channel.label, font: .label, color: active ? Palette.blue : Palette.dim)
+                .draw(into: &frame, x: x, y: 38, clip: MK2PixelRect(x: x, y: 38, width: 66, height: SurfaceFont.label.cellHeight))
+            drawChannelToggle("M", isOn: channel.isMuted, into: &frame, x: x + 69, y: 34, accent: Palette.mute, border: Palette.muteBorder)
+            drawChannelToggle("S", isOn: channel.isSoloed, into: &frame, x: x + 87, y: 34, accent: Palette.solo, border: Palette.soloBorder)
+        }
+        frame.hline(y: 55, x: 0, width: MK2PixelFrame.width, color: MK2PaulincheRendererSupport.Palette.border)
+    }
+
+    private static func drawPatternGrid(_ scene: MK2PaulinchePatternScene, into frame: inout MK2PixelFrame) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        for (visibleIndex, row) in scene.rows.prefix(visibleRowCount).enumerated() {
+            let y = gridTop + visibleIndex * rowHeight
+            let isPlayhead = row.index == scene.selectedRowIndex
+            if isPlayhead {
+                frame.fill(MK2PixelRect(x: 0, y: y, width: MK2PixelFrame.width, height: rowHeight), scene.isPlaying ? Palette.playheadFill : Palette.cursorFill)
+                frame.fill(MK2PixelRect(x: 36, y: y, width: 5, height: rowHeight), Palette.green)
+            } else if row.index.isMultiple(of: rowStripeInterval) {
+                frame.fill(MK2PixelRect(x: 0, y: y, width: MK2PixelFrame.width, height: rowHeight), Palette.rowStripe)
+            }
+
+            BitmapLabel(hex2(row.index), font: .grid, color: isPlayhead ? Palette.text : Palette.dim)
+                .draw(into: &frame, x: rowIndexX, y: y)
+            for channel in 0..<min(4, row.cells.count) {
+                let absoluteChannel = scene.channelPage * 4 + channel
+                drawTrackerCell(
+                    row.cells[channel],
+                    into: &frame,
+                    x: channelXs[channel],
+                    y: y,
+                    highlighted: isPlayhead,
+                    focusedChannel: absoluteChannel == scene.selectedChannelIndex
+                )
+            }
+        }
+        for x in rulerXs {
+            frame.dottedVLine(x: x, y: 50, height: 218, color: MK2PaulincheRendererSupport.Palette.ruler)
+        }
+    }
+
+    private static func drawTrackerCell(
+        _ cell: MK2PaulinchePatternCell,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        highlighted: Bool,
+        focusedChannel: Bool
+    ) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        if focusedChannel, !highlighted {
+            frame.fill(MK2PixelRect(x: x - 4, y: y, width: 92, height: rowHeight), Palette.focusedChannelFill)
+        }
+        let noteColor = highlighted ? Palette.text : (cell.note == nil ? Palette.empty : Palette.note)
+        let instColor = highlighted ? Palette.text : (cell.instrument == nil ? Palette.empty : Palette.instrument)
+        let fxColor = highlighted ? Palette.text : (cell.effect == nil ? Palette.empty : Palette.effect)
+        BitmapLabel(cell.note ?? "...", font: .grid, color: noteColor).draw(into: &frame, x: x, y: y)
+        BitmapLabel(cell.instrument ?? "..", font: .grid, color: instColor).draw(into: &frame, x: x + 38, y: y)
+        BitmapLabel(cell.effect ?? "...", font: .grid, color: fxColor).draw(into: &frame, x: x + 64, y: y)
+    }
+
+    private static func drawChannelToggle(
+        _ label: String,
+        isOn: Bool,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        accent: UInt16,
+        border: UInt16
+    ) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        MK2ButtonToggleDisplay(
+            label: label,
+            rect: MK2PixelRect(x: x, y: y, width: 14, height: 16),
+            font: .label,
+            colors: MK2ButtonToggleDisplayColors(
+                onFill: accent,
+                onBorder: border,
+                onText: Palette.channelButtonActiveText,
+                offFill: Palette.channelButtonFill,
+                offBorder: Palette.channelButtonBorder,
+                offText: accent
+            )
+        ).draw(isOn: isOn, into: &frame)
+    }
+
+    private static func drawPatternOverview(
+        _ scene: MK2PaulinchePatternScene,
+        into frame: inout MK2PixelFrame,
+        x: Int,
+        y: Int,
+        height: Int
+    ) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        guard scene.rowCount > 1 else { return }
+        frame.fill(MK2PixelRect(x: x, y: y, width: 5, height: height), Palette.track)
+        for row in 0..<scene.rowCount {
+            let markerY = y + Int((Double(row) / Double(scene.rowCount - 1) * Double(height - 1)).rounded())
+            let active = scene.rowActivity.indices.contains(row) && scene.rowActivity[row]
+            let isPlayhead = row == scene.selectedRowIndex
+            let color = isPlayhead ? Palette.green : (active ? Palette.blue : Palette.ruler)
+            frame.fill(MK2PixelRect(x: x, y: markerY, width: isPlayhead ? 9 : 5, height: 1), color)
+        }
+    }
+
+    // MARK: - Right screen: edit pane
 
     private static func editScreen(
         _ scene: MK2PaulinchePatternScene,
         actions: MK2PaulinchePatternActions,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
-        MK2FullScreenDSL(background: MK2PaulincheRendererSupport.Palette.background) {
-            MK2RenderBlock { frame, _ in
-                drawTrackerHeader(scene, into: &frame, renderer: renderer)
-                drawEditSummary(scene, into: &frame, renderer: renderer)
-                MK2PaulincheRendererSupport.drawMeters(
-                    scene.meters,
-                    in: MK2PixelRect(x: 24, y: 110, width: 432, height: 64),
-                    into: &frame,
-                    renderer: renderer
-                )
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        let statusItems = [
+            MK2StatusLineItem("EDIT", x: 8, color: Palette.blue),
+            MK2StatusLineItem("CH\(scene.selectedChannelIndex + 1)", x: 92, color: Palette.dim),
+            MK2StatusLineItem("ROW \(hex2(scene.selectedRowIndex))", x: 158, color: Palette.text, font: .gridBold),
+        ]
+        let instrumentLabel = scene.instrumentLabel
+
+        return MK2FullScreenDSL(background: Palette.background) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 8, items: statusItems).draw(into: &frame)
+                BitmapLabel(instrumentLabel, font: .grid, color: Palette.instrument)
+                    .draw(into: &frame, x: 232, y: 8, clip: MK2PixelRect(x: 232, y: 8, width: 240, height: SurfaceFont.grid.cellHeight))
+                frame.hline(y: 55, x: 0, width: MK2PixelFrame.width, color: Palette.border)
             }
             MK2ParameterPageElement(
-                slots: parameterSlots(scene.parameters, actions: actions),
+                slots: parameterSlots(scene.parameters),
                 rect: MK2PixelRect(x: 8, y: 215, width: 456, height: 57),
                 columns: 4,
                 relativeToContent: false
             )
+            editEncoderBindings(scene.parameters, actions: actions)
         }.build(renderer: renderer)
     }
 
-    private static func drawTrackerHeader(
-        _ scene: MK2PaulinchePatternScene,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        MK2PaulincheRendererSupport.drawHeader(
-            title: scene.title,
-            subtitle: scene.subtitle,
-            progress: scene.rowProgress,
-            into: &frame,
-            renderer: renderer
-        )
-    }
-
-    private static func drawPatternGrid(
-        _ scene: MK2PaulinchePatternScene,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        let originX = 14
-        let headerY = 52
-        let firstRowY = 72
-        let rowHeight = 15
-        let rowLabelWidth = 34
-        let channelWidth = 96
-        drawText("ROW", into: &frame, x: originX, y: headerY, style: MK2PaulincheRendererSupport.monoCaptionStyle(color: MK2HIG.Chrome.dim), renderer: renderer, maxWidth: rowLabelWidth)
-        for channel in 0..<min(4, maxChannelCount(scene.rows)) {
-            let channelIndex = scene.channelPage * 4 + channel
-            let label = "CH\(channelIndex + 1)"
-            let color = channelIndex == scene.selectedChannelIndex ? MK2HIG.Chrome.accent : MK2HIG.Chrome.dim
-            drawText(label, into: &frame, x: originX + rowLabelWidth + channel * channelWidth, y: headerY, style: MK2PaulincheRendererSupport.monoCaptionStyle(color: color), renderer: renderer, maxWidth: channelWidth - 6)
-            drawChannelToggles(
-                scene.meters.indices.contains(channel) ? scene.meters[channel] : nil,
-                into: &frame,
-                x: originX + rowLabelWidth + channel * channelWidth + 58,
-                y: headerY - 2
-            )
-        }
-
-        for (visibleIndex, row) in scene.rows.prefix(12).enumerated() {
-            let y = firstRowY + visibleIndex * rowHeight
-            let isSelected = row.index == scene.selectedRowIndex
-            if row.isPlaybackRow {
-                frame.fill(MK2PixelRect(x: originX - 3, y: y - 1, width: 452, height: rowHeight), MK2PaulincheRendererSupport.Palette.playbackRow)
-            }
-            if isSelected {
-                frame.fill(MK2PixelRect(x: originX - 3, y: y - 1, width: 452, height: rowHeight), MK2PaulincheRendererSupport.Palette.selectedRow)
-                frame.fill(MK2PixelRect(x: originX - 8, y: y + 3, width: 4, height: 7), MK2HIG.Chrome.accent)
-            }
-            let rowLabel = String(format: "%02X", row.index)
-            drawText(rowLabel, into: &frame, x: originX, y: y, style: MK2PaulincheRendererSupport.monoBodyStyle(color: isSelected ? MK2HIG.Chrome.text : MK2HIG.Chrome.dim), renderer: renderer, maxWidth: rowLabelWidth)
-            for channel in 0..<min(4, row.channelCells.count) {
-                let channelIndex = scene.channelPage * 4 + channel
-                let x = originX + rowLabelWidth + channel * channelWidth
-                let selectedChannel = isSelected && channelIndex == scene.selectedChannelIndex
-                let color = selectedChannel ? MK2HIG.Chrome.accent : (isSelected ? MK2HIG.Chrome.text : 0xbdf7)
-                drawText(row.channelCells[channel], into: &frame, x: x, y: y, style: MK2PaulincheRendererSupport.monoBodyStyle(color: color), renderer: renderer, maxWidth: channelWidth - 8)
-            }
-        }
-    }
-
-    private static func drawEditSummary(
-        _ scene: MK2PaulinchePatternScene,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        let selectedChannel = scene.selectedChannelIndex + 1
-        drawText(
-            "EDIT CH\(selectedChannel) ROW \(String(format: "%02X", scene.selectedRowIndex))",
-            into: &frame,
-            x: 18,
-            y: 58,
-            style: MK2PaulincheRendererSupport.monoCaptionStyle(color: MK2HIG.Chrome.accent),
-            renderer: renderer,
-            maxWidth: 210
-        )
-        let hint = "Encoder 5-8 bearbeiten die unten angezeigten Werte."
-        MK2PaulincheRendererSupport.drawWrappedText(
-            hint,
-            into: &frame,
-            x: 18,
-            y: 76,
-            style: MK2PaulincheRendererSupport.bodyStyle(color: MK2HIG.Chrome.dim),
-            renderer: renderer,
-            maxWidth: 420,
-            maxLines: 1
-        )
-    }
-
-    private static func drawChannelToggles(
-        _ meter: MK2PaulinchePatternMeter?,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int
-    ) {
-        drawToggle("M", isOn: meter?.isMuted == true, into: &frame, x: x, y: y, colors: .mute)
-        drawToggle("S", isOn: meter?.isSoloed == true, into: &frame, x: x + 18, y: y, colors: .solo)
-    }
-
-    private static func drawToggle(
-        _ label: String,
-        isOn: Bool,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        colors: ChannelToggleColors
-    ) {
-        let display = MK2ButtonToggleDisplay(
-            label: label,
-            rect: MK2PixelRect(x: x, y: y, width: 14, height: 16),
-            font: .label,
-            colors: MK2ButtonToggleDisplayColors(
-                onFill: colors.fill,
-                onBorder: colors.border,
-                onText: 0x0000,
-                offFill: MK2PaulincheRendererSupport.Palette.background,
-                offBorder: MK2HIG.Chrome.border,
-                offText: colors.fill
-            )
-        )
-        display.draw(isOn: isOn, into: &frame)
-    }
-
-    private static func drawText(
-        _ text: String,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        style: FreeTypeTextStyle,
-        renderer: FreeTypeTextRenderer?,
-        maxWidth: Int
-    ) {
-        MK2PaulincheRendererSupport.drawText(
-            text,
-            into: &frame,
-            x: x,
-            y: y,
-            style: style,
-            renderer: renderer,
-            maxWidth: maxWidth
-        )
-    }
-
-    private static func maxChannelCount(_ rows: [MK2PaulinchePatternRow]) -> Int {
-        rows.map(\.channelCells.count).max() ?? 0
-    }
-
-    private static func parameterSlots(
-        _ parameters: [MK2PaulinchePatternParameter],
-        actions: MK2PaulinchePatternActions
-    ) -> [MK2ParameterPageSlot] {
+    private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
         parameters.prefix(4).enumerated().map { index, parameter in
-            let encoder = index + 5
-            return MK2ParameterPageSlot(
+            MK2ParameterPageSlot(
                 label: parameter.label,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
-                encoderValue: MK2EncoderDiscreteValue(
-                    encoder: encoder,
-                    value: 0,
-                    bounds: -127...127,
-                    wraps: false,
-                    onTouch: { touched in
-                        actions.onEncoderTouch?(encoder, touched)
-                    },
-                    onChange: { delta in
-                        actions.onEncoderChange?(encoder, delta)
-                    }
-                ),
-                colors: editCellColors(value: parameter.isFocused ? 0x0000 : MK2HIG.Chrome.text)
+                colors: editCellColors(value: editValueColor(at: index))
             )
+        }
+    }
+
+    private static func editEncoderBindings(
+        _ parameters: [MK2PaulinchePatternParameter],
+        actions: MK2PaulinchePatternActions
+    ) -> [any MK2ScreenElement] {
+        parameters.prefix(4).enumerated().map { index, _ in
+            let encoder = index + 5
+            return MK2EncoderBindingElement(
+                encoder,
+                onTouch: { touched in
+                    actions.onEncoderTouch?(encoder, touched)
+                },
+                onChange: { delta, _, _ in
+                    actions.onEncoderChange?(encoder, delta)
+                }
+            )
+        }
+    }
+
+    private static func editValueColor(at index: Int) -> UInt16 {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        return switch index {
+            case 1: Palette.instrument
+            case 3: Palette.effect
+            default: Palette.text
         }
     }
 
     private static func editCellColors(value: UInt16) -> MK2ValueCellColors {
-        MK2ValueCellColors(
-            label: MK2HIG.Chrome.dim,
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        return MK2ValueCellColors(
+            label: Palette.dim,
             value: value,
-            border: MK2HIG.Chrome.border,
-            fill: MK2PaulincheRendererSupport.Palette.secondaryPanelFill,
+            border: Palette.border,
+            fill: Palette.editFieldFill,
             focusedValue: 0x0000,
-            focusedFill: MK2HIG.Chrome.accent,
-            focusedBorder: MK2HIG.Chrome.text
+            focusedFill: Palette.editFieldFocusedFill,
+            focusedBorder: Palette.text
         )
     }
-}
 
-private struct ChannelToggleColors {
-    var fill: UInt16
-    var border: UInt16
-
-    static let mute = ChannelToggleColors(fill: 0xfaa0, border: 0xfbe0)
-    static let solo = ChannelToggleColors(fill: 0xffe0, border: 0xffff)
+    private static func hex2(_ value: Int) -> String {
+        String(format: "%02X", max(0, min(255, value)))
+    }
 }

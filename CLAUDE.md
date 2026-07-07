@@ -40,21 +40,43 @@ Resume from `master`. The MK2 screen-formalization work is active:
   repeated selection-filter pattern: encoder touch updates filter focus, encoder turns
   update the product filter value. Browser Lab and Selection Lab use it in their picker
   screen results.
+- The regular screen layout is now header-aware: `MK2ScreenHeader.none` reclaims the
+  38 px band (content starts at the top inset), mirroring how footer `.none` always
+  reclaimed its space. `MK2ScreenLayout.regular(header:footer:progress:)` takes the
+  chrome enums; geometry-only callers that sit under a real header pass a placeholder
+  header (see `MK2SelectionLayout`).
+- Regular screens own an optional `MK2ScreenProgressBar` chrome slot (third slot beside
+  header/footer): placement `.top` hugs the header's bottom rule (or the screen's top
+  edge without a header), `.bottom` hugs the footer's top border (or the screen's bottom
+  edge without a footer). A `.top` bar under a header lives in the existing 5 px gap, so
+  content does not move. Geometry is pinned in `ScreenLayoutTests`; the Meter Lab
+  overview screen realizes the slot in WidgetLab.
 - `PaulincheSurfaceKit` is a separate Swift module for Paulinche-shaped renderers on top
   of `KontrolSurfaceKit2`, still without a Paulinche package dependency.
-  `MK2PaulinchePatternRenderer`, `MK2PaulincheSongRenderer`, and
-  `MK2PaulincheInstrumentRenderer` consume small fixture scene models for PATTERN, SONG,
-  and INSTRUMENT, render FreeType-only text in the Paulinche path, and bind soft keys
-  through function buttons.
+  `MK2PaulinchePatternRenderer` now renders the widget-lab tracker design 1:1: full-bleed
+  left grid (bitmap-atlas fonts only — no FreeType in the pattern path), 13 rows à 16 px,
+  status line, channel headers with M/S toggle chips, row stripes, playhead/cursor fills,
+  pattern-overview minimap, and a full-screen edit pane whose NOTE/INST/VOL/FX page is an
+  `MK2ParameterPageElement` with `MK2EncoderBindingElement`s forwarding E5–E8 deltas and
+  touches as semantic actions. The fixture model is structured
+  (`MK2PaulinchePatternCell/Row/Channel`, `rowActivity`, `isPlaying`, `instrumentLabel`);
+  the old preformatted cell strings, the custom 44 px header, and the fake channel
+  "meters" are gone. `MK2PaulincheInstrumentRenderer` draws its parameters through
+  `MK2ParameterPageElement`, forwards E1–E8 through explicit encoder actions (the old
+  no-op `MK2EncoderDiscreteValue` bindings swallowed all encoder input while the
+  instrument scene was up), and shows the audition playhead via the `.bottom` progress
+  slot instead of parameter meters. Renderers no longer construct a per-render
+  `FreeTypeTextRenderer` fallback — the client owns one (the Paulinche adapter creates it
+  once and runs the surface at 60 Hz).
 
 Next code stages:
 
-1. Add the real adapter boundary now that the fixture renderers cover the first scene
-   shapes:
-   Paulinche emits semantic `SurfaceScene`, CompleteControl maps it to Kit2 scene models,
-   and hardware input returns through semantic soft-key/encoder events.
-2. Keep broadening fixture/snapshot coverage as new Paulinche scene modes appear, before
-   they are consumed by the app.
+1. Keep broadening fixture/snapshot coverage as new Paulinche scene modes appear, before
+   they are consumed by the app (SONG/scope are still unreachable from the mapper).
+2. Encoder sensitivity as a global + rotary-local DSL modifier (see agent memory
+   `encoder-sensitivity-modifier-plan`); Paulinche currently scales continuous
+   instrument parameters app-side with `SurfaceEncoderScaler` (a PaulincheControl port
+   of `MK2EncoderScaler`, kept there so Paulinche builds without CompleteControl).
 
 ## Layout
 

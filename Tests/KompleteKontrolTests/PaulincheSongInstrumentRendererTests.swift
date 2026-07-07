@@ -53,7 +53,7 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: 0x464f) > 250)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: MK2HIG.Chrome.accent) > 40)
         #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 55, width: 448, height: 104), notMatching: MK2HIG.Chrome.background) > 900)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 24, y: 197, width: 420, height: 32), matching: 0x464f) > 80)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 226, width: 480, height: 4), matching: MK2HIG.Chrome.accent) > 400)
     }
 
     @Test("Instrument scene binds soft keys to function buttons")
@@ -120,10 +120,6 @@ struct PaulincheSongInstrumentRendererTests {
                 MK2PaulinchePatternParameter(label: "TRIM END", value: "8420"),
                 MK2PaulinchePatternParameter(label: "LOOP ST", value: "1440", isFocused: true),
                 MK2PaulinchePatternParameter(label: "LOOP END", value: "7900"),
-            ],
-            meters: [
-                MK2PaulinchePatternMeter(label: "L", level: 0.62, peak: 0.71),
-                MK2PaulinchePatternMeter(label: "R", level: 0.58, peak: 0.68),
             ],
             softKeys: [
                 MK2PaulincheSoftKey(label: "Prev", commandID: "selectPreviousInstrument"),

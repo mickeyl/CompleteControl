@@ -3,12 +3,34 @@ import KompleteKontrol
 import KontrolSurfaceKit2
 
 enum MK2PaulincheRendererSupport {
+    // The tracker palette developed in the MK2 widget lab (Tools/MK2WidgetLabDemo).
     enum Palette {
-        static let background: UInt16 = MK2HIG.Chrome.background
-        static let header: UInt16 = MK2HIG.Chrome.headerFill
-        static let headerTop: UInt16 = MK2HIG.Chrome.headerTopLine
-        static let headerBottom: UInt16 = MK2HIG.Chrome.headerBottomLine
-        static let track: UInt16 = 0x2104
+        static let background: UInt16 = 0x0841 // near-black blue
+        static let text: UInt16 = 0xffff
+        static let dim: UInt16 = 0x8410
+        static let border: UInt16 = 0x4208
+        static let blue: UInt16 = 0x7dbf
+        static let green: UInt16 = 0x464f
+        static let orange: UInt16 = 0xec88
+        static let solo: UInt16 = 0x03ff
+        static let soloBorder: UInt16 = 0x5dff
+        static let mute: UInt16 = 0xf8c3
+        static let muteBorder: UInt16 = 0xf800
+        static let note: UInt16 = 0xdedf
+        static let instrument: UInt16 = 0x95f2
+        static let effect: UInt16 = 0xec88
+        static let empty: UInt16 = 0x4a69
+        static let ruler: UInt16 = 0x632e
+        static let rowStripe: UInt16 = 0x1083
+        static let cursorFill: UInt16 = 0x19aa
+        static let playheadFill: UInt16 = 0x1125
+        static let focusedChannelFill: UInt16 = 0x1026
+        static let channelButtonFill: UInt16 = 0x1083
+        static let channelButtonBorder: UInt16 = 0x4208
+        static let channelButtonActiveText: UInt16 = 0xffff
+        static let editFieldFill: UInt16 = 0x1083
+        static let editFieldFocusedFill: UInt16 = 0xc618
+        static let track: UInt16 = 0x2126
         static let selectedRow: UInt16 = 0x2128
         static let playbackRow: UInt16 = 0x082c
         static let softKeyFill: UInt16 = 0x0003
@@ -18,28 +40,6 @@ enum MK2PaulincheRendererSupport {
 
     static func clamped01(_ value: Double) -> Double {
         Swift.max(0, Swift.min(1, value))
-    }
-
-    static func drawHeader(
-        title: String,
-        subtitle: String,
-        progress: Double?,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        frame.fill(MK2PixelRect(x: 0, y: 0, width: MK2PixelFrame.width, height: 44), Palette.header)
-        frame.fill(MK2PixelRect(x: 0, y: 0, width: MK2PixelFrame.width, height: 1), Palette.headerTop)
-        frame.fill(MK2PixelRect(x: 0, y: 43, width: MK2PixelFrame.width, height: 1), Palette.headerBottom)
-        drawText(title, into: &frame, x: 14, y: 8, style: titleStyle, renderer: renderer, maxWidth: 240)
-        drawText(subtitle, into: &frame, x: 296, y: 13, style: captionStyle(color: MK2HIG.Chrome.dim), renderer: renderer, maxWidth: 168)
-
-        guard let progress else { return }
-        let track = MK2PixelRect(x: 14, y: 34, width: 452, height: 4)
-        frame.fill(track, Palette.track)
-        let progressWidth = Int((Double(track.width) * clamped01(progress)).rounded())
-        if progressWidth > 0 {
-            frame.fill(MK2PixelRect(x: track.x, y: track.y, width: min(track.width, progressWidth), height: track.height), MK2HIG.Chrome.accent)
-        }
     }
 
     static func drawSoftKeyStrip(
@@ -97,37 +97,6 @@ enum MK2PaulincheRendererSupport {
         }
     }
 
-    static func drawMeters(
-        _ meters: [MK2PaulinchePatternMeter],
-        in rect: MK2PixelRect,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        guard !meters.isEmpty, !rect.isEmpty else { return }
-        let gap = 4
-        let channelHeight = max(4, (rect.height - gap * max(0, meters.count - 1)) / meters.count)
-        let labelWidth = meters.contains { !$0.label.isEmpty } ? 34 : 0
-        for (index, meter) in meters.enumerated() {
-            let y = rect.y + index * (channelHeight + gap)
-            if !meter.label.isEmpty {
-                drawText(meter.label.uppercased(), into: &frame, x: rect.x, y: y + max(0, (channelHeight - 14) / 2), style: captionStyle(color: MK2HIG.Chrome.dim), renderer: renderer, maxWidth: max(0, labelWidth - 4))
-            }
-            let barRect = MK2PixelRect(x: rect.x + labelWidth, y: y, width: max(0, rect.width - labelWidth), height: channelHeight)
-            frame.fill(barRect, MK2HIG.Chrome.footerFill)
-            frame.stroke(barRect, MK2HIG.Chrome.border)
-            let inner = MK2PixelRect(x: barRect.x + 1, y: barRect.y + 1, width: max(0, barRect.width - 2), height: max(0, barRect.height - 2))
-            let level = clamped01(meter.level)
-            let fillWidth = Int((Double(inner.width) * level).rounded())
-            if fillWidth > 0 {
-                frame.fill(MK2PixelRect(x: inner.x, y: inner.y, width: min(inner.width, fillWidth), height: inner.height), meterFillColor(for: level))
-            }
-            if let peak = meter.peak {
-                let peakX = inner.x + Int((Double(max(0, inner.width - 1)) * clamped01(peak)).rounded())
-                frame.fill(MK2PixelRect(x: peakX, y: inner.y, width: 2, height: inner.height), MK2HIG.Chrome.text)
-            }
-        }
-    }
-
     static func softKeyBindings(
         _ softKeys: [MK2PaulincheSoftKey],
         onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
@@ -169,12 +138,6 @@ enum MK2PaulincheRendererSupport {
         _ = try? renderer.drawWrappedText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth, maxLines: maxLines, lineSpacing: lineSpacing)
     }
 
-    static let titleStyle = MK2HIG.textStyle(
-        weight: .medium,
-        pixelSize: 16,
-        color: MK2HIG.Chrome.text
-    )
-
     static func captionStyle(color: UInt16) -> FreeTypeTextStyle {
         MK2HIG.textStyle(weight: .medium, pixelSize: 12, color: color)
     }
@@ -207,12 +170,6 @@ enum MK2PaulincheRendererSupport {
         MK2HIG.textStyle(weight: weight, pixelSize: pixelSize, color: color)
     }
 
-    private static func meterFillColor(for level: Double) -> UInt16 {
-        if level >= 0.92 { return 0xf8c3 }
-        if level >= 0.72 { return MK2HIG.Chrome.accent }
-        return 0x464f
-    }
-
     private static func functionButton(at index: Int) -> KKMK2ButtonLED? {
         switch index {
             case 0: return .function1
@@ -224,6 +181,20 @@ enum MK2PaulincheRendererSupport {
             case 6: return .function7
             case 7: return .function8
             default: return nil
+        }
+    }
+}
+
+extension MK2PixelFrame {
+    mutating func hline(y: Int, x: Int, width: Int, color: UInt16) {
+        fill(MK2PixelRect(x: x, y: y, width: width, height: 1), color)
+    }
+
+    mutating func dottedVLine(x: Int, y: Int, height: Int, color: UInt16) {
+        var offset = 0
+        while offset < height {
+            fill(MK2PixelRect(x: x, y: y + offset, width: 1, height: 1), color)
+            offset += 2
         }
     }
 }

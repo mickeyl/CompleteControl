@@ -66,10 +66,9 @@ public enum MK2PaulincheSongRenderer {
         actions: MK2PaulincheSongActions = MK2PaulincheSongActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
-        let textRenderer = renderer ?? (try? FreeTypeTextRenderer())
-        return MK2DoubleScreenDSL(
-            left: orderScreen(scene, actions: actions, renderer: textRenderer),
-            right: overviewScreen(scene, actions: actions, renderer: textRenderer)
+        MK2DoubleScreenDSL(
+            left: orderScreen(scene, actions: actions, renderer: renderer),
+            right: overviewScreen(scene, actions: actions, renderer: renderer)
         )
     }
 
@@ -126,7 +125,6 @@ public enum MK2PaulincheSongRenderer {
                 )
                 drawFooterSoftKeys(scene.softKeys, into: &frame, context: context, renderer: renderer)
             }
-            MK2EncoderDiscreteValuesElement(parameterEncoderValues(scene.parameters), drawsDisplays: false)
             MK2ProgressBarElement(
                 rect: MK2PixelRect(x: 16, y: 146, width: 432, height: 14),
                 progress: scene.progress
@@ -176,17 +174,5 @@ public enum MK2PaulincheSongRenderer {
     ) {
         guard let footer = context.layout?.footerRect else { return }
         MK2PaulincheRendererSupport.drawSoftKeyStrip(softKeys, into: &frame, renderer: renderer, y: footer.y, height: footer.height)
-    }
-
-    private static func parameterEncoderValues(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2EncoderDiscreteValue] {
-        parameters.prefix(8).enumerated().map { index, _ in
-            MK2EncoderDiscreteValue(
-                encoder: index + 1,
-                value: 0,
-                bounds: -128...127,
-                wraps: false,
-                onChange: { _ in }
-            )
-        }
     }
 }
