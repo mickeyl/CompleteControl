@@ -85,6 +85,48 @@ public enum FreeTypeTextError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+private final class FreeTypeResourceBundleMarker {}
+
+private enum FreeTypeResourceBundle {
+    private static let bundleName = "CompleteControl_KontrolSurfaceKit2"
+
+    static func fontURL(named resourceName: String) -> URL? {
+        for candidate in bundleCandidates() {
+            if candidate.pathExtension == "bundle",
+               let bundle = Bundle(url: candidate),
+               let url = bundle.url(forResource: resourceName, withExtension: nil, subdirectory: "Fonts") {
+                return url
+            }
+
+            let bundleURL = candidate.appendingPathComponent(bundleName + ".bundle")
+            if let bundle = Bundle(url: bundleURL),
+               let url = bundle.url(forResource: resourceName, withExtension: nil, subdirectory: "Fonts") {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private static func bundleCandidates() -> [URL] {
+        var candidates: [URL] = []
+        let environment = ProcessInfo.processInfo.environment
+        for key in ["PACKAGE_RESOURCE_BUNDLE_PATH", "PACKAGE_RESOURCE_BUNDLE_URL"] {
+            if let path = environment[key] {
+                candidates.append(URL(fileURLWithPath: path))
+            }
+        }
+        candidates.append(contentsOf: [
+            Bundle.main.resourceURL,
+            Bundle.main.executableURL?.deletingLastPathComponent(),
+            Bundle.main.bundleURL,
+            Bundle(for: FreeTypeResourceBundleMarker.self).resourceURL,
+            Bundle(for: FreeTypeResourceBundleMarker.self).executableURL?.deletingLastPathComponent(),
+            Bundle(for: FreeTypeResourceBundleMarker.self).bundleURL,
+        ].compactMap(\.self))
+        return candidates
+    }
+}
+
 public final class FreeTypeTextRenderer: @unchecked Sendable {
     private static let loadDefault: FT_Int32 = 0
     private static let loadTargetNormal: FT_Int32 = 0
@@ -755,7 +797,7 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
     private func face(source: FreeTypeFontSource) throws -> FaceBox {
         let key = FaceKey(resourceName: source.resourceName, faceIndex: source.faceIndex)
         if let cached = faces[key] { return cached }
-        guard let url = Bundle.module.url(forResource: source.resourceName, withExtension: nil, subdirectory: "Fonts") else {
+        guard let url = FreeTypeResourceBundle.fontURL(named: source.resourceName) else {
             throw FreeTypeTextError.missingResource(source.resourceName)
         }
         guard let library else { throw FreeTypeTextError.initFailed(-1) }
