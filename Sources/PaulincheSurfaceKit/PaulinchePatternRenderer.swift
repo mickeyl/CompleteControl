@@ -95,9 +95,17 @@ public struct MK2PaulinchePatternScene: Sendable, Equatable {
 
 public struct MK2PaulinchePatternActions: Sendable {
     public var onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
+    public var onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)?
+    public var onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)?
 
-    public init(onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil) {
+    public init(
+        onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
+        onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)? = nil,
+        onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)? = nil
+    ) {
         self.onSoftKey = onSoftKey
+        self.onEncoderTouch = onEncoderTouch
+        self.onEncoderChange = onEncoderChange
     }
 }
 
@@ -150,7 +158,7 @@ public enum MK2PaulinchePatternRenderer {
                 )
             }
             MK2ParameterPageElement(
-                slots: parameterSlots(scene.parameters),
+                slots: parameterSlots(scene.parameters, actions: actions),
                 rect: MK2PixelRect(x: 8, y: 215, width: 456, height: 57),
                 columns: 4,
                 relativeToContent: false
@@ -234,7 +242,7 @@ public enum MK2PaulinchePatternRenderer {
             renderer: renderer,
             maxWidth: 210
         )
-        let hint = "Encoder 1-8 bearbeiten die unten angezeigten Werte."
+        let hint = "Encoder 5-8 bearbeiten die unten angezeigten Werte."
         MK2PaulincheRendererSupport.drawWrappedText(
             hint,
             into: &frame,
@@ -305,12 +313,28 @@ public enum MK2PaulinchePatternRenderer {
         rows.map(\.channelCells.count).max() ?? 0
     }
 
-    private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
-        parameters.prefix(8).map { parameter in
-            MK2ParameterPageSlot(
+    private static func parameterSlots(
+        _ parameters: [MK2PaulinchePatternParameter],
+        actions: MK2PaulinchePatternActions
+    ) -> [MK2ParameterPageSlot] {
+        parameters.prefix(4).enumerated().map { index, parameter in
+            let encoder = index + 5
+            return MK2ParameterPageSlot(
                 label: parameter.label,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
+                encoderValue: MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: 0,
+                    bounds: -127...127,
+                    wraps: false,
+                    onTouch: { touched in
+                        actions.onEncoderTouch?(encoder, touched)
+                    },
+                    onChange: { delta in
+                        actions.onEncoderChange?(encoder, delta)
+                    }
+                ),
                 colors: editCellColors(value: parameter.isFocused ? 0x0000 : MK2HIG.Chrome.text)
             )
         }

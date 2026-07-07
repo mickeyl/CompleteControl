@@ -41,6 +41,42 @@ struct PaulinchePatternRendererTests {
         #expect(rendered.bindings.buttonDown[.function5] == nil)
     }
 
+    @Test("Pattern edit footer binds standard encoder values")
+    func patternEditFooterBindsStandardEncoderValues() {
+        let scene = Self.fixture()
+        let recorder = PatternEncoderActionRecorder()
+        let rendered = MK2PaulinchePatternRenderer.surfaceScene(
+            scene,
+            actions: MK2PaulinchePatternActions(
+                onEncoderTouch: { encoder, touched in
+                    recorder.appendTouch(encoder: encoder, touched: touched)
+                },
+                onEncoderChange: { encoder, delta in
+                    recorder.appendChange(encoder: encoder, delta: delta)
+                }
+            )
+        )
+
+        rendered.bindings.encoderTouch[5]?(true)
+        rendered.bindings.encoderTouch[5]?(false)
+        rendered.bindings.encoder[5]?(2, 0, 0)
+        rendered.bindings.encoder[8]?(-1, 0, 0)
+
+        let touches = recorder.touchesSnapshot()
+        let changes = recorder.changesSnapshot()
+        #expect(touches.count == 2)
+        #expect(touches[0].0 == 5)
+        #expect(touches[0].1 == true)
+        #expect(touches[1].0 == 5)
+        #expect(touches[1].1 == false)
+        #expect(changes.count == 2)
+        #expect(changes[0].0 == 5)
+        #expect(changes[0].1 == 2)
+        #expect(changes[1].0 == 8)
+        #expect(changes[1].1 == -1)
+        #expect(rendered.bindings.encoder[4] == nil)
+    }
+
     private static func fixture() -> MK2PaulinchePatternScene {
         let rows = (0..<14).map { row in
             MK2PaulinchePatternRow(
@@ -84,6 +120,36 @@ struct PaulinchePatternRendererTests {
                 MK2PaulincheSoftKey(label: "Step+", commandID: "increaseStepSize"),
             ]
         )
+    }
+}
+
+private final class PatternEncoderActionRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var touches: [(Int, Bool)] = []
+    private var changes: [(Int, Int)] = []
+
+    func appendTouch(encoder: Int, touched: Bool) {
+        lock.lock()
+        touches.append((encoder, touched))
+        lock.unlock()
+    }
+
+    func appendChange(encoder: Int, delta: Int) {
+        lock.lock()
+        changes.append((encoder, delta))
+        lock.unlock()
+    }
+
+    func touchesSnapshot() -> [(Int, Bool)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return touches
+    }
+
+    func changesSnapshot() -> [(Int, Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return changes
     }
 }
 
