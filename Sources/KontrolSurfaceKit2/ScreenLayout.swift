@@ -57,6 +57,15 @@ public enum MK2ScreenHeader: Sendable {
     case none
     case title(title: String, subtitle: String? = nil, subtitleAlignment: MK2ScreenSubtitleAlignment = .trailing)
     case status([MK2StatusLineItem])
+
+    public var height: Int {
+        switch self {
+            case .none:
+                0
+            case .title, .status:
+                MK2ScreenLayout.headerHeight
+        }
+    }
 }
 
 public enum MK2ScreenFooter: Sendable, Equatable {
@@ -77,11 +86,38 @@ public enum MK2ScreenFooter: Sendable, Equatable {
     }
 }
 
+public struct MK2ScreenProgressBar: Sendable, Equatable {
+    public enum Placement: Sendable, Equatable {
+        case top
+        case bottom
+    }
+
+    public static let height = 4
+
+    public var placement: Placement
+    public var progress: Double
+    public var fill: UInt16
+    public var track: UInt16
+
+    public init(
+        placement: Placement = .top,
+        progress: Double,
+        fill: UInt16 = MK2HIG.Chrome.accent,
+        track: UInt16 = MK2HIG.Chrome.footerFill
+    ) {
+        self.placement = placement
+        self.progress = progress
+        self.fill = fill
+        self.track = track
+    }
+}
+
 public struct MK2RegularScreenLayout: Sendable, Equatable {
     public var bounds: MK2PixelRect
-    public var headerRect: MK2PixelRect
+    public var headerRect: MK2PixelRect?
     public var contentRect: MK2PixelRect
     public var footerRect: MK2PixelRect?
+    public var progressRect: MK2PixelRect?
 }
 
 public enum MK2ScreenLayout {
@@ -91,22 +127,63 @@ public enum MK2ScreenLayout {
     public static let contentInset = 8
     public static let footerSpacing = 7
 
-    public static func regular(footer: MK2ScreenFooter = .none) -> MK2RegularScreenLayout {
+    public static func regular(
+        header: MK2ScreenHeader = .none,
+        footer: MK2ScreenFooter = .none,
+        progress: MK2ScreenProgressBar.Placement? = nil
+    ) -> MK2RegularScreenLayout {
+        let headerHeight = header.height
+        let headerRect = headerHeight > 0
+            ? MK2PixelRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
+            : nil
         let footerHeight = footer.height
         let footerRect = footerHeight > 0
             ? MK2PixelRect(x: 0, y: bounds.height - footerHeight, width: bounds.width, height: footerHeight)
             : nil
-        let contentBottom = footerRect.map { $0.y - footerSpacing } ?? (bounds.height - contentInset)
+
+        let progressRect: MK2PixelRect? = switch progress {
+            case .top:
+                // Hugs the header's bottom rule; without a header it becomes the screen's top edge.
+                MK2PixelRect(x: 0, y: headerRect?.maxY ?? 0, width: bounds.width, height: MK2ScreenProgressBar.height)
+            case .bottom:
+                // Hugs the footer's top border; without a footer it becomes the screen's bottom edge.
+                MK2PixelRect(
+                    x: 0,
+                    y: footerRect.map { $0.y - MK2ScreenProgressBar.height } ?? (bounds.height - MK2ScreenProgressBar.height),
+                    width: bounds.width,
+                    height: MK2ScreenProgressBar.height
+                )
+            case nil:
+                nil
+        }
+
+        let contentTop: Int = if let headerRect {
+            headerRect.maxY + 5
+        } else if let progressRect, progress == .top {
+            progressRect.maxY + 5
+        } else {
+            contentInset
+        }
+
+        let contentBottom: Int = if let footerRect {
+            footerRect.y - footerSpacing
+        } else if let progressRect, progress == .bottom {
+            progressRect.y - 5
+        } else {
+            bounds.height - contentInset
+        }
+
         return MK2RegularScreenLayout(
             bounds: bounds,
-            headerRect: MK2PixelRect(x: 0, y: 0, width: bounds.width, height: headerHeight),
+            headerRect: headerRect,
             contentRect: MK2PixelRect(
                 x: contentInset,
-                y: headerHeight + 5,
+                y: contentTop,
                 width: bounds.width - contentInset * 2,
-                height: max(0, contentBottom - (headerHeight + 5))
+                height: max(0, contentBottom - contentTop)
             ),
-            footerRect: footerRect
+            footerRect: footerRect,
+            progressRect: progressRect
         )
     }
 }
@@ -151,26 +228,30 @@ public struct MK2RegularScreenChrome: Sendable {
 
     public var header: MK2ScreenHeader
     public var footer: MK2ScreenFooter
+    public var progress: MK2ScreenProgressBar?
     public var colors: MK2ScreenChromeColors
 
     public init(
         header: MK2ScreenHeader = .none,
         footer: MK2ScreenFooter = .none,
+        progress: MK2ScreenProgressBar? = nil,
         colors: MK2ScreenChromeColors = MK2ScreenChromeColors()
     ) {
         self.header = header
         self.footer = footer
+        self.progress = progress
         self.colors = colors
     }
 
     public var layout: MK2RegularScreenLayout {
-        MK2ScreenLayout.regular(footer: footer)
+        MK2ScreenLayout.regular(header: header, footer: footer, progress: progress?.placement)
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
         frame.fill(MK2ScreenLayout.bounds, colors.background)
         drawHeader(into: &frame, renderer: renderer)
         drawFooter(into: &frame, renderer: renderer)
+        drawProgressBar(into: &frame)
     }
 
     public func drawHeader(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -194,7 +275,7 @@ public struct MK2RegularScreenChrome: Sendable {
     }
 
     private func drawHeaderBackdrop(into frame: inout MK2PixelFrame) {
-        let headerRect = layout.headerRect
+        guard let headerRect = layout.headerRect else { return }
         frame.fill(headerRect, colors.headerFill)
         frame.fill(MK2PixelRect(x: 0, y: headerRect.y, width: headerRect.width, height: 1), colors.headerTopLine)
         frame.fill(MK2PixelRect(x: 0, y: headerRect.maxY - 1, width: headerRect.width, height: 1), colors.headerRule)
@@ -211,6 +292,15 @@ public struct MK2RegularScreenChrome: Sendable {
                 frame.fillRounded(footerRect, radius: 8, colors.footerFill, antialiased: true)
                 frame.fill(MK2PixelRect(x: 0, y: footerRect.y, width: MK2PixelFrame.width, height: 1), colors.border)
         }
+    }
+
+    private func drawProgressBar(into frame: inout MK2PixelFrame) {
+        guard let progress, let rect = layout.progressRect else { return }
+        frame.fill(rect, progress.track)
+        let clamped = max(0, min(1, progress.progress))
+        let fillWidth = Int((Double(rect.width) * clamped).rounded())
+        guard fillWidth > 0 else { return }
+        frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: min(rect.width, fillWidth), height: rect.height), progress.fill)
     }
 
     private func drawCaption(

@@ -153,8 +153,10 @@ public enum MK2SelectionJogLayout: Sendable, Equatable {
 }
 
 public enum MK2SelectionLayout {
-    private static let regularLayout = MK2ScreenLayout.regular()
-    private static let filteredLayout = MK2ScreenLayout.regular(footer: .filters())
+    // Selection views draw their own title into the header band, so the geometry
+    // must reserve it; only the header's presence matters here, not its content.
+    private static let regularLayout = MK2ScreenLayout.regular(header: .status([]))
+    private static let filteredLayout = MK2ScreenLayout.regular(header: .status([]), footer: .filters())
 
     public static let contentX = regularLayout.contentRect.x
     public static let contentY = regularLayout.contentRect.y

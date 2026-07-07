@@ -666,9 +666,10 @@ private actor WidgetLab {
     private func regularScreenResult(
         header: MK2ScreenHeader,
         footer: MK2ScreenFooter = .none,
+        progress: MK2ScreenProgressBar? = nil,
         @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
     ) -> MK2ScreenBuildResult {
-        MK2RegularScreenDSL(header: header, footer: footer, content: content)
+        MK2RegularScreenDSL(header: header, footer: footer, progress: progress, content: content)
             .build(renderer: freeTypeRenderer)
     }
 
@@ -1092,7 +1093,8 @@ private actor WidgetLab {
     private func meterOverviewResult() -> MK2ScreenBuildResult {
         regularScreenResult(
             header: .title(title: "Meter Lab", subtitle: "levels + peak"),
-            footer: .hint("Ballistik bleibt Produktzustand.")
+            footer: .hint("Ballistik bleibt Produktzustand."),
+            progress: MK2ScreenProgressBar(placement: .top, progress: Double(playheadRow) / 63.0)
         ) {
             MK2ContentText("Meter Elements", x: 8, y: 0, role: .title)
             MK2ContentText(

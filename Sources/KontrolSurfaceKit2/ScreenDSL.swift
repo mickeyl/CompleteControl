@@ -92,23 +92,26 @@ public struct MK2AnyScreenElement: MK2ScreenElement {
 public struct MK2RegularScreenDSL: Sendable {
     public var header: MK2ScreenHeader
     public var footer: MK2ScreenFooter
+    public var progress: MK2ScreenProgressBar?
     public var colors: MK2ScreenChromeColors
     public var elements: [any MK2ScreenElement]
 
     public init(
         header: MK2ScreenHeader = .none,
         footer: MK2ScreenFooter = .none,
+        progress: MK2ScreenProgressBar? = nil,
         colors: MK2ScreenChromeColors = MK2ScreenChromeColors(),
         @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
     ) {
         self.header = header
         self.footer = footer
+        self.progress = progress
         self.colors = colors
         self.elements = content()
     }
 
     public func build(renderer: FreeTypeTextRenderer? = nil) -> MK2ScreenBuildResult {
-        let chrome = MK2RegularScreenChrome(header: header, footer: footer, colors: colors)
+        let chrome = MK2RegularScreenChrome(header: header, footer: footer, progress: progress, colors: colors)
         var frame = MK2PixelFrame()
         chrome.draw(into: &frame, renderer: renderer)
         var result = MK2ScreenBuildResult(screen: .regular(frame))

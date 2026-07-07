@@ -85,8 +85,8 @@ struct SelectionViewTests {
 
     @Test("Layout exposes shared content metrics")
     func layoutExposesSharedContentMetrics() {
-        let regular = MK2ScreenLayout.regular()
-        let filteredScreen = MK2ScreenLayout.regular(footer: .filters())
+        let regular = MK2ScreenLayout.regular(header: .status([]))
+        let filteredScreen = MK2ScreenLayout.regular(header: .status([]), footer: .filters())
         let full = MK2SelectionLayout.contentRect(hasFilters: false)
         let filtered = MK2SelectionLayout.contentRect(hasFilters: true)
         let iconCell = MK2SelectionCellSize(width: 58, height: 58)
