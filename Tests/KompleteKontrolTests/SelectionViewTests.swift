@@ -115,9 +115,10 @@ struct SelectionViewTests {
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 6, width: 80, height: 14)) > 10)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 420, y: 6, width: 52, height: 14)) > 10)
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 30), matching: MK2HIG.Chrome.headerFill) > 11_000)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 30)) > 13_000)
+        #expect(frame[300, 2] != frame[300, 29])
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 31, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.headerFill) > 10_000)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80)) > 30_000)
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 184, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
     }
 
@@ -147,7 +148,7 @@ struct SelectionViewTests {
         ).draw(into: &frame)
 
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 464, height: 24), matching: 0x2126) > 200)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.headerFill) > 10_000)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80)) > 30_000)
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
     }
 

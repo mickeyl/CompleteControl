@@ -325,9 +325,17 @@ public struct MK2RegularScreenChrome: Sendable {
     }
 
     // Shared raised-band look for header and footer: a bright bevel on the top edge,
-    // the chrome fill, and a shadow line on the bottom edge.
+    // a subtle vertical fill gradient (lit from above, falling into the bottom
+    // shadow), and a shadow line on the bottom edge. The gradient is derived from
+    // the single fill color so custom chrome palettes keep working.
     private func drawChromeBand(_ rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
-        frame.fill(rect, colors.headerFill)
+        let fillTop = Self.scale565(colors.headerFill, by: 1.4)
+        let fillBottom = Self.scale565(colors.headerFill, by: 0.6)
+        let span = Double(max(1, rect.height - 1))
+        for row in 0..<rect.height {
+            let color = Self.lerp565(fillTop, fillBottom, Double(row) / span)
+            frame.fill(MK2PixelRect(x: rect.x, y: rect.y + row, width: rect.width, height: 1), color)
+        }
         frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), colors.headerTopLine)
         frame.fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), colors.headerRule)
     }
@@ -355,6 +363,16 @@ public struct MK2RegularScreenChrome: Sendable {
         let r = mix((from >> 11) & 0x1f, (to >> 11) & 0x1f)
         let g = mix((from >> 5) & 0x3f, (to >> 5) & 0x3f)
         let b = mix(from & 0x1f, to & 0x1f)
+        return (r << 11) | (g << 5) | b
+    }
+
+    private static func scale565(_ color: UInt16, by factor: Double) -> UInt16 {
+        func scaled(_ value: UInt16, max maxValue: Double) -> UInt16 {
+            UInt16(Swift.min(maxValue, (Double(value) * factor).rounded()))
+        }
+        let r = scaled((color >> 11) & 0x1f, max: 31)
+        let g = scaled((color >> 5) & 0x3f, max: 63)
+        let b = scaled(color & 0x1f, max: 31)
         return (r << 11) | (g << 5) | b
     }
 

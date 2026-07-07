@@ -58,7 +58,9 @@ Resume from `master`. The MK2 screen-formalization work is active:
   13 px) is a general secondary-text role, not footer-only. Band text sits at geometric
   center minus 2 px — the em box carries more dead space below the caps than above, so
   pure centering looks low. Header and footer share one raised-band look
-  (`drawChromeBand`: lit top edge, fill, black bottom shadow). The chrome is
+  (`drawChromeBand`: lit top edge, a subtle vertical fill gradient derived from the
+  single fill color — ×1.4 at the top falling to ×0.6 at the bottom, so custom chrome
+  palettes keep working — and a black bottom shadow). The chrome is
   deliberately neutral graphite (`MK2HIG.Chrome.headerFill` 0x18e3 matching the
   dialog-surface tone, `headerTopLine` 0x632c) so the yellow accent and content colors
   carry the identity; the rounded `footerFill` panel for chrome footers is gone,

@@ -55,6 +55,28 @@ struct ScreenLayoutTests {
         #expect(withoutFooter.contentRect.maxY == 265)
     }
 
+    @Test("Chrome bands fill with a subtle vertical gradient")
+    func chromeBandsFillWithVerticalGradient() {
+        let result = MK2RegularScreenDSL(
+            header: .title(title: "T"),
+            footer: .filters()
+        ) {}.build(renderer: try? FreeTypeTextRenderer())
+        let frame = result.screen.frame
+
+        func luminance(_ color: UInt16) -> Int {
+            Int((color >> 11) & 0x1f) + Int((color >> 5) & 0x3f) + Int(color & 0x1f)
+        }
+
+        // Header band 0..31: bevel, gradient rows falling toward the shadow.
+        #expect(frame[300, 0] == MK2HIG.Chrome.headerTopLine)
+        #expect(luminance(frame[300, 2]) > luminance(frame[300, 29]))
+        #expect(frame[300, 31] == MK2HIG.Chrome.headerBottomLine)
+        // Footer band 184..271 gets the same treatment.
+        #expect(frame[300, 184] == MK2HIG.Chrome.headerTopLine)
+        #expect(luminance(frame[300, 187]) > luminance(frame[300, 268]))
+        #expect(frame[300, 271] == MK2HIG.Chrome.headerBottomLine)
+    }
+
     @Test("Regular screen chrome renders the progress bar as a gradient")
     func chromeDrawsProgressBar() {
         let result = MK2RegularScreenDSL(
