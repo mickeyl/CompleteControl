@@ -27,11 +27,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var scrollView: NSScrollView!
     private var panel: PanelView!
     private var fitToWidthItem: NSMenuItem?
+    private var zoomInOnDisplayItem: NSMenuItem?
     private var stayOnTopItem: NSMenuItem?
     private var cheatSheetItem: NSMenuItem?
     private var cheatSheetWindow: NSWindow?
     private var keybedSizeItems: [PanelView.KeybedSize: NSMenuItem] = [:]
     private var zoomMode: ZoomMode = .manual
+    private var displayZoomSnapshot: DisplayZoomSnapshot?
     private var isProgrammaticResize = false
     private var pendingScrollerVisibilityRefresh = false
     private var isRefreshingScrollerVisibility = false
@@ -39,6 +41,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private enum ZoomMode {
         case manual
         case fitToWidth
+    }
+
+    private struct DisplayZoomSnapshot {
+        let zoomMode: ZoomMode
+        let magnification: CGFloat
+        let visibleOrigin: NSPoint
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -158,6 +166,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         viewMenu.addItem(.separator())
         fitToWidthItem = add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
         add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
+        zoomInOnDisplayItem = add(to: viewMenu, "Zoom In on Display", #selector(toggleZoomInOnDisplay), "z")
         viewMenu.addItem(.separator())
         stayOnTopItem = add(to: viewMenu, "Stay on Top", #selector(toggleStayOnTop), "")
         cheatSheetItem = add(to: viewMenu, "Keyboard Cheat Sheet", #selector(toggleCheatSheet), "")
@@ -182,14 +191,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Zoom actions
 
     @objc private func zoomIn(_ sender: Any?) {
+        displayZoomSnapshot = nil
         setManualMagnification(scrollView.magnification * 1.2, resizeWindow: true)
     }
 
     @objc private func zoomOut(_ sender: Any?) {
+        displayZoomSnapshot = nil
         setManualMagnification(scrollView.magnification / 1.2, resizeWindow: true)
     }
 
     @objc private func fitToWidth(_ sender: Any?) {
+        displayZoomSnapshot = nil
         zoomMode = .fitToWidth
         updateFitToWidthMagnification()
         resizeWindowToCurrentMagnification(preserveContentWidth: true)
@@ -197,12 +209,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func trueSize(_ sender: Any?) {
+        displayZoomSnapshot = nil
         guard let magnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main) else { return }
         if abs(scrollView.magnification - magnification) <= 0.005 {
             alignDisplaysInViewport()
             return
         }
         setManualMagnification(magnification, resizeWindow: true)
+    }
+
+    @objc private func toggleZoomInOnDisplay(_ sender: Any?) {
+        if let snapshot = displayZoomSnapshot {
+            displayZoomSnapshot = nil
+            zoomMode = snapshot.zoomMode
+            setMagnification(snapshot.magnification)
+            scrollDocument(to: snapshot.visibleOrigin)
+        } else {
+            displayZoomSnapshot = DisplayZoomSnapshot(
+                zoomMode: zoomMode,
+                magnification: scrollView.magnification,
+                visibleOrigin: scrollView.documentVisibleRect.origin
+            )
+            zoomMode = .manual
+            zoomInOnDisplayWorkArea()
+        }
+        updateViewMenuState()
     }
 
     @objc private func toggleStayOnTop(_ sender: Any?) {
@@ -250,6 +281,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func setKeybedSizeFromMenu(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? Int,
               let size = PanelView.KeybedSize(rawValue: rawValue) else { return }
+        displayZoomSnapshot = nil
         panel.setKeybedSize(size)
         UserDefaults.standard.set(size.rawValue, forKey: DefaultsKey.keybedSize)
         if zoomMode == .fitToWidth {
@@ -297,6 +329,46 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             y: min(max(0, displayBlock.minY), maxOriginY)
         )
         scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func zoomInOnDisplayWorkArea() {
+        let padding: CGFloat = 14
+        let workArea = panel.displayWorkAreaRect.insetBy(dx: -padding, dy: -padding)
+        guard workArea.width > 0, workArea.height > 0 else { return }
+
+        refreshScrollerVisibility()
+        scrollView.layoutSubtreeIfNeeded()
+        let contentSize = scrollView.contentSize
+        let target = min(contentSize.width / workArea.width, contentSize.height / workArea.height)
+        setMagnification(target)
+        scrollDocument(toCenterOn: workArea)
+    }
+
+    private func scrollDocument(toCenterOn rect: NSRect) {
+        let visibleSize = NSSize(
+            width: scrollView.contentSize.width / max(scrollView.magnification, 0.001),
+            height: scrollView.contentSize.height / max(scrollView.magnification, 0.001)
+        )
+        scrollDocument(to: NSPoint(
+            x: rect.midX - visibleSize.width / 2,
+            y: rect.midY - visibleSize.height / 2
+        ))
+    }
+
+    private func scrollDocument(to origin: NSPoint) {
+        scrollView.layoutSubtreeIfNeeded()
+        let visibleSize = NSSize(
+            width: scrollView.contentSize.width / max(scrollView.magnification, 0.001),
+            height: scrollView.contentSize.height / max(scrollView.magnification, 0.001)
+        )
+        let maxOriginX = max(0, panel.bounds.width - visibleSize.width)
+        let maxOriginY = max(0, panel.bounds.height - visibleSize.height)
+        let clampedOrigin = NSPoint(
+            x: min(max(0, origin.x), maxOriginX),
+            y: min(max(0, origin.y), maxOriginY)
+        )
+        scrollView.contentView.scroll(to: clampedOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
@@ -366,6 +438,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleDirectMagnificationChange() {
+        displayZoomSnapshot = nil
         zoomMode = .manual
         updateViewMenuState()
         scheduleScrollerVisibilityRefresh()
@@ -417,6 +490,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateViewMenuState() {
         fitToWidthItem?.state = zoomMode == .fitToWidth ? .on : .off
+        zoomInOnDisplayItem?.state = displayZoomSnapshot == nil ? .off : .on
         stayOnTopItem?.state = window?.level == .floating ? .on : .off
         cheatSheetItem?.state = cheatSheetWindow?.isVisible == true ? .on : .off
         for (size, item) in keybedSizeItems {
@@ -561,6 +635,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard notification.object as? NSWindow === window else { return }
         guard !isProgrammaticResize else {
             persistWindowPlacement()
+            return
+        }
+        if displayZoomSnapshot != nil {
+            zoomInOnDisplayWorkArea()
+            updateViewMenuState()
+            persistWindowPlacement()
+            scheduleScrollerVisibilityRefresh()
             return
         }
         zoomMode = .fitToWidth

@@ -176,6 +176,16 @@ final class PanelView: NSView {
 
     var currentKeybedSize: KeybedSize { keybedSize }
     var displayBlockRect: NSRect { display0.union(display1) }
+    var displayWorkAreaRect: NSRect {
+        var rect = displayBlockRect
+        for button in buttons where (KKMK2ButtonLED.function1.rawValue...KKMK2ButtonLED.function8.rawValue).contains(button.led.rawValue) {
+            rect = rect.union(button.rect)
+        }
+        for encoder in encoders {
+            rect = rect.union(encoder.rect)
+        }
+        return rect
+    }
 
     // MARK: - Layout
 
