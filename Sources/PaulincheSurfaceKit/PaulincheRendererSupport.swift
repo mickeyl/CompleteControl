@@ -171,12 +171,12 @@ enum MK2PaulincheRendererSupport {
 
     static let titleStyle = MK2HIG.textStyle(
         weight: .medium,
-        pixelSize: 22,
+        pixelSize: 16,
         color: MK2HIG.Chrome.text
     )
 
     static func captionStyle(color: UInt16) -> FreeTypeTextStyle {
-        MK2HIG.textStyle(weight: .medium, pixelSize: 14, color: color)
+        MK2HIG.textStyle(weight: .medium, pixelSize: 12, color: color)
     }
 
     static func bodyStyle(color: UInt16) -> FreeTypeTextStyle {

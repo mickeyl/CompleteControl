@@ -18,31 +18,27 @@ struct PaulinchePatternRendererTests {
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 70, width: 460, height: 185), notMatching: MK2HIG.Chrome.background) > 1_000)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 6, y: 176, width: 456, height: 16), matching: 0x2128) > 200)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 18, y: 58, width: 444, height: 104), notMatching: MK2HIG.Chrome.background) > 700)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 58, y: 174, width: 380, height: 42), matching: 0x464f) > 120)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 230, width: 480, height: 34), notMatching: MK2HIG.Chrome.background) > 300)
+        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 298, y: 50, width: 40, height: 18), matching: 0xfaa0) > 10)
+        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 421, y: 50, width: 40, height: 18), matching: 0xffe0) > 10)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 18, y: 58, width: 444, height: 118), notMatching: MK2HIG.Chrome.background) > 700)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 58, y: 110, width: 380, height: 64), matching: 0x464f) > 120)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 215, width: 480, height: 57), notMatching: MK2HIG.Chrome.background) > 300)
     }
 
-    @Test("Surface scene merges soft key button bindings")
-    func patternSceneBindsSoftKeysToFunctionButtons() {
-        let box = SoftKeyBox()
+    @Test("Pattern scene leaves function buttons to hardware actions")
+    func patternSceneDoesNotBindEditActionsToFunctionButtons() {
         let scene = Self.fixture()
         let rendered = MK2PaulinchePatternRenderer.surfaceScene(
             scene,
             actions: MK2PaulinchePatternActions { index, softKey in
-                box.index = index
-                box.commandID = softKey.commandID
-                box.payload = softKey.integerPayload
+                _ = index
+                _ = softKey
             }
         )
 
-        rendered.bindings.buttonDown[.function5]?()
-
         #expect(rendered.displays[0] != nil)
         #expect(rendered.displays[1] != nil)
-        #expect(box.index == 4)
-        #expect(box.commandID == "transposeFocusedNotes")
-        #expect(box.payload == 12)
+        #expect(rendered.bindings.buttonDown[.function5] == nil)
     }
 
     private static func fixture() -> MK2PaulinchePatternScene {
@@ -74,8 +70,8 @@ struct PaulinchePatternRendererTests {
             meters: [
                 MK2PaulinchePatternMeter(label: "CH1", level: 0.36, peak: 0.52),
                 MK2PaulinchePatternMeter(label: "CH2", level: 0.62, peak: 0.74),
-                MK2PaulinchePatternMeter(label: "CH3", level: 0.28, peak: 0.42),
-                MK2PaulinchePatternMeter(label: "CH4", level: 0.86, peak: 0.92),
+                MK2PaulinchePatternMeter(label: "CH3", level: 0.28, peak: 0.42, isMuted: true),
+                MK2PaulinchePatternMeter(label: "CH4", level: 0.86, peak: 0.92, isSoloed: true),
             ],
             softKeys: [
                 MK2PaulincheSoftKey(label: "Clear", commandID: "clearCell"),
@@ -89,12 +85,6 @@ struct PaulinchePatternRendererTests {
             ]
         )
     }
-}
-
-private final class SoftKeyBox: @unchecked Sendable {
-    var index = -1
-    var commandID: String?
-    var payload: Int?
 }
 
 private extension MK2PixelFrame {
