@@ -223,7 +223,7 @@ struct ScreenDSLTests {
             )
         }.build()
 
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 58, width: 40, height: 8), matching: MK2HIG.Chrome.accent) > 0)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 52, width: 40, height: 8), matching: MK2HIG.Chrome.accent) > 0)
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 88, width: 220, height: 26), notMatching: MK2HIG.Chrome.background) > 40)
     }
 

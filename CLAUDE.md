@@ -49,8 +49,27 @@ Resume from `master`. The MK2 screen-formalization work is active:
   header/footer): placement `.top` hugs the header's bottom rule (or the screen's top
   edge without a header), `.bottom` hugs the footer's top border (or the screen's bottom
   edge without a footer). A `.top` bar under a header lives in the existing 5 px gap, so
-  content does not move. Geometry is pinned in `ScreenLayoutTests`; the Meter Lab
-  overview screen realizes the slot in WidgetLab.
+  content does not move. Geometry is pinned in `ScreenLayoutTests`. Chrome typography
+  is injectable via `MK2ScreenChromeTypography` (caption + footnote pixel sizes) on the
+  chrome and the regular-screen DSL, and the band heights derive from it: header =
+  `2 * captionPixelSize + 2` → 32 px at the locked-in caption 15 (plus one caption line
+  for a leading subtitle), hint footer = `footnotePixelSize + 12` → 25 px at the
+  locked-in footnote 13. The footnote style (`MK2HIG.footnoteTextStyle`, body weight at
+  13 px) is a general secondary-text role, not footer-only. Band text sits at geometric
+  center minus 2 px — the em box carries more dead space below the caps than above, so
+  pure centering looks low. Header and footer share one raised-band look
+  (`drawChromeBand`: lit top edge, fill, black bottom shadow). The chrome is
+  deliberately neutral graphite (`MK2HIG.Chrome.headerFill` 0x18e3 matching the
+  dialog-surface tone, `headerTopLine` 0x632c) so the yellow accent and content colors
+  carry the identity; the rounded `footerFill` panel for chrome footers is gone,
+  `footerFill` remains a widget track color. The chrome progress bar is 2 px and fills
+  with a deep-blue → cyan gradient across its current width
+  (`MK2HIG.Chrome.progressFillStart/End`) — deliberately not the yellow accent.
+  WidgetLab unit H ("SCENE LAB", F8) is the acceptance screen: `Instance` cycles the
+  header/footer combinations, `E5`-`E8` drive progress placement, progress value, and
+  caption/footnote sizes (live band resizing), and the left screen outlines the
+  resulting `contentRect`; the Meter Lab overview additionally realizes a `.top`
+  progress bar.
 - `PaulincheSurfaceKit` is a separate Swift module for Paulinche-shaped renderers on top
   of `KontrolSurfaceKit2`, still without a Paulinche package dependency.
   `MK2PaulinchePatternRenderer` now renders the widget-lab tracker design 1:1: full-bleed

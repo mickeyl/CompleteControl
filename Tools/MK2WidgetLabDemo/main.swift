@@ -163,7 +163,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern }
+    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .scene }
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -248,6 +248,71 @@ private struct ActionCandidate: Sendable {
     let action: String
 }
 
+private enum SceneChromeCombo: Int, CaseIterable, Sendable {
+    case titleOnly
+    case titleHint
+    case titleEncoders
+    case statusFilters
+    case bare
+    case footerOnly
+
+    var title: String {
+        switch self {
+            case .titleOnly: "TITLE + NONE"
+            case .titleHint: "TITLE + HINT"
+            case .titleEncoders: "TITLE + ENCODERS"
+            case .statusFilters: "STATUS + FILTERS"
+            case .bare: "NONE + NONE"
+            case .footerOnly: "NONE + ENCODERS"
+        }
+    }
+
+    var header: MK2ScreenHeader {
+        switch self {
+            case .titleOnly, .titleHint, .titleEncoders:
+                .title(title: "Scene Lab", subtitle: "Chrome Slots")
+            case .statusFilters:
+                .status([
+                    MK2StatusLineItem("SCENE", x: 8, color: Palette.blue),
+                    MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
+                    MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
+                ])
+            case .bare, .footerOnly:
+                .none
+        }
+    }
+
+    var footer: MK2ScreenFooter {
+        switch self {
+            case .titleOnly, .bare: .none
+            case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
+            case .titleEncoders, .footerOnly: .encoderArea()
+            case .statusFilters: .filters()
+        }
+    }
+
+    var footerLabel: String {
+        switch self {
+            case .titleOnly, .bare: "NONE"
+            case .titleHint: "HINT"
+            case .titleEncoders, .footerOnly: "ENCODER"
+            case .statusFilters: "FILTERS"
+        }
+    }
+
+    var headerLabel: String {
+        switch self {
+            case .titleOnly, .titleHint, .titleEncoders: "TITLE"
+            case .statusFilters: "STATUS"
+            case .bare, .footerOnly: "NONE"
+        }
+    }
+
+    var next: SceneChromeCombo {
+        Self.allCases[(rawValue + 1) % Self.allCases.count]
+    }
+}
+
 private actor WidgetLab {
     private let surface: MK2Surface2
     private let metronome = DemoMetronome()
@@ -302,6 +367,12 @@ private actor WidgetLab {
     private var mutedChannels: Set<Int> = []
     private var soloedChannels: Set<Int> = []
     private var focusedEditField: TrackerEditField = .note
+    private var sceneCombo: SceneChromeCombo = .titleHint
+    private var sceneProgressMode = 1
+    private var sceneProgressPercent = 42
+    private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
+    private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
+    private var sceneFocusedEncoder: Int?
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -448,6 +519,8 @@ private actor WidgetLab {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
+        } else if unit == .scene {
+            lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
@@ -528,6 +601,13 @@ private actor WidgetLab {
         } else if unit == .list {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleSelectionMode() }
+            }
+        } else if unit == .scene {
+            bindings.onPress(.instance) { [weak self] in
+                Task { await self?.cycleSceneCombo() }
+            }
+            for value in sceneEncoderValues() {
+                value.apply(bindings: &bindings)
             }
         } else if unit == .pattern {
             MK2ButtonToggle(
@@ -646,6 +726,8 @@ private actor WidgetLab {
                 return (selectionStatusResult(), selectionPickerResult())
             case .pattern:
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
+            case .scene:
+                return (sceneChromeDemoResult(), sceneControlResult())
             default:
                 return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
@@ -1151,6 +1233,219 @@ private actor WidgetLab {
 
     private func demoMeterPeak(_ channel: Int, phaseOffset: Int = 0) -> Double {
         min(1.0, demoMeterLevel(channel, phaseOffset: phaseOffset) + 0.14 + Double(channel) * 0.02)
+    }
+
+    // MARK: - Scene lab
+
+    private func sceneProgressBar() -> MK2ScreenProgressBar? {
+        switch sceneProgressMode {
+            case 1:
+                MK2ScreenProgressBar(placement: .top, progress: Double(sceneProgressPercent) / 100.0)
+            case 2:
+                MK2ScreenProgressBar(placement: .bottom, progress: Double(sceneProgressPercent) / 100.0)
+            default:
+                nil
+        }
+    }
+
+    private func sceneProgressLabel() -> String {
+        switch sceneProgressMode {
+            case 1: "TOP"
+            case 2: "BTM"
+            default: "OFF"
+        }
+    }
+
+    private func sceneLayout() -> MK2RegularScreenLayout {
+        MK2ScreenLayout.regular(
+            header: sceneCombo.header,
+            footer: sceneCombo.footer,
+            progress: sceneProgressBar()?.placement,
+            typography: MK2ScreenChromeTypography(captionPixelSize: sceneCaptionSize, footnotePixelSize: sceneFootnoteSize)
+        )
+    }
+
+    private func sceneChromeDemoResult() -> MK2ScreenBuildResult {
+        let combo = sceneCombo
+        let layout = sceneLayout()
+        let headerLine = "HEADER \(combo.headerLabel) \(layout.headerRect?.height ?? 0)  FOOTER \(combo.footerLabel) \(layout.footerRect?.height ?? 0)"
+        let progressLine = sceneProgressMode == 0 ? "PROGRESS OFF" : "PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%"
+        let typoLine = "CAPTION \(sceneCaptionSize)PX  FOOTNOTE \(sceneFootnoteSize)PX"
+        let footerDisplays = (layout.footerRect?.height ?? 0) >= 88 ? sceneEncoderDisplays() : []
+
+        return MK2RegularScreenDSL(
+            header: combo.header,
+            footer: combo.footer,
+            progress: sceneProgressBar(),
+            typography: MK2ScreenChromeTypography(captionPixelSize: sceneCaptionSize, footnotePixelSize: sceneFootnoteSize)
+        ) {
+            MK2AnyScreenElement { frame, context, _ in
+                guard let layout = context.layout else { return }
+                let content = layout.contentRect
+                frame.stroke(content, Palette.border)
+                let lines: [(String, SurfaceFont, UInt16)] = [
+                    (combo.title, .gridBold, Palette.blue),
+                    (headerLine, .grid, Palette.dim),
+                    (progressLine, .grid, Palette.dim),
+                    ("CONTENT \(content.x),\(content.y) \(content.width)*\(content.height)", .grid, Palette.text),
+                    (typoLine, .grid, Palette.dim),
+                ]
+                var y = content.y + 6
+                for (text, font, color) in lines {
+                    guard y + font.cellHeight <= content.maxY else { break }
+                    BitmapLabel(text, font: font, color: color)
+                        .draw(into: &frame, x: content.x + 8, y: y, clip: content)
+                    y += font.cellHeight + 4
+                }
+            }
+            MK2EncoderFooterElement(footerDisplays)
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func sceneControlResult() -> MK2ScreenBuildResult {
+        let combo = sceneCombo
+        let layout = sceneLayout()
+        let values = sceneEncoderValues()
+        let summary: [(String, UInt16)] = [
+            ("HEADER   \(combo.headerLabel) \(layout.headerRect?.height ?? 0)", Palette.text),
+            ("FOOTER   \(combo.footerLabel) \(layout.footerRect?.height ?? 0)", Palette.text),
+            ("PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%", Palette.text),
+            ("CONTENT  \(layout.contentRect.x),\(layout.contentRect.y) \(layout.contentRect.width)*\(layout.contentRect.height)", Palette.blue),
+            ("INSTANCE WECHSELT DIE KOMBINATION", Palette.dim),
+        ]
+
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 8, items: [
+                    MK2StatusLineItem("SCENE LAB", x: 8, color: Palette.blue),
+                    MK2StatusLineItem(combo.title, x: 140, color: Palette.text, font: .gridBold),
+                ]).draw(into: &frame)
+                frame.hline(y: 32, x: 0, width: 480, color: Palette.border)
+                var y = 44
+                for (text, color) in summary {
+                    BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
+                    y += SurfaceFont.grid.cellHeight + 6
+                }
+                for value in values {
+                    value.drawDisplay(into: &frame)
+                }
+            }
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func sceneEncoderValues() -> [MK2EncoderDiscreteValue] {
+        let displays = sceneEncoderDisplays()
+        return [
+            MK2EncoderDiscreteValue(
+                encoder: 5,
+                value: sceneProgressMode,
+                bounds: 0...2,
+                wraps: true,
+                display: displays[0],
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSceneFocusedEncoder(5, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSceneProgressMode(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 6,
+                value: sceneProgressPercent,
+                bounds: 0...100,
+                step: 2,
+                wraps: false,
+                display: displays[1],
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSceneFocusedEncoder(6, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSceneProgressPercent(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 7,
+                value: sceneCaptionSize,
+                bounds: 10...24,
+                wraps: false,
+                display: displays[2],
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSceneCaptionSize(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 8,
+                value: sceneFootnoteSize,
+                bounds: 10...24,
+                wraps: false,
+                display: displays[3],
+                onTouch: { [weak self] touched in
+                    Task { await self?.setSceneFocusedEncoder(8, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setSceneFootnoteSize(value) }
+                }
+            ),
+        ]
+    }
+
+    private func sceneEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
+        let xs = [8, 126, 244, 362]
+        let entries: [(label: String, value: String, encoder: Int)] = [
+            ("PROG", sceneProgressLabel(), 5),
+            ("VALUE", "\(sceneProgressPercent)%", 6),
+            ("CAPT", "\(sceneCaptionSize)", 7),
+            ("FOOT", "\(sceneFootnoteSize)", 8),
+        ]
+        return entries.enumerated().map { index, entry in
+            MK2EncoderDiscreteValueDisplay(
+                label: entry.label,
+                value: entry.value,
+                rect: MK2PixelRect(x: xs[index], y: 218, width: 102, height: 38),
+                isFocused: sceneFocusedEncoder == entry.encoder,
+                valueFont: .readoutBold,
+                cornerRadius: 7,
+                colors: editCellColors(value: Palette.text)
+            )
+        }
+    }
+
+    private func cycleSceneCombo() async {
+        guard unit == .scene else { return }
+        sceneCombo = sceneCombo.next
+        await render()
+    }
+
+    private func setSceneFocusedEncoder(_ encoder: Int, touched: Bool) async {
+        if touched {
+            sceneFocusedEncoder = encoder
+        } else if sceneFocusedEncoder == encoder {
+            sceneFocusedEncoder = nil
+        }
+        await render()
+    }
+
+    private func setSceneProgressMode(_ value: Int) async {
+        sceneProgressMode = value.wrapped(to: 0...2)
+        await render()
+    }
+
+    private func setSceneProgressPercent(_ value: Int) async {
+        sceneProgressPercent = max(0, min(100, value))
+        await render()
+    }
+
+    private func setSceneCaptionSize(_ value: Int) async {
+        sceneCaptionSize = max(10, min(24, value))
+        await render()
+    }
+
+    private func setSceneFootnoteSize(_ value: Int) async {
+        sceneFootnoteSize = max(10, min(24, value))
+        await render()
     }
 
     // MARK: - Tracker unit
@@ -2584,6 +2879,15 @@ private actor WidgetLab {
                         clampSelectionIndex()
                         await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
                     }
+                case .scene:
+                    for combo in SceneChromeCombo.allCases {
+                        sceneCombo = combo
+                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(combo.title)).png")
+                    }
+                    sceneCombo = .titleHint
+                    (sceneCaptionSize, sceneFootnoteSize) = (12, 12)
+                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-title-hint-compact.png")
+                    (sceneCaptionSize, sceneFootnoteSize) = (MK2HIG.Typography.captionPixelSize, MK2HIG.Typography.footnotePixelSize)
                 default:
                     await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
             }

@@ -91,12 +91,12 @@ struct SelectionViewTests {
         let filtered = MK2SelectionLayout.contentRect(hasFilters: true)
         let iconCell = MK2SelectionCellSize(width: 58, height: 58)
 
-        #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 38))
+        #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 32))
         #expect(regular.contentRect == full)
         #expect(filteredScreen.contentRect == filtered)
         #expect(filteredScreen.footerRect == MK2PixelRect(x: 0, y: 184, width: 480, height: 88))
-        #expect(full == MK2PixelRect(x: 8, y: 43, width: 464, height: 221))
-        #expect(filtered == MK2PixelRect(x: 8, y: 43, width: 464, height: 134))
+        #expect(full == MK2PixelRect(x: 8, y: 37, width: 464, height: 227))
+        #expect(filtered == MK2PixelRect(x: 8, y: 37, width: 464, height: 140))
         #expect(MK2SelectionLayout.gridColumnCount(for: iconCell) == 8)
         #expect(MK2SelectionLayout.gridRowStep(for: iconCell) == 8)
         #expect(MK2SelectionGrid.columnCount(for: iconCell) == MK2SelectionLayout.gridColumnCount(for: iconCell))
@@ -112,12 +112,13 @@ struct SelectionViewTests {
             footer: .filters()
         ).draw(into: &frame, renderer: renderer)
 
-        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 8, width: 80, height: 14)) > 10)
-        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 420, y: 8, width: 52, height: 14)) > 10)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 6, width: 80, height: 14)) > 10)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 420, y: 6, width: 52, height: 14)) > 10)
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 36), matching: MK2HIG.Chrome.headerFill) > 15_000)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 37, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.footerFill) > 10_000)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 30), matching: MK2HIG.Chrome.headerFill) > 11_000)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 31, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.headerFill) > 10_000)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 184, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
     }
 
     @Test("Regular screen hint footer uses body typography")
@@ -146,7 +147,7 @@ struct SelectionViewTests {
         ).draw(into: &frame)
 
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 464, height: 24), matching: 0x2126) > 200)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: 0x1083) > 10_000)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80), matching: MK2HIG.Chrome.headerFill) > 10_000)
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
     }
 
@@ -186,7 +187,7 @@ struct SelectionViewTests {
             background: 0x0000,
             selectionFill: 0xffff
         )
-        let rowRect = MK2PixelRect(x: 8, y: 74, width: 464, height: 29)
+        let rowRect = MK2PixelRect(x: 8, y: 68, width: 464, height: 29)
         var frame = MK2PixelFrame()
 
         MK2SelectionList(
@@ -236,7 +237,7 @@ struct SelectionViewTests {
 
         #expect(
             frame.countPixels(
-                in: MK2PixelRect(x: 32, y: 86, width: 416, height: 1),
+                in: MK2PixelRect(x: 32, y: 80, width: 416, height: 1),
                 matching: colors.selectionFill
             ) > 300
         )
@@ -283,9 +284,9 @@ struct SelectionViewTests {
             cellContent: .iconOnly(iconSize: 30)
         ).draw(into: &frame)
 
-        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 220, width: 52, height: 52), matching: colors.selectionFill) > 200)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 430, y: 270, width: 26, height: 1), matching: colors.selectionFill) > 0)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 256, width: 52, height: 14), matching: colors.muted) == 0)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 214, width: 52, height: 52), matching: colors.selectionFill) > 200)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 430, y: 264, width: 26, height: 1), matching: colors.selectionFill) > 0)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 250, width: 52, height: 14), matching: colors.muted) == 0)
     }
 
     @Test("Selection list and grid can be captured as a two-screen snapshot")

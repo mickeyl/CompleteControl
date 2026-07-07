@@ -53,7 +53,8 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: 0x464f) > 250)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: MK2HIG.Chrome.accent) > 40)
         #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 55, width: 448, height: 104), notMatching: MK2HIG.Chrome.background) > 900)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 226, width: 480, height: 4), matching: MK2HIG.Chrome.accent) > 400)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 228, width: 480, height: 2), notMatching: MK2HIG.Chrome.background) > 900)
+        #expect(rendered.right.screen.frame[0, 228] == MK2HIG.Chrome.progressFillStart)
     }
 
     @Test("Instrument scene binds soft keys to function buttons")

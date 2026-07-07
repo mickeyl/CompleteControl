@@ -58,12 +58,19 @@ public enum MK2ScreenHeader: Sendable {
     case title(title: String, subtitle: String? = nil, subtitleAlignment: MK2ScreenSubtitleAlignment = .trailing)
     case status([MK2StatusLineItem])
 
-    public var height: Int {
+    /// The band height derives from the caption style the header text is set in,
+    /// so tuning `MK2ScreenChromeTypography.captionPixelSize` resizes the header.
+    /// A leading subtitle adds a second text line.
+    public func height(for typography: MK2ScreenChromeTypography = MK2ScreenChromeTypography()) -> Int {
         switch self {
             case .none:
-                0
-            case .title, .status:
-                MK2ScreenLayout.headerHeight
+                return 0
+            case let .title(_, subtitle, alignment):
+                let base = typography.captionPixelSize * 2 + 2
+                guard subtitle != nil, alignment == .leading else { return base }
+                return base + typography.captionPixelSize + 2
+            case .status:
+                return typography.captionPixelSize * 2 + 2
         }
     }
 }
@@ -74,12 +81,14 @@ public enum MK2ScreenFooter: Sendable, Equatable {
     case encoderArea(height: Int = 88)
     case filters(height: Int = 88)
 
-    public var height: Int {
+    /// The hint band derives from the footnote style its text is set in; the encoder
+    /// and filter areas keep their explicit widget-sized heights.
+    public func height(for typography: MK2ScreenChromeTypography = MK2ScreenChromeTypography()) -> Int {
         switch self {
             case .none:
                 0
             case .hint:
-                28
+                typography.footnotePixelSize + 12
             case let .encoderArea(height), let .filters(height):
                 max(0, height)
         }
@@ -92,22 +101,25 @@ public struct MK2ScreenProgressBar: Sendable, Equatable {
         case bottom
     }
 
-    public static let height = 4
+    public static let height = 2
 
     public var placement: Placement
     public var progress: Double
-    public var fill: UInt16
+    public var fillStart: UInt16
+    public var fillEnd: UInt16
     public var track: UInt16
 
     public init(
         placement: Placement = .top,
         progress: Double,
-        fill: UInt16 = MK2HIG.Chrome.accent,
+        fillStart: UInt16 = MK2HIG.Chrome.progressFillStart,
+        fillEnd: UInt16 = MK2HIG.Chrome.progressFillEnd,
         track: UInt16 = MK2HIG.Chrome.footerFill
     ) {
         self.placement = placement
         self.progress = progress
-        self.fill = fill
+        self.fillStart = fillStart
+        self.fillEnd = fillEnd
         self.track = track
     }
 }
@@ -123,20 +135,20 @@ public struct MK2RegularScreenLayout: Sendable, Equatable {
 public enum MK2ScreenLayout {
     public static let bounds = MK2PixelFrame.bounds
     public static let margin = 8
-    public static let headerHeight = 38
     public static let contentInset = 8
     public static let footerSpacing = 7
 
     public static func regular(
         header: MK2ScreenHeader = .none,
         footer: MK2ScreenFooter = .none,
-        progress: MK2ScreenProgressBar.Placement? = nil
+        progress: MK2ScreenProgressBar.Placement? = nil,
+        typography: MK2ScreenChromeTypography = MK2ScreenChromeTypography()
     ) -> MK2RegularScreenLayout {
-        let headerHeight = header.height
+        let headerHeight = header.height(for: typography)
         let headerRect = headerHeight > 0
             ? MK2PixelRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
             : nil
-        let footerHeight = footer.height
+        let footerHeight = footer.height(for: typography)
         let footerRect = footerHeight > 0
             ? MK2PixelRect(x: 0, y: bounds.height - footerHeight, width: bounds.width, height: footerHeight)
             : nil
@@ -222,6 +234,19 @@ public struct MK2ScreenChromeColors: Sendable, Equatable {
     }
 }
 
+public struct MK2ScreenChromeTypography: Sendable, Equatable {
+    public var captionPixelSize: Int
+    public var footnotePixelSize: Int
+
+    public init(
+        captionPixelSize: Int = MK2HIG.Typography.captionPixelSize,
+        footnotePixelSize: Int = MK2HIG.Typography.footnotePixelSize
+    ) {
+        self.captionPixelSize = max(1, captionPixelSize)
+        self.footnotePixelSize = max(1, footnotePixelSize)
+    }
+}
+
 public struct MK2RegularScreenChrome: Sendable {
     public static let captionPixelSize = MK2HIG.Typography.captionPixelSize
     public static let bodyPixelSize = MK2HIG.Typography.bodyPixelSize
@@ -229,22 +254,25 @@ public struct MK2RegularScreenChrome: Sendable {
     public var header: MK2ScreenHeader
     public var footer: MK2ScreenFooter
     public var progress: MK2ScreenProgressBar?
+    public var typography: MK2ScreenChromeTypography
     public var colors: MK2ScreenChromeColors
 
     public init(
         header: MK2ScreenHeader = .none,
         footer: MK2ScreenFooter = .none,
         progress: MK2ScreenProgressBar? = nil,
+        typography: MK2ScreenChromeTypography = MK2ScreenChromeTypography(),
         colors: MK2ScreenChromeColors = MK2ScreenChromeColors()
     ) {
         self.header = header
         self.footer = footer
         self.progress = progress
+        self.typography = typography
         self.colors = colors
     }
 
     public var layout: MK2RegularScreenLayout {
-        MK2ScreenLayout.regular(header: header, footer: footer, progress: progress?.placement)
+        MK2ScreenLayout.regular(header: header, footer: footer, progress: progress?.placement, typography: typography)
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -255,30 +283,31 @@ public struct MK2RegularScreenChrome: Sendable {
     }
 
     public func drawHeader(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
+        // Visually centered in the single-line band: the geometric center minus 2 px,
+        // because the em box carries more dead space below the caps than above.
+        let lineY = (typography.captionPixelSize + 2) / 2 - 2
         switch header {
             case .none:
                 return
             case let .title(title, subtitle, subtitleAlignment):
                 drawHeaderBackdrop(into: &frame)
-                drawCaption(title, into: &frame, renderer: renderer, x: 8, y: 8, color: colors.accent, maxWidth: 220)
+                drawCaption(title, into: &frame, renderer: renderer, x: 8, y: lineY, color: colors.accent, maxWidth: 220)
                 guard let subtitle else { return }
                 switch subtitleAlignment {
                     case .leading:
-                        drawCaption(subtitle, into: &frame, renderer: renderer, x: 8, y: 25, color: colors.dim, maxWidth: 456)
+                        drawCaption(subtitle, into: &frame, renderer: renderer, x: 8, y: lineY + typography.captionPixelSize + 2, color: colors.dim, maxWidth: 456)
                     case .trailing:
-                        drawTrailingCaption(subtitle, into: &frame, renderer: renderer, y: 8, color: colors.dim, maxWidth: 236)
+                        drawTrailingCaption(subtitle, into: &frame, renderer: renderer, y: lineY, color: colors.dim, maxWidth: 236)
                 }
             case let .status(items):
                 drawHeaderBackdrop(into: &frame)
-                MK2StatusLine(y: 8, items: items).draw(into: &frame)
+                MK2StatusLine(y: lineY, items: items).draw(into: &frame)
         }
     }
 
     private func drawHeaderBackdrop(into frame: inout MK2PixelFrame) {
         guard let headerRect = layout.headerRect else { return }
-        frame.fill(headerRect, colors.headerFill)
-        frame.fill(MK2PixelRect(x: 0, y: headerRect.y, width: headerRect.width, height: 1), colors.headerTopLine)
-        frame.fill(MK2PixelRect(x: 0, y: headerRect.maxY - 1, width: headerRect.width, height: 1), colors.headerRule)
+        drawChromeBand(headerRect, into: &frame)
     }
 
     public func drawFooter(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -287,20 +316,46 @@ public struct MK2RegularScreenChrome: Sendable {
             case .none:
                 return
             case let .hint(text):
-                drawBody(text, into: &frame, renderer: renderer, x: 18, y: footerRect.y + 7, color: colors.dim, maxWidth: 444)
+                drawChromeBand(footerRect, into: &frame)
+                let textY = footerRect.y + max(1, (footerRect.height - typography.footnotePixelSize) / 2 - 2)
+                drawFootnote(text, into: &frame, renderer: renderer, x: 18, y: textY, color: colors.dim, maxWidth: 444)
             case .encoderArea, .filters:
-                frame.fillRounded(footerRect, radius: 8, colors.footerFill, antialiased: true)
-                frame.fill(MK2PixelRect(x: 0, y: footerRect.y, width: MK2PixelFrame.width, height: 1), colors.border)
+                drawChromeBand(footerRect, into: &frame)
         }
+    }
+
+    // Shared raised-band look for header and footer: a bright bevel on the top edge,
+    // the chrome fill, and a shadow line on the bottom edge.
+    private func drawChromeBand(_ rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
+        frame.fill(rect, colors.headerFill)
+        frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), colors.headerTopLine)
+        frame.fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), colors.headerRule)
     }
 
     private func drawProgressBar(into frame: inout MK2PixelFrame) {
         guard let progress, let rect = layout.progressRect else { return }
         frame.fill(rect, progress.track)
         let clamped = max(0, min(1, progress.progress))
-        let fillWidth = Int((Double(rect.width) * clamped).rounded())
+        let fillWidth = min(rect.width, Int((Double(rect.width) * clamped).rounded()))
         guard fillWidth > 0 else { return }
-        frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: min(rect.width, fillWidth), height: rect.height), progress.fill)
+        // The fill runs a start→end gradient across its current width, so the bright
+        // tip always marks the progress edge.
+        let span = Double(max(1, fillWidth - 1))
+        for offset in 0..<fillWidth {
+            let color = Self.lerp565(progress.fillStart, progress.fillEnd, Double(offset) / span)
+            frame.fill(MK2PixelRect(x: rect.x + offset, y: rect.y, width: 1, height: rect.height), color)
+        }
+    }
+
+    private static func lerp565(_ from: UInt16, _ to: UInt16, _ t: Double) -> UInt16 {
+        let t = max(0, min(1, t))
+        func mix(_ a: UInt16, _ b: UInt16) -> UInt16 {
+            UInt16((Double(a) + (Double(b) - Double(a)) * t).rounded())
+        }
+        let r = mix((from >> 11) & 0x1f, (to >> 11) & 0x1f)
+        let g = mix((from >> 5) & 0x3f, (to >> 5) & 0x3f)
+        let b = mix(from & 0x1f, to & 0x1f)
+        return (r << 11) | (g << 5) | b
     }
 
     private func drawCaption(
@@ -319,7 +374,7 @@ public struct MK2RegularScreenChrome: Sendable {
             x: x,
             y: y,
             weight: MK2HIG.Fonts.captionWeight,
-            pixelSize: Self.captionPixelSize,
+            pixelSize: typography.captionPixelSize,
             color: color,
             maxWidth: maxWidth
         )
@@ -334,13 +389,17 @@ public struct MK2RegularScreenChrome: Sendable {
         maxWidth: Int
     ) {
         let text = text.uppercased()
-        let style = MK2HIG.captionTextStyle(color: color)
+        let style = MK2HIG.textStyle(
+            weight: MK2HIG.Fonts.captionWeight,
+            pixelSize: typography.captionPixelSize,
+            color: color
+        )
         guard let renderer else { return }
         let width = min(maxWidth, (try? renderer.measure(text, style: style)) ?? maxWidth)
         try? renderer.drawText(text, into: &frame, x: 472 - width, y: y, style: style, maxWidth: maxWidth)
     }
 
-    private func drawBody(
+    private func drawFootnote(
         _ text: String,
         into frame: inout MK2PixelFrame,
         renderer: FreeTypeTextRenderer?,
@@ -356,7 +415,7 @@ public struct MK2RegularScreenChrome: Sendable {
             x: x,
             y: y,
             weight: MK2HIG.Fonts.bodyWeight,
-            pixelSize: Self.bodyPixelSize,
+            pixelSize: typography.footnotePixelSize,
             color: color,
             maxWidth: maxWidth
         )

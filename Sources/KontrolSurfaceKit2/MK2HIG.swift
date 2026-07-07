@@ -27,7 +27,8 @@ public enum MK2HIG {
 
     public enum Typography {
         public static let bodyPixelSize = 16
-        public static let captionPixelSize = 16
+        public static let captionPixelSize = 15
+        public static let footnotePixelSize = 13
         public static let titlePixelSize = 24
         public static let actionDialogIconPixelSize = 48
     }
@@ -51,14 +52,24 @@ public enum MK2HIG {
 
     public enum Chrome {
         public static let background: UInt16 = 0x0841
-        public static let headerFill: UInt16 = 0x0005
-        public static let headerTopLine: UInt16 = 0x108f
-        public static let headerBottomLine: UInt16 = 0x0001
+        // Raised-band bevel for header and footer. Deliberately neutral graphite —
+        // matching the dialog-surface tone — so the yellow accent and the colorful
+        // content carry the identity instead of competing with a tinted chrome. The
+        // lit top edge sits well above the fill but below the dim text grey; the
+        // bottom edge drops into true black shadow.
+        public static let headerFill: UInt16 = 0x18e3   // (24, 28, 24) graphite panel
+        public static let headerTopLine: UInt16 = 0x632c // (96, 100, 96) lit top edge
+        public static let headerBottomLine: UInt16 = 0x0000 // true black shadow
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
         public static let accent: UInt16 = 0xffe0
         public static let border: UInt16 = 0x4208
         public static let footerFill: UInt16 = 0x1083
+        // Chrome progress gradient: deep blue running into a luminous cyan tip.
+        // Deliberately not the yellow accent — progress is ambient state, not a call
+        // to action, and the cool ramp reads calmer against the graphite bands.
+        public static let progressFillStart: UInt16 = 0x1294 // (16, 81, 160)
+        public static let progressFillEnd: UInt16 = 0x465f   // (64, 201, 248)
     }
 
     public static func bodyTextStyle(color: UInt16) -> FreeTypeTextStyle {
@@ -73,6 +84,16 @@ public enum MK2HIG {
         textStyle(
             weight: Fonts.captionWeight,
             pixelSize: Typography.captionPixelSize,
+            color: color
+        )
+    }
+
+    /// Body-weight text one step below the body size — footers, annotations, and
+    /// other secondary lines that should read quietly.
+    public static func footnoteTextStyle(color: UInt16) -> FreeTypeTextStyle {
+        textStyle(
+            weight: Fonts.bodyWeight,
+            pixelSize: Typography.footnotePixelSize,
             color: color
         )
     }

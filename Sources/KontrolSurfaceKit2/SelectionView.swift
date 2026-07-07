@@ -489,8 +489,7 @@ private enum MK2SelectionDrawing {
                 text: colors.text,
                 dim: colors.dim,
                 accent: colors.accent,
-                border: colors.border,
-                footerFill: colors.filterFill
+                border: colors.border
             )
         )
     }
