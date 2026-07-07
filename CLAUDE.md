@@ -40,18 +40,21 @@ Resume from `master`. The MK2 screen-formalization work is active:
   repeated selection-filter pattern: encoder touch updates filter focus, encoder turns
   update the product filter value. Browser Lab and Selection Lab use it in their picker
   screen results.
-- `MK2PaulinchePatternRenderer` is the first Paulinche-shaped Kit2 renderer without a
-  Paulinche dependency. It consumes a small `MK2PaulinchePatternScene` fixture model and
-  renders the two fullscreen tracker panes: pattern grid on the left, edit parameters,
-  meters, and soft-key labels/bindings on the right.
+- `PaulincheSurfaceKit` is a separate Swift module for Paulinche-shaped renderers on top
+  of `KontrolSurfaceKit2`, still without a Paulinche package dependency.
+  `MK2PaulinchePatternRenderer`, `MK2PaulincheSongRenderer`, and
+  `MK2PaulincheInstrumentRenderer` consume small fixture scene models for PATTERN, SONG,
+  and INSTRUMENT, render FreeType-only text in the Paulinche path, and bind soft keys
+  through function buttons.
 
 Next code stages:
 
-1. Expand the isolated Paulinche-shaped renderer from PATTERN into SONG/INSTRUMENT scene
-   fixtures, still without adding a Paulinche package dependency.
-2. Add the real adapter boundary only after the fixture renderers cover the scene shapes:
+1. Add the real adapter boundary now that the fixture renderers cover the first scene
+   shapes:
    Paulinche emits semantic `SurfaceScene`, CompleteControl maps it to Kit2 scene models,
    and hardware input returns through semantic soft-key/encoder events.
+2. Keep broadening fixture/snapshot coverage as new Paulinche scene modes appear, before
+   they are consumed by the app.
 
 ## Layout
 

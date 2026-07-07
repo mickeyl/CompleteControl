@@ -1,5 +1,6 @@
 import Foundation
 import KompleteKontrol
+import PaulincheSurfaceKit
 import Testing
 @testable import KontrolSurfaceKit2
 

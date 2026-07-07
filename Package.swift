@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "KompleteKontrol", targets: ["KompleteKontrol"]),
         .library(name: "KontrolSurfaceKit", targets: ["KontrolSurfaceKit"]),
         .library(name: "KontrolSurfaceKit2", targets: ["KontrolSurfaceKit2"]),
+        .library(name: "PaulincheSurfaceKit", targets: ["PaulincheSurfaceKit"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
         .executable(name: "ccd", targets: ["ccd"]),
         .executable(name: "KontrolProbe", targets: ["KontrolProbe"]),
@@ -110,6 +111,14 @@ let package = Package(
                 .swiftLanguageMode(.v5),
             ]
         ),
+        .target(
+            name: "PaulincheSurfaceKit",
+            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2"],
+            path: "Sources/PaulincheSurfaceKit",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
         .systemLibrary(
             name: "CFreeType",
             path: "Sources/CFreeType",
@@ -168,7 +177,7 @@ let package = Package(
         ),
         .testTarget(
             name: "KompleteKontrolTests",
-            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2"]
+            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2", "PaulincheSurfaceKit"]
         ),
         .plugin(
             name: "GenerateBuildInfo",

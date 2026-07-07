@@ -51,7 +51,10 @@
   product state and commands, Kit2 renders screens, and hardware input returns as semantic
   events. Started without coupling the packages: `MK2PaulinchePatternRenderer` renders a
   Paulinche-shaped PATTERN fixture to two MK2 fullscreen panes and binds soft keys through
-  function buttons.
+  function buttons. Continued with FreeType-only SONG and INSTRUMENT fixture renderers so
+  the first adapter pass can map concrete Paulinche scene shapes instead of inventing
+  screen-local glue. The Paulinche-shaped DSL now lives in the separate
+  `PaulincheSurfaceKit` module on top of generic `KontrolSurfaceKit2`.
 
 - Done: FreeType font rendering is available through `KontrolSurfaceKit2` and
   `MK2WidgetLabDemo` Unit A for large, well-hinted typography. The production text choice is
