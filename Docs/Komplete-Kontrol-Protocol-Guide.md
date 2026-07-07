@@ -417,7 +417,7 @@ Header breakdown:
 
 ### Framebuffer bandwidth budget
 
-<!-- SCREENSHOT: USB transfer trace in Wireshark/USBPcap showing a burst of 0x84 bulk transfers — the byte counts tell the partial-update story -->
+**Platzhalter: USB transfer trace in Wireshark/USBPcap showing a burst of 0x84 bulk transfers; the byte counts tell the partial-update story.**
 
 RGB565 = 2 bytes/pixel. One screen = 255 KB. Both = 510 KB. USB 2.0 High Speed bulk: ~30–40 MB/s realistic.
 
@@ -586,7 +586,7 @@ For a custom driver, these map almost 1:1 to typical surface input events: encod
 
 ### Custom graphics: the asset path
 
-<!-- SCREENSHOT: MK3 displaying a custom-uploaded asset image on its screen — proof that the asset upload path works -->
+**Platzhalter: MK3 displaying a custom-uploaded asset image on its screen; proof that the asset upload path works.**
 
 There **is** a way to get bespoke imagery on the MK3 screen, just not via a framebuffer. You upload a compressed image (webp, png, jpeg, or tiff) as a **content-addressed asset** (SHA-256 hash as ID), then reference that asset ID from a model field. The device caches assets locally.
 
@@ -719,7 +719,7 @@ The progression is clear: from dumb peripheral (MK1) to dumb peripheral with a m
 
 ### Claiming interfaces on macOS
 
-<!-- SCREENSHOT: Terminal showing the daemon's TRACE log during interface claim — the libusb_detach_kernel_driver / claim_interface sequence with status codes -->
+**Platzhalter: Terminal showing the daemon's TRACE log during interface claim, including the libusb_detach_kernel_driver / claim_interface sequence with status codes.**
 
 On macOS, the HID interface is typically claimed by NI's `Komplete Kontrol.app` and its background helper. Three strategies:
 
@@ -747,7 +747,7 @@ The CompleteControl project uses libusb for everything, including HID reports, t
 
 ### Simulation: how KompleteSimulator fell out of the reverse engineering work
 
-<!-- SCREENSHOT PLACEHOLDER: KompleteSimulator full window, showing displays, F1-F8, encoders, 4-D encoder, keybed light guide, wheels, and ribbon. -->
+**Platzhalter: KompleteSimulator full window, showing displays, F1-F8, encoders, 4-D encoder, keybed light guide, wheels, and ribbon.**
 
 The simulator was not originally a cosmetic goal. It was a pressure release valve for the
 reverse-engineering process.
@@ -931,7 +931,7 @@ graph LR
 
 #### Rendering output: pixels, LEDs, and the light guide
 
-<!-- SCREENSHOT PLACEHOLDER: close-up of both simulator displays showing a real Kit2 screen rendered through display blits. -->
+**Platzhalter: Close-up of both simulator displays showing a real Kit2 screen rendered through display blits.**
 
 Display output is the easiest part conceptually and the hardest part to make feel useful.
 The daemon already knows how to write a real MK2 display: a bulk transfer with screen
@@ -961,7 +961,7 @@ For the fixed-colour buttons, the cap is drawn black and the text brightens with
 value. That looks odd only until you compare it with the hardware: the real cap is built
 the same way. Brightness controls the legend, not a glowing coloured plastic rectangle.
 
-<!-- SCREENSHOT PLACEHOLDER: close-up of simulator buttons showing RGB F-buttons, black monochrome caps, green Play, red Record, and white Stop. -->
+**Platzhalter: Close-up of simulator buttons showing RGB F-buttons, black monochrome caps, green Play, red Record, and white Stop.**
 
 #### Rendering input: mouse, keyboard, and explicit touch
 
@@ -992,7 +992,7 @@ real hand resting on the cap.
 
 #### The NO CLIENT mode became a simulator test harness
 
-<!-- SCREENSHOT PLACEHOLDER: NO CLIENT mode in the simulator, with the right display showing the scrolling timestamped input event log. -->
+**Platzhalter: NO CLIENT mode in the simulator, with the right display showing the scrolling timestamped input event log.**
 
 The daemon's NO CLIENT mode began as a hardware safety feature: when no client is
 connected, the daemon still owns the surface and can show that it is alive. During
@@ -1041,7 +1041,7 @@ View menu grew organically from real use:
 - KK25/KK37/KK49/KK61 keybed selection, persisted because the simulator often stands in
   for different controller sizes.
 
-<!-- SCREENSHOT PLACEHOLDER: View menu open, showing Fit to Width, True Size, Zoom In on Display, Stay on Top, Keyboard Cheat Sheet, and keybed-size choices. -->
+**Platzhalter: View menu open, showing Fit to Width, True Size, Zoom In on Display, Stay on Top, Keyboard Cheat Sheet, and keybed-size choices.**
 
 #### The display zoom toggle
 
@@ -1126,7 +1126,7 @@ workflow mistakes before the hardware is touched.
 
 ### The byte that bit me
 
-<!-- SCREENSHOT: A hex dump showing the 0x84 blit header with the endianness bug — width bytes e0 01 instead of 01 e0 — next to the garbled display output it produced -->
+**Platzhalter: A hex dump showing the 0x84 blit header with the endianness bug, width bytes e0 01 instead of 01 e0, next to the garbled display output it produced.**
 
 The MK2 display blit header uses **big-endian** for X/Y/width/height and pixel count. Everything else in the protocol is little-endian or single-byte. I spent an afternoon wondering why my display blits were producing garbled rectangles at wrong coordinates. The answer: I was writing width as little-endian `e0 01` instead of big-endian `01 e0`. The display controller was reading 0xe001 = 57345 as the width. Of course it produced garbage.
 
