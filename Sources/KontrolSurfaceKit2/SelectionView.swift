@@ -501,7 +501,6 @@ private enum MK2SelectionDrawing {
 
     static func drawFilters(_ filters: [MK2SelectionFilter], into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors) {
         guard !filters.isEmpty else { return }
-        let area = MK2ScreenLayout.regular(footer: .filters()).footerRect ?? MK2PixelRect(x: 0, y: MK2SelectionLayout.filterAreaY, width: MK2PixelFrame.width, height: MK2SelectionLayout.filterAreaHeight)
         let slotWidth = MK2PixelFrame.width / 4
         let visibleFilters = Array(filters.prefix(4))
         for index in visibleFilters.indices {

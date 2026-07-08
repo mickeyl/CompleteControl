@@ -1993,6 +1993,13 @@ public enum KompleteKontrolLibUSBServer {
 
     public static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
         let args = Array(arguments.dropFirst())
+        if args.first == "--revision" {
+            // The embedded build revision, one line: "<rev-list count><+ if dirty> <short hash>".
+            // Lets `make daemon-preflight` compare the installed daemon against the
+            // workspace without building a fresh binary just for a byte comparison.
+            print("\(KKGeneratedBuildInfo.revisionCount) \(KKGeneratedBuildInfo.revisionHash)")
+            exit(0)
+        }
         if args.first == "--kk-libusb-daemon" || args.first == "--libusb-daemon" {
             let socketPath = args.dropFirst().first ?? defaultDaemonSocketPath
             runDaemon(socketPath: socketPath)

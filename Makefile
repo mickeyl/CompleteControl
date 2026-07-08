@@ -71,7 +71,7 @@ mk2-usb-spy: mk2-usb-spy-build ## Stop daemon and run MK2 USB descriptor/input s
 	@echo "Starting MK2 USB spy. Press Ctrl-C to stop."
 	sudo "$$(pwd)/$(MK2_USB_SPY)" $(MK2_USB_SPY_ARGS)
 
-daemon-preflight: ## Refuse stale or duplicate daemon state.
+daemon-preflight: ## Refuse stale or duplicate daemon state (queries the installed daemon's embedded revision; no local build needed). Caveat: two dirty builds of the same commit compare equal.
 	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
 	count="$$(printf '%s\n' "$$pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
 	if [ "$$count" -gt 1 ]; then \
@@ -98,11 +98,21 @@ daemon-preflight: ## Refuse stale or duplicate daemon state.
 				;; \
 		esac; \
 	done; \
-	daemon_path="$${DAEMON_PREFLIGHT:-$(DAEMON)}"; \
-	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ] && [ -x "$$daemon_path" ] && ! cmp -s "$$daemon_path" /usr/local/bin/ccd; then \
-		echo "Refusing to run: /usr/local/bin/ccd is stale." >&2; \
-		echo "Run: make install-daemon" >&2; \
-		exit 1; \
+	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ]; then \
+		installed_rev="$$(/usr/local/bin/ccd --revision 2>/dev/null || true)"; \
+		workspace_count="$$(git rev-list --count HEAD 2>/dev/null || printf 'REV ?')"; \
+		if ! git diff --quiet HEAD -- 2>/dev/null; then workspace_count="$$workspace_count+"; fi; \
+		workspace_rev="$$workspace_count $$(git rev-parse --short HEAD 2>/dev/null || printf 'NO GIT')"; \
+		if [ -z "$$installed_rev" ]; then \
+			echo "Refusing to run: /usr/local/bin/ccd predates the --revision flag." >&2; \
+			echo "Run: make install-daemon" >&2; \
+			exit 1; \
+		fi; \
+		if [ "$$installed_rev" != "$$workspace_rev" ]; then \
+			echo "Refusing to run: /usr/local/bin/ccd is stale (installed $$installed_rev, workspace $$workspace_rev)." >&2; \
+			echo "Run: make install-daemon" >&2; \
+			exit 1; \
+		fi; \
 	fi
 
 daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with structured stderr tracing.
@@ -167,35 +177,35 @@ daemon-stop: ## Stop daemon via launchctl.
 daemon-restart: ## Restart daemon via launchctl.
 	@sudo launchctl kickstart -k system/media.vanille.kompletekontrol-libusb
 
-run: build daemon-build probe-build ## Run the middleware SurfaceDemo.
+run: build probe-build ## Run the middleware SurfaceDemo.
 	@$(MAKE) daemon-preflight
 	$(SURFACE_DEMO)
 
-run-release: build-release daemon-build-release probe-build-release ## Run optimized middleware SurfaceDemo.
-	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+run-release: build-release probe-build-release ## Run optimized middleware SurfaceDemo.
+	@$(MAKE) daemon-preflight
 	$(SURFACE_DEMO_RELEASE)
 
-mk2-surface-demo: mk2-surface-demo-build daemon-build ## Run the MK2 hardware-only SurfaceKit2 feature demo.
+mk2-surface-demo: mk2-surface-demo-build ## Run the MK2 hardware-only SurfaceKit2 feature demo.
 	@$(MAKE) daemon-preflight
 	$(MK2_SURFACE_DEMO)
 
-mk2-surface-demo-release: mk2-surface-demo-build-release daemon-build-release ## Run optimized MK2 hardware-only SurfaceKit2 feature demo.
-	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+mk2-surface-demo-release: mk2-surface-demo-build-release ## Run optimized MK2 hardware-only SurfaceKit2 feature demo.
+	@$(MAKE) daemon-preflight
 	$(MK2_SURFACE_DEMO_RELEASE)
 
-mk2-widget-lab-demo: mk2-widget-lab-demo-build daemon-build ## Run the MK2 Widget Lab demo.
+mk2-widget-lab-demo: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab demo.
 	@$(MAKE) daemon-preflight
 	$(MK2_WIDGET_LAB_DEMO)
 
-mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release daemon-build-release ## Run optimized MK2 Widget Lab demo.
-	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release ## Run optimized MK2 Widget Lab demo.
+	@$(MAKE) daemon-preflight
 	$(MK2_WIDGET_LAB_DEMO_RELEASE)
 
-probe-run: daemon-build probe-build daemon-preflight ## Run the old KontrolProbe REPL baseline.
+probe-run: probe-build daemon-preflight ## Run the old KontrolProbe REPL baseline.
 	$(PROBE)
 
-probe-run-release: daemon-build-release probe-build-release ## Run optimized old KontrolProbe for benchmarks.
-	@$(MAKE) daemon-preflight DAEMON_PREFLIGHT="$(DAEMON_RELEASE)"
+probe-run-release: probe-build-release ## Run optimized old KontrolProbe for benchmarks.
+	@$(MAKE) daemon-preflight
 	$(PROBE_RELEASE)
 
 probe-ui: probe-build ## Run the old KontrolProbe S25 photo-overlay test UI.
