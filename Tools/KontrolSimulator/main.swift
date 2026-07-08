@@ -136,6 +136,54 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshScrollerVisibility()
         persistWindowPlacement()
         NSApp.activate(ignoringOtherApps: true)
+
+        // Headless acceptance snapshots (mirrors the WidgetLab snapshot mode): render the
+        // panel to a PNG after a settle delay — long enough for a driver to connect and
+        // paint — then exit. TCC-free because it renders the view, not the screen.
+        if let snapshotPath = ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_PATH"] {
+            let delay = Double(ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_DELAY"] ?? "") ?? 3
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.writeSnapshot(to: snapshotPath)
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    private func writeSnapshot(to path: String) {
+        let bounds = panel.bounds
+        let scale = Double(ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_SCALE"] ?? "") ?? 2
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(bounds.width * scale),
+            pixelsHigh: Int(bounds.height * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            NSLog("KontrolSimulator: snapshot failed — no bitmap rep")
+            return
+        }
+        rep.size = bounds.size
+        panel.cacheDisplay(in: bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else {
+            NSLog("KontrolSimulator: snapshot failed — no PNG data")
+            return
+        }
+        do {
+            try png.write(to: URL(fileURLWithPath: path))
+            NSLog("KontrolSimulator: snapshot → %@", path)
+            NSLog("KontrolSimulator: snapshot panel=%@ displays=%@ workArea=%@ scale=%.2f",
+                  NSStringFromRect(bounds),
+                  NSStringFromRect(panel.displayBlockRect),
+                  NSStringFromRect(panel.displayWorkAreaRect),
+                  Double(rep.pixelsWide) / Double(max(1, bounds.width)))
+        } catch {
+            NSLog("KontrolSimulator: snapshot failed — %@", "\(error)")
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

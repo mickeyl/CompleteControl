@@ -203,8 +203,10 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
 - Keep tracker/grid text on `SurfaceFont` / `drawMonospaced`; that path intentionally avoids
   HarfBuzz shaping and ligatures so one scalar remains one fixed cell.
 - Bundled production fonts are IBM Plex Sans Condensed Regular/Medium for text and
-  Font Awesome 7 Pro Light for icons. The repository is private because the Pro font
-  and Pro icon metadata are bundled for hardware exploration. Swap globally through
+  Phosphor Regular for icons (MIT licensed, from the @phosphor-icons/web package —
+  its catalog JSON in WidgetLab is generated from that package's regular style.css).
+  With Font Awesome Pro gone there is no longer a licensing reason to keep the
+  repository private. Swap globally through
   `FreeTypeFontCatalog.production`, not per-screen resource literals. Body text is
   Plex Sans Condensed Regular 16 px; titles are Plex Sans Condensed Medium 24 px;
   action-dialog icons are 48 px.
@@ -219,7 +221,7 @@ FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is document
 `MK2WidgetLabDemo` Unit A controls:
 
 - `F1`: select the Font Lab unit.
-- `Instance`: cycle Surface Font, Typography, Font Awesome icon browser, and global action-dialog sub-demos.
+- `Instance`: cycle Surface Font, Typography, Phosphor icon browser, and global action-dialog sub-demos.
 - Main rotary: scroll the icon browser list by one icon.
 - `4D Up`/`4D Down`: scroll the icon browser list by one visible page.
 - `Page Left`/`Page Right`: previous / next icon.
@@ -258,6 +260,11 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
 - **Run it**: `make run-simulator` (GUI, one shell) + `make daemon-simulate` (foreground sim
   `ccd`, another shell — stops the launchd daemon, binds the normal client socket) + any client
   (`swift run MK2WidgetLabDemo`). Full design + phasing in `Docs/Simulator-Plan.md`.
+- **Headless snapshots**: `KONTROLSIM_SNAPSHOT_PATH=<png> KONTROLSIM_SNAPSHOT_DELAY=<s>` renders
+  the panel view to a PNG after the delay and exits (`KONTROLSIM_SNAPSHOT_SCALE`, default 2).
+  TCC-free (renders the view, not the screen) and needs no daemon/sudo: anything can speak the
+  trivial `SimWireProtocol` to `/tmp/kontrol-simulator.sock` and push display blits + LED
+  reports directly — the protocol-guide illustrations in `Docs/images/` were produced this way.
 
 ### Daemon output pipeline: two independent serial queues, not one
 
@@ -471,7 +478,7 @@ as the regression baseline for the shared middleware, but no new kit features ge
   while only the touched/turned value is inverted. Demos should use `MK2SelectionLayout` for
   content/filter rectangles and grid row-step behavior instead of copying pixel constants.
   `MK2WidgetLabDemo` cycles lab sub-demos with the `Instance` button. Its Font/Icon Lab
-  uses the same selection elements for the Font Awesome icon browser with `E8` modes and
+  uses the same selection elements for the Phosphor icon browser with `E8` modes and
   an `E5` first-letter filter. `MK2WidgetLabDemo` unit `B` is the
   browser/settings prototype: left detail/preview,
   right selection list/grid, `Instance` modes, 4-D move/confirm, and `E5`/`E6` filters.

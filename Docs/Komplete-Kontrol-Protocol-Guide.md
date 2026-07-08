@@ -747,7 +747,9 @@ The CompleteControl project uses libusb for everything, including HID reports, t
 
 ### Simulation: how KompleteSimulator fell out of the reverse engineering work
 
-**Platzhalter: KompleteSimulator full window, showing displays, F1-F8, encoders, 4-D encoder, keybed light guide, wheels, and ribbon.**
+![KontrolSimulator full window: both displays rendering the WidgetLab tracker, F1–F8 with the active unit lit, encoders, 4-D encoder, transport block, pitch/mod wheels, ribbon, and the keybed light guide holding a chord](images/kontrolsimulator-window.png)
+
+*The full simulator panel, captured through its headless snapshot mode (`KONTROLSIM_SNAPSHOT_PATH`) while a client feeds display blits and LED reports over the device socket.*
 
 The simulator was not originally a cosmetic goal. It was a pressure release valve for the
 reverse-engineering process.
@@ -931,7 +933,9 @@ graph LR
 
 #### Rendering output: pixels, LEDs, and the light guide
 
-**Platzhalter: Close-up of both simulator displays showing a real Kit2 screen rendered through display blits.**
+![Both simulator displays showing the Kit2 tracker pattern screen and its edit pane, rendered pixel-for-pixel through display blits](images/kontrolsimulator-displays.png)
+
+*Both simulator displays rendering a real Kit2 scene (the WidgetLab tracker) — the pixels arrive through the same `displayBlit` frames a hardware panel would receive as `0x84` bulk transfers.*
 
 Display output is the easiest part conceptually and the hardest part to make feel useful.
 The daemon already knows how to write a real MK2 display: a bulk transfer with screen
@@ -961,7 +965,9 @@ For the fixed-colour buttons, the cap is drawn black and the text brightens with
 value. That looks odd only until you compare it with the hardware: the real cap is built
 the same way. Brightness controls the legend, not a glowing coloured plastic rectangle.
 
-**Platzhalter: Close-up of simulator buttons showing RGB F-buttons, black monochrome caps, green Play, red Record, and white Stop.**
+![Simulator buttons: the RGB-capable F1–F8 row with the active unit lit white, and the transport block with black monochrome caps whose legends brighten — Play green, Record red, Stop white](images/kontrolsimulator-buttons.png)
+
+*Top: the RGB-capable F-button row (dim white = available unit, bright white = active). Bottom: fixed-colour monochrome caps — the cap stays black and the legend brightens, Play in green, Record in red, everything else in white, exactly like the hardware.*
 
 #### Rendering input: mouse, keyboard, and explicit touch
 
@@ -1126,7 +1132,15 @@ workflow mistakes before the hardware is touched.
 
 ### The byte that bit me
 
-**Platzhalter: A hex dump showing the 0x84 blit header with the endianness bug, width bytes e0 01 instead of 01 e0, next to the garbled display output it produced.**
+```
+correct:  84 00 00 60 00 00 00 00  00 00 00 00 01 e0 01 10 ...   width = 0x01e0 = 480
+buggy:    84 00 00 60 00 00 00 00  00 00 00 00 e0 01 01 10 ...   width = 0xe001 = 57345
+                                               ^^^^^
+```
+
+![Left: the intended tracker frame. Right: the same pixel stream decoded with the little-endian width 0xe001 — shredded into diagonal noise](images/mk2-blit-endianness-garble.png)
+
+*Reproduction: the same frame decoded once with the correct big-endian width and once with the byte-swapped width the bug produced — every "row" starts 57,345 pixels further into the stream, shredding the image into diagonal noise.*
 
 The MK2 display blit header uses **big-endian** for X/Y/width/height and pixel count. Everything else in the protocol is little-endian or single-byte. I spent an afternoon wondering why my display blits were producing garbled rectangles at wrong coordinates. The answer: I was writing width as little-endian `e0 01` instead of big-endian `01 e0`. The display controller was reading 0xe001 = 57345 as the width. Of course it produced garbage.
 
