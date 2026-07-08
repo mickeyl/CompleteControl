@@ -157,6 +157,7 @@ let package = Package(
             path: "Tools/MK2WidgetLabDemo",
             resources: [
                 .copy("PhosphorIcons.regular.json"),
+                .copy("AboutHero.png"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

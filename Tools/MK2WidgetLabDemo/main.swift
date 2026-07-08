@@ -256,6 +256,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
     case bare
     case footerOnly
     case splash
+    case hero
 
     var title: String {
         switch self {
@@ -266,6 +267,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
             case .bare: "NONE + NONE"
             case .footerOnly: "NONE + ENCODERS"
             case .splash: "SPLASH"
+            case .hero: "HERO PANORAMA"
         }
     }
 
@@ -279,14 +281,14 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
                     MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
                     MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
                 ])
-            case .bare, .footerOnly, .splash:
+            case .bare, .footerOnly, .splash, .hero:
                 .none
         }
     }
 
     var footer: MK2ScreenFooter {
         switch self {
-            case .titleOnly, .bare, .splash: .none
+            case .titleOnly, .bare, .splash, .hero: .none
             case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
             case .titleEncoders, .footerOnly: .encoderArea()
             case .statusFilters: .filters()
@@ -295,7 +297,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
 
     var footerLabel: String {
         switch self {
-            case .titleOnly, .bare, .splash: "NONE"
+            case .titleOnly, .bare, .splash, .hero: "NONE"
             case .titleHint: "HINT"
             case .titleEncoders, .footerOnly: "ENCODER"
             case .statusFilters: "FILTERS"
@@ -306,7 +308,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
         switch self {
             case .titleOnly, .titleHint, .titleEncoders: "TITLE"
             case .statusFilters: "STATUS"
-            case .bare, .footerOnly, .splash: "NONE"
+            case .bare, .footerOnly, .splash, .hero: "NONE"
         }
     }
 
@@ -380,6 +382,8 @@ private actor WidgetLab {
     private var cachedSplashGap = -1
     private var splashRenderTask: Task<Void, Never>?
     private var splashRenderPending = false
+    private var cachedHeroArtwork: MK2PixelImage?
+    private var cachedHeroGap = -1
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -613,7 +617,7 @@ private actor WidgetLab {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleSceneCombo() }
             }
-            if sceneCombo == .splash {
+            if sceneCombo == .splash || sceneCombo == .hero {
                 applySplashEncoderBindings(into: &bindings)
             } else {
                 for value in sceneEncoderValues() {
@@ -738,9 +742,14 @@ private actor WidgetLab {
             case .pattern:
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
             case .scene:
-                return sceneCombo == .splash
-                    ? (splashIdentityResult(), splashDetailResult())
-                    : (sceneChromeDemoResult(), sceneControlResult())
+                switch sceneCombo {
+                    case .splash:
+                        return (splashIdentityResult(), splashDetailResult())
+                    case .hero:
+                        return (heroLeftResult(), heroRightResult())
+                    default:
+                        return (sceneChromeDemoResult(), sceneControlResult())
+                }
             default:
                 return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
@@ -1487,6 +1496,41 @@ private actor WidgetLab {
     // value immediately, but the expensive part (panorama regeneration + two
     // full-screen draws) runs at most a few times per second with a trailing
     // render, so fast turns cannot queue work behind the actor.
+    // "Zum Spass": the AboutHero artwork decoded once as a double-screen panorama
+    // (aspect-fill across 2x480 plus the bezel-gap columns) - a photographic test
+    // subject for the image DSL, sharing the E7/E8 gap and brightness knobs.
+    private func heroLeftResult() -> MK2ScreenBuildResult {
+        let brightness = Double(sceneProgressPercent) / 100.0
+        return MK2FullScreenDSL(background: Palette.page) {
+            if let hero = heroPanorama() {
+                MK2ImageElement(hero, x: 0, brightness: brightness)
+            } else {
+                MK2ContentText("AboutHero.png fehlt im Bundle", x: 0, y: 128, maxWidth: 480, color: Palette.orange, alignment: .center)
+            }
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func heroRightResult() -> MK2ScreenBuildResult {
+        let brightness = Double(sceneProgressPercent) / 100.0
+        let displays = splashEncoderDisplays()
+        return MK2FullScreenDSL(background: Palette.page) {
+            if let hero = heroPanorama() {
+                MK2ImageElement(hero, x: MK2PixelFrame.width - hero.width, brightness: brightness)
+            }
+            MK2EncoderFooterElement(displays)
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func heroPanorama() -> MK2PixelImage? {
+        if let cachedHeroArtwork, cachedHeroGap == sceneSplashGap { return cachedHeroArtwork }
+        let decoded = Bundle.module.url(forResource: "AboutHero", withExtension: "png")
+            .flatMap { try? Data(contentsOf: $0) }
+            .flatMap { MK2PixelImage(data: $0, width: MK2PixelFrame.width * 2 + sceneSplashGap, height: MK2PixelFrame.height, scaling: .fill) }
+        cachedHeroArtwork = decoded
+        cachedHeroGap = sceneSplashGap
+        return decoded
+    }
+
     private func applySplashEncoderBindings(into bindings: inout MK2InputBindings2) {
         bindings.encoderTouch[7] = { [weak self] touched in
             Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
