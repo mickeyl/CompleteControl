@@ -117,15 +117,10 @@ public struct MK2ImageElement: MK2ScreenElement {
                 let frameX = originX + column
                 guard frameX >= 0, frameX < MK2PixelFrame.width else { continue }
                 let pixel = image.pixels[row * image.width + column]
-                frame[frameX, frameY] = brightness >= 1 ? pixel : Self.scaled(pixel, by: brightness)
+                frame[frameX, frameY] = brightness >= 1
+                    ? pixel
+                    : MK2OrderedDither.scaled(pixel, by: brightness, x: frameX, y: frameY)
             }
         }
-    }
-
-    private static func scaled(_ pixel: UInt16, by factor: Double) -> UInt16 {
-        let r = UInt16(Double((pixel >> 11) & 0x1f) * factor)
-        let g = UInt16(Double((pixel >> 5) & 0x3f) * factor)
-        let b = UInt16(Double(pixel & 0x1f) * factor)
-        return (r << 11) | (g << 5) | b
     }
 }

@@ -23,12 +23,12 @@ struct PaulincheSplashRendererTests {
         #expect(rendered.left.screen.kind == .fullScreen)
         #expect(rendered.right.screen.kind == .fullScreen)
 
-        // The artwork fills the left screen at 40% brightness: white scales to (12, 25, 12).
+        // The artwork fills the left screen at 40% brightness (dithered quantization),
+        // the right echo at 20%.
         let left = rendered.left.screen.frame
-        #expect(left[10, 200] == ((12 << 11) | (25 << 5) | 12))
-        // The right echo is darker (20%): white scales to (6, 12, 6).
+        #expect(left[10, 200] == MK2OrderedDither.scaled(0xffff, by: 0.4, x: 10, y: 200))
         let right = rendered.right.screen.frame
-        #expect(right[10, 200] == ((6 << 11) | (12 << 5) | 6))
+        #expect(right[10, 200] == MK2OrderedDither.scaled(0xffff, by: 0.2, x: 10, y: 200))
 
         // The title ink sits horizontally centered over the artwork.
         var minX = MK2PixelFrame.width, maxX = 0
@@ -45,6 +45,33 @@ struct PaulincheSplashRendererTests {
         let surfaceScene = MK2PaulincheSplashRenderer.surfaceScene(scene)
         #expect(surfaceScene.bindings.encoder.isEmpty)
         #expect(surfaceScene.bindings.buttonDown.isEmpty)
+    }
+
+    @Test("Default splash spans the wave panorama continuously across both screens")
+    func panoramaSpansBothScreens() throws {
+        let scene = MK2PaulincheSplashScene(
+            title: "PAULINCHE",
+            subtitle: "AMIGA MOD TRACKER",
+            version: "VERSION 0.1 (1)"
+        )
+        let rendered = MK2PaulincheSplashRenderer.render(scene)
+        let left = rendered.left.screen.frame
+        let right = rendered.right.screen.frame
+
+        let panorama = MK2PaulincheSplashArtwork.panorama()
+        #expect(panorama.width == 2 * 480 + MK2PaulincheSplashArtwork.defaultBezelGapColumns)
+
+        // Both screens sample the same panorama at the same brightness (dithered at
+        // frame coordinates): the left screen shows its first columns, the right
+        // screen its last ones. Row 10 and 220 are pure gradient, row 60 crosses the
+        // wave crests; all three stay clear of the label rows on the left screen.
+        let rightStart = panorama.width - 480
+        for y in [10, 60, 220] {
+            for x in [0, 200, 479] {
+                #expect(left[x, y] == MK2OrderedDither.scaled(panorama.pixels[y * panorama.width + x], by: 0.45, x: x, y: y))
+                #expect(right[x, y] == MK2OrderedDither.scaled(panorama.pixels[y * panorama.width + rightStart + x], by: 0.45, x: x, y: y))
+            }
+        }
     }
 
     @Test("Splash can be captured as a two-screen snapshot")

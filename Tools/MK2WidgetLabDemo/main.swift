@@ -375,7 +375,11 @@ private actor WidgetLab {
     private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
     private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
     private var sceneFocusedEncoder: Int?
+    private var sceneSplashGap = 53
     private var cachedSplashArtwork: MK2PixelImage?
+    private var cachedSplashGap = -1
+    private var splashRenderTask: Task<Void, Never>?
+    private var splashRenderPending = false
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -609,8 +613,12 @@ private actor WidgetLab {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleSceneCombo() }
             }
-            for value in sceneEncoderValues() {
-                value.apply(bindings: &bindings)
+            if sceneCombo == .splash {
+                applySplashEncoderBindings(into: &bindings)
+            } else {
+                for value in sceneEncoderValues() {
+                    value.apply(bindings: &bindings)
+                }
             }
         } else if unit == .pattern {
             MK2ButtonToggle(
@@ -730,7 +738,9 @@ private actor WidgetLab {
             case .pattern:
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
             case .scene:
-                return (sceneChromeDemoResult(), sceneControlResult())
+                return sceneCombo == .splash
+                    ? (splashIdentityResult(), splashDetailResult())
+                    : (sceneChromeDemoResult(), sceneControlResult())
             default:
                 return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
@@ -1269,7 +1279,6 @@ private actor WidgetLab {
     }
 
     private func sceneChromeDemoResult() -> MK2ScreenBuildResult {
-        guard sceneCombo != .splash else { return splashDemoResult() }
         let combo = sceneCombo
         let layout = sceneLayout()
         let headerLine = "HEADER \(combo.headerLabel) \(layout.headerRect?.height ?? 0)  FOOTER \(combo.footerLabel) \(layout.footerRect?.height ?? 0)"
@@ -1417,45 +1426,131 @@ private actor WidgetLab {
         }
     }
 
-    // A splash/about screen: a decoded PNG as the full-screen background, centered
-    // labels on top. The artwork is generated at runtime and round-tripped through
-    // PixelSnapshot -> MK2PixelImage, so the real PNG decode path runs without a
-    // bundled binary. E6 (VALUE) doubles as the background brightness while the
-    // splash combo is up.
-    private func splashDemoResult() -> MK2ScreenBuildResult {
+    // The double splash: the wave panorama spans both screens at uniform brightness
+    // (the decode path itself is pinned by PixelImageTests). E5 dials the virtual
+    // bezel-gap columns so the right constant for the physical display gap can be
+    // calibrated on hardware; E6 drives the background brightness.
+    private func splashIdentityResult() -> MK2ScreenBuildResult {
+        let panorama = splashPanorama()
         let brightness = Double(sceneProgressPercent) / 100.0
-        let image = splashArtwork()
         return MK2FullScreenDSL(background: Palette.page) {
-            if let image {
-                MK2ImageElement(image, brightness: brightness)
-            }
+            MK2ImageElement(panorama, x: 0, brightness: brightness)
             MK2ContentText("PAULINCHE", x: 0, y: 88, maxWidth: 480, role: .title, alignment: .center)
             MK2ContentText("AMIGA MOD TRACKER", x: 0, y: 128, maxWidth: 480, color: Palette.dim, alignment: .center)
             MK2ContentText("VERSION 0.1 — KONTROLSURFACEKIT2", x: 0, y: 244, maxWidth: 480, role: .footnote, color: Palette.dim, alignment: .center)
         }.build(renderer: freeTypeRenderer)
     }
 
-    private func splashArtwork() -> MK2PixelImage? {
-        if let cachedSplashArtwork { return cachedSplashArtwork }
-        var art = MK2PixelFrame()
-        for y in 0..<MK2PixelFrame.height {
-            let t = Double(y) / Double(MK2PixelFrame.height - 1)
-            let r = UInt16(3.0 * (1 - t))
-            let g = UInt16(10.0 * (1 - t))
-            let b = UInt16(20.0 * (1 - t) + 2)
-            art.fill(MK2PixelRect(x: 0, y: y, width: MK2PixelFrame.width, height: 1), (r << 11) | (g << 5) | b)
+    private func splashDetailResult() -> MK2ScreenBuildResult {
+        let panorama = splashPanorama()
+        let brightness = Double(sceneProgressPercent) / 100.0
+        let displays = splashEncoderDisplays()
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2ImageElement(panorama, x: MK2PixelFrame.width - panorama.width, brightness: brightness)
+            MK2EncoderFooterElement(displays)
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func splashPanorama() -> MK2PixelImage {
+        if let cachedSplashArtwork, cachedSplashGap == sceneSplashGap { return cachedSplashArtwork }
+        let width = MK2PixelFrame.width * 2 + sceneSplashGap
+        let height = MK2PixelFrame.height
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let t = Double(y) / Double(height - 1)
+            let r = 3.0 * (1 - t)
+            let g = 10.0 * (1 - t)
+            let b = 20.0 * (1 - t) + 2
+            for x in 0..<width {
+                pixels[y * width + x] = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
+            }
         }
-        for x in 0..<MK2PixelFrame.width {
-            let phase = Double(x) / 480.0 * .pi * 4
+        func plot(x: Int, y: Int, height waveHeight: Int, color: UInt16) {
+            for row in y..<(y + waveHeight) where row >= 0 && row < height {
+                pixels[row * width + x] = color
+            }
+        }
+        for x in 0..<width {
+            let phase = Double(x) / Double(MK2PixelFrame.width) * .pi * 4
             let y1 = 136 + Int((sin(phase) * 78).rounded())
             let y2 = 136 + Int((sin(phase + 1.2) * 52).rounded())
-            art.fill(MK2PixelRect(x: x, y: y1 - 1, width: 1, height: 3), Palette.green)
-            art.fill(MK2PixelRect(x: x, y: y2, width: 1, height: 2), Palette.solo)
+            plot(x: x, y: y1 - 1, height: 3, color: Palette.green)
+            plot(x: x, y: y2, height: 2, color: Palette.solo)
         }
-        let decoded = MK2PixelImage(data: PixelSnapshot.pngData(art))
-        cachedSplashArtwork = decoded
-        return decoded
+        let image = MK2PixelImage(width: width, height: height, pixels: pixels)
+        cachedSplashArtwork = image
+        cachedSplashGap = sceneSplashGap
+        return image
     }
+
+    // Raw delta bindings with a render throttle: every encoder count lands in the
+    // value immediately, but the expensive part (panorama regeneration + two
+    // full-screen draws) runs at most a few times per second with a trailing
+    // render, so fast turns cannot queue work behind the actor.
+    private func applySplashEncoderBindings(into bindings: inout MK2InputBindings2) {
+        bindings.encoderTouch[7] = { [weak self] touched in
+            Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
+        }
+        bindings.encoder[7] = { [weak self] delta, _, _ in
+            Task { await self?.adjustSplashGap(delta) }
+        }
+        bindings.encoderTouch[8] = { [weak self] touched in
+            Task { await self?.setSceneFocusedEncoder(8, touched: touched) }
+        }
+        bindings.encoder[8] = { [weak self] delta, _, _ in
+            Task { await self?.adjustSplashBrightness(delta) }
+        }
+    }
+
+    private func adjustSplashGap(_ delta: Int) async {
+        guard delta != 0 else { return }
+        sceneSplashGap = max(0, min(128, sceneSplashGap + delta))
+        scheduleSplashRender()
+    }
+
+    private func adjustSplashBrightness(_ delta: Int) async {
+        guard delta != 0 else { return }
+        sceneProgressPercent = max(0, min(100, sceneProgressPercent + delta))
+        scheduleSplashRender()
+    }
+
+    private func scheduleSplashRender() {
+        guard splashRenderTask == nil else {
+            splashRenderPending = true
+            return
+        }
+        splashRenderTask = Task { [weak self] in
+            await self?.runSplashRenderLoop()
+        }
+    }
+
+    private func runSplashRenderLoop() async {
+        repeat {
+            splashRenderPending = false
+            await render()
+            try? await Task.sleep(for: .milliseconds(250))
+        } while splashRenderPending
+        splashRenderTask = nil
+    }
+
+    private func splashEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
+        let entries: [(label: String, value: String, encoder: Int, x: Int)] = [
+            ("GAP", "\(sceneSplashGap)", 7, 244),
+            ("BRIGHT", "\(sceneProgressPercent)%", 8, 362),
+        ]
+        return entries.map { entry in
+            MK2EncoderDiscreteValueDisplay(
+                label: entry.label,
+                value: entry.value,
+                rect: MK2PixelRect(x: entry.x, y: 218, width: 102, height: 38),
+                isFocused: sceneFocusedEncoder == entry.encoder,
+                valueFont: .readoutBold,
+                cornerRadius: 7,
+                colors: editCellColors(value: Palette.text)
+            )
+        }
+    }
+
 
     private func cycleSceneCombo() async {
         guard unit == .scene else { return }

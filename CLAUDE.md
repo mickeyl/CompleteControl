@@ -77,10 +77,23 @@ Resume from `master`. The MK2 screen-formalization work is active:
   target size; `MK2ImageElement` draws it (centered by default) with a `brightness`
   scrim so labels stay readable over artwork. `MK2ContentText` gained
   `alignment: .leading/.center/.trailing` (single-line) and a `.footnote` role. The
-  Scene Lab SPLASH combination is the acceptance screen — its artwork round-trips
-  through `PixelSnapshot` → `MK2PixelImage` at runtime (no bundled binary), `E6`
-  doubles as background brightness there; decode exactness, scaling, and element
-  behavior are pinned in `PixelImageTests`.
+  Scene Lab SPLASH combination is the acceptance screen: the double splash spans the
+  wave panorama across both screens, `E7` dials the virtual bezel-gap columns (the
+  hardware-calibration knob for `defaultBezelGapColumns` — bind tweak cells to the
+  encoders physically below their drawn slots: x 244/362 on the right display are
+  E7/E8) and `E8` the background brightness. Both accumulate raw deltas immediately
+  but coalesce the expensive re-render (panorama regeneration + two full-screen
+  draws) to ~4/s with a trailing render, so fast turns cannot queue work behind the
+  actor. Decode exactness, scaling, and element behavior are pinned in
+  `PixelImageTests`. The production Paulinche splash
+  (`MK2PaulincheSplashRenderer`) defaults to the generated wave panorama
+  (`MK2PaulincheSplashArtwork.panorama` — gradient + two sine waves spanning both
+  displays at uniform brightness, with `defaultBezelGapColumns` virtual columns so
+  the waves flow through the physical bezel; 53 is bench-calibrated); identity block
+  left, status line right. Explicit single-screen artwork falls back to the
+  darker-echo layout. Dark gradients and brightness scrims quantize through
+  `MK2OrderedDither` (Bayer 4×4) — flat truncation bands visibly on the OLED once a
+  scrim compresses the already-few dark 5/6-bit levels.
 - `PaulincheSurfaceKit` is a separate Swift module for Paulinche-shaped renderers on top
   of `KontrolSurfaceKit2`, still without a Paulinche package dependency.
   `MK2PaulinchePatternRenderer` now renders the widget-lab tracker design 1:1: full-bleed
