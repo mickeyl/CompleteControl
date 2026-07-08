@@ -21,7 +21,8 @@ Supported now:
 - REPL benchmark and an AppKit demo UI
 - S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, and `KontrolSimulator`
 - MK2 LED capability model: palette colours on Mute, Solo, F1-F8, and the 25 touch-strip segments; other panel button indicators are fixed-colour monochrome (normally white, Play green, Record red)
-- MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text for larger dialogs, browser/settings surfaces, lists, long text, and icon-font experiments
+- MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text (with the Phosphor icon font) for larger dialogs, browser/settings surfaces, lists, and long text
+- MK2 screen chrome: typography-driven header/footer bands with a raised graphite bevel, an optional gradient progress-bar slot, decoded PNG/JPEG image backgrounds for splash/about screens, ordered-dither quantization against OLED banding, and debossed encoder value cells in canonical bottom-flush slots
 
 Not supported yet:
 
@@ -333,6 +334,21 @@ The benchmark collects silently in the hot path. It prints combined, surface-onl
   fixed `E5`-`E8` rotary encoder slots. Filter state separates "active" from "focused":
   active filters colour the label, while only the touched/turned encoder value is inverted.
   Grids can use text cells or compact icon-only cells for icon browsers.
+- `MK2ParameterPageElement`: up to eight labelled value cells bound to encoders. The slot
+  grid anchors to the bottom of its area, clamped to the canonical encoder slots
+  (`MK2ScreenLayout.encoderSlotRect`), so cells always sit flush above the physical
+  encoders they map to.
+- `MK2PixelImage` / `MK2ImageElement`: PNG/JPEG decoded once into display-ready RGB565
+  with fill/fit aspect scaling, drawn with an optional brightness scrim — the foundation
+  for splash/about screens, including panoramas that span both displays.
+- `MK2OrderedDither`: Bayer 4x4 quantization for gradients and brightness scaling; dark
+  ramps band visibly on the OLED without it. Value cells draw as debossed wells (shadow
+  rim top, lit edge bottom) on top of this.
+
+The Scene Lab unit (`F8`) is the acceptance screen for the screen-chrome system:
+`Instance` cycles the header/footer combinations plus a double-screen splash and a
+hero-artwork panorama, with encoders driving the bezel-gap calibration and background
+brightness live.
 
 For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
 For the Selection Lab unit, `Instance` cycles plain list, plain grid, filtered list, and
@@ -359,7 +375,7 @@ screens as a PNG.
 ## MK2 FreeType Font Exploration
 
 `MK2WidgetLabDemo` Unit A is the hardware workbench for larger anti-aliased typography on
-the MK2 OLED displays. `Instance` cycles the Surface Font, Typography, Font Awesome icon
+the MK2 OLED displays. `Instance` cycles the Surface Font, Typography, Phosphor icon
 browser, and action-dialog sub-demos. This path is deliberately separate from the bitmap
 tracker/grid path:
 
@@ -371,17 +387,16 @@ tracker/grid path:
   selection lists, and longer text. The fixed-pitch `SurfaceFont` tracker path remains
   unshaped: no ligatures, one cell per scalar.
 
-Bundled production text families live in `KontrolSurfaceKit2` resources: IBM Plex Sans
-Condensed Regular/Medium. Current UI contract: body is Plex Sans Condensed Regular at
-16 px; title is Plex Sans Condensed Medium at 24 px; demo rendering uses `Gray hinted`.
-The icon browser uses Font Awesome 7 Pro Light; the repository is private because that
-font and the Pro icon metadata are bundled for hardware exploration.
+Bundled production fonts live in `KontrolSurfaceKit2` resources: IBM Plex Sans Condensed
+Regular/Medium for text, JetBrains Mono for tabular data, and Phosphor Regular (MIT) for
+icons. Current UI contract: body is Plex Sans Condensed Regular at 16 px, caption 15 px,
+footnote 13 px; title is Plex Sans Condensed Medium at 24 px; demo rendering uses
+`Gray hinted`. The icon browser ships a generated codepoint catalog for all Phosphor
+regular icons.
 
 The demo prints a full control map at startup. Hardware controls:
 
-- `F1`: typography specimens
-- `F2`: Font Awesome icon browser
-- `F3`: global action-dialog icon test
+- `F1`: select the Font Lab unit; `Instance` cycles its sub-demos
 - Main rotary: scroll the icon browser list by one icon
 - `4D Up` / `4D Down`: scroll the icon browser list by one visible page
 - `Page Left` / `Page Right`: previous / next icon

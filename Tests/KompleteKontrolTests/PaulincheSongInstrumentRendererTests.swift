@@ -52,7 +52,7 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(rendered.right.screen.kind == .regular)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: 0x464f) > 250)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: MK2HIG.Chrome.accent) > 40)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 55, width: 448, height: 104), notMatching: MK2HIG.Chrome.background) > 900)
+        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 95, width: 448, height: 128), notMatching: MK2HIG.Chrome.background) > 900)
         #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 228, width: 480, height: 2), notMatching: MK2HIG.Chrome.background) > 900)
         #expect(rendered.right.screen.frame[0, 228] == MK2HIG.Chrome.progressFillStart)
     }

@@ -36,6 +36,13 @@ Resume from `master`. The MK2 screen-formalization work is active:
 - `MK2MeterElement` renders horizontal or vertical multi-channel levels with peak markers
   and warning/danger colours. WidgetLab Unit C is now implemented as the meter acceptance
   screen.
+- Encoder-bound value cells sit in canonical, bottom-flush slots:
+  `MK2ScreenLayout.encoderSlotRect(_:)` (x 8/126/244/362, 102×38, 2 px above the glass
+  edge) is the one place that knows where a cell above a physical encoder belongs —
+  trailing whitespace under an encoder cell breaks the hardware mapping.
+  `MK2ParameterPageElement` anchors its slot grid to the bottom of its area (clamped to
+  the canonical slot bottom) instead of the top, so oversized areas can no longer push
+  whitespace under the cells; selection filter cells align to the same bottom edge.
 - `MK2ValueCell` (and everything built on it: parameter pages, encoder footers) draws as
   a debossed well: the border ring runs from a dark shadow rim at the top into a lit
   bottom edge, the fill falls slightly the same way — pressed into the panel, lit from

@@ -138,6 +138,25 @@ public enum MK2ScreenLayout {
     public static let contentInset = 8
     public static let footerSpacing = 7
 
+    // The canonical on-screen slots for value cells bound to the four physical
+    // encoders beneath each display. They sit bottom-flush (a 2 px breathing inset
+    // to the glass edge) so the mapping to the hardware row below reads immediately —
+    // trailing whitespace under an encoder cell breaks that association.
+    public static let encoderSlotXs = [8, 126, 244, 362]
+    public static let encoderSlotWidth = 102
+    public static let encoderSlotHeight = 38
+    public static let encoderSlotBottomInset = 2
+    public static var encoderSlotBottom: Int { bounds.height - encoderSlotBottomInset }
+
+    public static func encoderSlotRect(_ slot: Int) -> MK2PixelRect {
+        MK2PixelRect(
+            x: encoderSlotXs[min(encoderSlotXs.count - 1, max(0, slot))],
+            y: encoderSlotBottom - encoderSlotHeight,
+            width: encoderSlotWidth,
+            height: encoderSlotHeight
+        )
+    }
+
     public static func regular(
         header: MK2ScreenHeader = .none,
         footer: MK2ScreenFooter = .none,

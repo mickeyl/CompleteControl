@@ -1415,7 +1415,6 @@ private actor WidgetLab {
     }
 
     private func sceneEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let xs = [8, 126, 244, 362]
         let entries: [(label: String, value: String, encoder: Int)] = [
             ("PROG", sceneProgressLabel(), 5),
             ("VALUE", "\(sceneProgressPercent)%", 6),
@@ -1426,7 +1425,7 @@ private actor WidgetLab {
             MK2EncoderDiscreteValueDisplay(
                 label: entry.label,
                 value: entry.value,
-                rect: MK2PixelRect(x: xs[index], y: 218, width: 102, height: 38),
+                rect: MK2ScreenLayout.encoderSlotRect(index),
                 isFocused: sceneFocusedEncoder == entry.encoder,
                 valueFont: .readoutBold,
                 cornerRadius: 7,
@@ -1578,15 +1577,15 @@ private actor WidgetLab {
     }
 
     private func splashEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let entries: [(label: String, value: String, encoder: Int, x: Int)] = [
-            ("GAP", "\(sceneSplashGap)", 7, 244),
-            ("BRIGHT", "\(sceneProgressPercent)%", 8, 362),
+        let entries: [(label: String, value: String, encoder: Int, slot: Int)] = [
+            ("GAP", "\(sceneSplashGap)", 7, 2),
+            ("BRIGHT", "\(sceneProgressPercent)%", 8, 3),
         ]
         return entries.map { entry in
             MK2EncoderDiscreteValueDisplay(
                 label: entry.label,
                 value: entry.value,
-                rect: MK2PixelRect(x: entry.x, y: 218, width: 102, height: 38),
+                rect: MK2ScreenLayout.encoderSlotRect(entry.slot),
                 isFocused: sceneFocusedEncoder == entry.encoder,
                 valueFont: .readoutBold,
                 cornerRadius: 7,
@@ -1857,7 +1856,7 @@ private actor WidgetLab {
                 value: bodyPixelSize,
                 bounds: 12...22,
                 wraps: false,
-                display: fontLabValueDisplay(label: "BODY", value: "\(bodyPixelSize)", encoder: 5, x: 8, color: Palette.text),
+                display: fontLabValueDisplay(label: "BODY", value: "\(bodyPixelSize)", encoder: 5, color: Palette.text),
                 onTouch: { [weak self] touched in
                     Task { await self?.setFontFocusedEncoder(5, touched: touched) }
                 },
@@ -1870,7 +1869,7 @@ private actor WidgetLab {
                 value: titlePixelSize,
                 bounds: 18...32,
                 wraps: false,
-                display: fontLabValueDisplay(label: "TITLE", value: "\(titlePixelSize)", encoder: 6, x: 126, color: Palette.text),
+                display: fontLabValueDisplay(label: "TITLE", value: "\(titlePixelSize)", encoder: 6, color: Palette.text),
                 onTouch: { [weak self] touched in
                     Task { await self?.setFontFocusedEncoder(6, touched: touched) }
                 },
@@ -1883,7 +1882,7 @@ private actor WidgetLab {
                 value: iconSampleIndex,
                 bounds: 0...(Self.fontIconSamples.count - 1),
                 wraps: true,
-                display: fontLabValueDisplay(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, x: 244, color: icon.color),
+                display: fontLabValueDisplay(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, color: icon.color),
                 onTouch: { [weak self] touched in
                     Task { await self?.setFontFocusedEncoder(7, touched: touched) }
                 },
@@ -1897,7 +1896,7 @@ private actor WidgetLab {
                 bounds: 32...72,
                 step: 2,
                 wraps: false,
-                display: fontLabValueDisplay(label: "SIZE", value: "\(iconPixelSize)", encoder: 8, x: 362, color: icon.color),
+                display: fontLabValueDisplay(label: "SIZE", value: "\(iconPixelSize)", encoder: 8, color: icon.color),
                 onTouch: { [weak self] touched in
                     Task { await self?.setFontFocusedEncoder(8, touched: touched) }
                 },
@@ -1908,11 +1907,11 @@ private actor WidgetLab {
         ]
     }
 
-    private func fontLabValueDisplay(label: String, value: String, encoder: Int, x: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
+    private func fontLabValueDisplay(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
         MK2EncoderDiscreteValueDisplay(
             label: label,
             value: value,
-            rect: MK2PixelRect(x: x, y: 218, width: 102, height: 38),
+            rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
             isFocused: fontFocusedEncoder == encoder,
             valueFont: .readoutBold,
             cornerRadius: 7,

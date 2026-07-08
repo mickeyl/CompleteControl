@@ -81,7 +81,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
                 x: MK2ScreenLayout.contentInset,
                 y: 12,
                 width: MK2PixelFrame.width - MK2ScreenLayout.contentInset * 2,
-                height: max(0, contentRect.height - 20)
+                height: max(0, contentRect.height - 12)
             )
         }
         guard relativeToContent else { return base }
@@ -95,15 +95,23 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         let indicatorReserve = hasPageIndicator ? 12 : 0
         let availableHeight = max(0, area.height - indicatorReserve)
         let cellWidth = max(1, (area.width - columnGap * (columns - 1)) / columns)
-        let rowHeight = min(70, max(1, (availableHeight - rowGap * (rows - 1)) / rows))
+        // A slot never grows past label + gap + the canonical cell height, and the
+        // grid anchors to the area's bottom (clamped to the canonical slot bottom):
+        // the cells map to the physical encoders below the display, so trailing
+        // whitespace under them would break that association.
+        let maxRowHeight = SurfaceFont.label.cellHeight + 4 + MK2ScreenLayout.encoderSlotHeight
+        let rowHeight = min(maxRowHeight, max(1, (availableHeight - rowGap * (rows - 1)) / rows))
+        let gridHeight = rows * rowHeight + rowGap * (rows - 1)
+        let anchorBottom = min(area.maxY - indicatorReserve, MK2ScreenLayout.encoderSlotBottom)
+        let startY = anchorBottom - gridHeight
 
         for (index, slot) in slots.enumerated() {
             let column = index % columns
             let row = index / columns
             let x = area.x + column * (cellWidth + columnGap)
-            let y = area.y + row * (rowHeight + rowGap)
+            let y = startY + row * (rowHeight + rowGap)
             let valueY = y + SurfaceFont.label.cellHeight + 4
-            let valueHeight = min(38, max(24, rowHeight - SurfaceFont.label.cellHeight - 4))
+            let valueHeight = min(MK2ScreenLayout.encoderSlotHeight, max(24, rowHeight - SurfaceFont.label.cellHeight - 4))
             let valueRect = MK2PixelRect(x: x, y: valueY, width: cellWidth, height: valueHeight)
             MK2ValueCell(
                 label: slot.label.uppercased(),

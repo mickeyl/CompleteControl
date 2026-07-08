@@ -149,7 +149,7 @@ struct SelectionViewTests {
 
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 464, height: 24), matching: 0x2126) > 200)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 185, width: 480, height: 80)) > 30_000)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
     }
 
     @Test("Filter value cells stay in fixed encoder slots")
@@ -175,7 +175,7 @@ struct SelectionViewTests {
             colors: colors
         ).draw(into: &frame)
 
-        #expect(frame.countPixels(in: MK2PixelRect(x: 128, y: 218, width: 104, height: 34), matching: colors.accent) > 200)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 128, y: 236, width: 104, height: 34), matching: colors.accent) > 200)
         #expect(frame.countPixels(in: MK2PixelRect(x: 232, y: 218, width: 16, height: 34), matching: colors.accent) == 0)
     }
 
@@ -318,8 +318,8 @@ struct SelectionViewTests {
         #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         #expect(Self.be32(png, 16) == 2 * MK2PixelFrame.width + 1)
         #expect(Self.be32(png, 20) == MK2PixelFrame.height)
-        #expect(list.countPixels(in: MK2PixelRect(x: 8, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
-        #expect(grid.countPixels(in: MK2PixelRect(x: 248, y: 218, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(list.countPixels(in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(grid.countPixels(in: MK2PixelRect(x: 248, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
     }
 
     private static func be32(_ data: Data, _ offset: Int) -> Int {

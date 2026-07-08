@@ -508,7 +508,9 @@ private enum MK2SelectionDrawing {
             let filter = filters[index]
             let slot = filter.encoderSlot(fallback: index)
             let x = slot * slotWidth + 8
-            let rect = MK2PixelRect(x: x, y: area.y + 34, width: slotWidth - 16, height: 34)
+            // Bottom-flush like every encoder-bound value cell: the filter maps to a
+            // physical encoder below the display.
+            let rect = MK2PixelRect(x: x, y: MK2ScreenLayout.encoderSlotBottom - 34, width: slotWidth - 16, height: 34)
             MK2ValueCell(
                 label: "E\(filter.encoder) \(filter.label)",
                 value: filter.value,
