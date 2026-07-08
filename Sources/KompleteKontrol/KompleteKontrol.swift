@@ -2449,6 +2449,9 @@ public enum KompleteKontrolLibUSBServer {
         buffer.append(contentsOf: scratch.prefix(count))
 
         let isBinaryConnection = channel != .control || buffer.readUInt32LEIfAvailable(at: 0) == KKDaemonBinaryFrame.magic
+        if channel == .control, isBinaryConnection {
+            hardware.markControlClientBinary(clientID: clientID)
+        }
         if isBinaryConnection {
             guard let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer) else {
                 writeBinaryFrame(
@@ -2832,6 +2835,12 @@ public enum KompleteKontrolLibUSBServer {
         private var registeredClients: [Int: RegisteredClient] = [:]
         private var activeClientID: Int?
         private var clientFDs: [Int: Int32] = [:]
+        // Control connections that speak the binary protocol. Text push lines must
+        // never reach them: an ASCII line in the length-prefixed binary stream is a
+        // parse error, and since the client distinguishes EOF from garbage it tears
+        // the session down — one hardware input reconnected every binary client.
+        // Binary clients receive pushes as frames on their event channel instead.
+        private var binaryControlClientIDs: Set<Int> = []
         private var eventClientFDs: [Int: Int32] = [:]
         private var displayClientFDs: [Int: Int32] = [:]
         private var pendingEvictionFDs: [Int32] = []
@@ -4656,6 +4665,12 @@ public enum KompleteKontrolLibUSBServer {
             daemonTraceLog("write report end report=0x\(KKHex.byte(reportID)) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "usb-out")
         }
 
+        func markControlClientBinary(clientID: Int) {
+            lock.lock()
+            binaryControlClientIDs.insert(clientID)
+            lock.unlock()
+        }
+
         func addClient(fd: Int32, clientID: Int, channel: KKDaemonBinaryChannel) {
             lock.lock()
             switch channel {
@@ -4694,6 +4709,7 @@ public enum KompleteKontrolLibUSBServer {
                     KompleteKontrolLibUSBServer.writeBinaryFrameBestEffort(frame, to: fd)
                     pendingEvictionFDs.append(fd)
                 }
+                binaryControlClientIDs.remove(victim)
                 if let fd = clientFDs.removeValue(forKey: victim) {
                     let notice = Array("device \(KKDaemonSessionPolicy.evictionNotice) @\(String(KKTiming.now(), radix: 16))\n".utf8)
                     notice.withUnsafeBytes { raw in
@@ -4720,6 +4736,7 @@ public enum KompleteKontrolLibUSBServer {
             let shouldShowNoClient: Bool
             lock.lock()
             clientFDs.removeValue(forKey: clientID)
+            binaryControlClientIDs.remove(clientID)
             eventClientFDs.removeValue(forKey: clientID)
             displayClientFDs.removeValue(forKey: clientID)
             shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
@@ -4874,7 +4891,7 @@ public enum KompleteKontrolLibUSBServer {
                     eventType = .device
                     eventPayload = Array(message.utf8)
             }
-            let fds = Array(clientFDs.values)
+            let fds = clientFDs.filter { !binaryControlClientIDs.contains($0.key) }.map(\.value)
             let eventFDs = Array(eventClientFDs.values)
             lock.unlock()
             daemonTraceLog("push clients=\(fds.count) eventClients=\(eventFDs.count) message=\(message)", group: "client")

@@ -479,6 +479,20 @@ The short version:
   publishing `.retrying`. General lesson: any "hardware became available/reappeared" signal
   needs to force a *replay*, not just flip a connection-state flag — a diff against a cache the
   hardware never actually received will always be empty.
+- **Text push lines must never reach binary control clients** (the actual
+  reconnect-per-input regression, fixed 2026-07-08). The daemon adds every accepted
+  control connection to `clientFDs`, and `pushToClients` wrote the legacy text push
+  line (`in @ts hex…`) to all of them — including registered *binary* control
+  clients. An ASCII line inside the length-prefixed binary stream is a parse error;
+  the old text client filtered push lines via `asyncPushHandler`, but since the
+  binary write path with strict EOF/garbage distinction (6c2c260) every hardware
+  input poisoned the control channel, the next request missed its ack, and the
+  session reset — "reconnect after every input". The daemon now marks control
+  connections binary the moment their first binary frame arrives
+  (`markControlClientBinary`) and the text fan-out skips them; binary clients get
+  pushes as frames on their event channel. Debug with the scripted-input harness:
+  a fake `SimWireProtocol` listener + `CCD_SIMULATE` daemon + lab client on
+  isolated /tmp sockets reproduces input-driven lifecycle bugs headlessly.
 - **The daemon session is generation-stamped; ticks wait for the control client**
   (reconnect-cascade bug fixed 2026-07-08). `MK2Surface2.startDaemonClient` sets
   `daemonThread` immediately but installs the control/display clients asynchronously
