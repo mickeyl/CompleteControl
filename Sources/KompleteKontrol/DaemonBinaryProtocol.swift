@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum KKDaemonBinaryChannel: UInt8, Sendable {
@@ -223,6 +224,12 @@ extension Array where Element == UInt8 {
     }
 }
 
+public enum KKDaemonBinaryReadResult: Sendable, Equatable {
+    case frame(KKDaemonBinaryFrame)
+    case timeout
+    case disconnected
+}
+
 public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
     private let channel: KKDaemonBinaryChannel
     private let fd: Int32
@@ -254,6 +261,8 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
             close(fd)
             return nil
         }
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
         self.channel = channel
         self.fd = fd
@@ -310,29 +319,44 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
     }
 
     public func readEvent(timeoutUsec: useconds_t = 1_000_000) -> KKDaemonBinaryFrame? {
+        guard case let .frame(frame) = readEventResult(timeoutUsec: timeoutUsec) else { return nil }
+        return frame
+    }
+
+    public func readEventResult(timeoutUsec: useconds_t = 1_000_000) -> KKDaemonBinaryReadResult {
         lock.lock()
         defer { lock.unlock() }
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
         while Date() < deadline {
-            if let frame = readFrame(until: deadline) {
-                return frame
+            switch readFrameResult(until: deadline) {
+                case let .frame(frame):
+                    return .frame(frame)
+                case .timeout:
+                    return .timeout
+                case .disconnected:
+                    return .disconnected
             }
         }
-        return nil
+        return .timeout
     }
 
     private func readFrame(until deadline: Date) -> KKDaemonBinaryFrame? {
+        guard case let .frame(frame) = readFrameResult(until: deadline) else { return nil }
+        return frame
+    }
+
+    private func readFrameResult(until deadline: Date) -> KKDaemonBinaryReadResult {
         while Date() < deadline {
             if buffer.count >= KKDaemonBinaryFrame.headerByteCount {
                 guard let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer) else {
-                    return nil
+                    return .disconnected
                 }
                 if let frame = frames.first {
                     if frames.count > 1 {
                         let rest = frames.dropFirst().flatMap { $0.encoded() }
                         buffer.insert(contentsOf: rest, at: 0)
                     }
-                    return frame
+                    return .frame(frame)
                 }
             }
             var scratch = [UInt8](repeating: 0, count: 64 * 1024)
@@ -345,18 +369,18 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
                 continue
             }
             if count == 0 {
-                return nil
+                return .disconnected
             }
             if errno == EAGAIN || errno == EWOULDBLOCK {
-                guard waitForReadable(until: deadline) else { return nil }
+                guard waitForReadable(until: deadline) else { return .timeout }
                 continue
             }
             if errno == EINTR {
                 continue
             }
-            return nil
+            return .disconnected
         }
-        return nil
+        return .timeout
     }
 
     private func send(_ bytes: [UInt8], timeoutUsec: useconds_t) -> Bool {

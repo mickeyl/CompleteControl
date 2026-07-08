@@ -343,8 +343,10 @@ Input: `device.onInputReport` → `Surface.handleInput` (Task hop onto the actor
 out on `Surface.inputs` (`AsyncStream<SurfaceInput>`); gestures are also dispatched to
 declarative handlers (below). Connection lifecycle goes out on
 `Surface.connectionStates` (`AsyncStream<SurfaceConnectionState>`); clients should show `.retrying`
-without disabling their app workflow. Once connected, the surface avoids periodic socket probes and
-keeps the established daemon session hot.
+without disabling their app workflow. Once connected, the surface keeps the established daemon
+session hot without polling under load: every real event/write/blit updates the daemon activity
+timestamp, and the idle heartbeat only sends `version` after roughly three seconds with no real
+daemon communication.
 
 ### Declarative first — imperative deprecated
 
@@ -460,6 +462,17 @@ The short version:
   publishing `.retrying`. General lesson: any "hardware became available/reappeared" signal
   needs to force a *replay*, not just flip a connection-state flag — a diff against a cache the
   hardware never actually received will always be empty.
+- **Daemon loss is a recoverable surface lifecycle state, not a client crash path** (bug fixed
+  2026-07-08). `KompleteKontrolDaemonBinaryClient` sets `SO_NOSIGPIPE`, so a write to a dead
+  Unix socket cannot terminate the process with `SIGPIPE`. Its event read path distinguishes
+  timeout from EOF/error; `MK2Surface2` treats event-socket disconnects, failed LED/display writes,
+  and setup/registration failures as `.retrying(...)`, drops the stale control/event/display
+  clients, resets output caches, and reconnects on the tick. The heartbeat is deliberately
+  idle-only: real daemon communication moves `lastDaemonCommunicationNanos`, so playback, pattern
+  scrolling, display blits, and input events suppress synthetic `version` probes. Only after about
+  three seconds of silence may the heartbeat run, and it does not mark itself as real activity.
+  Cross-check: `MK2WidgetLabDemo` uses the same `MK2Surface2` through `MK2SurfaceEventRunner`, so
+  this fix belongs in the kit rather than in Paulinche's adapter.
 - The old MK2 calibration workbench has been removed. Its protocol findings remain in git
   history and the MK2 tests/docs; new validation should go through `MK2SurfaceDemo`,
   `MK2USBSpy`, and focused tests.
@@ -563,5 +576,10 @@ swift build --product ccd
 swift build --product KontrolSurfaceKit
 swift test
 ```
+
+For MK2 Kit2 lifecycle changes, also build a real Kit2 client such as
+`swift build --product MK2WidgetLabDemo`; if the change affects Paulinche integration, build
+Paulinche against the sibling checkout too (`swift build --product PaulincheApp` from the
+Paulinche repo).
 
 Commit messages are plain (no attribution/Co-Authored-By trailers).

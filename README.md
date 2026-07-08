@@ -262,6 +262,12 @@ screen.
 Connection state is consumed from `surface.connectionStates`. A running app
 should treat `.retrying` as non-fatal: keep the normal UI usable, show the state
 to the user, and let `Surface` keep probing/reconnecting in the background.
+MK2 clients also treat daemon disconnects as recoverable. The binary socket
+client disables `SIGPIPE`, event-socket EOF/error becomes `.retrying`, and
+failed LED/display writes discard the stale session so the actor can reconnect.
+The safety heartbeat is idle-only: real event, LED, or display communication
+pushes it back, and only after about three seconds of daemon silence does the
+client send a lightweight `version` check.
 
 ### Deprecated Imperative Driver Path
 

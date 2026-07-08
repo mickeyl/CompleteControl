@@ -63,10 +63,17 @@ public actor MK2Surface2 {
     private var connectionState: MK2SurfaceConnection2 = .stopped
     private let connectionStream: AsyncStream<MK2SurfaceConnection2>
     private var connectionContinuation: AsyncStream<MK2SurfaceConnection2>.Continuation?
+    // Idle-only health checks: real daemon traffic moves this timestamp forward,
+    // so playback, scrolling, and display updates suppress synthetic heartbeats.
+    private var lastDaemonCommunicationNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
+    private var lastDaemonHeartbeatNanos: UInt64 = 0
+    private var lastDaemonStartAttemptNanos: UInt64 = 0
     private let tickGate = TickGate()
     private var eventTask: Task<Void, Never>?
     private var eventContinuation: AsyncStream<KKDaemonBinaryFrame>.Continuation?
     private static let doubleTouchWindowNanos: UInt64 = 350_000_000
+    private static let daemonHeartbeatIdleNanos: UInt64 = 3_000_000_000
+    private static let daemonReconnectIntervalNanos: UInt64 = 1_000_000_000
     private var lastEncoderTouchNanos = [UInt64](repeating: 0, count: 9)
     private var pressedButtons: Set<KKMK2ButtonLED> = []
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
@@ -106,6 +113,9 @@ public actor MK2Surface2 {
         eventTask?.cancel()
         eventTask = nil
         previousSurfaceReport = nil
+        lastDaemonCommunicationNanos = DispatchTime.now().uptimeNanoseconds
+        lastDaemonHeartbeatNanos = 0
+        lastDaemonStartAttemptNanos = 0
         cancelButtonHolds()
         scene = MK2SurfaceScene2()
         displayReconciler.reset()
@@ -172,6 +182,7 @@ public actor MK2Surface2 {
 
     private func startDaemonClient() {
         guard daemonThread == nil else { return }
+        lastDaemonStartAttemptNanos = DispatchTime.now().uptimeNanoseconds
         if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
             let forceRestart = FileManager.default.fileExists(atPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath)
             _ = KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(
@@ -195,13 +206,22 @@ public actor MK2Surface2 {
         let thread = Thread { [weak self] in
             guard let eventClient = KompleteKontrolDaemonBinaryClient(channel: .event) else {
                 continuation.finish()
-                Task { await self?.publish(.retrying("daemon socket unavailable")) }
+                Task { await self?.handleDaemonFailure("daemon socket unavailable") }
                 return
             }
             Task { await self?.setEventClient(eventClient) }
             while !Thread.current.isCancelled {
-                guard let frame = eventClient.readEvent(timeoutUsec: 20_000) else { continue }
-                continuation.yield(frame)
+                switch eventClient.readEventResult(timeoutUsec: 20_000) {
+                    case let .frame(frame):
+                        Task { await self?.recordDaemonCommunication() }
+                        continuation.yield(frame)
+                    case .timeout:
+                        continue
+                    case .disconnected:
+                        continuation.finish()
+                        Task { await self?.handleDaemonFailure("daemon event socket disconnected") }
+                        return
+                }
             }
             continuation.finish()
         }
@@ -265,23 +285,27 @@ public actor MK2Surface2 {
         eventClient = client
         guard let control = KompleteKontrolDaemonBinaryClient(channel: .control),
               let display = KompleteKontrolDaemonBinaryClient(channel: .display) else {
-            publish(.retrying("daemon binary sockets unavailable"))
+            handleDaemonFailure("daemon binary sockets unavailable")
             return
         }
         controlClient = control
         displayClient = display
         guard control.request(type: .version, timeoutUsec: 500_000)?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
-            publish(.retrying("daemon protocol mismatch"))
+            handleDaemonFailure("daemon protocol mismatch")
             return
         }
         let registration = KKDaemonBinaryCodec.registerPayload(pid: getpid(), name: ProcessInfo.processInfo.processName)
         guard control.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0,
               client.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0,
               display.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0 else {
-            publish(.retrying("binary register failed"))
+            handleDaemonFailure("binary register failed")
             return
         }
-        configureHostControl()
+        recordDaemonCommunication()
+        guard configureHostControl() else {
+            handleDaemonFailure("daemon host-control setup failed")
+            return
+        }
         tick(forceDisplay: true)
         publish(.connected("MK2 daemon client registered"))
     }
@@ -291,7 +315,10 @@ public actor MK2Surface2 {
         lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
         lastKeyColors = []
         displayReconciler.reset()
-        configureHostControl()
+        guard configureHostControl() else {
+            handleDaemonFailure("daemon reconnect replay failed")
+            return
+        }
         tick(forceDisplay: true)
         publish(.connected("MK2 device reconnected; state replayed"))
     }
@@ -302,10 +329,10 @@ public actor MK2Surface2 {
         _ = displayClient?.request(type: .unregister, timeoutUsec: 200_000)
     }
 
-    private func configureHostControl() {
-        _ = writeReport(KompleteKontrolMK2Protocol.initReportID, KompleteKontrolMK2Protocol.initModeHostControl)
-        _ = writeReport(KompleteKontrolMK2Protocol.wheelStripMapReportID, KompleteKontrolMK2Protocol.wheelStripMapPayload(strip: .cc(number: 11)))
-        _ = writeReport(KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload)
+    private func configureHostControl() -> Bool {
+        writeReport(KompleteKontrolMK2Protocol.initReportID, KompleteKontrolMK2Protocol.initModeHostControl) == "ok"
+            && writeReport(KompleteKontrolMK2Protocol.wheelStripMapReportID, KompleteKontrolMK2Protocol.wheelStripMapPayload(strip: .cc(number: 11))) == "ok"
+            && writeReport(KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload) == "ok"
     }
 
     private func publish(_ state: MK2SurfaceConnection2) {
@@ -317,12 +344,17 @@ public actor MK2Surface2 {
     private func tick(forceDisplay: Bool) {
         guard running else { return }
         let now = DispatchTime.now().uptimeNanoseconds
+        if daemonThread == nil {
+            maybeRestartDaemonClient(now: now)
+            return
+        }
         let dt = Double(now &- lastTick) / 1_000_000_000.0
         lastTick = now
         advanceLamps(dt: dt)
         reconcileLamps()
         reconcileKeys()
         reconcileDisplays(force: forceDisplay)
+        maybeCheckIdleDaemon(now: now)
     }
 
     private func advanceLamps(dt: Double) {
@@ -344,8 +376,12 @@ public actor MK2Surface2 {
             bytes[led.rawValue] = paletteByte(for: state, led: led)
         }
         guard bytes != lastLampBytes else { return }
+        let response = writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, bytes)
+        guard response == "ok" else {
+            handleDaemonFailure(response ?? "button LED write timed out")
+            return
+        }
         lastLampBytes = bytes
-        _ = writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, bytes)
     }
 
     private func reconcileKeys() {
@@ -355,12 +391,16 @@ public actor MK2Surface2 {
             colors[index] = color
         }
         guard colors != lastKeyColors else { return }
-        lastKeyColors = colors
         var payload = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
         for (index, color) in colors.enumerated() where payload.indices.contains(index) {
             payload[index] = KompleteKontrolSSeriesMK2.paletteCode(for: color)
         }
-        _ = writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, payload)
+        let response = writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, payload)
+        guard response == "ok" else {
+            handleDaemonFailure(response ?? "light guide write timed out")
+            return
+        }
+        lastKeyColors = colors
     }
 
     private func reconcileDisplays(force: Bool) {
@@ -376,10 +416,56 @@ public actor MK2Surface2 {
                 timeoutMs: options.displayTimeoutMs
             )
             if response != "ok" {
-                publish(.retrying(response ?? "display blit timed out"))
+                handleDaemonFailure(response ?? "display blit timed out")
                 break
             }
         }
+    }
+
+    private func maybeCheckIdleDaemon(now: UInt64) {
+        guard case .connected = connectionState else { return }
+        guard now &- lastDaemonCommunicationNanos >= Self.daemonHeartbeatIdleNanos else { return }
+        guard now &- lastDaemonHeartbeatNanos >= Self.daemonHeartbeatIdleNanos else { return }
+        lastDaemonHeartbeatNanos = now
+        let response = controlClient?.request(type: .version, timeoutUsec: 50_000)
+        guard response?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
+            handleDaemonFailure("daemon idle heartbeat failed")
+            return
+        }
+    }
+
+    private func maybeRestartDaemonClient(now: UInt64) {
+        guard running, daemonThread == nil else { return }
+        guard now &- lastDaemonStartAttemptNanos >= Self.daemonReconnectIntervalNanos else { return }
+        startDaemonClient()
+    }
+
+    private func recordDaemonCommunication() {
+        lastDaemonCommunicationNanos = DispatchTime.now().uptimeNanoseconds
+    }
+
+    private func handleDaemonFailure(_ reason: String) {
+        guard running else { return }
+        publish(.retrying(reason))
+        resetDaemonSession()
+    }
+
+    private func resetDaemonSession() {
+        controlClient = nil
+        eventClient = nil
+        displayClient = nil
+        daemonThread?.cancel()
+        daemonThread = nil
+        eventContinuation?.finish()
+        eventContinuation = nil
+        eventTask?.cancel()
+        eventTask = nil
+        previousSurfaceReport = nil
+        lastDaemonHeartbeatNanos = 0
+        lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        lastKeyColors = []
+        displayReconciler.reset()
+        cancelButtonHolds()
     }
 
     private func handleSurfacePush(_ payload: [UInt8]) {
@@ -555,6 +641,7 @@ public actor MK2Surface2 {
             timeoutUsec: 50_000
         )
         guard let response else { return nil }
+        recordDaemonCommunication()
         return response.status == 0 ? "ok" : "err \(response.status) \(response.message)"
     }
 
@@ -578,7 +665,9 @@ public actor MK2Surface2 {
             timeoutMs: timeoutMs,
             pixelsRGB565BE: data
         )
-        return ok == true ? "ok" : nil
+        guard ok == true else { return nil }
+        recordDaemonCommunication()
+        return "ok"
     }
 
     private static func parseMIDIPush(_ payload: [UInt8]) -> [KKMIDIEvent] {
