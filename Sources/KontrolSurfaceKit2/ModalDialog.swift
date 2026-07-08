@@ -62,10 +62,10 @@ public enum MK2ModalDialogSeverity: Sendable, Equatable, CaseIterable {
 
     public var iconGlyph: String {
         switch self {
-            case .info: "\u{f05a}"      // circle-info
-            case .warning: "\u{f071}"   // triangle-exclamation
-            case .error: "\u{f057}"     // circle-xmark
-            case .question: "\u{f059}"  // circle-question
+            case .info: "\u{e2ce}"      // info
+            case .warning: "\u{e4e0}"   // warning
+            case .error: "\u{e4f8}"     // x-circle
+            case .question: "\u{e3e8}"  // question
         }
     }
 

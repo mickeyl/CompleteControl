@@ -9,12 +9,12 @@ struct FreeTypeTextRendererTests {
         let catalog = FreeTypeFontCatalog.production
         #expect(catalog.families.map(\.id) == [
             MK2HIG.Fonts.textFamilyID,
-            MK2HIG.Fonts.iconProLightFamilyID,
+            MK2HIG.Fonts.iconFamilyID,
             MK2HIG.Fonts.monoFamilyID,
         ])
         #expect(catalog.family(id: MK2HIG.Fonts.textFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.textRegularResourceName)
         #expect(catalog.family(id: MK2HIG.Fonts.textFamilyID)?.source(for: .medium).resourceName == MK2HIG.Fonts.textMediumResourceName)
-        #expect(catalog.family(id: MK2HIG.Fonts.iconProLightFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.iconProLightResourceName)
+        #expect(catalog.family(id: MK2HIG.Fonts.iconFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.iconResourceName)
         #expect(catalog.family(id: MK2HIG.Fonts.monoFamilyID)?.source(for: .regular).resourceName == MK2HIG.Fonts.monoRegularResourceName)
         #expect(catalog.family(id: MK2HIG.Fonts.monoFamilyID)?.source(for: .bold).resourceName == MK2HIG.Fonts.monoBoldResourceName)
     }
@@ -103,12 +103,12 @@ struct FreeTypeTextRendererTests {
         }
     }
 
-    @Test("Font Awesome Pro Light icon font renders known glyphs")
-    func drawFontAwesomeIcons() throws {
+    @Test("Phosphor icon font renders known glyphs")
+    func drawPhosphorIcons() throws {
         let renderer = try FreeTypeTextRenderer()
         var frame = MK2PixelFrame(fill: 0)
         let style = MK2HIG.actionDialogIconStyle(color: 0xffff)
-        try renderer.drawText("\u{f2bb}", into: &frame, x: 40, y: 40, style: style)
+        try renderer.drawText("\u{e2ce}", into: &frame, x: 40, y: 40, style: style)
 
         var ink = 0
         for y in 0..<MK2PixelFrame.height {

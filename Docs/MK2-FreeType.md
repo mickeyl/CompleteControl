@@ -31,7 +31,7 @@ cell, so ligatures are not enabled there.
 
 - IBM Plex Sans Condensed Regular OTF for body text.
 - IBM Plex Sans Condensed Medium OTF for title text.
-- Font Awesome 7 Pro Light OTF for icons.
+- Phosphor Regular TTF for icons (MIT licensed).
 
 The global HIG swap point is `Sources/KontrolSurfaceKit2/MK2HIG.swift`: family IDs,
 resource names, semantic weights, typography sizes, and raster mode are defined there.
@@ -45,7 +45,7 @@ Current text contract:
 - Caption: IBM Plex Sans Condensed Medium, 16 px, rendered uppercase for regular
   screen chrome such as header title/subtitle labels.
 - Title: IBM Plex Sans Condensed Medium, 24 px.
-- Icon: Font Awesome 7 Pro Light.
+- Icon: Phosphor Regular.
 - Action-dialog icon size: 48 px.
 - Raster: `FreeTypeRasterMode.grayscaleHinted`.
 
@@ -89,7 +89,7 @@ Legacy `make mk2-freetype-demo*` targets remain aliases to the Widget Lab target
 Current controls:
 
 - `F1`: select Unit A / Font Lab.
-- `Instance`: cycle Surface Font, Typography, Font Awesome icon browser, and global
+- `Instance`: cycle Surface Font, Typography, Phosphor icon browser, and global
   action-dialog sub-demos.
 - Main rotary: scroll the icon browser list by one icon.
 - `4D Up` / `4D Down`: scroll the icon browser list by one visible page.

@@ -7,9 +7,9 @@ public enum MK2HIG {
         public static let textRegularResourceName = "IBMPlexSansCondensed-Regular.otf"
         public static let textMediumResourceName = "IBMPlexSansCondensed-Medium.otf"
 
-        public static let iconProLightFamilyID = "fontawesome-pro-light"
-        public static let iconProLightFamilyName = "Font Awesome 7 Pro Light"
-        public static let iconProLightResourceName = "FontAwesome7Pro-Light-300.otf"
+        public static let iconFamilyID = "phosphor-regular"
+        public static let iconFamilyName = "Phosphor Regular"
+        public static let iconResourceName = "Phosphor.ttf"
 
         public static let monoFamilyID = "jetbrains-mono"
         public static let monoFamilyName = "JetBrains Mono"
@@ -118,7 +118,7 @@ public enum MK2HIG {
 
     public static func iconStyle(pixelSize: Int, color: UInt16) -> FreeTypeTextStyle {
         FreeTypeTextStyle(
-            familyID: Fonts.iconProLightFamilyID,
+            familyID: Fonts.iconFamilyID,
             weight: Fonts.iconWeight,
             pixelSize: pixelSize,
             color: color,

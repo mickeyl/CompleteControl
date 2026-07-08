@@ -318,7 +318,7 @@ private actor WidgetLab {
     private let metronome = DemoMetronome()
     private let freeTypeRenderer: FreeTypeTextRenderer?
     private let iconSource: String
-    private let icons: [FontAwesomeIcon]
+    private let icons: [PhosphorIcon]
     private var unit: Unit = .font
 
     // Font lab focus: the single combination we render prominently while iterating
@@ -388,7 +388,7 @@ private actor WidgetLab {
     private static let iconPageStep = 7
     private static let iconGridCellSize = MK2SelectionCellSize(width: 58, height: 58)
     private static let actionDialogIconSize = MK2HIG.Typography.actionDialogIconPixelSize
-    private static let iconStyleLabel = "Pro Light"
+    private static let iconStyleLabel = "Regular"
     private static let iconLetterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
     private static let iconSizes = [20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 88]
     private static let demoInstruments = [
@@ -427,7 +427,7 @@ private actor WidgetLab {
             label: "Settings",
             title: "MIDI Routing",
             body: "Channel 3 empfängt live und schreibt Steps in Pattern 03.",
-            detail: "Body Regular, Titel Medium, Icons Pro Light."
+            detail: "Body Regular, Titel Medium, Icons Phosphor."
         ),
         FontLabSample(
             label: "German",
@@ -437,27 +437,27 @@ private actor WidgetLab {
         ),
     ]
     private static let fontIconSamples = [
-        FontLabIconSample(name: "Info", glyph: "\u{f05a}", color: Palette.blue),
-        FontLabIconSample(name: "Warn", glyph: "\u{f071}", color: Palette.accent),
-        FontLabIconSample(name: "Error", glyph: "\u{f057}", color: Palette.orange),
-        FontLabIconSample(name: "Question", glyph: "\u{f059}", color: Palette.question),
-        FontLabIconSample(name: "Save", glyph: "\u{f0c7}", color: Palette.green),
-        FontLabIconSample(name: "Sliders", glyph: "\u{f1de}", color: Palette.solo),
-        FontLabIconSample(name: "Trash", glyph: "\u{f2ed}", color: Palette.mute),
+        FontLabIconSample(name: "Info", glyph: "\u{e2ce}", color: Palette.blue),
+        FontLabIconSample(name: "Warn", glyph: "\u{e4e0}", color: Palette.accent),
+        FontLabIconSample(name: "Error", glyph: "\u{e4f8}", color: Palette.orange),
+        FontLabIconSample(name: "Question", glyph: "\u{e3e8}", color: Palette.question),
+        FontLabIconSample(name: "Save", glyph: "\u{e248}", color: Palette.green),
+        FontLabIconSample(name: "Sliders", glyph: "\u{e432}", color: Palette.solo),
+        FontLabIconSample(name: "Trash", glyph: "\u{e4a6}", color: Palette.mute),
     ]
     private static let actionCandidates = [
-        ActionCandidate(iconName: "circle-info", title: "Load Instrument?", body: "Replace the current sound and keep pattern data.", action: "LOAD"),
-        ActionCandidate(iconName: "triangle-exclamation", title: "Clear Pattern?", body: "This removes all notes in the selected pattern.", action: "CLEAR"),
+        ActionCandidate(iconName: "info", title: "Load Instrument?", body: "Replace the current sound and keep pattern data.", action: "LOAD"),
+        ActionCandidate(iconName: "warning", title: "Clear Pattern?", body: "This removes all notes in the selected pattern.", action: "CLEAR"),
         ActionCandidate(iconName: "floppy-disk", title: "Save Snapshot", body: "Write the current display pair as a PNG reference.", action: "SAVE"),
-        ActionCandidate(iconName: "arrow-right-from-bracket", title: "Leave Browser?", body: "Return to the tracker without changing selection.", action: "LEAVE"),
+        ActionCandidate(iconName: "sign-out", title: "Leave Browser?", body: "Return to the tracker without changing selection.", action: "LEAVE"),
     ]
     init(surface: MK2Surface2) {
         self.surface = surface
         self.freeTypeRenderer = try? FreeTypeTextRenderer()
-        let iconCatalog = (try? FontAwesomeIconCatalog.load()) ?? (source: "Font Awesome catalog unavailable", icons: [])
+        let iconCatalog = (try? PhosphorIconCatalog.load()) ?? (source: "Phosphor catalog unavailable", icons: [])
         self.iconSource = iconCatalog.source
         self.icons = iconCatalog.icons
-        self.iconIndex = iconCatalog.icons.firstIndex { $0.name == "circle-info" } ?? 0
+        self.iconIndex = iconCatalog.icons.firstIndex { $0.name == "info" } ?? 0
         self.patternRows = WidgetLab.demoPatternRows()
     }
 
@@ -817,7 +817,7 @@ private actor WidgetLab {
         return frame
     }
 
-    private var selectedIcon: FontAwesomeIcon? {
+    private var selectedIcon: PhosphorIcon? {
         guard icons.indices.contains(iconIndex) else { return nil }
         return icons[iconIndex]
     }
@@ -854,7 +854,7 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         guard let icon = selectedIcon else {
             drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "catalog missing")
-            drawFreeTypeBody("FontAwesomeIcons.pro.json wurde nicht geladen.", into: &frame, x: 18, y: 62, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
+            drawFreeTypeBody("PhosphorIcons.pro.json wurde nicht geladen.", into: &frame, x: 18, y: 62, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
             return frame
         }
         let visible = visibleIcons()
@@ -921,7 +921,7 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         let candidate = Self.actionCandidates[actionIndex]
         let icon = selectedIcon
-        drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "Pro Light, icon 48 px")
+        drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "Phosphor Regular, icon 48 px")
         let dialog = MK2PixelRect(x: 46, y: 56, width: 388, height: 172)
         frame.fill(dialog, Palette.dialogSurface)
         frame.stroke(dialog, Palette.border)
@@ -944,7 +944,7 @@ private actor WidgetLab {
         }
         drawFreeTypeTitle("Current Icon", into: &frame, x: 18, y: 58, size: Self.titleSize, color: Palette.text, maxWidth: 432)
         drawFreeTypeBody(icon.name, into: &frame, x: 18, y: 94, size: Self.bodySize, color: Palette.dim, maxWidth: 300)
-        drawFreeTypeBody(String(format: "Pro Light  U+%04X  action 48 px", icon.codepoint), into: &frame, x: 18, y: 122, size: Self.bodySize, color: Palette.dim, maxWidth: 420)
+        drawFreeTypeBody(String(format: "Phosphor  U+%04X  action 48 px", icon.codepoint), into: &frame, x: 18, y: 122, size: Self.bodySize, color: Palette.dim, maxWidth: 420)
         var x = 18
         for size in [24, 32, 42, 56, 72] {
             let item = MK2PixelRect(x: x - 3, y: 158, width: 58, height: 74)
@@ -1876,11 +1876,11 @@ private actor WidgetLab {
         await render()
     }
 
-    private func allIconEntries() -> [(globalIndex: Int, icon: FontAwesomeIcon)] {
+    private func allIconEntries() -> [(globalIndex: Int, icon: PhosphorIcon)] {
         icons.enumerated().map { (globalIndex: $0.offset, icon: $0.element) }
     }
 
-    private func visibleIcons() -> [(globalIndex: Int, icon: FontAwesomeIcon)] {
+    private func visibleIcons() -> [(globalIndex: Int, icon: PhosphorIcon)] {
         let indexed = allIconEntries()
         guard iconSelectionMode.hasFilter else { return indexed }
         let letter = Self.iconLetterFilters[iconFilterNavigation.selectedIndex]
@@ -1888,7 +1888,7 @@ private actor WidgetLab {
         return indexed.filter { $0.icon.name.uppercased().hasPrefix(letter) }
     }
 
-    private func selectedVisibleIconIndex(in visible: [(globalIndex: Int, icon: FontAwesomeIcon)]) -> Int {
+    private func selectedVisibleIconIndex(in visible: [(globalIndex: Int, icon: PhosphorIcon)]) -> Int {
         visible.firstIndex { $0.globalIndex == iconIndex } ?? 0
     }
 

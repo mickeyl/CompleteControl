@@ -53,18 +53,18 @@ enum SelectionDemoMode: Int, CaseIterable, Sendable {
 
 enum SelectionLabFixtures {
     static let items = [
-        SelectionDemoItem(title: "Kick Resin", detail: "Round transient, short tail", category: "Drums", tone: "Warm", bank: "Factory", icon: "\u{f001}"),
-        SelectionDemoItem(title: "Snare Alloy", detail: "Bright shell with tight snap", category: "Drums", tone: "Bright", bank: "Factory", icon: "\u{f001}"),
-        SelectionDemoItem(title: "Hat Needle", detail: "Closed metallic tick", category: "Drums", tone: "Bright", bank: "User", icon: "\u{f001}"),
-        SelectionDemoItem(title: "Bass Rubber", detail: "Elastic mono bass", category: "Bass", tone: "Warm", bank: "Factory", icon: "\u{f8d7}"),
-        SelectionDemoItem(title: "Sub Pure", detail: "Clean sine foundation", category: "Bass", tone: "Dark", bank: "User", icon: "\u{f8d7}"),
-        SelectionDemoItem(title: "Lead Glass", detail: "Thin digital lead", category: "Synth", tone: "Bright", bank: "Factory", icon: "\u{e2ca}"),
-        SelectionDemoItem(title: "Arp Carbon", detail: "Tight sequence layer", category: "Synth", tone: "Dark", bank: "User", icon: "\u{e2ca}"),
-        SelectionDemoItem(title: "Pad Violet", detail: "Slow ensemble pad", category: "Pads", tone: "Warm", bank: "Factory", icon: "\u{f8ef}"),
-        SelectionDemoItem(title: "Tape Strings", detail: "Soft sampled ensemble", category: "Pads", tone: "Warm", bank: "User", icon: "\u{f8ef}"),
-        SelectionDemoItem(title: "Organ Mini", detail: "Small drawbar comp", category: "Keys", tone: "Bright", bank: "Factory", icon: "\u{f001}"),
-        SelectionDemoItem(title: "Piano Noir", detail: "Muted felt grand", category: "Keys", tone: "Dark", bank: "User", icon: "\u{f001}"),
-        SelectionDemoItem(title: "Vox Byte", detail: "Formant stab", category: "Voice", tone: "Bright", bank: "User", icon: "\u{f130}"),
+        SelectionDemoItem(title: "Kick Resin", detail: "Round transient, short tail", category: "Drums", tone: "Warm", bank: "Factory", icon: "\u{e340}"),
+        SelectionDemoItem(title: "Snare Alloy", detail: "Bright shell with tight snap", category: "Drums", tone: "Bright", bank: "Factory", icon: "\u{e340}"),
+        SelectionDemoItem(title: "Hat Needle", detail: "Closed metallic tick", category: "Drums", tone: "Bright", bank: "User", icon: "\u{e340}"),
+        SelectionDemoItem(title: "Bass Rubber", detail: "Elastic mono bass", category: "Bass", tone: "Warm", bank: "Factory", icon: "\u{ea08}"),
+        SelectionDemoItem(title: "Sub Pure", detail: "Clean sine foundation", category: "Bass", tone: "Dark", bank: "User", icon: "\u{ea08}"),
+        SelectionDemoItem(title: "Lead Glass", detail: "Thin digital lead", category: "Synth", tone: "Bright", bank: "Factory", icon: "\u{e802}"),
+        SelectionDemoItem(title: "Arp Carbon", detail: "Tight sequence layer", category: "Synth", tone: "Dark", bank: "User", icon: "\u{e802}"),
+        SelectionDemoItem(title: "Pad Violet", detail: "Slow ensemble pad", category: "Pads", tone: "Warm", bank: "Factory", icon: "\u{e9c8}"),
+        SelectionDemoItem(title: "Tape Strings", detail: "Soft sampled ensemble", category: "Pads", tone: "Warm", bank: "User", icon: "\u{e9c8}"),
+        SelectionDemoItem(title: "Organ Mini", detail: "Small drawbar comp", category: "Keys", tone: "Bright", bank: "Factory", icon: "\u{e340}"),
+        SelectionDemoItem(title: "Piano Noir", detail: "Muted felt grand", category: "Keys", tone: "Dark", bank: "User", icon: "\u{e340}"),
+        SelectionDemoItem(title: "Vox Byte", detail: "Formant stab", category: "Voice", tone: "Bright", bank: "User", icon: "\u{e326}"),
     ]
 
     static let types = ["All", "Drums", "Bass", "Synth", "Pads", "Keys", "Voice"]

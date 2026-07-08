@@ -225,7 +225,7 @@ struct SelectionViewTests {
                     title: "Kick Resin",
                     detail: "Round transient, short tail",
                     badge: "Drums",
-                    iconGlyph: "\u{f001}"
+                    iconGlyph: "\u{e340}"
                 ),
             ],
             selectedIndex: 0,
@@ -344,9 +344,9 @@ private extension MK2PixelFrame {
 }
 
 private let sampleItems = [
-    MK2SelectionItem(title: "Kick", detail: "Warm drum", badge: "DRM", iconGlyph: "\u{f001}"),
-    MK2SelectionItem(title: "Bass", detail: "Mono low", badge: "BAS", iconGlyph: "\u{f001}"),
-    MK2SelectionItem(title: "Pad", detail: "Wide layer", badge: "PAD", iconGlyph: "\u{f001}"),
+    MK2SelectionItem(title: "Kick", detail: "Warm drum", badge: "DRM", iconGlyph: "\u{e340}"),
+    MK2SelectionItem(title: "Bass", detail: "Mono low", badge: "BAS", iconGlyph: "\u{e340}"),
+    MK2SelectionItem(title: "Pad", detail: "Wide layer", badge: "PAD", iconGlyph: "\u{e340}"),
 ]
 
 private extension MK2PixelFrame {

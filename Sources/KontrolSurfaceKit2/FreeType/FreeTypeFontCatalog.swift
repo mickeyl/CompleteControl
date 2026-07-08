@@ -55,7 +55,7 @@ public struct FreeTypeFontFamily: Sendable, Equatable, Identifiable {
 
 public struct FreeTypeFontCatalog: Sendable, Equatable {
     public static let textFamilyID = MK2HIG.Fonts.textFamilyID
-    public static let iconProLightFamilyID = MK2HIG.Fonts.iconProLightFamilyID
+    public static let iconFamilyID = MK2HIG.Fonts.iconFamilyID
     public static let monoFamilyID = MK2HIG.Fonts.monoFamilyID
 
     public var families: [FreeTypeFontFamily]
@@ -78,10 +78,10 @@ public struct FreeTypeFontCatalog: Sendable, Equatable {
             ]
         ),
         FreeTypeFontFamily(
-            id: Self.iconProLightFamilyID,
-            label: MK2HIG.Fonts.iconProLightFamilyName,
+            id: Self.iconFamilyID,
+            label: MK2HIG.Fonts.iconFamilyName,
             faces: [
-                .regular: FreeTypeFontSource(resourceName: MK2HIG.Fonts.iconProLightResourceName),
+                .regular: FreeTypeFontSource(resourceName: MK2HIG.Fonts.iconResourceName),
             ]
         ),
         FreeTypeFontFamily(

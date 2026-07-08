@@ -53,16 +53,16 @@ enum BrowserDemoMode: Int, CaseIterable, Sendable {
 
 enum BrowserLabFixtures {
     static let items = [
-        BrowserDemoItem(title: "Piano Noir", detail: "Muted felt grand with intimate release", area: "Browse", source: "Factory", status: "Instrument 48 MB", icon: "\u{f001}"),
-        BrowserDemoItem(title: "Tape Strings", detail: "Warm ensemble pad, slow filtered attack", area: "Browse", source: "User", status: "Instrument 82 MB", icon: "\u{f8ef}"),
-        BrowserDemoItem(title: "Kick Resin", detail: "Round transient and short analogue tail", area: "Browse", source: "Factory", status: "Sample 24 bit", icon: "\u{f001}"),
-        BrowserDemoItem(title: "Drum Folder", detail: "Imported one-shots from the project folder", area: "Browse", source: "Session", status: "28 samples", icon: "\u{f07b}"),
-        BrowserDemoItem(title: "MIDI Routing", detail: "Live input, channel focus, record target", area: "Settings", source: "Device", status: "Channel 3 active", icon: "\u{f1de}"),
-        BrowserDemoItem(title: "Display", detail: "OLED brightness and browser preview density", area: "Settings", source: "Device", status: "Brightness 80 %", icon: "\u{f26c}"),
-        BrowserDemoItem(title: "Library Root", detail: "Persistent folder scan for samples and instruments", area: "Settings", source: "User", status: "~/Music/Paulinche", icon: "\u{f07c}"),
-        BrowserDemoItem(title: "Autosave", detail: "Snapshot interval and dirty-pattern warning", area: "Settings", source: "Session", status: "Every 2 min", icon: "\u{f0c7}"),
-        BrowserDemoItem(title: "Audio Engine", detail: "Output device, buffer size, audition voice", area: "System", source: "Device", status: "48 kHz / 128", icon: "\u{f2a2}"),
-        BrowserDemoItem(title: "Project Info", detail: "Pattern count, sample memory, last save", area: "System", source: "Session", status: "03 patterns", icon: "\u{f05a}"),
+        BrowserDemoItem(title: "Piano Noir", detail: "Muted felt grand with intimate release", area: "Browse", source: "Factory", status: "Instrument 48 MB", icon: "\u{e340}"),
+        BrowserDemoItem(title: "Tape Strings", detail: "Warm ensemble pad, slow filtered attack", area: "Browse", source: "User", status: "Instrument 82 MB", icon: "\u{e9c8}"),
+        BrowserDemoItem(title: "Kick Resin", detail: "Round transient and short analogue tail", area: "Browse", source: "Factory", status: "Sample 24 bit", icon: "\u{e340}"),
+        BrowserDemoItem(title: "Drum Folder", detail: "Imported one-shots from the project folder", area: "Browse", source: "Session", status: "28 samples", icon: "\u{e24a}"),
+        BrowserDemoItem(title: "MIDI Routing", detail: "Live input, channel focus, record target", area: "Settings", source: "Device", status: "Channel 3 active", icon: "\u{e432}"),
+        BrowserDemoItem(title: "Display", detail: "OLED brightness and browser preview density", area: "Settings", source: "Device", status: "Brightness 80 %", icon: "\u{e32e}"),
+        BrowserDemoItem(title: "Library Root", detail: "Persistent folder scan for samples and instruments", area: "Settings", source: "User", status: "~/Music/Paulinche", icon: "\u{e256}"),
+        BrowserDemoItem(title: "Autosave", detail: "Snapshot interval and dirty-pattern warning", area: "Settings", source: "Session", status: "Every 2 min", icon: "\u{e248}"),
+        BrowserDemoItem(title: "Audio Engine", detail: "Output device, buffer size, audition voice", area: "System", source: "Device", status: "48 kHz / 128", icon: "\u{e44a}"),
+        BrowserDemoItem(title: "Project Info", detail: "Pattern count, sample memory, last save", area: "System", source: "Session", status: "03 patterns", icon: "\u{e2ce}"),
     ]
 
     static let areas = ["All", "Browse", "Settings", "System"]

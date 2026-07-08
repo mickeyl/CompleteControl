@@ -156,7 +156,7 @@ let package = Package(
             dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
             path: "Tools/MK2WidgetLabDemo",
             resources: [
-                .copy("FontAwesomeIcons.pro.json"),
+                .copy("PhosphorIcons.regular.json"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
