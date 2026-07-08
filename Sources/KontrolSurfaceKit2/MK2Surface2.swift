@@ -75,6 +75,11 @@ public actor MK2Surface2 {
     private static let daemonHeartbeatIdleNanos: UInt64 = 3_000_000_000
     private static let daemonReconnectIntervalNanos: UInt64 = 1_000_000_000
     private var lastEncoderTouchNanos = [UInt64](repeating: 0, count: 9)
+    // Stamps one daemon-session attempt. Reader threads and their actor callbacks
+    // carry the generation they were spawned for, so a cancelled thread's late
+    // failure (or its deferred setup hop) can never tear down or hijack a newer
+    // session — that stale-callback path was the reconnect-cascade bug.
+    private var daemonSessionGeneration: UInt64 = 0
     private var pressedButtons: Set<KKMK2ButtonLED> = []
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
     private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
@@ -103,6 +108,7 @@ public actor MK2Surface2 {
         timer?.cancel()
         timer = nil
         unregisterDaemonClient()
+        daemonSessionGeneration &+= 1
         controlClient = nil
         eventClient = nil
         displayClient = nil
@@ -203,13 +209,14 @@ public actor MK2Surface2 {
                 await self.process(frame)
             }
         }
+        let generation = daemonSessionGeneration
         let thread = Thread { [weak self] in
             guard let eventClient = KompleteKontrolDaemonBinaryClient(channel: .event) else {
                 continuation.finish()
-                Task { await self?.handleDaemonFailure("daemon socket unavailable") }
+                Task { await self?.handleDaemonFailure("daemon socket unavailable", generation: generation) }
                 return
             }
-            Task { await self?.setEventClient(eventClient) }
+            Task { await self?.setEventClient(eventClient, generation: generation) }
             while !Thread.current.isCancelled {
                 switch eventClient.readEventResult(timeoutUsec: 20_000) {
                     case let .frame(frame):
@@ -219,7 +226,7 @@ public actor MK2Surface2 {
                         continue
                     case .disconnected:
                         continuation.finish()
-                        Task { await self?.handleDaemonFailure("daemon event socket disconnected") }
+                        Task { await self?.handleDaemonFailure("daemon event socket disconnected", generation: generation) }
                         return
                 }
             }
@@ -267,6 +274,7 @@ public actor MK2Surface2 {
         running = false
         timer?.cancel()
         timer = nil
+        daemonSessionGeneration &+= 1
         controlClient = nil
         eventClient = nil
         displayClient = nil
@@ -281,7 +289,8 @@ public actor MK2Surface2 {
         publish(.evicted)
     }
 
-    private func setEventClient(_ client: KompleteKontrolDaemonBinaryClient) {
+    private func setEventClient(_ client: KompleteKontrolDaemonBinaryClient, generation: UInt64) {
+        guard running, generation == daemonSessionGeneration else { return }
         eventClient = client
         guard let control = KompleteKontrolDaemonBinaryClient(channel: .control),
               let display = KompleteKontrolDaemonBinaryClient(channel: .display) else {
@@ -348,6 +357,11 @@ public actor MK2Surface2 {
             maybeRestartDaemonClient(now: now)
             return
         }
+        // The session comes up asynchronously (reader thread → actor hop): between
+        // daemonThread appearing and setEventClient installing the control client,
+        // reconciling would issue writes into a nil client — indistinguishable from
+        // timeouts, and the reason every client start used to flap into .retrying.
+        guard controlClient != nil else { return }
         let dt = Double(now &- lastTick) / 1_000_000_000.0
         lastTick = now
         advanceLamps(dt: dt)
@@ -378,7 +392,11 @@ public actor MK2Surface2 {
         guard bytes != lastLampBytes else { return }
         let response = writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, bytes)
         guard response == "ok" else {
-            handleDaemonFailure(response ?? "button LED write timed out")
+            if let response {
+                handleDaemonFailure(response)
+            } else {
+                handleWriteTimeout("button LED write timed out")
+            }
             return
         }
         lastLampBytes = bytes
@@ -397,7 +415,11 @@ public actor MK2Surface2 {
         }
         let response = writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, payload)
         guard response == "ok" else {
-            handleDaemonFailure(response ?? "light guide write timed out")
+            if let response {
+                handleDaemonFailure(response)
+            } else {
+                handleWriteTimeout("light guide write timed out")
+            }
             return
         }
         lastKeyColors = colors
@@ -416,7 +438,14 @@ public actor MK2Surface2 {
                 timeoutMs: options.displayTimeoutMs
             )
             if response != "ok" {
-                handleDaemonFailure(response ?? "display blit timed out")
+                if let response {
+                    handleDaemonFailure(response)
+                } else {
+                    // The reconciler already advanced its last-sent state, so force a
+                    // clean resend on the next tick before the soft retry.
+                    displayReconciler.reset()
+                    handleWriteTimeout("display blit timed out")
+                }
                 break
             }
         }
@@ -444,13 +473,31 @@ public actor MK2Surface2 {
         lastDaemonCommunicationNanos = DispatchTime.now().uptimeNanoseconds
     }
 
-    private func handleDaemonFailure(_ reason: String) {
+    /// A slow ack is not a dead daemon. Writes carry a tight ceiling so the actor
+    /// never stalls long, but a single timeout must not tear down the session — the
+    /// client↔daemon connection stays up unless one side actually shuts down. On a
+    /// write timeout, probe the control channel with a generous deadline: only a
+    /// failed probe kills the session, otherwise the write retries on the next tick
+    /// because the reconcile caches stay unchanged (a late ack for the timed-out
+    /// write is discarded by the sequence check in the binary client).
+    private func handleWriteTimeout(_ reason: String) {
+        let probe = controlClient?.request(type: .version, timeoutUsec: 1_000_000)
+        guard probe?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
+            handleDaemonFailure(reason)
+            return
+        }
+        recordDaemonCommunication()
+    }
+
+    private func handleDaemonFailure(_ reason: String, generation: UInt64? = nil) {
         guard running else { return }
+        if let generation, generation != daemonSessionGeneration { return }
         publish(.retrying(reason))
         resetDaemonSession()
     }
 
     private func resetDaemonSession() {
+        daemonSessionGeneration &+= 1
         controlClient = nil
         eventClient = nil
         displayClient = nil

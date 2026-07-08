@@ -479,6 +479,21 @@ The short version:
   publishing `.retrying`. General lesson: any "hardware became available/reappeared" signal
   needs to force a *replay*, not just flip a connection-state flag — a diff against a cache the
   hardware never actually received will always be empty.
+- **The daemon session is generation-stamped; ticks wait for the control client**
+  (reconnect-cascade bug fixed 2026-07-08). `MK2Surface2.startDaemonClient` sets
+  `daemonThread` immediately but installs the control/display clients asynchronously
+  (reader thread → actor hop → `setEventClient`). The 60 Hz tick used to reconcile
+  inside that window: writes into a nil control client returned nil, indistinguishable
+  from timeouts, so *every* client start flapped into `.retrying` twice, and any
+  mid-session hiccup could cascade — a cancelled reader thread's late
+  "event socket disconnected" or its deferred setup hop would tear down or hijack the
+  *next* session, which read as "reconnects on every hardware action". Now:
+  `daemonSessionGeneration` stamps each attempt (bumped on reset/stop/evict), reader
+  threads carry their generation and stale callbacks are ignored, `setEventClient`
+  refuses to register a zombie session, the tick skips reconcile until the control
+  client exists, and a real write timeout probes the daemon (`version`, generous
+  deadline) before it is allowed to kill the session — a slow ack is not a dead
+  daemon; the client↔daemon connection stays up unless one side actually shuts down.
 - **Daemon loss is a recoverable surface lifecycle state, not a client crash path** (bug fixed
   2026-07-08). `KompleteKontrolDaemonBinaryClient` sets `SO_NOSIGPIPE`, so a write to a dead
   Unix socket cannot terminate the process with `SIGPIPE`. Its event read path distinguishes
