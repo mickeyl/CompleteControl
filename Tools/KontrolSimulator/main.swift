@@ -28,7 +28,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // Rudimentary control over a user-level simulator daemon: ccd in CCD_SIMULATE
     // mode touches no USB and binds a /tmp socket, so no sudo is involved. Clients
     // attach by exporting KK_DAEMON_SOCKET to the same path.
-    static let simulatorDaemonSocketPath = "/tmp/kontrol-simulator-daemon.sock"
+    static let simulatorDaemonSocketPath = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
     static let simulatorDaemonLogPath = "/tmp/kontrol-simulator-daemon.log"
     private var daemonProcess: Process?
     private var daemonConnected = false

@@ -2488,7 +2488,25 @@ public enum KompleteKontrolLibUSBServer {
         return false
     }
 
-    public static func daemonSocketIsAvailable(socketPath: String = defaultDaemonSocketPath) -> Bool {
+    /// The user-level simulator daemon's well-known socket (started from the
+    /// KontrolSimulator Daemon menu; no sudo involved).
+    public static let simulatorDaemonSocketPath = "/tmp/kontrol-simulator-daemon.sock"
+
+    /// Client-side socket resolution, evaluated per connection attempt: the
+    /// configured stock socket when it responds, otherwise the user-level simulator
+    /// daemon when that one does. Clients attach to whichever stack is actually
+    /// alive — hardware daemon preferred — without per-app KK_DAEMON_SOCKET
+    /// plumbing, and a daemon appearing later is picked up by the retry loop.
+    public static func clientDaemonSocketPath() -> String {
+        let configured = defaultDaemonSocketPath
+        if daemonSocketIsReachable(socketPath: configured) { return configured }
+        if configured != simulatorDaemonSocketPath, daemonSocketIsReachable(socketPath: simulatorDaemonSocketPath) {
+            return simulatorDaemonSocketPath
+        }
+        return configured
+    }
+
+    public static func daemonSocketIsAvailable(socketPath: String = clientDaemonSocketPath()) -> Bool {
         guard FileManager.default.fileExists(atPath: socketPath) else { return false }
         guard let session = KompleteKontrolDaemonClient(socketPath: socketPath) else { return false }
         return sessionHasCurrentProtocol(session)

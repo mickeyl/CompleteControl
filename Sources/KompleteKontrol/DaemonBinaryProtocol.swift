@@ -239,7 +239,7 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
 
     public init?(
         channel: KKDaemonBinaryChannel,
-        socketPath: String = KompleteKontrolLibUSBServer.defaultDaemonSocketPath
+        socketPath: String = KompleteKontrolLibUSBServer.clientDaemonSocketPath()
     ) {
         let path = KompleteKontrolLibUSBServer.daemonSocketPath(base: socketPath, channel: channel)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)

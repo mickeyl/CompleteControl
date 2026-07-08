@@ -672,7 +672,7 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
         guard ensureDaemonAvailable() else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon unavailable")
         }
-        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.clientDaemonSocketPath()) else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon socket unavailable")
         }
         let line = [
@@ -718,7 +718,7 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
         guard ensureDaemonAvailable() else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon unavailable")
         }
-        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.clientDaemonSocketPath()) else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon socket unavailable")
         }
         var data: [UInt8] = []
@@ -755,7 +755,7 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
         guard ensureDaemonAvailable() else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon unavailable")
         }
-        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
+        guard let client = KompleteKontrolDaemonClient(socketPath: KompleteKontrolLibUSBServer.clientDaemonSocketPath()) else {
             return KKUSBResult(status: -1, message: "Komplete Kontrol daemon socket unavailable")
         }
         let payload = KompleteKontrolMK2Protocol.wheelStripMapPayload(pitchWheel: pitchWheel, modWheel: modWheel, strip: strip)
