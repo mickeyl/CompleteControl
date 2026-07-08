@@ -297,7 +297,10 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   daemon) plus a client via `make mk2-widget-lab-demo-sim` (exports `KK_DAEMON_SOCKET`),
   or the classic `make daemon-simulate` (sudo, takes over the stock socket). The window
   title shows the daemon attachment state; "Copy Client Environment" puts the
-  `KK_DAEMON_SOCKET=…` line on the pasteboard. Enablers: clients resolve
+  `KK_DAEMON_SOCKET=…` line on the pasteboard, and "Autostart Daemon If Not Running"
+  (persisted) starts the child after a 1.5 s grace period unless a daemon already
+  attached (skipped in snapshot mode; SIGTERM/SIGINT tear the child down with the
+  app). Enablers: clients resolve
   `defaultDaemonSocketPath` through `KK_DAEMON_SOCKET`, the daemon singleton and its
   lock file are scoped **per socket** (hardware on /var/run, simulator on /tmp), and
   `daemon-preflight` ignores daemons on the simulator socket. Full design + phasing in

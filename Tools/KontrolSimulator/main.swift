@@ -20,6 +20,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let keybedSize = "KontrolSimulator.keybedSize"
         static let stayOnTop = "KontrolSimulator.window.stayOnTop"
         static let cheatSheetVisible = "KontrolSimulator.cheatSheet.visible"
+        static let daemonAutostart = "KontrolSimulator.daemon.autostart"
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
@@ -31,8 +32,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static let simulatorDaemonLogPath = "/tmp/kontrol-simulator-daemon.log"
     private var daemonProcess: Process?
     private var daemonConnected = false
+    private var terminationSignalSources: [DispatchSourceSignal] = []
     private var daemonStartItem: NSMenuItem?
     private var daemonStopItem: NSMenuItem?
+    private var daemonAutostartItem: NSMenuItem?
     private var window: NSWindow!
     private var scrollView: NSScrollView!
     private var panel: PanelView!
@@ -138,6 +141,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !link.start() {
             NSLog("KontrolSimulator: failed to bind \(SimEndpoint.defaultSocketPath)")
         }
+        installTerminationSignalHandlers()
+        autostartDaemonIfConfigured()
 
         // Initial zoom: True Size if requested, otherwise fit the panel to the current window
         // width. A restored frame keeps its persisted height instead of being refitted.
@@ -235,6 +240,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         daemonStartItem = add(to: daemonMenu, "Start Simulator Daemon", #selector(startSimulatorDaemon), "d")
         daemonStopItem = add(to: daemonMenu, "Stop Simulator Daemon", #selector(stopSimulatorDaemon), "")
         daemonMenu.addItem(.separator())
+        daemonAutostartItem = add(to: daemonMenu, "Autostart Daemon If Not Running", #selector(toggleDaemonAutostart), "")
+        daemonMenu.addItem(.separator())
         add(to: daemonMenu, "Copy Client Environment", #selector(copyClientEnvironment), "")
 
         let viewItem = NSMenuItem()
@@ -308,6 +315,40 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         daemonProcess?.terminate()
     }
 
+    /// SIGTERM/SIGINT (kill, Ctrl-C from the launching terminal) bypass
+    /// applicationWillTerminate and would orphan the child daemon — route them
+    /// through a graceful terminate instead.
+    private func installTerminationSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler {
+                NSApp.terminate(nil)
+            }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
+    }
+
+    @objc private func toggleDaemonAutostart() {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: DefaultsKey.daemonAutostart), forKey: DefaultsKey.daemonAutostart)
+        updateDaemonMenuState()
+    }
+
+    /// Autostart waits a grace period after launch: an already-running daemon
+    /// (foreground `daemon-simulate`, or a child from a previous session) connects to
+    /// the freshly bound simulator socket within moments, and then there is nothing
+    /// to do. Skipped in snapshot mode so headless acceptance runs stay deterministic.
+    private func autostartDaemonIfConfigured() {
+        guard UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart),
+              ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_PATH"] == nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, !self.daemonConnected, self.daemonProcess == nil else { return }
+            self.startSimulatorDaemon()
+        }
+    }
+
     @objc private func copyClientEnvironment() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -317,6 +358,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateDaemonMenuState() {
         daemonStartItem?.isEnabled = daemonProcess == nil
         daemonStopItem?.isEnabled = daemonProcess != nil
+        daemonAutostartItem?.state = UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart) ? .on : .off
         daemonStartItem?.title = daemonConnected && daemonProcess == nil
             ? "Start Simulator Daemon (external daemon attached)"
             : "Start Simulator Daemon"
