@@ -36,6 +36,11 @@ Resume from `master`. The MK2 screen-formalization work is active:
 - `MK2MeterElement` renders horizontal or vertical multi-channel levels with peak markers
   and warning/danger colours. WidgetLab Unit C is now implemented as the meter acceptance
   screen.
+- `MK2ValueCell` (and everything built on it: parameter pages, encoder footers) draws as
+  a debossed well: the border ring runs from a dark shadow rim at the top into a lit
+  bottom edge, the fill falls slightly the same way — pressed into the panel, lit from
+  above. Both ramps use `MK2PixelFrame.fillRoundedVerticalGradient` (dithered via
+  `MK2OrderedDither`, antialiased rounded corners) so they stay band-free on the OLED.
 - `MK2SelectionFilterEncoderElement` and `MK2SelectionFilterEncoderBinding` package the
   repeated selection-filter pattern: encoder touch updates filter focus, encoder turns
   update the product filter value. Browser Lab and Selection Lab use it in their picker

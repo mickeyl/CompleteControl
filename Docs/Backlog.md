@@ -22,6 +22,17 @@
 
 ## KontrolSurfaceKit2
 
+- Value-cell deboss tuning after hardware review: the four gradient factors live in
+  `MK2ValueCell.draw` — border ring `0.45` (top shadow rim) → `1.8` (lit bottom edge),
+  fill `0.7` → `1.2`. Judged on PNG only so far; adjust on the OLED if the imprint
+  should read stronger or calmer. Everything built on `MK2ValueCell` follows
+  automatically (parameter pages, encoder footers, selection filter cells).
+- Candidates for extending the pseudo-3D language, deliberately deferred: meter and
+  progress *tracks* are semantically wells and could deboss like the value cells;
+  soft-key strips and button chips are pressable and should read *raised* (chrome-band
+  bevel direction) or stay flat — do not deboss them. Decide after the value-cell look
+  is signed off on hardware.
+
 - Continue hardening `MK2ScreenDSL` on top of `MK2ScreenLayout`: the first declarative
   `RegularScreen`, `FullScreen`, and `DoubleScreen` builders exist with formal
   header/footer/content slots, HIG chrome, screen elements, and scene merging. WidgetLab

@@ -71,8 +71,13 @@ struct EncoderDiscreteValueTests {
             onChange: { _ in }
         ).drawDisplay(into: &frame)
 
-        #expect(frame[rect.x, rect.y] == colors.focusedBorder)
-        #expect(frame[rect.x + 2, rect.y + 2] == colors.focusedFill)
+        func luminance(_ pixel: UInt16) -> Int {
+            Int((pixel >> 11) & 0x1f) + Int((pixel >> 5) & 0x3f) + Int(pixel & 0x1f)
+        }
+        // The debossed well draws: shadow rim on top, lit rim below, bright focused fill.
+        #expect(frame[rect.x, rect.y] != 0x0000)
+        #expect(luminance(frame[rect.x + 40, rect.y]) < luminance(frame[rect.x + 40, rect.maxY - 1]))
+        #expect(luminance(frame[rect.x + 2, rect.y + 15]) > 60)
     }
 
     @Test("Missing display projection is a no-op")

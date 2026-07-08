@@ -130,6 +130,58 @@ public struct MK2PixelFrame: Sendable, Equatable {
         }
     }
 
+    /// Fills a (rounded) rect with a dithered vertical gradient — the building block
+    /// for embossed/debossed panel wells. Radius 0 degrades to plain gradient rows.
+    public mutating func fillRoundedVerticalGradient(
+        _ rect: MK2PixelRect,
+        radius: Int,
+        top: UInt16,
+        bottom: UInt16,
+        antialiased: Bool = false
+    ) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        let radius = max(0, min(radius, rect.width / 2, rect.height / 2))
+        let topR = Double((top >> 11) & 0x1f)
+        let topG = Double((top >> 5) & 0x3f)
+        let topB = Double(top & 0x1f)
+        let bottomR = Double((bottom >> 11) & 0x1f)
+        let bottomG = Double((bottom >> 5) & 0x3f)
+        let bottomB = Double(bottom & 0x1f)
+        let span = Double(max(1, rect.height - 1))
+        let smooth = antialiased && MK2RenderSettings.antialiasingEnabled && radius > 0
+
+        for localY in 0..<rect.height {
+            let y = rect.y + localY
+            guard (0..<Self.height).contains(y) else { continue }
+            let t = Double(localY) / span
+            let r = topR + (bottomR - topR) * t
+            let g = topG + (bottomG - topG) * t
+            let b = topB + (bottomB - topB) * t
+            let inCornerBand = localY < radius || localY >= rect.height - radius
+
+            if smooth, inCornerBand {
+                for localX in 0..<rect.width {
+                    let x = rect.x + localX
+                    guard (0..<Self.width).contains(x) else { continue }
+                    let inCorner = localX < radius || localX >= rect.width - radius
+                    let coverage = inCorner
+                        ? roundedRectCoverage(x: localX, y: localY, width: rect.width, height: rect.height, radius: radius, sampleCount: 4)
+                        : 1
+                    guard coverage > 0 else { continue }
+                    let color = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
+                    self[x, y] = coverage >= 1 ? color : blendRGB565(color, over: self[x, y], alpha: coverage)
+                }
+            } else {
+                let inset = radius > 0 ? roundedCornerInset(y: localY, height: rect.height, radius: radius) : 0
+                for localX in inset..<(rect.width - inset) {
+                    let x = rect.x + localX
+                    guard (0..<Self.width).contains(x) else { continue }
+                    self[x, y] = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
+                }
+            }
+        }
+    }
+
     private mutating func fillRoundedAliased(_ rect: MK2PixelRect, radius: Int, _ color: UInt16) {
         for localY in 0..<rect.height {
             let inset = roundedCornerInset(y: localY, height: rect.height, radius: radius)

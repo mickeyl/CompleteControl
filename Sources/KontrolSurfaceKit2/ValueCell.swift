@@ -63,19 +63,27 @@ public struct MK2ValueCell: Sendable {
         BitmapLabel(label, font: labelFont, color: colors.label)
             .draw(into: &frame, x: rect.x, y: max(0, rect.y - labelFont.cellHeight - 3))
 
+        // The value well is debossed into the panel: the border ring runs from a dark
+        // shadow rim at the top into a lit edge at the bottom, and the fill falls
+        // slightly the same way — pressed in, lit from above. Both gradients quantize
+        // dithered so the ramps stay band-free on the OLED.
         let fill = isFocused ? colors.focusedFill : colors.fill
         let border = isFocused ? colors.focusedBorder : colors.border
-        if cornerRadius > 0, rect.width > 2, rect.height > 2 {
-            frame.fillRounded(rect, radius: cornerRadius, border, antialiased: true)
-            frame.fillRounded(
+        frame.fillRoundedVerticalGradient(
+            rect,
+            radius: cornerRadius,
+            top: Self.scaled(border, by: 0.45),
+            bottom: Self.scaled(border, by: 1.8),
+            antialiased: true
+        )
+        if rect.width > 2, rect.height > 2 {
+            frame.fillRoundedVerticalGradient(
                 MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2),
                 radius: max(0, cornerRadius - 1),
-                fill,
+                top: Self.scaled(fill, by: 0.7),
+                bottom: Self.scaled(fill, by: 1.2),
                 antialiased: true
             )
-        } else {
-            frame.fill(rect, fill)
-            frame.stroke(rect, border)
         }
 
         let glyph = BitmapLabel(value, font: valueFont, color: isFocused ? colors.focusedValue : colors.value)
@@ -85,5 +93,12 @@ public struct MK2ValueCell: Sendable {
             y: rect.y + max(0, (rect.height - glyph.height) / 2),
             clip: MK2PixelRect(x: rect.x + 4, y: rect.y, width: max(0, rect.width - 8), height: rect.height)
         )
+    }
+
+    private static func scaled(_ color: UInt16, by factor: Double) -> UInt16 {
+        let r = UInt16(min(31, (Double((color >> 11) & 0x1f) * factor).rounded()))
+        let g = UInt16(min(63, (Double((color >> 5) & 0x3f) * factor).rounded()))
+        let b = UInt16(min(31, (Double(color & 0x1f) * factor).rounded()))
+        return (r << 11) | (g << 5) | b
     }
 }

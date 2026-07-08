@@ -36,10 +36,17 @@ struct StatusLineAndValueCellTests {
         MK2ValueCell(label: "VOL", value: "40", rect: rect, isFocused: true, colors: colors)
             .draw(into: &focused)
 
-        #expect(unfocused[rect.x, rect.y] == colors.border)
-        #expect(unfocused[rect.x + 2, rect.y + 2] == colors.fill)
-        #expect(focused[rect.x, rect.y] == colors.focusedBorder)
-        #expect(focused[rect.x + 2, rect.y + 2] == colors.focusedFill)
+        func luminance(_ pixel: UInt16) -> Int {
+            Int((pixel >> 11) & 0x1f) + Int((pixel >> 5) & 0x3f) + Int(pixel & 0x1f)
+        }
+
+        // Debossed well: the border ring runs from a dark shadow rim at the top to a
+        // lit edge at the bottom, in both palettes.
+        #expect(luminance(unfocused[rect.x + 40, rect.y]) < luminance(unfocused[rect.x + 40, rect.maxY - 1]))
+        #expect(luminance(focused[rect.x + 40, rect.y]) < luminance(focused[rect.x + 40, rect.maxY - 1]))
+        // The fill falls the same way and keeps the focused/unfocused inversion.
+        #expect(luminance(unfocused[rect.x + 2, rect.y + 2]) <= luminance(unfocused[rect.x + 2, rect.maxY - 3]))
+        #expect(luminance(focused[rect.x + 2, rect.y + 15]) > luminance(unfocused[rect.x + 2, rect.y + 15]))
     }
 
     @Test("Rounded value cell antialiases corner pixels")
@@ -95,17 +102,11 @@ struct StatusLineAndValueCellTests {
         MK2ValueCell(label: "VOL", value: "40", rect: rect, cornerRadius: 8, colors: colors)
             .draw(into: &frame)
 
-        var hasBlendedCornerPixel = false
-        for y in rect.y..<(rect.y + 8) {
-            for x in rect.x..<(rect.x + 8) {
-                let pixel = frame[x, y]
-                if pixel != 0x0000, pixel != colors.border, pixel != colors.fill {
-                    hasBlendedCornerPixel = true
-                }
-            }
-        }
-
-        #expect(!hasBlendedCornerPixel)
+        // Aliased corners are hard-edged: with radius 8 the top row insets five
+        // pixels, so the outermost columns stay pure background with no coverage
+        // fringe (antialiasing would leave partially blended pixels there).
+        #expect((0..<4).allSatisfy { frame[rect.x + $0, rect.y] == 0x0000 })
+        #expect((0..<4).allSatisfy { frame[rect.maxX - 1 - $0, rect.y] == 0x0000 })
     }
 }
 
