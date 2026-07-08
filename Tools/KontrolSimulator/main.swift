@@ -126,17 +126,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.onInput = { [weak self] frame in self?.link.send(frame) }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
         link.onConnect = { [weak self] in
-            self?.panel.setConnected(true)
             self?.daemonConnected = true
-            self?.updateWindowTitle()
-            self?.updateDaemonMenuState()
+            self?.refreshDaemonStatusPresentation()
         }
         link.onDisconnect = { [weak self] in
             self?.panel.clearAll()
-            self?.panel.setConnected(false)
             self?.daemonConnected = false
-            self?.updateWindowTitle()
-            self?.updateDaemonMenuState()
+            self?.refreshDaemonStatusPresentation()
         }
         if !link.start() {
             NSLog("KontrolSimulator: failed to bind \(SimEndpoint.defaultSocketPath)")
@@ -299,7 +295,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 self?.daemonProcess = nil
-                self?.updateDaemonMenuState()
+                self?.refreshDaemonStatusPresentation()
             }
         }
         do {
@@ -308,7 +304,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } catch {
             NSLog("KontrolSimulator: failed to start daemon — %@", "\(error)")
         }
-        updateDaemonMenuState()
+        refreshDaemonStatusPresentation()
     }
 
     @objc private func stopSimulatorDaemon() {
@@ -332,8 +328,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func toggleDaemonAutostart() {
         let defaults = UserDefaults.standard
-        defaults.set(!defaults.bool(forKey: DefaultsKey.daemonAutostart), forKey: DefaultsKey.daemonAutostart)
+        let enabled = !defaults.bool(forKey: DefaultsKey.daemonAutostart)
+        defaults.set(enabled, forKey: DefaultsKey.daemonAutostart)
         updateDaemonMenuState()
+        // "If not running" applies right now, not just at the next launch.
+        if enabled, !daemonConnected, daemonProcess == nil {
+            startSimulatorDaemon()
+        }
     }
 
     /// Autostart waits a grace period after launch: an already-running daemon
@@ -353,6 +354,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString("KK_DAEMON_SOCKET=\(Self.simulatorDaemonSocketPath)", forType: .string)
+    }
+
+    private func refreshDaemonStatusPresentation() {
+        if daemonConnected {
+            panel.setDaemonStatus(.connected)
+        } else if daemonProcess != nil {
+            panel.setDaemonStatus(.starting)
+        } else {
+            panel.setDaemonStatus(.none)
+        }
+        updateWindowTitle()
+        updateDaemonMenuState()
     }
 
     private func updateDaemonMenuState() {
@@ -745,7 +758,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             percent = scrollView.magnification * 100
         }
-        let daemonState = daemonConnected ? "daemon connected" : "no daemon"
+        let daemonState: String
+        if daemonConnected {
+            daemonState = "daemon connected"
+        } else if daemonProcess != nil {
+            daemonState = "starting daemon …"
+        } else {
+            daemonState = "no daemon"
+        }
         window.title = "\(Self.baseWindowTitle) \(panel.currentKeybedSize.title) (\(Int(percent.rounded()))%) — \(daemonState)"
     }
 

@@ -23,7 +23,13 @@ final class PanelView: NSView {
     private var modValue = 0
     private var ribbonPosition: Int?
     private var ribbonTimestamp = 0
-    private var connected = false
+    enum DaemonStatus {
+        case none
+        case starting
+        case connected
+    }
+
+    private var daemonStatus = DaemonStatus.none
 
     enum KeybedSize: Int, CaseIterable {
         case kk25 = 25
@@ -136,7 +142,7 @@ final class PanelView: NSView {
 
     // MARK: - Output from the daemon
 
-    func setConnected(_ value: Bool) { connected = value; needsDisplay = true }
+    func setDaemonStatus(_ status: DaemonStatus) { daemonStatus = status; needsDisplay = true }
 
     func applyBlit(screen: Int, x: Int, y: Int, w: Int, h: Int, be: [UInt8]) {
         guard screens.indices.contains(screen) else { return }
@@ -646,9 +652,21 @@ final class PanelView: NSView {
     }
 
     private func drawStatus() {
-        let text = connected ? "● daemon connected" : "○ waiting for ccd  (CCD_SIMULATE)"
+        let text: String
+        let color: NSColor
+        switch daemonStatus {
+            case .connected:
+                text = "● daemon connected"
+                color = .systemGreen
+            case .starting:
+                text = "◐ starting daemon …"
+                color = .systemYellow
+            case .none:
+                text = "○ waiting for ccd  (CCD_SIMULATE)"
+                color = NSColor(white: 0.5, alpha: 1)
+        }
         drawLabel(text, in: NSRect(x: 24, y: bounds.height - 22, width: 400, height: 16),
-                  color: connected ? NSColor.systemGreen : NSColor(white: 0.5, alpha: 1), size: 11, left: true)
+                  color: color, size: 11, left: true)
     }
 
     private func drawLabel(_ text: String, in rect: NSRect, color: NSColor, size: CGFloat = 12, left: Bool = false) {

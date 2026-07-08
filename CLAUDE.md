@@ -299,8 +299,9 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   title shows the daemon attachment state; "Copy Client Environment" puts the
   `KK_DAEMON_SOCKET=…` line on the pasteboard, and "Autostart Daemon If Not Running"
   (persisted) starts the child after a 1.5 s grace period unless a daemon already
-  attached (skipped in snapshot mode; SIGTERM/SIGINT tear the child down with the
-  app). Enablers: clients resolve
+  attached — and immediately when toggled on while unattached (skipped in snapshot
+  mode; SIGTERM/SIGINT tear the child down with the app). Window title and the
+  panel status line show the tri-state: no daemon / starting daemon / connected. Enablers: clients resolve
   `defaultDaemonSocketPath` through `KK_DAEMON_SOCKET`, the daemon singleton and its
   lock file are scoped **per socket** (hardware on /var/run, simulator on /tmp), and
   `daemon-preflight` ignores daemons on the simulator socket. Full design + phasing in
