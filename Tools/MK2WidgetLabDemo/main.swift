@@ -255,6 +255,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
     case statusFilters
     case bare
     case footerOnly
+    case splash
 
     var title: String {
         switch self {
@@ -264,6 +265,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
             case .statusFilters: "STATUS + FILTERS"
             case .bare: "NONE + NONE"
             case .footerOnly: "NONE + ENCODERS"
+            case .splash: "SPLASH"
         }
     }
 
@@ -277,14 +279,14 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
                     MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
                     MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
                 ])
-            case .bare, .footerOnly:
+            case .bare, .footerOnly, .splash:
                 .none
         }
     }
 
     var footer: MK2ScreenFooter {
         switch self {
-            case .titleOnly, .bare: .none
+            case .titleOnly, .bare, .splash: .none
             case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
             case .titleEncoders, .footerOnly: .encoderArea()
             case .statusFilters: .filters()
@@ -293,7 +295,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
 
     var footerLabel: String {
         switch self {
-            case .titleOnly, .bare: "NONE"
+            case .titleOnly, .bare, .splash: "NONE"
             case .titleHint: "HINT"
             case .titleEncoders, .footerOnly: "ENCODER"
             case .statusFilters: "FILTERS"
@@ -304,7 +306,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
         switch self {
             case .titleOnly, .titleHint, .titleEncoders: "TITLE"
             case .statusFilters: "STATUS"
-            case .bare, .footerOnly: "NONE"
+            case .bare, .footerOnly, .splash: "NONE"
         }
     }
 
@@ -373,6 +375,7 @@ private actor WidgetLab {
     private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
     private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
     private var sceneFocusedEncoder: Int?
+    private var cachedSplashArtwork: MK2PixelImage?
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -1266,6 +1269,7 @@ private actor WidgetLab {
     }
 
     private func sceneChromeDemoResult() -> MK2ScreenBuildResult {
+        guard sceneCombo != .splash else { return splashDemoResult() }
         let combo = sceneCombo
         let layout = sceneLayout()
         let headerLine = "HEADER \(combo.headerLabel) \(layout.headerRect?.height ?? 0)  FOOTER \(combo.footerLabel) \(layout.footerRect?.height ?? 0)"
@@ -1411,6 +1415,46 @@ private actor WidgetLab {
                 colors: editCellColors(value: Palette.text)
             )
         }
+    }
+
+    // A splash/about screen: a decoded PNG as the full-screen background, centered
+    // labels on top. The artwork is generated at runtime and round-tripped through
+    // PixelSnapshot -> MK2PixelImage, so the real PNG decode path runs without a
+    // bundled binary. E6 (VALUE) doubles as the background brightness while the
+    // splash combo is up.
+    private func splashDemoResult() -> MK2ScreenBuildResult {
+        let brightness = Double(sceneProgressPercent) / 100.0
+        let image = splashArtwork()
+        return MK2FullScreenDSL(background: Palette.page) {
+            if let image {
+                MK2ImageElement(image, brightness: brightness)
+            }
+            MK2ContentText("PAULINCHE", x: 0, y: 88, maxWidth: 480, role: .title, alignment: .center)
+            MK2ContentText("AMIGA MOD TRACKER", x: 0, y: 128, maxWidth: 480, color: Palette.dim, alignment: .center)
+            MK2ContentText("VERSION 0.1 — KONTROLSURFACEKIT2", x: 0, y: 244, maxWidth: 480, role: .footnote, color: Palette.dim, alignment: .center)
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func splashArtwork() -> MK2PixelImage? {
+        if let cachedSplashArtwork { return cachedSplashArtwork }
+        var art = MK2PixelFrame()
+        for y in 0..<MK2PixelFrame.height {
+            let t = Double(y) / Double(MK2PixelFrame.height - 1)
+            let r = UInt16(3.0 * (1 - t))
+            let g = UInt16(10.0 * (1 - t))
+            let b = UInt16(20.0 * (1 - t) + 2)
+            art.fill(MK2PixelRect(x: 0, y: y, width: MK2PixelFrame.width, height: 1), (r << 11) | (g << 5) | b)
+        }
+        for x in 0..<MK2PixelFrame.width {
+            let phase = Double(x) / 480.0 * .pi * 4
+            let y1 = 136 + Int((sin(phase) * 78).rounded())
+            let y2 = 136 + Int((sin(phase + 1.2) * 52).rounded())
+            art.fill(MK2PixelRect(x: x, y: y1 - 1, width: 1, height: 3), Palette.green)
+            art.fill(MK2PixelRect(x: x, y: y2, width: 1, height: 2), Palette.solo)
+        }
+        let decoded = MK2PixelImage(data: PixelSnapshot.pngData(art))
+        cachedSplashArtwork = decoded
+        return decoded
     }
 
     private func cycleSceneCombo() async {

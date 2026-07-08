@@ -218,7 +218,14 @@ public struct MK2ContentText: MK2ScreenElement {
         case body
         case title
         case caption
+        case footnote
         case custom(weight: FreeTypeFontWeight, pixelSize: Int)
+    }
+
+    public enum Alignment: Sendable, Equatable {
+        case leading
+        case center
+        case trailing
     }
 
     public var text: String
@@ -227,6 +234,7 @@ public struct MK2ContentText: MK2ScreenElement {
     public var maxWidth: Int?
     public var role: Role
     public var color: UInt16
+    public var alignment: Alignment
     public var relativeToContent: Bool
     public var maxLines: Int?
     public var lineSpacing: Int
@@ -238,6 +246,7 @@ public struct MK2ContentText: MK2ScreenElement {
         maxWidth: Int? = nil,
         role: Role = .body,
         color: UInt16 = MK2HIG.Chrome.text,
+        alignment: Alignment = .leading,
         relativeToContent: Bool = true,
         maxLines: Int? = nil,
         lineSpacing: Int = 0
@@ -248,6 +257,7 @@ public struct MK2ContentText: MK2ScreenElement {
         self.maxWidth = maxWidth
         self.role = role
         self.color = color
+        self.alignment = alignment
         self.relativeToContent = relativeToContent
         self.maxLines = maxLines
         self.lineSpacing = max(0, lineSpacing)
@@ -255,9 +265,9 @@ public struct MK2ContentText: MK2ScreenElement {
 
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
         let origin = relativeToContent ? context.layout?.contentRect.origin ?? .zero : .zero
-        let drawX = origin.x + x
+        let boxX = origin.x + x
         let drawY = origin.y + y
-        let availableWidth = maxWidth ?? max(0, MK2PixelFrame.width - drawX - MK2ScreenLayout.contentInset)
+        let availableWidth = maxWidth ?? max(0, MK2PixelFrame.width - boxX - MK2ScreenLayout.contentInset)
         let style = textStyle()
 
         if let renderer = context.renderer {
@@ -265,7 +275,7 @@ public struct MK2ContentText: MK2ScreenElement {
                (try? renderer.drawWrappedText(
                     text,
                     into: &frame,
-                    x: drawX,
+                    x: boxX,
                     y: drawY,
                     style: style,
                     maxWidth: availableWidth,
@@ -275,6 +285,9 @@ public struct MK2ContentText: MK2ScreenElement {
                 return
             }
 
+            let drawX = alignedX(boxX: boxX, availableWidth: availableWidth) {
+                (try? renderer.measure(text, style: style)) ?? availableWidth
+            }
             if (try? renderer.drawText(text, into: &frame, x: drawX, y: drawY, style: style, maxWidth: availableWidth)) != nil {
                 return
             }
@@ -284,15 +297,26 @@ public struct MK2ContentText: MK2ScreenElement {
         switch role {
             case .title:
                 font = .gridBold
-            case .caption, .body, .custom:
+            case .caption, .body, .footnote, .custom:
                 font = .grid
         }
         let lines = maxLines.map { wrappedBitmapLines(text, font: font, maxWidth: availableWidth, maxLines: max(1, $0)) } ?? [text]
         let lineAdvance = font.cellHeight + lineSpacing
         for (index, line) in lines.enumerated() {
             let y = drawY + 3 + index * lineAdvance
+            let drawX = alignedX(boxX: boxX, availableWidth: availableWidth) { line.count * font.advance }
             BitmapLabel(line, font: font, color: color)
-                .draw(into: &frame, x: drawX, y: y, clip: MK2PixelRect(x: drawX, y: y, width: availableWidth, height: font.cellHeight))
+                .draw(into: &frame, x: drawX, y: y, clip: MK2PixelRect(x: boxX, y: y, width: availableWidth, height: font.cellHeight))
+        }
+    }
+
+    private func alignedX(boxX: Int, availableWidth: Int, measure: () -> Int) -> Int {
+        guard alignment != .leading else { return boxX }
+        let textWidth = min(availableWidth, measure())
+        return switch alignment {
+            case .leading: boxX
+            case .center: boxX + (availableWidth - textWidth) / 2
+            case .trailing: boxX + availableWidth - textWidth
         }
     }
 
@@ -304,6 +328,8 @@ public struct MK2ContentText: MK2ScreenElement {
                 MK2HIG.titleTextStyle(color: color)
             case .caption:
                 MK2HIG.captionTextStyle(color: color)
+            case .footnote:
+                MK2HIG.footnoteTextStyle(color: color)
             case let .custom(weight, pixelSize):
                 MK2HIG.textStyle(weight: weight, pixelSize: pixelSize, color: color)
         }

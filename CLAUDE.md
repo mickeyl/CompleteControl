@@ -72,6 +72,15 @@ Resume from `master`. The MK2 screen-formalization work is active:
   caption/footnote sizes (live band resizing), and the left screen outlines the
   resulting `contentRect`; the Meter Lab overview additionally realizes a `.top`
   progress bar.
+- Splash/about screens: `MK2PixelImage` decodes PNG/JPEG (anything ImageIO reads) to a
+  display-ready RGB565 bitmap at load time, with `.fill`/`.fit` aspect scaling to the
+  target size; `MK2ImageElement` draws it (centered by default) with a `brightness`
+  scrim so labels stay readable over artwork. `MK2ContentText` gained
+  `alignment: .leading/.center/.trailing` (single-line) and a `.footnote` role. The
+  Scene Lab SPLASH combination is the acceptance screen — its artwork round-trips
+  through `PixelSnapshot` → `MK2PixelImage` at runtime (no bundled binary), `E6`
+  doubles as background brightness there; decode exactness, scaling, and element
+  behavior are pinned in `PixelImageTests`.
 - `PaulincheSurfaceKit` is a separate Swift module for Paulinche-shaped renderers on top
   of `KontrolSurfaceKit2`, still without a Paulinche package dependency.
   `MK2PaulinchePatternRenderer` now renders the widget-lab tracker design 1:1: full-bleed
