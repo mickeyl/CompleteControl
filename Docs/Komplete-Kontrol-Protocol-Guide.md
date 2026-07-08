@@ -998,7 +998,9 @@ real hand resting on the cap.
 
 #### The NO CLIENT mode became a simulator test harness
 
-**Platzhalter: NO CLIENT mode in the simulator, with the right display showing the scrolling timestamped input event log.**
+![The simulator in NO CLIENT mode: the left display shows the daemon revision plus the latest decoded surface and MIDI acknowledgements with their raw reports, the right display scrolls a timestamped input event log](images/kontrolsimulator-no-client.png)
+
+*NO CLIENT mode: the daemon owns the surface, acknowledges every decoded input on the left display (including the raw report bytes), and scrolls a timestamped event log on the right — strip positions, MIDI notes, and button state all land here, which is how layout bugs get spotted.*
 
 The daemon's NO CLIENT mode began as a hardware safety feature: when no client is
 connected, the daemon still owns the surface and can show that it is alive. During
