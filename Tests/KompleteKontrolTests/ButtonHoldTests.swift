@@ -16,7 +16,11 @@ struct ButtonHoldTests {
         await surface.present(MK2SurfaceScene2(bindings: bindings))
 
         await surface.handleForTesting([.button(led: .browser, pressed: true)])
-        try await Task.sleep(nanoseconds: 40_000_000)
+        // Poll instead of a fixed sleep: the 10 ms hold timer plus actor hops can
+        // exceed a small fixed margin when the suite runs fully parallel.
+        for _ in 0..<200 where box.events.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         #expect(box.events == ["hold"])
     }

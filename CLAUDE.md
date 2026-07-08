@@ -291,9 +291,17 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   panel-button RGB only for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest
   (Play green, Record red, otherwise white). All controls are clickable/scrollable. Closing the window
   exercises reconnect.
-- **Run it**: `make run-simulator` (GUI, one shell) + `make daemon-simulate` (foreground sim
-  `ccd`, another shell — stops the launchd daemon, binds the normal client socket) + any client
-  (`swift run MK2WidgetLabDemo`). Full design + phasing in `Docs/Simulator-Plan.md`.
+- **Run it**: `make run-simulator` (GUI, one shell), then either the app's **Daemon menu**
+  ("Start Simulator Daemon" — launches the sibling `ccd` build in CCD_SIMULATE mode on
+  `/tmp/kontrol-simulator-daemon.sock`, **no sudo**, coexists with the installed hardware
+  daemon) plus a client via `make mk2-widget-lab-demo-sim` (exports `KK_DAEMON_SOCKET`),
+  or the classic `make daemon-simulate` (sudo, takes over the stock socket). The window
+  title shows the daemon attachment state; "Copy Client Environment" puts the
+  `KK_DAEMON_SOCKET=…` line on the pasteboard. Enablers: clients resolve
+  `defaultDaemonSocketPath` through `KK_DAEMON_SOCKET`, the daemon singleton and its
+  lock file are scoped **per socket** (hardware on /var/run, simulator on /tmp), and
+  `daemon-preflight` ignores daemons on the simulator socket. Full design + phasing in
+  `Docs/Simulator-Plan.md`.
 - **Headless snapshots**: `KONTROLSIM_SNAPSHOT_PATH=<png> KONTROLSIM_SNAPSHOT_DELAY=<s>` renders
   the panel view to a PNG after the delay and exits (`KONTROLSIM_SNAPSHOT_SCALE`, default 2).
   TCC-free (renders the view, not the screen) and needs no daemon/sudo: anything can speak the

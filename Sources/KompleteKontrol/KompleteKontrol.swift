@@ -1870,10 +1870,22 @@ public enum KKDriverError: Error {
 
 public enum KompleteKontrolLibUSBServer {
     public static let daemonLabel = "media.vanille.kompletekontrol-libusb"
-    public static let defaultDaemonSocketPath = "/var/run/kompletekontrol-libusb.sock"
+    /// Clients and the daemon default resolve through `KK_DAEMON_SOCKET`, so a
+    /// user-level simulator daemon on a /tmp socket can coexist with the installed
+    /// hardware daemon without sudo or reconfiguration.
+    public static let defaultDaemonSocketPath =
+        ProcessInfo.processInfo.environment["KK_DAEMON_SOCKET"] ?? "/var/run/kompletekontrol-libusb.sock"
     public static let daemonLogPath = "/tmp/media.vanille.kompletekontrol-libusb.foreground.log"
     public static let protocolVersion = 4
-    private static let daemonLockPath = "/var/run/kompletekontrol-libusb.lock"
+
+    /// The lock lives beside the socket it guards (`…libusb.sock` → `…libusb.lock`),
+    /// so per-socket daemons — hardware on /var/run, simulator on /tmp — cannot
+    /// block each other and non-root simulator daemons stay out of /var/run.
+    private static func daemonLockPath(for socketPath: String) -> String {
+        socketPath.hasSuffix(".sock")
+            ? String(socketPath.dropLast(5)) + ".lock"
+            : socketPath + ".lock"
+    }
     private static let daemonStartLock = NSLock()
 
     public static func daemonSocketPath(
@@ -2088,7 +2100,7 @@ public enum KompleteKontrolLibUSBServer {
         signal(SIGTERM, SIG_IGN)
         daemonDebugLog("process start pid=\(getpid()) socket=\(socketPath)", group: "daemon")
         daemonDebugLog("process scan begin", group: "daemon")
-        let otherPIDs = runningDaemonPIDs().filter { $0 != getpid() }
+        let otherPIDs = runningDaemonPIDs(socketPath: socketPath).filter { $0 != getpid() }
         daemonDebugLog("process scan complete otherPIDs=\(otherPIDs.map(String.init).joined(separator: ","))", group: "daemon")
         if !otherPIDs.isEmpty {
             daemonLog("refusing to start: other daemon process already running pid=\(otherPIDs.map(String.init).joined(separator: ","))", level: .error)
@@ -2100,9 +2112,9 @@ public enum KompleteKontrolLibUSBServer {
             exit(6)
         }
         daemonDebugLog("socket probe complete", group: "daemon")
-        daemonDebugLog("lock acquire begin path=\(daemonLockPath)", group: "daemon")
-        guard acquireDaemonLock() != nil else {
-            daemonLog("refusing to start: another daemon holds \(daemonLockPath)", level: .error)
+        daemonDebugLog("lock acquire begin path=\(daemonLockPath(for: socketPath))", group: "daemon")
+        guard acquireDaemonLock(socketPath: socketPath) != nil else {
+            daemonLog("refusing to start: another daemon holds \(daemonLockPath(for: socketPath))", level: .error)
             exit(6)
         }
         daemonDebugLog("lock acquire complete", group: "daemon")
@@ -2612,10 +2624,11 @@ public enum KompleteKontrolLibUSBServer {
         "/Library/LaunchDaemons/\(daemonLabel).plist"
     }
 
-    private static func acquireDaemonLock() -> Int32? {
-        let fd = Darwin.open(daemonLockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+    private static func acquireDaemonLock(socketPath: String) -> Int32? {
+        let lockPath = daemonLockPath(for: socketPath)
+        let fd = Darwin.open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
         guard fd >= 0 else {
-            daemonLog("daemon lock open failed path=\(daemonLockPath) errno=\(errno)")
+            daemonLog("daemon lock open failed path=\(lockPath) errno=\(errno)")
             return nil
         }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
@@ -2625,7 +2638,9 @@ public enum KompleteKontrolLibUSBServer {
         return fd
     }
 
-    private static func runningDaemonPIDs() -> [pid_t] {
+    /// The daemon singleton is scoped per socket: a hardware daemon on the /var/run
+    /// socket and a user-level simulator daemon on a /tmp socket coexist on purpose.
+    private static func runningDaemonPIDs(socketPath: String) -> [pid_t] {
         let patterns = [
             "ccd .*--kk-libusb-daemon",
             "ccd .*--libusb-daemon",
@@ -2641,12 +2656,24 @@ public enum KompleteKontrolLibUSBServer {
         return candidates
             .compactMap { pid -> pid_t? in
                 guard let command = commandLine(for: pid),
-                      isDaemonProcessCommand(command) else {
+                      isDaemonProcessCommand(command),
+                      daemonCommandSocketPath(command) == socketPath else {
                     return nil
                 }
                 return pid
             }
             .sorted()
+    }
+
+    private static func daemonCommandSocketPath(_ command: String) -> String {
+        let tokens = command.split(separator: " ").map(String.init)
+        for (index, token) in tokens.enumerated() where token == "--kk-libusb-daemon" || token == "--libusb-daemon" {
+            if index + 1 < tokens.count, !tokens[index + 1].hasPrefix("-") {
+                return tokens[index + 1]
+            }
+        }
+        // A daemon launched without an explicit socket argument sits on the stock path.
+        return "/var/run/kompletekontrol-libusb.sock"
     }
 
     private static func pgrep(pattern: String) -> [pid_t] {

@@ -16,7 +16,7 @@ MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-release daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init build build-release surface surface-release SurfaceDemo mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release probe-build probe-build-release mk2-usb-spy-build mk2-usb-spy daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart run run-release probe-run probe-run-release probe-ui kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -72,7 +72,7 @@ mk2-usb-spy: mk2-usb-spy-build ## Stop daemon and run MK2 USB descriptor/input s
 	sudo "$$(pwd)/$(MK2_USB_SPY)" $(MK2_USB_SPY_ARGS)
 
 daemon-preflight: ## Refuse stale or duplicate daemon state (queries the installed daemon's embedded revision; no local build needed). Caveat: two dirty builds of the same commit compare equal.
-	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
+	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") > 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
 	count="$$(printf '%s\n' "$$pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
 	if [ "$$count" -gt 1 ]; then \
 		echo "Refusing to run: multiple KompleteKontrol daemons are active:" >&2; \
@@ -163,6 +163,7 @@ uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	-sudo rm -f /usr/local/bin/KontrolProbe
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	-sudo rm -f /tmp/media.vanille.kompletekontrol-libusb.stdout.log /tmp/media.vanille.kompletekontrol-libusb.stderr.log
 	@echo "Daemon service uninstalled."
 
 daemon-status: ## Show daemon status.
@@ -196,6 +197,9 @@ mk2-surface-demo-release: mk2-surface-demo-build-release ## Run optimized MK2 ha
 mk2-widget-lab-demo: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab demo.
 	@$(MAKE) daemon-preflight
 	$(MK2_WIDGET_LAB_DEMO)
+
+mk2-widget-lab-demo-sim: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab demo against the simulator daemon (start it from the KontrolSimulator Daemon menu; no sudo).
+	KK_DAEMON_SOCKET=/tmp/kontrol-simulator-daemon.sock $(MK2_WIDGET_LAB_DEMO)
 
 mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release ## Run optimized MK2 Widget Lab demo.
 	@$(MAKE) daemon-preflight

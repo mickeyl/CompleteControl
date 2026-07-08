@@ -19,7 +19,7 @@ Supported now:
 - Foreground debug daemon and quiet release daemon
 - Idle daemon surface diagnostics while no client is connected
 - REPL benchmark and an AppKit demo UI
-- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, and `KontrolSimulator`
+- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, and `KontrolSimulator` (with a built-in Daemon menu that runs a user-level simulator daemon on a /tmp socket — no sudo, coexisting with the installed hardware daemon; clients attach via `KK_DAEMON_SOCKET`)
 - MK2 LED capability model: palette colours on Mute, Solo, F1-F8, and the 25 touch-strip segments; other panel button indicators are fixed-colour monochrome (normally white, Play green, Record red)
 - MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text (with the Phosphor icon font) for larger dialogs, browser/settings surfaces, lists, and long text
 - MK2 screen chrome: typography-driven header/footer bands with a raised graphite bevel, an optional gradient progress-bar slot, decoded PNG/JPEG image backgrounds for splash/about screens, ordered-dither quantization against OLED banding, and debossed encoder value cells in canonical bottom-flush slots

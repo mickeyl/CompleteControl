@@ -23,6 +23,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
+
+    // Rudimentary control over a user-level simulator daemon: ccd in CCD_SIMULATE
+    // mode touches no USB and binds a /tmp socket, so no sudo is involved. Clients
+    // attach by exporting KK_DAEMON_SOCKET to the same path.
+    static let simulatorDaemonSocketPath = "/tmp/kontrol-simulator-daemon.sock"
+    static let simulatorDaemonLogPath = "/tmp/kontrol-simulator-daemon.log"
+    private var daemonProcess: Process?
+    private var daemonConnected = false
+    private var daemonStartItem: NSMenuItem?
+    private var daemonStopItem: NSMenuItem?
     private var window: NSWindow!
     private var scrollView: NSScrollView!
     private var panel: PanelView!
@@ -112,10 +122,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         panel.onInput = { [weak self] frame in self?.link.send(frame) }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
-        link.onConnect = { [weak self] in self?.panel.setConnected(true) }
+        link.onConnect = { [weak self] in
+            self?.panel.setConnected(true)
+            self?.daemonConnected = true
+            self?.updateWindowTitle()
+            self?.updateDaemonMenuState()
+        }
         link.onDisconnect = { [weak self] in
             self?.panel.clearAll()
             self?.panel.setConnected(false)
+            self?.daemonConnected = false
+            self?.updateWindowTitle()
+            self?.updateDaemonMenuState()
         }
         if !link.start() {
             NSLog("KontrolSimulator: failed to bind \(SimEndpoint.defaultSocketPath)")
@@ -186,6 +204,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        daemonProcess?.terminate()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
@@ -204,6 +226,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit KompleteSimulator",
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        let daemonItem = NSMenuItem()
+        mainMenu.addItem(daemonItem)
+        let daemonMenu = NSMenu(title: "Daemon")
+        daemonMenu.autoenablesItems = false
+        daemonItem.submenu = daemonMenu
+        daemonStartItem = add(to: daemonMenu, "Start Simulator Daemon", #selector(startSimulatorDaemon), "d")
+        daemonStopItem = add(to: daemonMenu, "Stop Simulator Daemon", #selector(stopSimulatorDaemon), "")
+        daemonMenu.addItem(.separator())
+        add(to: daemonMenu, "Copy Client Environment", #selector(copyClientEnvironment), "")
 
         let viewItem = NSMenuItem()
         mainMenu.addItem(viewItem)
@@ -227,6 +259,67 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         NSApp.mainMenu = mainMenu
         updateViewMenuState()
+        updateDaemonMenuState()
+    }
+
+    // MARK: - Simulator daemon control
+
+    @objc private func startSimulatorDaemon() {
+        guard daemonProcess == nil else { return }
+        let ccdURL = Bundle.main.executableURL!
+            .deletingLastPathComponent()
+            .appendingPathComponent("ccd")
+        guard FileManager.default.isExecutableFile(atPath: ccdURL.path) else {
+            let alert = NSAlert()
+            alert.messageText = "ccd is not built"
+            alert.informativeText = "Expected the daemon next to the simulator at \(ccdURL.path). Run: swift build --product ccd"
+            alert.runModal()
+            return
+        }
+
+        FileManager.default.createFile(atPath: Self.simulatorDaemonLogPath, contents: nil)
+        let log = FileHandle(forWritingAtPath: Self.simulatorDaemonLogPath)
+
+        let process = Process()
+        process.executableURL = ccdURL
+        process.arguments = ["--kk-libusb-daemon", Self.simulatorDaemonSocketPath]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CCD_SIMULATE"] = link.socketPath
+        environment["LOGLEVEL"] = environment["LOGLEVEL"] ?? "INFO"
+        process.environment = environment
+        process.standardOutput = log
+        process.standardError = log
+        process.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.daemonProcess = nil
+                self?.updateDaemonMenuState()
+            }
+        }
+        do {
+            try process.run()
+            daemonProcess = process
+        } catch {
+            NSLog("KontrolSimulator: failed to start daemon — %@", "\(error)")
+        }
+        updateDaemonMenuState()
+    }
+
+    @objc private func stopSimulatorDaemon() {
+        daemonProcess?.terminate()
+    }
+
+    @objc private func copyClientEnvironment() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("KK_DAEMON_SOCKET=\(Self.simulatorDaemonSocketPath)", forType: .string)
+    }
+
+    private func updateDaemonMenuState() {
+        daemonStartItem?.isEnabled = daemonProcess == nil
+        daemonStopItem?.isEnabled = daemonProcess != nil
+        daemonStartItem?.title = daemonConnected && daemonProcess == nil
+            ? "Start Simulator Daemon (external daemon attached)"
+            : "Start Simulator Daemon"
     }
 
     @discardableResult
@@ -610,7 +703,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             percent = scrollView.magnification * 100
         }
-        window.title = "\(Self.baseWindowTitle) \(panel.currentKeybedSize.title) (\(Int(percent.rounded()))%)"
+        let daemonState = daemonConnected ? "daemon connected" : "no daemon"
+        window.title = "\(Self.baseWindowTitle) \(panel.currentKeybedSize.title) (\(Int(percent.rounded()))%) — \(daemonState)"
     }
 
     // MARK: - Window placement
