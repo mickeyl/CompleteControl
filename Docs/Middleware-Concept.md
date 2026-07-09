@@ -187,7 +187,7 @@ chosen default; `grayscaleLightHinted`, `grayscaleUnhinted`, and `monochromeHint
 for renderer comparison. LCD/subpixel rendering is intentionally not used because the
 RGB565/OLED path has no stable RGB-stripe subpixel contract.
 
-The hardware workbench is `MK2WidgetLabDemo` Unit A; see `Docs/MK2-FreeType.md`.
+The hardware workbench is `MK2WidgetLabDemo` Unit A.
 
 ## 6. Declarative `Screen` and components
 

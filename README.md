@@ -414,8 +414,7 @@ The demo prints a full control map at startup. Hardware controls:
 
 Recommended OLED default is `Gray hinted`. LCD/subpixel rendering is intentionally not used
 for the MK2 RGB565/OLED path because the panel subpixel geometry is not a stable RGB-stripe
-contract and would risk colour fringes. See [Docs/MK2-FreeType.md](Docs/MK2-FreeType.md)
-for the implementation and performance notes.
+contract and would risk colour fringes.
 
 ## Demo UI
 

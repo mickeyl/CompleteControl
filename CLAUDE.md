@@ -205,6 +205,11 @@ Read `Docs/daemon-usb-reactor.md` before changing daemon USB scheduling. Synchro
 output calls can dispatch async callbacks reentrantly, so pending-state flush paths must re-check
 after writes instead of relying on a later kqueue edge.
 
+Keep the MK2 asynchronous MIDI input buffer at 512 bytes, matching the endpoint's
+`wMaxPacketSize`. A 256-byte buffer can leave a short transfer — especially note-off — pending
+until another MIDI event arrives. The regression check is chord note-off while OLED/light-guide
+output is active; every released key must clear immediately.
+
 Do not write LCDs/light-guide directly from libusb completion callbacks. Callback paths should
 update daemon state and set a pending flush flag; the kqueue reactor drains the idle diagnostic,
 including any state marked reentrantly during synchronous output writes. Writing from inside the
@@ -232,8 +237,7 @@ You usually can't see the LCDs/LEDs. What works:
 
 ### MK2 FreeType typography
 
-FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/` and is documented in
-`Docs/MK2-FreeType.md`.
+FreeType support lives in `Sources/KontrolSurfaceKit2/FreeType/`.
 
 - Use `BitmapLabel`/`SurfaceFont`/`MK2PixelFrame.drawText(...)` for tracker grids and dense,
   bitmap-sharp UI. This path remains atlas-backed and does not call FreeType.
@@ -290,14 +294,15 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   offsets are `internal`, one source of truth). `MK2InputReportBuilderTests` round-trips
   builder → decoder per control to prove it.
 - **Wire protocol**: `SimWireProtocol` (`SimFrame`/`SimWireCodec`), length-prefixed frames.
-  ccd→sim = display blits + LED reports; sim→ccd = *semantic* input (button/encoder/4-D). The
-  app is dumb — `SimulatorDeviceSession` lowers semantic input into raw reports; its socket fd
-  rides the kqueue reactor exactly where libusb pollfds do, and socket EOF = device-loss.
+  ccd→sim = display blits + LED/light-guide reports; sim→ccd = *semantic* panel input plus
+  MIDI, wheels/aftertouch, and ribbon input. The app is dumb — `SimulatorDeviceSession` lowers
+  semantic input into raw surface, MIDI, and strip reports; its socket fd rides the kqueue reactor
+  exactly where libusb pollfds do, and socket EOF = device-loss.
 - **The app**: `KontrolSimulator` (`Tools/KontrolSimulator`) — two 480×272 displays, 8 function
-  buttons, side buttons, 8 encoders, the 4-D encoder, with hardware-accurate button LEDs:
-  panel-button RGB only for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest
-  (Play green, Record red, otherwise white). All controls are clickable/scrollable. Closing the window
-  exercises reconnect.
+  buttons, side/transport buttons, 8 encoders, the 4-D encoder, configurable keybed, wheels,
+  aftertouch, ribbon, and light guide, with hardware-accurate button LEDs: panel-button RGB only
+  for Mute, Solo, and F1-F8; fixed-colour monochrome text for the rest (Play green, Record red,
+  otherwise white). Controls are clickable/scrollable. Closing the window exercises reconnect.
 - **Run it**: `make run-simulator` (GUI, one shell), then either the app's **Daemon menu**
   ("Start Simulator Daemon" — launches the sibling `ccd` build in CCD_SIMULATE mode on
   `/tmp/kontrol-simulator-daemon.sock`, **no sudo**, coexists with the installed hardware
@@ -321,9 +326,7 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   The daemon singleton and its lock file are scoped **per socket** (hardware on
   /var/run, simulator on /tmp), and `daemon-preflight` skips the installed
   `/usr/local/bin/ccd` revision check when the simulator daemon is the target or
-  the only running daemon. Full
-  design + phasing in
-  `Docs/Simulator-Plan.md`.
+  the only running daemon.
 - **MK2 daemon→client handoff**: on client registration the daemon leaves the right
   OLED untouched, replaces only the left `NO CLIENT` title row with the client
   name plus a smaller gray PID, holds client display/state reports for one second, slides the light guide

@@ -2,10 +2,6 @@
 
 ## Daemon / libusb architecture
 
-- Fixed for the MK2 NO CLIENT diagnostic: MIDI note-offs could appear delayed when
-  synchronous light-guide/display writes dispatched callbacks reentrantly. The idle
-  flush now re-checks pending state after output writes. Keep the detailed rule in
-  `Docs/daemon-usb-reactor.md` in mind before touching daemon USB scheduling.
 - Continue revisiting the daemon's libusb architecture for MK2 idle and client operation.
   Display, MIDI, surface input, button LEDs, and light guide sit on separate USB
   interfaces/endpoints, but the daemon still owns them through one device session and one
