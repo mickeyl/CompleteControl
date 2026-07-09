@@ -1494,15 +1494,12 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
     }
 
     private func startDaemonInputSession() -> KKDaemonOutputSession? {
-        guard case let .privilegedHelper(executablePath) = outputMode else {
+        guard case .privilegedHelper = outputMode else {
             return nil
         }
         if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            log?("Komplete Kontrol libusb daemon not running; requesting administrator startup.")
-            guard KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(executablePath: executablePath, logger: log) else {
-                log?("Komplete Kontrol libusb daemon startup failed.")
-                return nil
-            }
+            log?("Komplete Kontrol libusb daemon not running; start it before connecting.")
+            return nil
         }
         guard let session = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
             return nil
@@ -1688,16 +1685,13 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         if let helperSession {
             return helperSession
         }
-        guard case let .privilegedHelper(executablePath) = outputMode else {
+        guard case .privilegedHelper = outputMode else {
             return nil
         }
 
         if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            log?("Komplete Kontrol libusb daemon not running; requesting administrator startup.")
-            guard KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(executablePath: executablePath, logger: log) else {
-                log?("Komplete Kontrol libusb daemon startup failed.")
-                return nil
-            }
+            log?("Komplete Kontrol libusb daemon not running; start it before connecting.")
+            return nil
         }
 
         guard let session = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
@@ -1706,23 +1700,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         }
 
         if !KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(session) {
-            log?("Komplete Kontrol libusb daemon is outdated; requesting administrator restart.")
-            _ = session.request("quit\n", timeoutUsec: 50_000)
-            guard KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(executablePath: executablePath, forceRestart: true, logger: log),
-                  let restarted = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath),
-                  KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(restarted) else {
-                log?("Komplete Kontrol libusb daemon restart failed.")
-                return nil
-            }
-            helperSession = restarted
-            sessionConnectionAnnounced = true
-            log?("Komplete Kontrol libusb daemon connected.")
-            registerClient(
-                on: restarted,
-                tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .outputHelper)
-            )
-            replaySurfaceState(on: restarted)
-            return restarted
+            log?("Komplete Kontrol libusb daemon is outdated; install/start the matching daemon before connecting.")
+            return nil
         }
 
         helperSession = session

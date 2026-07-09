@@ -87,8 +87,6 @@ public actor MK2Surface2 {
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
     private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
     private var nextButtonHoldToken: UInt64 = 0
-    private static let stockHardwareDaemonSocketPath = "/var/run/kompletekontrol-libusb.sock"
-
     public init(device: KompleteKontrolSSeriesMK2 = KompleteKontrolSSeriesMK2(seizeHID: false), options: Options = Options()) {
         _ = device
         self.options = options
@@ -195,17 +193,6 @@ public actor MK2Surface2 {
         lastDaemonStartAttemptNanos = DispatchTime.now().uptimeNanoseconds
         let socketPath = daemonSocketPathForNextAttempt()
         activeDaemonSocketPath = socketPath
-        if socketPath == Self.stockHardwareDaemonSocketPath,
-           KompleteKontrolLibUSBServer.defaultDaemonSocketPath == Self.stockHardwareDaemonSocketPath,
-           !KompleteKontrolLibUSBServer.daemonSocketIsAvailable(socketPath: socketPath) {
-            let forceRestart = FileManager.default.fileExists(atPath: Self.stockHardwareDaemonSocketPath)
-            _ = KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(
-                executablePath: nil,
-                forceRestart: forceRestart
-            ) { message in
-                fputs("\(message)\n", stderr)
-            }
-        }
         // Single ordered pipeline: the reader thread only yields into the stream and one
         // consumer task processes frames sequentially on the actor. One detached Task per
         // event would neither preserve ordering (encoder deltas!) nor bound the backlog.

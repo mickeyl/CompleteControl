@@ -818,10 +818,7 @@ public final class KompleteKontrolSSeriesMK2: @unchecked Sendable {
     }
 
     private func ensureDaemonAvailable() -> Bool {
-        if KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            return true
-        }
-        return KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(executablePath: nil, logger: log)
+        KompleteKontrolLibUSBServer.daemonSocketIsAvailable()
     }
 
     private func sendHIDReport(reportID: UInt8, bytesIncludingReportID: [UInt8]) -> IOReturn {

@@ -51,7 +51,6 @@ public actor Surface {
     private var connectionContinuation: AsyncStream<SurfaceConnectionState>.Continuation?
     private var connectionState: SurfaceConnectionState = .stopped
     private var nextConnectionProbeNanos: UInt64 = 0
-    private var hasAttemptedDaemonStartup = false
 
     public init(device: KompleteKontrolS25MK1 = KompleteKontrolS25MK1(), options: Options = Options()) {
         self.device = device
@@ -116,7 +115,6 @@ public actor Surface {
         running = false
         publishConnectionState(.stopped)
         nextConnectionProbeNanos = 0
-        hasAttemptedDaemonStartup = false
         cancelObservation()
         clock?.stop()
         clock = nil
@@ -488,17 +486,10 @@ public actor Surface {
         nextConnectionProbeNanos = now + intervalSeconds * 1_000_000_000
 
         if device.usesPrivilegedDaemonTransport,
-           !KompleteKontrolLibUSBServer.daemonSocketIsAvailable(),
-           hasAttemptedDaemonStartup,
-           !force {
+           !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
             publishConnectionState(.retrying(message: "daemon unavailable"))
             return
         }
-
-        if device.usesPrivilegedDaemonTransport {
-            hasAttemptedDaemonStartup = true
-        }
-
         let result = device.handshake()
         if result.succeeded {
             publishConnectionState(.connected)

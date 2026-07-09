@@ -485,6 +485,7 @@ The daemon:
 - creates `/var/run/kompletekontrol-libusb.sock`
 - claims the libusb surface interface and USB-MIDI streaming interface
 - owns the hardware surface only while no socket client is connected
+- clients never start, install, or restart the daemon implicitly; a daemon must already be running on the selected hardware or simulator socket
 - shows `NO CLIENT` plus the running revision when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
 - lights pressed MIDI keys on the light guide while idle
 - on MK2, briefly replaces only the left OLED's `NO CLIENT` title with the active registered client's name plus a smaller gray PID, holds client display/state output for one second, and slides the light guide left-to-right before handing surface ownership to the client

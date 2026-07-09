@@ -308,9 +308,11 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   whether it attached to the hardware or simulator daemon; before a successful
   attachment it may try the other available socket, but once a session has
   registered with the simulator daemon it keeps retrying that simulator socket
-  and must not fall through to hardware launchd/admin startup. The daemon
-  singleton and its lock file are scoped **per socket** (hardware on /var/run,
-  simulator on /tmp), and `daemon-preflight` skips the installed
+  and must not fall through to hardware launchd/admin startup. Clients must not
+  start, install, restart, or `osascript`-prompt for daemons; they only attach to
+  an already-running hardware or simulator daemon and otherwise report retrying.
+  The daemon singleton and its lock file are scoped **per socket** (hardware on
+  /var/run, simulator on /tmp), and `daemon-preflight` skips the installed
   `/usr/local/bin/ccd` revision check when the simulator daemon is the target or
   the only running daemon. Full
   design + phasing in
