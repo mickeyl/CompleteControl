@@ -69,6 +69,7 @@ public actor MK2Surface2 {
     private var lastDaemonHeartbeatNanos: UInt64 = 0
     private var lastDaemonStartAttemptNanos: UInt64 = 0
     private var activeDaemonSocketPath: String?
+    private var preferredDaemonSocketPath: String?
     private var lastFailedDaemonSocketPath: String?
     private let tickGate = TickGate()
     private var eventTask: Task<Void, Never>?
@@ -195,6 +196,7 @@ public actor MK2Surface2 {
         let socketPath = daemonSocketPathForNextAttempt()
         activeDaemonSocketPath = socketPath
         if socketPath == Self.stockHardwareDaemonSocketPath,
+           KompleteKontrolLibUSBServer.defaultDaemonSocketPath == Self.stockHardwareDaemonSocketPath,
            !KompleteKontrolLibUSBServer.daemonSocketIsAvailable(socketPath: socketPath) {
             let forceRestart = FileManager.default.fileExists(atPath: Self.stockHardwareDaemonSocketPath)
             _ = KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(
@@ -246,6 +248,16 @@ public actor MK2Surface2 {
     private func daemonSocketPathForNextAttempt() -> String {
         let configured = KompleteKontrolLibUSBServer.defaultDaemonSocketPath
         let simulator = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
+        if configured == simulator {
+            return simulator
+        }
+        if preferredDaemonSocketPath == simulator {
+            return simulator
+        }
+        if let preferredDaemonSocketPath,
+           KompleteKontrolLibUSBServer.daemonSocketIsAvailable(socketPath: preferredDaemonSocketPath) {
+            return preferredDaemonSocketPath
+        }
         var candidates = [configured]
         if configured != simulator {
             candidates.append(simulator)
@@ -349,6 +361,7 @@ public actor MK2Surface2 {
             return
         }
         tick(forceDisplay: true)
+        preferredDaemonSocketPath = socketPath
         lastFailedDaemonSocketPath = nil
         publish(.connected("MK2 client registered with \(daemonConnectionDescription(socketPath: socketPath))"))
     }

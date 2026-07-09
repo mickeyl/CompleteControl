@@ -305,12 +305,14 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   `defaultDaemonSocketPath` through `KK_DAEMON_SOCKET`, and beyond that resolve the
   actual connection target per attempt via `clientDaemonSocketPath()` — stock socket
   when it responds, otherwise the simulator daemon socket. `MK2Surface2` reports
-  whether it attached to the hardware or simulator daemon, and after a failed
-  attempt it tries the other available socket on the next retry, so a simulator
-  daemon started after a client can still be picked up. The daemon singleton and
-  its lock file are scoped **per socket** (hardware on /var/run, simulator on
-  /tmp), and `daemon-preflight` skips the installed `/usr/local/bin/ccd` revision
-  check when the simulator daemon is the target or the only running daemon. Full
+  whether it attached to the hardware or simulator daemon; before a successful
+  attachment it may try the other available socket, but once a session has
+  registered with the simulator daemon it keeps retrying that simulator socket
+  and must not fall through to hardware launchd/admin startup. The daemon
+  singleton and its lock file are scoped **per socket** (hardware on /var/run,
+  simulator on /tmp), and `daemon-preflight` skips the installed
+  `/usr/local/bin/ccd` revision check when the simulator daemon is the target or
+  the only running daemon. Full
   design + phasing in
   `Docs/Simulator-Plan.md`.
 - **MK2 daemon→client handoff**: on client registration the daemon leaves the right
