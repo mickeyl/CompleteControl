@@ -2,15 +2,18 @@
 
 ## Daemon / libusb architecture
 
-- Revisit the daemon's libusb architecture for MK2 idle and client operation. Display,
-  MIDI, surface input, button LEDs, and light guide sit on separate USB interfaces/endpoints,
-  but the daemon currently owns them through one device session and one reactor-adjacent
-  scheduling model. This can still let slow display work interfere with time-sensitive
-  MIDI/light-guide diagnostics even though the hardware endpoints are separate.
-- Investigate the least risky path first: keep one libusb device handle, but strictly
-  separate the event pump, display blits, and small state reports so MIDI and light-guide
-  updates are never queued behind display frames. The NO CLIENT hardware-test mode is a
-  good stress case because chords can expose stuck light-guide states.
+- Fixed for the MK2 NO CLIENT diagnostic: MIDI note-offs could appear delayed when
+  synchronous light-guide/display writes dispatched callbacks reentrantly. The idle
+  flush now re-checks pending state after output writes. Keep the detailed rule in
+  `Docs/daemon-usb-reactor.md` in mind before touching daemon USB scheduling.
+- Continue revisiting the daemon's libusb architecture for MK2 idle and client operation.
+  Display, MIDI, surface input, button LEDs, and light guide sit on separate USB
+  interfaces/endpoints, but the daemon still owns them through one device session and one
+  reactor-adjacent scheduling model.
+- The least risky direction remains: keep one libusb device handle, but preserve strict
+  separation between the event pump, display blits, and small state reports so MIDI and
+  light-guide updates are never queued behind display frames. The NO CLIENT hardware-test
+  mode is a good stress case because chords expose stale-state regressions quickly.
 - Longer-term experiments: dedicated libusb contexts/threads per function class, or
   separate handles for separately claimed interfaces if macOS/libusb behaves cleanly.
   Treat multiple handles as a research item, not the default design, because composite

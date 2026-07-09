@@ -103,7 +103,7 @@ typedef struct {
     int closing;
     uint8_t inputBuffer[256];
     uint8_t auxInputBuffer[256];
-    uint8_t midiBuffer[256];
+    uint8_t midiBuffer[512];
 } KontrolLibUSBSession;
 
 #ifdef KK_DEBUG

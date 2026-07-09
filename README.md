@@ -486,7 +486,7 @@ The daemon:
 - claims the libusb surface interface and USB-MIDI streaming interface
 - owns the hardware surface only while no socket client is connected
 - clients never start, install, or restart the daemon implicitly; a daemon must already be running on the selected hardware or simulator socket
-- shows `NO CLIENT` plus the running revision when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
+- shows `NO CLIENT`, daemon version `0.9.<git rev-list count>`, and the git build hash when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
 - lights pressed MIDI keys on the light guide while idle
 - on MK2, briefly replaces only the left OLED's `NO CLIENT` title with the active registered client's name plus a smaller gray PID, holds client display/state output for one second, and slides the light guide left-to-right before handing surface ownership to the client
 - returns to `NO CLIENT` only after the last socket disconnects and no client remains registered
@@ -498,10 +498,14 @@ The daemon:
 Set `KK_DAEMON_DISABLE_SURFACE=1` when you want the daemon to stay completely silent on the
 hardware surface even while idle.
 
-The revision shown by the idle diagnostic is embedded into the binary at SwiftPM build time by
-the `GenerateBuildInfo` build-tool plugin. It records `git rev-list --count HEAD` and the short
-hash from the checkout used for the build. A `+` after the revision count means the binary was
-built from a dirty checkout.
+The version and git hash shown by the idle diagnostic are embedded into the binary at SwiftPM
+build time by the `GenerateBuildInfo` build-tool plugin. The daemon version is
+`0.9.<git rev-list --count HEAD>`. The short hash is shown separately; a `+` after the hash means
+the binary was built from a dirty checkout.
+
+Before changing daemon USB scheduling, read `Docs/daemon-usb-reactor.md`. Synchronous libusb
+output calls can dispatch async callbacks reentrantly, so pending-state flush paths must re-check
+after writes instead of relying on a later kqueue edge.
 
 Debug logging is structured on stderr:
 

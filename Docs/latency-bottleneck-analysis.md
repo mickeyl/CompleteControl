@@ -2,7 +2,7 @@
 
 ## Context
 
-This document analyzes the end-to-end latency pipeline of the Komplete Kontrol MK2 surface driver, from USB input event arrival to display/LED output. It covers the daemon-side fixes already applied (commits d55b0da, 88dacad, 0774817, 7869e1f) and identifies remaining bottlenecks ranked by impact.
+This document analyzes the end-to-end latency pipeline of the Komplete Kontrol MK2 surface driver, from USB input event arrival to display/LED output. It covers the daemon-side fixes already applied and identifies remaining bottlenecks ranked by impact.
 
 The target audience is a developer who needs to continue optimizing the pipeline. All file references use absolute paths and line numbers as of the current HEAD.
 
@@ -13,8 +13,8 @@ The target audience is a developer who needs to continue optimizing the pipeline
 The pipeline has three layers:
 
 1. **Client** (`MK2Surface2` actor in `KontrolSurfaceKit2`) — owns the scene, runs a 30Hz tick timer, sends display blits and LED/guide reports to the daemon via binary sockets.
-2. **Daemon** (`DaemonHardware` in `KompleteKontrol.swift`) — owns the libusb session, queues display blits and state reports on a serial `displayQueue`, pumps USB events via kqueue.
-3. **C USB layer** (`KontrolUSB.c`) — synchronous libusb transfers (bulk for display, interrupt/control for LEDs/guide).
+2. **Daemon** (`DaemonHardware` in `KompleteKontrol.swift`) — owns the libusb session, queues display blits on `displayQueue`, queues small LED/guide reports on `stateReportQueue`, pumps USB events via kqueue.
+3. **C USB layer** (`KontrolUSB.c`) — synchronous libusb transfers (bulk for display, interrupt/control for LEDs/guide). These calls can also dispatch async callbacks reentrantly while the caller is waiting.
 
 ### Input path (event → user)
 
@@ -43,6 +43,7 @@ MK2Surface2.tick() [actor, 30Hz timer]
           → enqueueDisplayBlit / binaryWriteReport
             → displayQueue.async { drainDisplayBlits }
               → performDisplayBlit → libusb_bulk_transfer (sync, 10-20ms)
+            → stateReportQueue.async { drainStateReports }
               → performStateReportWrite → libusb_interrupt_transfer or libusb_control_transfer (sync, 50-100ms timeout)
 ```
 
@@ -84,6 +85,29 @@ All four commits targeted **daemon-side blocking** — specifically, the `sessio
 
 **File:** `MK2Surface2.swift:388-399` (`writeReport`)
 
+## Current daemon fixes after that series
+
+### State reports no longer share the display blit queue
+
+Button LEDs and light-guide reports now drain on `stateReportQueue`, separate from
+display blits. They still share the same libusb session lifetime and
+`sessionIOLock`, but they no longer sit behind the serial display blit queue.
+
+### Idle diagnostic flush handles libusb reentrancy
+
+Synchronous libusb output calls can dispatch async MIDI/surface callbacks
+reentrantly. The idle diagnostic used to snapshot and clear pending flags once,
+then write light-guide/display reports. If a note-off callback arrived during one
+of those writes, the callback could mark new pending state after the snapshot, and
+the reactor was not guaranteed another kqueue edge.
+
+`flushIdleDiagnosticIfNeeded()` now loops while there is an actually due display,
+light-guide, or button-LED write. This drains any state marked by callbacks that
+ran during a synchronous output write without spinning on rate-limited display
+updates.
+
+See `Docs/daemon-usb-reactor.md` for the durable rule.
+
 ---
 
 ## Remaining bottlenecks (ranked by impact)
@@ -116,7 +140,7 @@ At 30Hz, the average wait is 16.5ms. For a knob turn that updates a parameter va
 
 **Risk:** If bindings fire at a high rate (e.g., fast encoder spin), this could cause many ticks per second. Consider a debounce or min-interval guard (e.g., don't tick more than once per 8ms). The `TickGate` prevents overlap but not flooding.
 
-### 2. Serial displayQueue blocks LED updates behind in-progress blits
+### 2. Serial displayQueue blocks LED updates behind in-progress blits - fixed in current tree
 
 **Impact:** Up to 10-20ms delay for LED/guide updates when a display blit is in flight.
 
@@ -142,11 +166,11 @@ private func drainDisplayBlits() {
 }
 ```
 
-**Problem:** State reports (LED/guide) and display blits are both drained on the same serial `displayQueue`. State reports drain before blits **within a drain cycle**, but if a drain is already in progress (processing a 10-20ms blit from the previous tick), new LED reports wait for that blit to finish. The `while true` loop picks them up in the next iteration, but that's after the current blit completes.
+**Historical problem:** State reports (LED/guide) and display blits were both drained on the same serial `displayQueue`. State reports drained before blits **within a drain cycle**, but if a drain was already in progress (processing a 10-20ms blit from the previous tick), new LED reports waited for that blit to finish. The `while true` loop picked them up in the next iteration, but only after the current blit completed.
 
 The key insight: **LED/guide reports and display blits use different USB endpoints** (control/interrupt vs. bulk-out). They could be concurrent — libusb is documented thread-safe for concurrent transfers (as noted in commit 88dacad). But the serial queue forces them to be sequential.
 
-**Fix:** Use a separate high-priority serial queue for `performStateReportWrite`, or drain state reports immediately upon enqueue instead of batching them with blits. The `sessionIOLock` rwlock already permits concurrent shared access, so the only serialization is the `displayQueue` itself.
+**Fix applied:** State reports now drain on a separate high-priority serial queue. The `sessionIOLock` rwlock permits concurrent shared access, so the old serialization point was the `displayQueue` itself.
 
 **Risk:** Two concurrent `libusb_*_transfer` calls on the same device handle. libusb documentation states this is safe for concurrent transfers on different endpoints. Verify that the display endpoint and the control/interrupt endpoint are indeed different (they are: `displayOutputEndpoint` vs. `outputEndpoint` / `surfaceInterface`).
 
@@ -177,7 +201,7 @@ int status = libusb_control_transfer(
 );
 ```
 
-**Problem:** Each `libusb_bulk_transfer` for a display blit blocks the calling thread for 10-20ms. No other work can happen on the `displayQueue` during the transfer. The input path is unaffected (rwlock + kqueue), but output is fully serialized.
+**Problem:** Each `libusb_bulk_transfer` for a display blit blocks the calling thread for 10-20ms. No other display work can happen on the `displayQueue` during the transfer. The input path is usually serviced by the reactor, but synchronous transfers can also dispatch callbacks reentrantly while the output caller is blocked; pending-state code must drain after such writes instead of relying on a later kqueue edge.
 
 This is the root cause behind issue #2 — even if state reports had their own queue, they'd still need `sessionIOLock` shared access, which is fine. But the display queue itself is blocked.
 

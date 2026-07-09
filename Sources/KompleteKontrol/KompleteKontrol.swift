@@ -683,8 +683,19 @@ public enum KKTiming {
 }
 
 private enum KKBuildInfo {
-    static func gitRevisionSummary() -> (count: String, hash: String) {
-        (KKGeneratedBuildInfo.revisionCount, KKGeneratedBuildInfo.revisionHash)
+    static let daemonVersionBase = "0.9"
+
+    static func daemonVersion() -> String {
+        "\(daemonVersionBase).\(KKGeneratedBuildInfo.revisionCount)"
+    }
+
+    static func gitRevisionSummary() -> (count: String, label: String, hash: String, dirtySuffix: String) {
+        (
+            KKGeneratedBuildInfo.revisionCount,
+            KKGeneratedBuildInfo.revisionLabel,
+            KKGeneratedBuildInfo.revisionHash,
+            KKGeneratedBuildInfo.revisionDirtySuffix
+        )
     }
 }
 
@@ -1856,6 +1867,21 @@ public enum KompleteKontrolLibUSBServer {
         ProcessInfo.processInfo.environment["KK_DAEMON_SOCKET"] ?? "/var/run/kompletekontrol-libusb.sock"
     public static let daemonLogPath = "/tmp/media.vanille.kompletekontrol-libusb.foreground.log"
     public static let protocolVersion = 4
+    public static var daemonVersion: String { KKBuildInfo.daemonVersion() }
+
+    static var daemonProtocolMessage: String {
+        "kk-daemon \(protocolVersion)"
+    }
+
+    static var daemonVersionMessage: String {
+        let revision = KKBuildInfo.gitRevisionSummary()
+        return "\(daemonProtocolMessage) version \(daemonVersion) git \(revision.hash)\(revision.dirtySuffix)"
+    }
+
+    public static func isCurrentProtocolMessage(_ message: String?) -> Bool {
+        guard let message else { return false }
+        return message == daemonProtocolMessage || message.hasPrefix("\(daemonProtocolMessage) ")
+    }
 
     /// The lock lives beside the socket it guards (`…libusb.sock` → `…libusb.lock`),
     /// so per-socket daemons — hardware on /var/run, simulator on /tmp — cannot
@@ -1988,7 +2014,7 @@ public enum KompleteKontrolLibUSBServer {
             // The embedded build revision, one line: "<rev-list count><+ if dirty> <short hash>".
             // Lets `make daemon-preflight` compare the installed daemon against the
             // workspace without building a fresh binary just for a byte comparison.
-            print("\(KKGeneratedBuildInfo.revisionCount) \(KKGeneratedBuildInfo.revisionHash)")
+            print("\(KKGeneratedBuildInfo.revisionLabel) \(KKGeneratedBuildInfo.revisionHash)")
             exit(0)
         }
         if args.first == "--kk-libusb-daemon" || args.first == "--libusb-daemon" {
@@ -2503,7 +2529,8 @@ public enum KompleteKontrolLibUSBServer {
         guard let response = session.request("version\n", timeoutUsec: 250_000) else {
             return false
         }
-        return response == "ok kk-daemon \(protocolVersion)"
+        guard response.hasPrefix("ok ") else { return false }
+        return isCurrentProtocolMessage(String(response.dropFirst(3)))
     }
 
     public static func startDaemonWithAdministratorPrivileges(
@@ -2930,7 +2957,7 @@ public enum KompleteKontrolLibUSBServer {
             guard let command = tokens.first else { return "err parse" }
             guard command != "quit" else { return "ok quit" }
             if command == "version" {
-                return "ok kk-daemon \(protocolVersion)"
+                return "ok \(KompleteKontrolLibUSBServer.daemonVersionMessage)"
             }
 
             if command == "register" {
@@ -3061,7 +3088,7 @@ public enum KompleteKontrolLibUSBServer {
 
             switch frame.type {
                 case .version:
-                    return ack(0, "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)")
+                    return ack(0, KompleteKontrolLibUSBServer.daemonVersionMessage)
                 case .register:
                     guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
                         return ack(-1, "register parse")
@@ -4042,8 +4069,8 @@ public enum KompleteKontrolLibUSBServer {
             fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: MK2DaemonChrome.footer, pixels: &pixels)
 
             drawMK2Text(title, x: 28, y: 24, scale: 3, color: 0xffff, maxWidth: 420, pixels: &pixels)
-            drawMK2Text("MK2 DAEMON", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
-            drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 84, scale: 2, color: 0x8410, pixels: &pixels)
+            drawMK2Text("CCD \(KompleteKontrolLibUSBServer.daemonVersion)", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
+            drawMK2Text("GIT \(idleRevisionSummary.hash)\(idleRevisionSummary.dirtySuffix)", x: 28, y: 84, scale: 2, color: 0x8410, maxWidth: 420, pixels: &pixels)
 
             drawMK2Text("LATEST SURFACE", x: 28, y: 120, scale: 1, color: 0x07ff, pixels: &pixels)
             drawMK2Text(hasInput ? surfaceSummary : "PRESS SURFACE FOR HID TEST", x: 28, y: 136, scale: 2, color: 0xffff, maxWidth: 420, pixels: &pixels)
@@ -4750,7 +4777,7 @@ public enum KompleteKontrolLibUSBServer {
                 setIdleWideText("PRESS ANY SURFACE", row: 1, into: &frame)
                 setIdleWideText("OR MIDI KEY FOR TEST", row: 2, into: &frame)
             }
-            frame.setText("REV \(idleRevisionSummary.count)", display: KKDisplayFrame.displayCount - 1, row: 1, alignment: .left)
+            frame.setText(KompleteKontrolLibUSBServer.daemonVersion, display: KKDisplayFrame.displayCount - 1, row: 1, alignment: .left)
             frame.setText(idleRevisionSummary.hash, display: KKDisplayFrame.displayCount - 1, row: 2, alignment: .left)
 
             if writeLightGuide {
@@ -4763,62 +4790,70 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func flushIdleDiagnosticIfNeeded() {
-            guard shouldDaemonShowIdleSurface() else { return }
-            let now = KKTiming.now()
-            let surfaceSummary: String
-            let midiSummary: String
-            let hasInput: Bool
-            let guide: [UInt8]
-            let mk1ButtonLEDs: [UInt8]
-            let mk2ButtonLEDs: [UInt8]
-            let mk2LightGuide: [UInt8]
-            let needsButtonLEDs: Bool
-            let decision: DaemonIdleDiagnosticFlushDecision
+            // Synchronous libusb writes can dispatch async MIDI/surface callbacks reentrantly.
+            // Drain any idle state those callbacks mark pending before the reactor sleeps again.
+            while true {
+                guard shouldDaemonShowIdleSurface() else { return }
+                let now = KKTiming.now()
+                let surfaceSummary: String
+                let midiSummary: String
+                let hasInput: Bool
+                let guide: [UInt8]
+                let mk1ButtonLEDs: [UInt8]
+                let mk2ButtonLEDs: [UInt8]
+                let mk2LightGuide: [UInt8]
+                let needsButtonLEDs: Bool
+                let decision: DaemonIdleDiagnosticFlushDecision
 
-            lock.lock()
-            guard idleDiagnosticNeedsFlush || idleDiagnosticNeedsLightGuideFlush || idleDiagnosticNeedsButtonLEDFlush else {
-                lock.unlock()
-                return
-            }
-            decision = idleDiagnosticFlushGate.decide(
-                now: now,
-                needsDisplay: idleDiagnosticNeedsFlush,
-                needsLightGuide: idleDiagnosticNeedsLightGuideFlush
-            )
-            surfaceSummary = idleSurfaceSummary
-            midiSummary = idleMIDISummary
-            hasInput = idleHasReceivedInput
-            guide = idleLightGuide
-            mk1ButtonLEDs = idleMK1ButtonLEDs
-            mk2ButtonLEDs = idleMK2ButtonLEDs
-            mk2LightGuide = idleMK2LightGuide
-            needsButtonLEDs = idleDiagnosticNeedsButtonLEDFlush
-            if decision.writeDisplay {
-                idleDiagnosticNeedsFlush = false
-            }
-            if decision.writeLightGuide {
-                idleDiagnosticNeedsLightGuideFlush = false
-            }
-            if needsButtonLEDs {
-                idleDiagnosticNeedsButtonLEDFlush = false
-            }
-            lock.unlock()
-
-            if decision.writeLightGuide {
-                writeIdleDiagnosticLightGuide(guide)
-                writeIdleDiagnosticMK2LightGuide(mk2LightGuide)
-            }
-            if needsButtonLEDs {
-                writeIdleDiagnosticButtonLEDs(mk1: mk1ButtonLEDs, mk2: mk2ButtonLEDs)
-            }
-            if decision.writeDisplay {
-                writeIdleDiagnosticSurface(
-                    surfaceSummary: surfaceSummary,
-                    midiSummary: midiSummary,
-                    hasInput: hasInput,
-                    lightGuide: guide,
-                    writeLightGuide: false
+                lock.lock()
+                guard idleDiagnosticNeedsFlush || idleDiagnosticNeedsLightGuideFlush || idleDiagnosticNeedsButtonLEDFlush else {
+                    lock.unlock()
+                    return
+                }
+                decision = idleDiagnosticFlushGate.decide(
+                    now: now,
+                    needsDisplay: idleDiagnosticNeedsFlush,
+                    needsLightGuide: idleDiagnosticNeedsLightGuideFlush
                 )
+                needsButtonLEDs = idleDiagnosticNeedsButtonLEDFlush
+                guard decision.writeDisplay || decision.writeLightGuide || needsButtonLEDs else {
+                    lock.unlock()
+                    return
+                }
+                surfaceSummary = idleSurfaceSummary
+                midiSummary = idleMIDISummary
+                hasInput = idleHasReceivedInput
+                guide = idleLightGuide
+                mk1ButtonLEDs = idleMK1ButtonLEDs
+                mk2ButtonLEDs = idleMK2ButtonLEDs
+                mk2LightGuide = idleMK2LightGuide
+                if decision.writeDisplay {
+                    idleDiagnosticNeedsFlush = false
+                }
+                if decision.writeLightGuide {
+                    idleDiagnosticNeedsLightGuideFlush = false
+                }
+                if needsButtonLEDs {
+                    idleDiagnosticNeedsButtonLEDFlush = false
+                }
+                lock.unlock()
+
+                if decision.writeLightGuide {
+                    writeIdleDiagnosticLightGuide(guide)
+                    writeIdleDiagnosticMK2LightGuide(mk2LightGuide)
+                }
+                if needsButtonLEDs {
+                    writeIdleDiagnosticButtonLEDs(mk1: mk1ButtonLEDs, mk2: mk2ButtonLEDs)
+                }
+                if decision.writeDisplay {
+                    writeIdleDiagnosticSurface(
+                        surfaceSummary: surfaceSummary,
+                        midiSummary: midiSummary,
+                        hasInput: hasInput,
+                        lightGuide: guide,
+                        writeLightGuide: false
+                    )
+                }
             }
         }
 
@@ -5166,7 +5201,7 @@ public enum KompleteKontrolLibUSBServer {
         guard let command = tokens.first else { return "err parse" }
         guard command != "quit" else { return "ok quit" }
         if command == "version" {
-            return "ok kk-daemon \(protocolVersion)"
+            return "ok \(daemonVersionMessage)"
         }
 
         if command == "status" {

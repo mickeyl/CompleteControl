@@ -331,7 +331,7 @@ public actor MK2Surface2 {
         }
         controlClient = control
         displayClient = display
-        guard control.request(type: .version, timeoutUsec: 500_000)?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
+        guard KompleteKontrolLibUSBServer.isCurrentProtocolMessage(control.request(type: .version, timeoutUsec: 500_000)?.message) else {
             handleDaemonFailure("daemon protocol mismatch")
             return
         }
@@ -491,7 +491,7 @@ public actor MK2Surface2 {
         guard now &- lastDaemonHeartbeatNanos >= Self.daemonHeartbeatIdleNanos else { return }
         lastDaemonHeartbeatNanos = now
         let response = controlClient?.request(type: .version, timeoutUsec: 50_000)
-        guard response?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
+        guard KompleteKontrolLibUSBServer.isCurrentProtocolMessage(response?.message) else {
             handleDaemonFailure("daemon idle heartbeat failed")
             return
         }
@@ -516,7 +516,7 @@ public actor MK2Surface2 {
     /// write is discarded by the sequence check in the binary client).
     private func handleWriteTimeout(_ reason: String) {
         let probe = controlClient?.request(type: .version, timeoutUsec: 1_000_000)
-        guard probe?.message == "kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)" else {
+        guard KompleteKontrolLibUSBServer.isCurrentProtocolMessage(probe?.message) else {
             handleDaemonFailure(reason)
             return
         }

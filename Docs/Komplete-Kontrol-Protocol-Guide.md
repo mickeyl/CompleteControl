@@ -43,7 +43,18 @@ The axis that matters most: **who owns the pixels**.
 
 The counterintuitive takeaway: for *arbitrary* on-surface graphics, the **MK2 is the easiest of all three**, not the MK3. The MK3's "intelligence" is exactly what takes pixel ownership away from you.
 
-<!-- PHOTO: All three generations side by side (MK1 S25, MK2 S61, MK3 S49) — ideally a top-down shot showing the display area of each -->
+<table>
+<tr>
+<td><img src="https://i.ebayimg.com/images/g/sBoAAeSwmnlpeiXr/s-l1600.jpg" alt="Komplete Kontrol S-Series MK1 reference photo" width="260"></td>
+<td><img src="images/mk2-hardware-tracker.jpg" alt="Komplete Kontrol S61 MK2 running a custom tracker UI" width="260"></td>
+<td><img src="https://m.media-amazon.com/images/I/61QotKvSHBL._AC_.jpg" alt="Komplete Kontrol S-Series MK3 reference photo" width="260"></td>
+</tr>
+<tr>
+<td><em>MK1: segmented LCDs, no pixels.</em></td>
+<td><em>MK2: host-owned 480x272 pixel displays.</em></td>
+<td><em>MK3: on-device rendered wide display.</em></td>
+</tr>
+</table>
 
 ---
 
@@ -113,7 +124,9 @@ The S-Series MK2 (S49/S61/S88, 2018) is where NI built something a technician ca
 
 ### USB topology
 
-<!-- PHOTO: MK2 S61 from above, showing both 480×272 displays lit with custom content, light guide active, button LEDs on -->
+![Komplete Kontrol S61 MK2 running a custom tracker UI on its two displays, with the light guide active](images/mk2-hardware-tracker.jpg)
+
+*Real S61 MK2 hardware running a CompleteControl/Paulinche-style tracker surface. The pattern grid and edit pane are ordinary host-rendered framebuffer pixels, not an NI preset/browser screen.*
 
 The MK2 presents **four distinct USB interfaces**:
 
@@ -369,7 +382,9 @@ The palette is fixed in firmware. If you need a colour not in it, pick nearest b
 
 ### Output: Display (report 0x84, USB bulk)
 
-<!-- PHOTO: MK2 displays showing custom-rendered content — ideally a tracker-style grid or waveform, something that clearly isn't from NI's software -->
+![Close-up of the S61 MK2 OLEDs showing a tracker pattern grid and edit pane rendered by CompleteControl](images/mk2-hardware-tracker-displays.jpg)
+
+*The two MK2 displays are being fed by `0x84` bulk framebuffer blits. This is the key capability: arbitrary UI pixels at interactive rates.*
 
 The fun part. Two 480×272 RGB565 displays, arbitrary pixels. Transport is USB bulk on interface 3, endpoint `0x03` — not HID.
 
@@ -488,7 +503,9 @@ The MK3 is not a USB peripheral with a dumb panel. It is a small Linux computer.
 
 ### Hardware architecture
 
-<!-- PHOTO: MK3 S49 from above — the full-width 1280×480 display showing NI's factory UI, light guide active -->
+![Komplete Kontrol S-Series MK3 reference photo showing the wide on-device display](https://m.media-amazon.com/images/I/61QotKvSHBL._AC_.jpg)
+
+*S-Series MK3 hardware: one wide colour display, rendered by the device's embedded Linux/Qt stack rather than by host framebuffer writes.*
 
 ```mermaid
 graph TB
@@ -998,7 +1015,11 @@ real hand resting on the cap.
 
 #### The NO CLIENT mode became a simulator test harness
 
-![The simulator in NO CLIENT mode: the left display shows the daemon revision plus the latest decoded surface and MIDI acknowledgements with their raw reports, the right display scrolls a timestamped input event log](images/kontrolsimulator-no-client.png)
+![S61 MK2 hardware in NO CLIENT diagnostic mode showing decoded input and MIDI state](images/mk2-hardware-no-client.jpg)
+
+*The real daemon idle diagnostic on MK2 hardware. This photo was captured during the MIDI note-off investigation; current builds show `CCD 0.9.<rev-list count>` plus `GIT <hash>` where this older frame still shows the previous `REV` line.*
+
+![The simulator in NO CLIENT mode: the left display shows the daemon version and git hash plus the latest decoded surface and MIDI acknowledgements with their raw reports, the right display scrolls a timestamped input event log](images/kontrolsimulator-no-client.png)
 
 *NO CLIENT mode: the daemon owns the surface, acknowledges every decoded input on the left display (including the raw report bytes), and scrolls a timestamped event log on the right — strip positions, MIDI notes, and button state all land here, which is how layout bugs get spotted.*
 

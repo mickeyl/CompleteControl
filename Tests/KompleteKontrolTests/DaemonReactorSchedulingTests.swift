@@ -23,6 +23,18 @@ struct DaemonReactorSchedulingTests {
         #expect(DaemonReactorScheduler.shouldInvalidateSessionOnSystemWake())
     }
 
+    @Test("Daemon human version does not replace protocol compatibility")
+    func daemonHumanVersionDoesNotReplaceProtocolCompatibility() {
+        #expect(KompleteKontrolLibUSBServer.daemonVersion.hasPrefix("0.9."))
+        let patch = KompleteKontrolLibUSBServer.daemonVersion.dropFirst("0.9.".count)
+        let patchIsNumeric = patch.allSatisfy { $0.isNumber }
+        #expect(!patch.isEmpty)
+        #expect(patchIsNumeric)
+        #expect(KompleteKontrolLibUSBServer.isCurrentProtocolMessage("kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)"))
+        #expect(KompleteKontrolLibUSBServer.isCurrentProtocolMessage("kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion) version 0.9.123 git abcdef0"))
+        #expect(!KompleteKontrolLibUSBServer.isCurrentProtocolMessage("kk-daemon \(KompleteKontrolLibUSBServer.protocolVersion)0"))
+    }
+
     @Test("Input push sessions register without sharing output helper state")
     func inputPushSessionsRegisterWithoutSharingOutputHelperState() {
         #expect(DaemonClientRegistrationPolicy.shouldRegister(role: .inputPush))

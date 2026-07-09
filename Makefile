@@ -108,7 +108,7 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 	fi; \
 	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ "$$uses_simulator_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ]; then \
 		installed_rev="$$(/usr/local/bin/ccd --revision 2>/dev/null || true)"; \
-		workspace_count="$$(git rev-list --count HEAD 2>/dev/null || printf 'REV ?')"; \
+		workspace_count="$$(git rev-list --count HEAD 2>/dev/null || printf '0')"; \
 		if ! git diff --quiet HEAD -- 2>/dev/null; then workspace_count="$$workspace_count+"; fi; \
 		workspace_rev="$$workspace_count $$(git rev-parse --short HEAD 2>/dev/null || printf 'NO GIT')"; \
 		if [ -z "$$installed_rev" ]; then \

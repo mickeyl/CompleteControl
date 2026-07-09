@@ -188,22 +188,28 @@ running daemon.
 
 When no socket client is connected, `ccd` owns the hardware surface:
 
-- LCDs show `NO CLIENT`, the running git revision (`REV <rev-list count>` plus short hash; a `+`
-  marks a dirty/uncommitted build), and an initial surface/MIDI test prompt.
+- LCDs show `NO CLIENT`, daemon version `0.9.<git rev-list count>`, the short git hash (with `+`
+  for a dirty/uncommitted build), and an initial surface/MIDI test prompt.
 - Surface input is decoded and acknowledged on the LCDs. On the MK2 the idle ack is a
   protocol scope: left display = latest raw surface report (hex), right display = decoded
   event + MIDI summary — disagreement between the two panes is how layout bugs get spotted.
 - USB-MIDI input is decoded and acknowledged on the LCDs.
 - Pressed MIDI keys light the corresponding light-guide key; note-off clears it.
 
-The revision is embedded at SwiftPM build time by the `GenerateBuildInfo` build-tool plugin. Keep
-that plugin attached to the `KompleteKontrol` target; the installed `/usr/local/bin/ccd` should not
-need runtime access to the checkout or `.git` directory to show its revision.
+The daemon version and git hash are embedded at SwiftPM build time by the `GenerateBuildInfo`
+build-tool plugin. Keep that plugin attached to the `KompleteKontrol` target; the installed
+`/usr/local/bin/ccd` should not need runtime access to the checkout or `.git` directory to show
+its version or revision.
+
+Read `Docs/daemon-usb-reactor.md` before changing daemon USB scheduling. Synchronous libusb
+output calls can dispatch async callbacks reentrantly, so pending-state flush paths must re-check
+after writes instead of relying on a later kqueue edge.
 
 Do not write LCDs/light-guide directly from libusb completion callbacks. Callback paths should
-update daemon state and set a pending flush flag; the kqueue reactor flushes the idle diagnostic
-after `handle_events`. Writing from inside the callback can fail with libusb status `-6` and leave
-the LCDs visually stale even though input was received.
+update daemon state and set a pending flush flag; the kqueue reactor drains the idle diagnostic,
+including any state marked reentrantly during synchronous output writes. Writing from inside the
+callback can fail with libusb status `-6` and leave the LCDs visually stale even though input was
+received.
 
 ### Verifying without seeing the hardware
 
@@ -216,9 +222,10 @@ You usually can't see the LCDs/LEDs. What works:
 - For FreeType work, run `swift build --product MK2WidgetLabDemo`; Unit A contains the
   typography, icon browser, and action-dialog sub-demos. `Instance` cycles those sub-demos.
 - For idle daemon diagnostics, install the debug daemon, make sure no client such as Paulinche or
-  SurfaceDemo is connected, and verify the hardware shows `NO CLIENT` plus a `REV` cell. Then press
-  a surface control and a MIDI key and inspect `/tmp/media.vanille.kompletekontrol-libusb.stderr.log`
-  for `push surface` / `push midi` if the hardware display is not visible.
+  SurfaceDemo is connected, and verify the hardware shows `NO CLIENT`, `0.9.<count>`, and the git
+  hash. Then press a surface control and a MIDI key and inspect
+  `/tmp/media.vanille.kompletekontrol-libusb.stderr.log` for `push surface` / `push midi` if the
+  hardware display is not visible.
 - `print` is **block-buffered** to a pipe — output only appears after exit/flush.
 - For the docs SVGs there are Python generators in scratch; render with `rsvg-convert` and Read
   the PNG to inspect visually.
@@ -627,7 +634,9 @@ Cross-session memory (client + plans) lives outside the repo under the project's
 
 Small, well-named files (one concept each). For every new kit API, realize something in
 `SurfaceDemo`. Keep `ccd` as the daemon entry point and `KontrolProbe` as the untouched diagnostic
-baseline. When touching daemon input/output behavior, run at least:
+baseline. Before touching daemon USB input/output scheduling, read `Docs/daemon-usb-reactor.md`:
+callbacks can be dispatched reentrantly during synchronous libusb output writes. When touching
+daemon input/output behavior, run at least:
 
 ```bash
 swift build --product ccd
