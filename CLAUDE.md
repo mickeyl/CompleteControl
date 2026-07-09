@@ -314,8 +314,8 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   design + phasing in
   `Docs/Simulator-Plan.md`.
 - **MK2 daemon→client handoff**: on client registration the daemon leaves the right
-  OLED untouched, replaces only the left `NO CLIENT` title row with `NAME (PID)`,
-  holds client display/state reports for one second, slides the light guide
+  OLED untouched, replaces only the left `NO CLIENT` title row with the client
+  name plus a smaller gray PID, holds client display/state reports for one second, slides the light guide
   left-to-right, then flushes the newest queued client state. Idle chrome colors:
   gray = booted/no client/no I/O, yellow = idle surface/MIDI I/O observed, green =
   client connected.

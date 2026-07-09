@@ -3922,14 +3922,7 @@ public enum KompleteKontrolLibUSBServer {
 
         private func writeMK2ConnectedClientTitle(session: any KontrolDeviceSession, client: RegisteredClient) {
             let width = KompleteKontrolMK2Protocol.displayWidth
-            let frame = makeMK2IdleStatusFrame(
-                hasInput: true,
-                surfaceSummary: "",
-                midiSummary: "",
-                rawLines: [],
-                title: mk2ConnectedClientTitle(client),
-                chromeColor: MK2DaemonChrome.clientConnected
-            )
+            let frame = makeMK2ConnectedClientFrame(client)
             writeMK2FrameRect(
                 session: session,
                 screen: 0,
@@ -3948,6 +3941,22 @@ public enum KompleteKontrolLibUSBServer {
                 height: 38,
                 pixels: mk2FrameRectPixels(frame, x: 0, y: 18, width: width, height: 38)
             )
+        }
+
+        private func makeMK2ConnectedClientFrame(_ client: RegisteredClient) -> [UInt16] {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let height = KompleteKontrolMK2Protocol.displayHeight
+            var pixels = [UInt16](repeating: 0x0000, count: width * height)
+            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: MK2DaemonChrome.clientConnected, pixels: &pixels)
+
+            let pid = "\(client.pid)"
+            let pidScale = 2
+            let pidWidth = mk2TextPixelWidth(pid, scale: pidScale)
+            let pidX = max(28, width - 28 - pidWidth)
+            let nameMaxWidth = max(80, pidX - 42)
+            drawMK2Text(mk2ConnectedClientName(client, maxWidth: nameMaxWidth), x: 28, y: 24, scale: 3, color: 0xffff, maxWidth: nameMaxWidth, pixels: &pixels)
+            drawMK2Text(pid, x: pidX, y: 32, scale: pidScale, color: 0x8410, pixels: &pixels)
+            return pixels
         }
 
         private func mk2FrameRectPixels(_ frame: [UInt16], x: Int, y: Int, width rectWidth: Int, height rectHeight: Int) -> [UInt16] {
@@ -4153,26 +4162,23 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func mk2ConnectedClientTitle(_ client: RegisteredClient) -> String {
-            let suffix = " (\(client.pid))"
+        private func mk2ConnectedClientName(_ client: RegisteredClient, maxWidth: Int) -> String {
             var name = client.name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             if name.isEmpty {
                 name = "CLIENT"
             }
-            let maxWidth = 420
             let scale = 3
-            let title = "\(name)\(suffix)"
-            if mk2TextPixelWidth(title, scale: scale) <= maxWidth {
-                return title
+            if mk2TextPixelWidth(name, scale: scale) <= maxWidth {
+                return name
             }
             while !name.isEmpty {
-                let candidate = "\(name)...\(suffix)"
+                let candidate = "\(name)..."
                 if mk2TextPixelWidth(candidate, scale: scale) <= maxWidth {
                     return candidate
                 }
                 name.removeLast()
             }
-            return suffix.trimmingCharacters(in: .whitespaces)
+            return ""
         }
 
         private func mk2TextPixelWidth(_ text: String, scale: Int) -> Int {

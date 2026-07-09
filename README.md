@@ -487,7 +487,7 @@ The daemon:
 - owns the hardware surface only while no socket client is connected
 - shows `NO CLIENT` plus the running revision when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
 - lights pressed MIDI keys on the light guide while idle
-- on MK2, briefly replaces only the left OLED's `NO CLIENT` title with the active registered client's `NAME (PID)`, holds client display/state output for one second, and slides the light guide left-to-right before handing surface ownership to the client
+- on MK2, briefly replaces only the left OLED's `NO CLIENT` title with the active registered client's name plus a smaller gray PID, holds client display/state output for one second, and slides the light guide left-to-right before handing surface ownership to the client
 - returns to `NO CLIENT` only after the last socket disconnects and no client remains registered
 - starts async transfers for surface input and MIDI input
 - timestamps push messages at daemon callback time

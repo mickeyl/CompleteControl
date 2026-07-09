@@ -141,9 +141,9 @@ daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized fore
 
 SIM_SOCKET := /tmp/kontrol-simulator.sock
 
-run-simulator: ## Build and run the KontrolSimulator panel app (virtual MK2 for hardware-free testing).
+run-simulator: daemon-build ## Build and run the KontrolSimulator panel app (virtual MK2 for hardware-free testing).
 	swift build --product KontrolSimulator
-	@echo "Launching the simulator window. Start 'make daemon-simulate' in another shell, then a client."
+	@echo "Launching the simulator window. The built-in Daemon menu will use the freshly built debug ccd."
 	.build/debug/KontrolSimulator
 
 daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
