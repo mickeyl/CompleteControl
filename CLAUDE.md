@@ -4,6 +4,19 @@ Swift control library + middleware for the **Native Instruments Komplete Kontrol
 This file is the working context for an agent picking the project up. Pair it with
 `Docs/Middleware-Concept.md` (the full middleware design + implementation status).
 
+## Documentation publishing policy
+
+Keep `Docs/Komplete-Kontrol-Protocol-Guide.md` in this repository as the maintained,
+versioned MK2 protocol reference. Its byte layouts, report sizes, transport constraints,
+and implementation links must evolve with the code and tests. Do not move that reference
+to vanille.de or turn it into a narrative article.
+
+A future vanille.de post is welcome as a separate, reader-facing story derived from the
+guide — for example, why MK2 is unusually suitable for custom graphics, the mixed-endian
+`0x84` blit, the MIDI buffer/note-off failure, and how the transparent simulator emerged.
+Keep exhaustive tables and maps in the repository; let the blog post explain motivation,
+investigation, mistakes, and conclusions, and link back to the guide as its technical source.
+
 ## Next Session
 
 Resume from `master`. The MK2 screen-formalization work is active:
