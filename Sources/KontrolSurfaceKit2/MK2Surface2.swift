@@ -68,6 +68,8 @@ public actor MK2Surface2 {
     private var lastDaemonCommunicationNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     private var lastDaemonHeartbeatNanos: UInt64 = 0
     private var lastDaemonStartAttemptNanos: UInt64 = 0
+    private var activeDaemonSocketPath: String?
+    private var lastFailedDaemonSocketPath: String?
     private let tickGate = TickGate()
     private var eventTask: Task<Void, Never>?
     private var eventContinuation: AsyncStream<KKDaemonBinaryFrame>.Continuation?
@@ -84,6 +86,7 @@ public actor MK2Surface2 {
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
     private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
     private var nextButtonHoldToken: UInt64 = 0
+    private static let stockHardwareDaemonSocketPath = "/var/run/kompletekontrol-libusb.sock"
 
     public init(device: KompleteKontrolSSeriesMK2 = KompleteKontrolSSeriesMK2(seizeHID: false), options: Options = Options()) {
         _ = device
@@ -189,8 +192,11 @@ public actor MK2Surface2 {
     private func startDaemonClient() {
         guard daemonThread == nil else { return }
         lastDaemonStartAttemptNanos = DispatchTime.now().uptimeNanoseconds
-        if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            let forceRestart = FileManager.default.fileExists(atPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath)
+        let socketPath = daemonSocketPathForNextAttempt()
+        activeDaemonSocketPath = socketPath
+        if socketPath == Self.stockHardwareDaemonSocketPath,
+           !KompleteKontrolLibUSBServer.daemonSocketIsAvailable(socketPath: socketPath) {
+            let forceRestart = FileManager.default.fileExists(atPath: Self.stockHardwareDaemonSocketPath)
             _ = KompleteKontrolLibUSBServer.startDaemonWithAdministratorPrivileges(
                 executablePath: nil,
                 forceRestart: forceRestart
@@ -211,12 +217,12 @@ public actor MK2Surface2 {
         }
         let generation = daemonSessionGeneration
         let thread = Thread { [weak self] in
-            guard let eventClient = KompleteKontrolDaemonBinaryClient(channel: .event) else {
+            guard let eventClient = KompleteKontrolDaemonBinaryClient(channel: .event, socketPath: socketPath) else {
                 continuation.finish()
                 Task { await self?.handleDaemonFailure("daemon socket unavailable", generation: generation) }
                 return
             }
-            Task { await self?.setEventClient(eventClient, generation: generation) }
+            Task { await self?.setEventClient(eventClient, socketPath: socketPath, generation: generation) }
             while !Thread.current.isCancelled {
                 switch eventClient.readEventResult(timeoutUsec: 20_000) {
                     case let .frame(frame):
@@ -235,6 +241,33 @@ public actor MK2Surface2 {
         thread.name = "MK2Surface2 daemon reader"
         daemonThread = thread
         thread.start()
+    }
+
+    private func daemonSocketPathForNextAttempt() -> String {
+        let configured = KompleteKontrolLibUSBServer.defaultDaemonSocketPath
+        let simulator = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
+        var candidates = [configured]
+        if configured != simulator {
+            candidates.append(simulator)
+        }
+        let available = candidates.filter {
+            KompleteKontrolLibUSBServer.daemonSocketIsAvailable(socketPath: $0)
+        }
+        if let lastFailedDaemonSocketPath,
+           available.count > 1,
+           let alternate = available.first(where: { $0 != lastFailedDaemonSocketPath }) {
+            return alternate
+        }
+        return KompleteKontrolLibUSBServer.clientDaemonSocketPath()
+    }
+
+    private func daemonKindDescription(socketPath: String) -> String {
+        socketPath == KompleteKontrolLibUSBServer.simulatorDaemonSocketPath ? "simulator daemon" : "hardware daemon"
+    }
+
+    private func daemonConnectionDescription(socketPath: String?) -> String {
+        guard let socketPath else { return "daemon socket unknown" }
+        return "\(daemonKindDescription(socketPath: socketPath)) at \(socketPath)"
     }
 
     private func process(_ frame: KKDaemonBinaryFrame) {
@@ -289,11 +322,11 @@ public actor MK2Surface2 {
         publish(.evicted)
     }
 
-    private func setEventClient(_ client: KompleteKontrolDaemonBinaryClient, generation: UInt64) {
+    private func setEventClient(_ client: KompleteKontrolDaemonBinaryClient, socketPath: String, generation: UInt64) {
         guard running, generation == daemonSessionGeneration else { return }
         eventClient = client
-        guard let control = KompleteKontrolDaemonBinaryClient(channel: .control),
-              let display = KompleteKontrolDaemonBinaryClient(channel: .display) else {
+        guard let control = KompleteKontrolDaemonBinaryClient(channel: .control, socketPath: socketPath),
+              let display = KompleteKontrolDaemonBinaryClient(channel: .display, socketPath: socketPath) else {
             handleDaemonFailure("daemon binary sockets unavailable")
             return
         }
@@ -316,7 +349,8 @@ public actor MK2Surface2 {
             return
         }
         tick(forceDisplay: true)
-        publish(.connected("MK2 daemon client registered"))
+        lastFailedDaemonSocketPath = nil
+        publish(.connected("MK2 client registered with \(daemonConnectionDescription(socketPath: socketPath))"))
     }
 
     private func replaySurfaceState() {
@@ -329,7 +363,7 @@ public actor MK2Surface2 {
             return
         }
         tick(forceDisplay: true)
-        publish(.connected("MK2 device reconnected; state replayed"))
+        publish(.connected("MK2 device reconnected; state replayed via \(daemonConnectionDescription(socketPath: activeDaemonSocketPath))"))
     }
 
     private func unregisterDaemonClient() {
@@ -492,7 +526,8 @@ public actor MK2Surface2 {
     private func handleDaemonFailure(_ reason: String, generation: UInt64? = nil) {
         guard running else { return }
         if let generation, generation != daemonSessionGeneration { return }
-        publish(.retrying(reason))
+        lastFailedDaemonSocketPath = activeDaemonSocketPath
+        publish(.retrying("\(reason) (\(daemonConnectionDescription(socketPath: activeDaemonSocketPath)))"))
         resetDaemonSession()
     }
 
@@ -501,6 +536,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        activeDaemonSocketPath = nil
         daemonThread?.cancel()
         daemonThread = nil
         eventContinuation?.finish()

@@ -304,13 +304,21 @@ reactor, socket protocol, decoders, reconnect — is unaware which backend it op
   panel status line show the tri-state: no daemon / starting daemon / connected. Enablers: clients resolve
   `defaultDaemonSocketPath` through `KK_DAEMON_SOCKET`, and beyond that resolve the
   actual connection target per attempt via `clientDaemonSocketPath()` — stock socket
-  when it responds, otherwise the simulator daemon socket — so Paulinche and the demos
-  attach to a running simulator stack without any environment plumbing (hardware
-  daemon preferred when both are alive, and a daemon appearing later is picked up by
-  the retry loop). The daemon singleton and its lock file are scoped **per socket**
-  (hardware on /var/run, simulator on /tmp), and `daemon-preflight` ignores daemons on
-  the simulator socket. Full design + phasing in
+  when it responds, otherwise the simulator daemon socket. `MK2Surface2` reports
+  whether it attached to the hardware or simulator daemon, and after a failed
+  attempt it tries the other available socket on the next retry, so a simulator
+  daemon started after a client can still be picked up. The daemon singleton and
+  its lock file are scoped **per socket** (hardware on /var/run, simulator on
+  /tmp), and `daemon-preflight` skips the installed `/usr/local/bin/ccd` revision
+  check when the simulator daemon is the target or the only running daemon. Full
+  design + phasing in
   `Docs/Simulator-Plan.md`.
+- **MK2 daemon→client handoff**: on client registration the daemon leaves the right
+  OLED untouched, replaces only the left `NO CLIENT` title row with `NAME (PID)`,
+  holds client display/state reports for one second, slides the light guide
+  left-to-right, then flushes the newest queued client state. Idle chrome colors:
+  gray = booted/no client/no I/O, yellow = idle surface/MIDI I/O observed, green =
+  client connected.
 - **Headless snapshots**: `KONTROLSIM_SNAPSHOT_PATH=<png> KONTROLSIM_SNAPSHOT_DELAY=<s>` renders
   the panel view to a PNG after the delay and exits (`KONTROLSIM_SNAPSHOT_SCALE`, default 2).
   TCC-free (renders the view, not the screen) and needs no daemon/sudo: anything can speak the

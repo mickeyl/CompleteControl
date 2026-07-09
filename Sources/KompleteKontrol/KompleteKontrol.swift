@@ -2862,6 +2862,9 @@ public enum KompleteKontrolLibUSBServer {
         private var pendingStateReports: [UInt8: [UInt8]] = [:]
         private var pendingStateReportOrder: [UInt8] = []
         private var stateReportDrainScheduled = false
+        private let clientHandoffPauseNs: UInt64 = 1_000_000_000
+        private var clientHandoffUntilNs: UInt64 = 0
+        private var clientHandoffGeneration: UInt64 = 0
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
@@ -2883,6 +2886,13 @@ public enum KompleteKontrolLibUSBServer {
         private var idleDiagnosticNeedsLightGuideFlush = false
         private var idleDiagnosticNeedsButtonLEDFlush = false
         private var idleDiagnosticFlushGate = DaemonIdleDiagnosticFlushGate()
+
+        private enum MK2DaemonChrome {
+            static let noClientBooted: UInt16 = 0x39e7
+            static let idleInput: UInt16 = 0xffe0
+            static let clientConnected: UInt16 = 0x07e0
+            static let footer: UInt16 = 0x2104
+        }
 
         deinit {
             shutdown()
@@ -3225,6 +3235,11 @@ public enum KompleteKontrolLibUSBServer {
             while true {
                 let blits: [PendingDisplayBlit]
                 lock.lock()
+                if let delayNs = clientHandoffRemainingNsLocked(), !pendingDisplayBlits.isEmpty {
+                    lock.unlock()
+                    scheduleDisplayDrain(afterNs: delayNs)
+                    return
+                }
                 blits = pendingDisplayBlits.values.sorted { $0.screen < $1.screen }
                 pendingDisplayBlits.removeAll(keepingCapacity: true)
                 if blits.isEmpty {
@@ -3240,6 +3255,13 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
+        private func scheduleDisplayDrain(afterNs delayNs: UInt64) {
+            let delay = DispatchTimeInterval.nanoseconds(Int(min(delayNs, UInt64(Int.max))))
+            displayQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.drainDisplayBlits()
+            }
+        }
+
         // Own serial queue from drainDisplayBlits: LEDs/guide use a different USB
         // endpoint than pixels, and sessionIOLock's shared lock already allows the two
         // to run concurrently — see the stateReportQueue declaration for why this is
@@ -3248,6 +3270,11 @@ public enum KompleteKontrolLibUSBServer {
             while true {
                 let reports: [(UInt8, [UInt8])]
                 lock.lock()
+                if let delayNs = clientHandoffRemainingNsLocked(), !pendingStateReports.isEmpty {
+                    lock.unlock()
+                    scheduleStateReportDrain(afterNs: delayNs)
+                    return
+                }
                 reports = pendingStateReportOrder.compactMap { id in
                     pendingStateReports[id].map { (id, $0) }
                 }
@@ -3264,6 +3291,18 @@ public enum KompleteKontrolLibUSBServer {
                     performStateReportWrite(reportID: reportID, payload: payload)
                 }
             }
+        }
+
+        private func scheduleStateReportDrain(afterNs delayNs: UInt64) {
+            let delay = DispatchTimeInterval.nanoseconds(Int(min(delayNs, UInt64(Int.max))))
+            stateReportQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.drainStateReports()
+            }
+        }
+
+        private func clientHandoffRemainingNsLocked(now: UInt64 = KKTiming.now()) -> UInt64? {
+            guard clientHandoffUntilNs > now else { return nil }
+            return clientHandoffUntilNs - now
         }
 
         private func performStateReportWrite(reportID: UInt8, payload: [UInt8]) {
@@ -3823,7 +3862,7 @@ public enum KompleteKontrolLibUSBServer {
                 midiSummary: midiSummary,
                 rawLines: rawLines
             )
-            let right = makeMK2IdleLogFrame(log)
+            let right = makeMK2IdleLogFrame(log, hasInput: hasInput)
             writeMK2Frame(session: session, screen: 0, pixels: left)
             writeMK2Frame(session: session, screen: 1, pixels: right)
         }
@@ -3850,19 +3889,171 @@ public enum KompleteKontrolLibUSBServer {
             daemonLog("MK2 display frame screen=\(screen) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
         }
 
+        private func writeMK2FrameRect(
+            session: any KontrolDeviceSession,
+            screen: UInt8,
+            x: UInt16,
+            y: UInt16,
+            width: UInt16,
+            height: UInt16,
+            pixels: [UInt16]
+        ) {
+            guard pixels.count == Int(width) * Int(height) else { return }
+            sessionIOLock.lockShared()
+            lock.lock()
+            let isCurrent = libusbSession === session
+            lock.unlock()
+            guard isCurrent else {
+                sessionIOLock.unlock()
+                return
+            }
+            let start = KKTiming.now()
+            let result = session.writeMK2DisplayPixels(
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixels: pixels,
+                timeoutMs: 1_000)
+            sessionIOLock.unlock()
+            daemonLog("MK2 display rect screen=\(screen) rect=\(x),\(y) \(width)x\(height) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+        }
+
+        private func writeMK2ConnectedClientTitle(session: any KontrolDeviceSession, client: RegisteredClient) {
+            let width = KompleteKontrolMK2Protocol.displayWidth
+            let frame = makeMK2IdleStatusFrame(
+                hasInput: true,
+                surfaceSummary: "",
+                midiSummary: "",
+                rawLines: [],
+                title: mk2ConnectedClientTitle(client),
+                chromeColor: MK2DaemonChrome.clientConnected
+            )
+            writeMK2FrameRect(
+                session: session,
+                screen: 0,
+                x: 0,
+                y: 0,
+                width: UInt16(width),
+                height: 10,
+                pixels: mk2FrameRectPixels(frame, x: 0, y: 0, width: width, height: 10)
+            )
+            writeMK2FrameRect(
+                session: session,
+                screen: 0,
+                x: 0,
+                y: 18,
+                width: UInt16(width),
+                height: 38,
+                pixels: mk2FrameRectPixels(frame, x: 0, y: 18, width: width, height: 38)
+            )
+        }
+
+        private func mk2FrameRectPixels(_ frame: [UInt16], x: Int, y: Int, width rectWidth: Int, height rectHeight: Int) -> [UInt16] {
+            let frameWidth = KompleteKontrolMK2Protocol.displayWidth
+            let frameHeight = KompleteKontrolMK2Protocol.displayHeight
+            guard x >= 0,
+                  y >= 0,
+                  rectWidth > 0,
+                  rectHeight > 0,
+                  x + rectWidth <= frameWidth,
+                  y + rectHeight <= frameHeight,
+                  frame.count == frameWidth * frameHeight else {
+                return []
+            }
+            var rect: [UInt16] = []
+            rect.reserveCapacity(rectWidth * rectHeight)
+            for row in y..<(y + rectHeight) {
+                let start = row * frameWidth + x
+                rect.append(contentsOf: frame[start..<(start + rectWidth)])
+            }
+            return rect
+        }
+
+        private func beginMK2ClientHandoffPause() {
+            let generation: UInt64
+            lock.lock()
+            clientHandoffGeneration &+= 1
+            generation = clientHandoffGeneration
+            clientHandoffUntilNs = KKTiming.now() &+ clientHandoffPauseNs
+            lock.unlock()
+
+            stateReportQueue.async { [weak self] in
+                self?.runMK2ClientHandoffLightGuideSlide(generation: generation)
+            }
+        }
+
+        private func runMK2ClientHandoffLightGuideSlide(generation: UInt64) {
+            let frames = 24
+            let sleepUsec = useconds_t(max(1, clientHandoffPauseNs / UInt64(frames) / 1_000))
+            for frame in 0..<frames {
+                guard isCurrentClientHandoff(generation: generation) else { return }
+                performStateReportWrite(
+                    reportID: KompleteKontrolMK2Protocol.lightGuideReportID,
+                    payload: mk2ClientHandoffLightGuidePayload(frame: frame, frameCount: frames)
+                )
+                usleep(sleepUsec)
+            }
+            guard isCurrentClientHandoff(generation: generation) else { return }
+            performStateReportWrite(
+                reportID: KompleteKontrolMK2Protocol.lightGuideReportID,
+                payload: [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+            )
+        }
+
+        private func isCurrentClientHandoff(generation: UInt64) -> Bool {
+            lock.lock()
+            let isCurrent = clientHandoffGeneration == generation
+            lock.unlock()
+            return isCurrent
+        }
+
+        private func mk2ClientHandoffLightGuidePayload(frame: Int, frameCount: Int) -> [UInt8] {
+            var payload = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+            let keyCount = currentMK2LightGuideKeyCount()
+            guard keyCount > 0 else { return payload }
+            let cometWidth = min(7, max(1, keyCount))
+            let span = max(1, keyCount + cometWidth - 1)
+            let head = (frame * span) / max(1, frameCount - 1)
+            let color = KompleteKontrolSSeriesMK2.paletteCode(for: .hsv(132, 0.72, 0.86))
+            for offset in 0..<cometWidth {
+                let index = head - offset
+                guard (0..<keyCount).contains(index), payload.indices.contains(index) else { continue }
+                payload[index] = color
+            }
+            return payload
+        }
+
+        private func currentMK2LightGuideKeyCount() -> Int {
+            lock.lock()
+            let count = libusbSession.map { Int($0.keyCount) } ?? KompleteKontrolMK2Protocol.lightGuideKeyMapSize
+            lock.unlock()
+            return max(0, min(count, KompleteKontrolMK2Protocol.lightGuideKeyMapSize))
+        }
+
         private func makeMK2IdleStatusFrame(
             hasInput: Bool,
             surfaceSummary: String,
             midiSummary: String,
-            rawLines: [String]
+            rawLines: [String],
+            title: String = "NO CLIENT",
+            chromeColor: UInt16? = nil
         ) -> [UInt16] {
             let width = KompleteKontrolMK2Protocol.displayWidth
             let height = KompleteKontrolMK2Protocol.displayHeight
             var pixels = [UInt16](repeating: 0x0000, count: width * height)
-            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: hasInput ? 0x07ff : 0xf800, pixels: &pixels)
-            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
+            fillMK2Rect(
+                x: 0,
+                y: 0,
+                width: width,
+                height: 10,
+                color: chromeColor ?? mk2IdleChromeColor(hasInput: hasInput),
+                pixels: &pixels
+            )
+            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: MK2DaemonChrome.footer, pixels: &pixels)
 
-            drawMK2Text("NO CLIENT", x: 28, y: 24, scale: 3, color: 0xffff, pixels: &pixels)
+            drawMK2Text(title, x: 28, y: 24, scale: 3, color: 0xffff, maxWidth: 420, pixels: &pixels)
             drawMK2Text("MK2 DAEMON", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
             drawMK2Text("REV \(idleRevisionSummary.count) \(idleRevisionSummary.hash)", x: 28, y: 84, scale: 2, color: 0x8410, pixels: &pixels)
 
@@ -3883,12 +4074,12 @@ public enum KompleteKontrolLibUSBServer {
             return pixels
         }
 
-        private func makeMK2IdleLogFrame(_ log: [MK2IdleLogEntry]) -> [UInt16] {
+        private func makeMK2IdleLogFrame(_ log: [MK2IdleLogEntry], hasInput: Bool) -> [UInt16] {
             let width = KompleteKontrolMK2Protocol.displayWidth
             let height = KompleteKontrolMK2Protocol.displayHeight
             var pixels = [UInt16](repeating: 0x0000, count: width * height)
-            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: 0x07e0, pixels: &pixels)
-            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: 0x2104, pixels: &pixels)
+            fillMK2Rect(x: 0, y: 0, width: width, height: 10, color: mk2IdleChromeColor(hasInput: hasInput), pixels: &pixels)
+            fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: MK2DaemonChrome.footer, pixels: &pixels)
             drawMK2Text("EVENT LOG", x: 18, y: 18, scale: 3, color: 0xffff, pixels: &pixels)
             drawMK2Text("TIME", x: 18, y: 48, scale: 1, color: 0x8410, pixels: &pixels)
             drawMK2Text("EVENT", x: 92, y: 48, scale: 1, color: 0x8410, pixels: &pixels)
@@ -3912,6 +4103,10 @@ public enum KompleteKontrolLibUSBServer {
                 drawMK2Text(entry.message, x: 92, y: y, scale: 1, color: eventColor, maxWidth: width - 110, pixels: &pixels)
             }
             return pixels
+        }
+
+        private func mk2IdleChromeColor(hasInput: Bool) -> UInt16 {
+            hasInput ? MK2DaemonChrome.idleInput : MK2DaemonChrome.noClientBooted
         }
 
         private func mk2IdleTimestamp(_ timestamp: UInt64) -> String {
@@ -3956,6 +4151,37 @@ public enum KompleteKontrolLibUSBServer {
                 drawMK2Glyph(char, x: cursor, y: y, scale: scale, color: color, pixels: &pixels)
                 cursor += glyphWidth + spacing
             }
+        }
+
+        private func mk2ConnectedClientTitle(_ client: RegisteredClient) -> String {
+            let suffix = " (\(client.pid))"
+            var name = client.name.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if name.isEmpty {
+                name = "CLIENT"
+            }
+            let maxWidth = 420
+            let scale = 3
+            let title = "\(name)\(suffix)"
+            if mk2TextPixelWidth(title, scale: scale) <= maxWidth {
+                return title
+            }
+            while !name.isEmpty {
+                let candidate = "\(name)...\(suffix)"
+                if mk2TextPixelWidth(candidate, scale: scale) <= maxWidth {
+                    return candidate
+                }
+                name.removeLast()
+            }
+            return suffix.trimmingCharacters(in: .whitespaces)
+        }
+
+        private func mk2TextPixelWidth(_ text: String, scale: Int) -> Int {
+            let scale = max(1, scale)
+            let spacing = 2 * scale
+            let units = text.uppercased().reduce(0) { width, char in
+                width + (char == " " ? 3 * scale : 5 * scale) + spacing
+            }
+            return max(0, units - spacing)
         }
 
         private func makeMK2Frame(lines: [String], background: UInt16, foreground: UInt16, accent: UInt16, buttonLabels: [String] = []) -> [UInt16] {
@@ -4058,6 +4284,8 @@ public enum KompleteKontrolLibUSBServer {
                 case ".": return [0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c]
                 case ":": return [0x00, 0x0c, 0x0c, 0x00, 0x0c, 0x0c, 0x00]
                 case "#": return [0x0a, 0x0a, 0x1f, 0x0a, 0x1f, 0x0a, 0x0a]
+                case "(": return [0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02]
+                case ")": return [0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08]
                 case "0": return [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e]
                 case "1": return [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e]
                 case "2": return [0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f]
@@ -4102,13 +4330,8 @@ public enum KompleteKontrolLibUSBServer {
             guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
             if isMK2(session) {
-                writeMK2IdleSurface(
-                    session: session,
-                    screen0: ["CLIENT", String(client.name.prefix(12)).uppercased()],
-                    screen1: ["CONNECTED", "PID \(client.pid)"],
-                    accent0: 0x07ff,
-                    accent1: 0x07e0
-                )
+                writeMK2ConnectedClientTitle(session: session, client: client)
+                beginMK2ClientHandoffPause()
                 return
             }
             let name = String(client.name.prefix(8)).uppercased()
@@ -4183,6 +4406,11 @@ public enum KompleteKontrolLibUSBServer {
             idleMK2JogActiveLEDs = []
             idleRawSurfaceLines = []
             idleMK2EventLog = []
+            clientHandoffGeneration &+= 1
+            clientHandoffUntilNs = 0
+            pendingDisplayBlits.removeAll(keepingCapacity: true)
+            pendingStateReports.removeAll(keepingCapacity: true)
+            pendingStateReportOrder.removeAll(keepingCapacity: true)
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
             idleDiagnosticNeedsButtonLEDFlush = false

@@ -72,7 +72,11 @@ mk2-usb-spy: mk2-usb-spy-build ## Stop daemon and run MK2 USB descriptor/input s
 	sudo "$$(pwd)/$(MK2_USB_SPY)" $(MK2_USB_SPY_ARGS)
 
 daemon-preflight: ## Refuse stale or duplicate daemon state (queries the installed daemon's embedded revision; no local build needed). Caveat: two dirty builds of the same commit compare equal.
-	@pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") > 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
+	@simulator_socket="/tmp/kontrol-simulator-daemon.sock"; \
+	target_socket="$${KK_DAEMON_SOCKET:-$(SOCKET)}"; \
+	simulator_pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") == 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
+	simulator_count="$$(printf '%s\n' "$$simulator_pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
+	pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") > 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
 	count="$$(printf '%s\n' "$$pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
 	if [ "$$count" -gt 1 ]; then \
 		echo "Refusing to run: multiple KompleteKontrol daemons are active:" >&2; \
@@ -98,7 +102,11 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 				;; \
 		esac; \
 	done; \
-	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ]; then \
+	uses_simulator_daemon=0; \
+	if [ "$$target_socket" = "$$simulator_socket" ] || { [ "$$count" -eq 0 ] && [ "$$simulator_count" -gt 0 ]; }; then \
+		uses_simulator_daemon=1; \
+	fi; \
+	if [ "$${CHECK_DAEMON_BINARY:-1}" != 0 ] && [ "$$foreground_daemon" -ne 1 ] && [ "$$uses_simulator_daemon" -ne 1 ] && [ -x /usr/local/bin/ccd ]; then \
 		installed_rev="$$(/usr/local/bin/ccd --revision 2>/dev/null || true)"; \
 		workspace_count="$$(git rev-list --count HEAD 2>/dev/null || printf 'REV ?')"; \
 		if ! git diff --quiet HEAD -- 2>/dev/null; then workspace_count="$$workspace_count+"; fi; \
