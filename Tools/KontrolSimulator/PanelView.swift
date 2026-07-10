@@ -32,7 +32,6 @@ final class PanelView: NSView {
     private var daemonStatus = DaemonStatus.none
 
     enum KeybedSize: Int, CaseIterable {
-        case kk25 = 25
         case kk37 = 37
         case kk49 = 49
         case kk61 = 61

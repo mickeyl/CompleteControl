@@ -18,13 +18,9 @@ typedef struct {
 
 typedef void *KontrolUSBLibUSBSessionRef;
 
-/* Synchronous API (existing) */
-KontrolUSBResult KontrolUSBWriteReport(uint8_t reportID, const uint8_t *payload, uint32_t payloadLen);
-KontrolUSBResult KontrolUSBRunDemo(void);
-KontrolUSBResult KontrolUSBLibUSBWriteReport(uint8_t reportID, const uint8_t *payload, uint32_t payloadLen);
+/* Persistent MK2 session API. */
 KontrolUSBResult KontrolUSBLibUSBSessionOpen(KontrolUSBLibUSBSessionRef *sessionOut);
 KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, KontrolUSBLibUSBSessionRef *sessionOut);
-uint8_t KontrolUSBLibUSBSessionGeneration(KontrolUSBLibUSBSessionRef session);
 uint16_t KontrolUSBLibUSBSessionProductID(KontrolUSBLibUSBSessionRef session);
 uint8_t KontrolUSBLibUSBSessionKeyCount(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionStatus(KontrolUSBLibUSBSessionRef session);
@@ -37,10 +33,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionFillMK2Display(KontrolUSBLibUSBSessionRe
 KontrolUSBResult KontrolUSBLibUSBSessionRead(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);
 KontrolUSBResult KontrolUSBLibUSBSessionReadMIDI(KontrolUSBLibUSBSessionRef session, uint8_t *buffer, uint32_t bufferLen, uint32_t *transferredOut, uint32_t timeoutMs);
 void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef session);
-KontrolUSBResult KontrolUSBLibUSBRunDemo(void);
-KontrolUSBResult KontrolUSBLibUSBRunHoldDemo(uint32_t steps, uint32_t intervalUsec);
-
-/* Async API (new) — enables kqueue/select integration */
+/* Async API — enables kqueue/select integration. */
 
 /* Get pollable file descriptors for libusb event handling.
  * Returns up to maxFds pollfd structs. Caller uses these with kqueue/select.

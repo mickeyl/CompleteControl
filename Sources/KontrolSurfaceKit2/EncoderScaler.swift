@@ -1,6 +1,6 @@
 import Foundation
 
-/// Velocity-sensitive scaling for the high-resolution rotaries, ported from the MK1
+/// Velocity-sensitive scaling for the high-resolution rotaries, preserving the original
 /// kit's tuned feel: the base increment is range-relative — a slow full sweep takes
 /// about 900 encoder counts regardless of the target range — and short inter-report
 /// intervals accelerate it (3× under 90 ms, 5× under 35 ms). The raw count delta

@@ -1,562 +1,171 @@
 # CompleteControl
 
-Swift control library and diagnostics tools for the Native Instruments Komplete Kontrol S25 MK1.
+CompleteControl is a Swift control-surface stack for Native Instruments Komplete
+Kontrol S-Series MK2 keyboards. It provides a privileged libusb daemon, a
+declarative pixel-display middleware, input decoding, LEDs and light guide
+control, USB-MIDI delivery, and a hardware-free simulator.
 
-This project talks to Komplete Kontrol keyboards as real hardware surfaces. The mature path targets the S25 MK1: RGB light guide, button LEDs, the nine segmented LCDs, buttons, rotary encoders, touch strips, and USB-MIDI input. The newer MK2 path targets the S-Series MK2 through `KontrolSurfaceKit2`: two 480x272 pixel displays, function/menu/transport controls, encoders, 4-D input, light guide, and a simulator. It is not an official Native Instruments project and is not endorsed by Native Instruments.
+This is an independent project and is not endorsed by Native Instruments.
 
-The current implementation targets macOS and is optimized around a privileged libusb daemon with a kqueue reactor. The daemon owns the USB interfaces once, handles async libusb transfers, pushes surface and MIDI input to clients over a Unix domain socket, and keeps output writes out of app processes that should not run as root.
+## Supported Hardware
 
-## Status
+| Model | VID | PID | Keys |
+| --- | --- | --- | ---: |
+| Komplete Kontrol S49 MK2 | `0x17cc` | `0x1610` | 49 |
+| Komplete Kontrol S61 MK2 | `0x17cc` | `0x1620` | 61 |
+| Komplete Kontrol S88 MK2 | `0x17cc` | `0x1630` | 88 |
 
-Supported now:
+The supported surface includes:
 
-- Native Instruments Komplete Kontrol S25 MK1, observed as `VID 0x17cc`, `PID 0x1340`
-- RGB light guide for 25 keys
-- Button LED output
-- Nine segmented LCD modules
-- Surface input: buttons, eight rotary encoders, encoder touch, main encoder, pitch strip, mod strip
-- USB-MIDI input through the daemon
-- Foreground debug daemon and quiet release daemon
-- Idle daemon surface diagnostics while no client is connected
-- REPL benchmark and an AppKit demo UI
-- S-Series MK2 host-control path through `KontrolSurfaceKit2`, `MK2SurfaceDemo`, `MK2WidgetLabDemo`, and `KontrolSimulator` (with a built-in Daemon menu that runs a user-level simulator daemon on a /tmp socket — no sudo, coexisting with the installed hardware daemon; clients attach via `KK_DAEMON_SOCKET` or retry against the simulator when the hardware daemon is unavailable)
-- MK2 LED capability model: palette colours on Mute, Solo, F1-F8, and the 25 touch-strip segments; other panel button indicators are fixed-colour monochrome (normally white, Play green, Record red)
-- MK2 pixel text rendering through two separate paths: bitmap fonts for tracker/grid sharpness, and FreeType grayscale text (with the Phosphor icon font) for larger dialogs, browser/settings surfaces, lists, and long text
-- MK2 screen chrome: typography-driven header/footer bands with a raised graphite bevel, an optional gradient progress-bar slot, decoded PNG/JPEG image backgrounds for splash/about screens, ordered-dither quantization against OLED banding, and debossed encoder value cells in canonical bottom-flush slots
+- two 480x272 RGB565 displays;
+- eight encoders plus touch, function/menu/transport buttons, and the 4-D encoder;
+- RGB palette button and ribbon LEDs;
+- palette light-guide LEDs;
+- raw ribbon input and USB-MIDI keybed/performance input.
 
-Not supported yet:
-
-- S49/S61/S88 MK1 verification
-- MK3 protocol family
-- Windows/Linux packaging
-- Stable semantic-versioned public API
-- A final repository license file
-
-## Hardware Overview
-
-![Komplete Kontrol S25 MK1 hardware overview](Docs/hardware-overview.svg)
-
-| Area | Current mapping |
-| --- | --- |
-| Device | Native Instruments Komplete Kontrol S25 MK1 |
-| USB IDs | Vendor `0x17cc`, product `0x1340` |
-| Surface interface | Interface `2`, interrupt IN `0x82`, interrupt OUT `0x02` on tested hardware |
-| MIDI interface | Interface `1`, USB-MIDI bulk IN `0x81` on tested hardware |
-| Light guide | Report `0x82`, 25 RGB triples |
-| Button LEDs | Report `0x80`, button LED value table from the reverse-engineered controller mapping |
-| Displays | Report `0xe0`, three row payloads, nine displays, eight 16-segment cells per text row |
-| Display row 0 | Progress/bar row only |
-| Display rows 1-2 | Text or raw 16-segment glyph masks |
-| Input report | Report `0x01`, decoded to button, encoder, touch, and strip events |
-
-MK2 uses the same broad report IDs but different payload layouts and capabilities. In
-particular, its button LED report is not a full RGB button surface: Mute, Solo, F1-F8, and
-the 25 touch-strip segments are palette-capable. The remaining panel button indicators are
-fixed-colour monochrome LEDs with brightness control; Play is green, Record is red, and the
-rest are white.
-
-## Why This Architecture Exists
-
-The short version: CoreMIDI sees keys, but not the whole surface. HID can see the surface, but direct HID output is not a robust low-latency ownership model for this device on macOS. libusb gives us the right level of control, but it needs privileged interface claiming. That combination forced the daemon architecture.
-
-### Why Not Only CoreMIDI?
-
-CoreMIDI is useful for musical input: keys, note on/off, pitch bend, modulation, and normal MIDI control data. It does not expose the S25 MK1 surface display protocol, light guide reports, button LED reports, rotary encoder reports, or the segmented LCD frame format. A MIDI-only app can be a keyboard app; it cannot be a full S25 surface driver.
-
-This library still provides MIDI events, but the high-performance path reads the USB-MIDI endpoint inside the daemon so MIDI and surface events share one transport, one timestamping model, and one kqueue wakeup path.
-
-### Why Not Only HID?
-
-The S25 MK1 presents HID-like reports, and the library still has IOKit/HID code for fallback and diagnostics. In practice, full output control is fragile when other drivers or services own the device, and direct app-side HID ownership does not solve the privilege and device-claim problem cleanly.
-
-Community projects have run into the same class of problems. qKontrol documents that, on macOS, Native Instruments services may have to be stopped before its direct-access approach can use Komplete Kontrol MK2 hardware. Rebellion takes a different route by talking to NI's own host integration services instead of stopping them. MMK3-HID-Control describes the same general issue for Maschine MK3: NI background components claim the hardware before third-party software can draw to it.
-
-CompleteControl uses a dedicated privileged daemon instead. Apps talk to a local Unix socket; the daemon claims the USB interfaces once and refuses to start if another daemon is already active.
-
-### Why libusb + kqueue?
-
-libusb exposes pollable file descriptors for its asynchronous API on Unix-like systems. The daemon registers those descriptors plus client sockets in a kqueue. When kqueue reports libusb readiness, the daemon pumps libusb non-blockingly and dispatches completed transfers to connected clients.
-
-That gives us:
-
-- no hot loop
-- no coarse periodic polling tick in the normal path
-- one owner for libusb event handling
-- async surface input and async USB-MIDI input
-- queued output writes from client apps
-- structured debug logging only in debug builds or when explicitly enabled
-- quiet release builds for benchmarks and performance-sensitive use
-
-The measured daemon callback to client callback benchmark after this change:
-
-```text
-Samples: 100
-Surface: 57
-MIDI:    43
-Combined median: 0.253 ms
-Combined P95:    0.529 ms
-Combined P99:    0.691 ms
-Combined max:    0.713 ms
-```
-
-These numbers are from `make daemon-release` plus `make probe-run-release` on the development machine. They measure input delivery inside this library, not acoustic or LED perception latency.
-
-## Related Work And Credits
-
-This project builds on the public reverse-engineering work around Native Instruments controllers.
-
-- [shaduzlabs/cabl](https://github.com/shaduzlabs/cabl) is the major reference point. The display font table in this repository is derived from cabl's `FONT_16-seg.h` table, which is marked MIT licensed in the source comments.
-- [qKontrol](https://github.com/GoaSkin/qKontrol) is an open Linux/macOS application for Komplete Kontrol MK2 configuration and direct device access.
-- [SynthesiaKontrol](https://github.com/ojacques/SynthesiaKontrol) and [KompleteSynthesia](https://github.com/tillt/KompleteSynthesia) document and exercise the light guide path for Synthesia workflows.
-- [LightKontrol](https://github.com/madebycm/LightKontrol) is a lightweight HID-based light guide tool for MK2 controllers.
-- [Rebellion](https://github.com/terminar/rebellion) explores the opposite architecture: integrating with NIHA/NIHIA instead of claiming the hardware directly.
-- [openAV-Ctlra](https://github.com/openAVproductions/openAV-Ctlra) is a broader C library for hardware controllers, including USB HID devices and several Native Instruments controllers.
-- [HIDAPI](https://github.com/libusb/hidapi) and [libusb](https://libusb.info/) are foundational libraries in this space.
+The maintained protocol reference is
+[Docs/Komplete-Kontrol-Protocol-Guide.md](Docs/Komplete-Kontrol-Protocol-Guide.md).
 
 ## Requirements
 
-- macOS 26.0 or newer
-- Swift 6.2 toolchain
-- Xcode command line tools
-- Git submodules
-- Homebrew `freetype` and `harfbuzz` for the `CFreeType` and `CHarfBuzz`
-  SwiftPM system-library targets
+- macOS 26 or newer;
+- Swift 6.2 or newer;
+- Homebrew `freetype` and `harfbuzz`;
+- administrator access to install or run the hardware daemon;
+- the pinned `Vendor/libusb` submodule.
 
-libusb is vendored as a pinned submodule under `Vendor/libusb` and is compiled into the SwiftPM build. Homebrew libusb is intentionally not used.
-FreeType and HarfBuzz are intentionally different: they are linked through `pkg-config` / Homebrew because the font renderer is a normal host-side library dependency, not part of the USB transport stack.
+Initialize and build:
 
 ```bash
 git submodule update --init --recursive Vendor/libusb
 brew install freetype harfbuzz
+swift build
+swift test
 ```
-
-Build:
-
-```bash
-make build
-make build-release
-```
-
-## Quick Start
-
-Install the daemon once:
-
-```bash
-make install-daemon
-```
-
-For hardware and protocol debugging, install the debug daemon instead:
-
-```bash
-make install-debug-daemon
-```
-
-Run the middleware demo:
-
-```bash
-make run
-```
-
-Run the MK2 Widget Lab demo, including the FreeType typography/icon sub-demos in Unit A:
-
-```bash
-make mk2-widget-lab-demo
-```
-
-Only one MK2 surface client should own the displays at a time. Stop `MK2WidgetLabDemo`,
-`MK2SurfaceDemo`, Paulinche, or another MK2 client before judging the lab on hardware.
-
-Run the old REPL baseline:
-
-```bash
-make probe-run
-```
-
-Run the old AppKit surface demo:
-
-```bash
-make probe-ui
-```
-
-Run a quiet release daemon and release client for latency work:
-
-```bash
-make daemon-release
-make probe-run-release
-```
-
-Useful maintenance targets:
-
-```bash
-make help
-make daemon-status
-make daemon-debug
-make install-debug-daemon
-make daemon-stop
-make uninstall-daemon
-```
-
-## Using The Swift Library
-
-Add the package to another Swift package:
-
-```swift
-dependencies: [
-    .package(url: "https://github.com/YOUR-ORG/CompleteControl.git", branch: "main")
-]
-```
-
-Add the middleware product to your target:
-
-```swift
-.product(name: "KontrolSurfaceKit", package: "CompleteControl"),
-.product(name: "KompleteKontrol", package: "CompleteControl"), // for shared hardware types such as KKRGB
-```
-
-For application code, use `KontrolSurfaceKit`'s SwiftUI-like declarative `Screen`
-DSL. The older imperative setters are deprecated for client-facing code and are
-kept only as a migration and diagnostics escape hatch. New apps should model a
-surface as a value and render it with `present(_:)` or `observe { ... }`.
-
-Declarative surface setup:
-
-```swift
-import KontrolSurfaceKit
-import KompleteKontrol
-
-struct PatternScreen: Screen {
-    var row: Int
-    var isPlaying: Bool
-
-    var body: [any ScreenElement] {
-        Status(isPlaying ? "PLAY" : "EDIT")
-        Cell(1) {
-            Bar(Double(row) / 63)
-            Label("ROW", overflow: .clip)
-            Value(row)
-        }
-        Cell(2) {
-            Label("CH1", overflow: .clip)
-            Label("C-4 01", overflow: .clip)
-        }
-        Lamp(.play, isPlaying ? .on : .on(0x14))
-        KeyColors { key in
-            key == 12 ? KKRGB(red: 0x00, green: 0x60, blue: 0x7f) : nil
-        }
-    }
-}
-
-let surface = Surface()
-
-Task {
-    await surface.start()
-    await surface.present(PatternScreen(row: 0, isPlaying: false))
-}
-```
-
-Inputs are consumed from `surface.inputs`; MIDI is consumed from `surface.midi`.
-Prefer attaching behavior inside a `Screen` with `Cell(...).onEncoder`,
-`Lamp(...).onTap`, and `MainEncoder` when the behavior belongs to the active
-screen.
-
-Connection state is consumed from `surface.connectionStates`. A running app
-should treat `.retrying` as non-fatal: keep the normal UI usable, show the state
-to the user, and let `Surface` keep probing/reconnecting in the background.
-MK2 clients also treat daemon disconnects as recoverable. The binary socket
-client disables `SIGPIPE`, event-socket EOF/error becomes `.retrying`, and
-failed LED/display writes discard the stale session so the actor can reconnect.
-The safety heartbeat is idle-only: real event, LED, or display communication
-pushes it back, and only after about three seconds of daemon silence does the
-client send a lightweight `version` check.
-
-### Deprecated Imperative Driver Path
-
-The current low-level Swift module name is still `KompleteKontrol`, and the raw
-driver APIs remain available for diagnostics, protocol work, and legacy tools
-such as `KontrolProbe`. Do not build new application workflows around these
-imperative setters:
-
-```swift
-import KompleteKontrol
-
-let kk = KompleteKontrolS25MK1()
-kk.startInputMonitoring()
-kk.handshakeAsync()
-
-_ = kk.setKey(0, color: KKRGB(red: 0x7f, green: 0x00, blue: 0x00), flush: false)
-_ = kk.setButtonLED(name: "play", value: 0x7f, flush: false)
-_ = kk.setDisplayText("FILTER", display: 0, row: 1, alignment: .center, flush: false)
-kk.sendGuideAsync()
-kk.sendButtonLEDsAsync()
-kk.sendDisplaysAsync()
-```
-
-## Tools
-
-`KontrolProbe` is the diagnostic executable in `Tools/KontrolProbe`.
-`ccd` is the launchd/foreground daemon executable in `Tools/ccd`.
-
-Modes:
-
-- normal REPL client: `make probe-run`
-- release REPL client: `make probe-run-release`
-- foreground debug daemon: `make daemon-debug` (runs `ccd`)
-- quiet release daemon: `make daemon-release` (runs `ccd`)
-- AppKit demo UI: `make probe-ui`
-
-Important REPL commands:
-
-```text
-demo                 run a self-test
-rainbow              rainbow light guide
-lcd D R TEXT...      set LCD text; row 0 is not a text row
-lcdbar D VALUE       set row-0 progress on one display
-button I|NAME V      set a button LED
-buttonmap            print button LED names
-daemonstatus         show daemon session endpoints
-daemonread [MS]      read one queued surface packet
-daemonmidi [MS]      read one queued USB-MIDI packet
-benchmark [N]        collect N surface/MIDI input latency samples, then print stats
-```
-
-The benchmark collects silently in the hot path. It prints combined, surface-only, MIDI-only, and slowest-sample summaries only after the target sample count is reached.
-
-## MK2 Widget Lab and Kit2 Widgets
-
-`MK2WidgetLabDemo` is the current proving ground for `KontrolSurfaceKit2` and the upcoming Paulinche tracker integration. The tracker unit renders a left-hand pattern grid and a right-hand edit surface. The edit surface is intentionally built from small Kit2 widgets so hardware behavior and display projection evolve together:
-
-- `MK2ButtonToggle`: a Boolean hardware button binding with on/off lamp states and an optional pixel-display button. The tracker unit uses it for Mute, Solo, and Metronome.
-- `MK2ButtonRangeSelection`: a bounded range browsed by two hardware buttons; unavailable edge buttons are unlit. The tracker unit uses it for dummy instrument selection.
-- `MK2EncoderDiscreteValue`: a discrete encoder-bound value with bounds, step size, touch callback, and configurable wrap-around. The tracker unit uses non-wrapping bindings for Note, Instrument, Volume, and Effect on encoders 5-8.
-- `MK2StatusLine`: fixed-position compact header/status text for pixel-display pages.
-- `MK2ValueCell`: a labelled, fixed-size value field intended for encoder-bound controls.
-- `MK2ModalDialog`: global modal dialog projection with 4-D encoder selection/confirm and hardware-button dismiss.
-- `MK2SelectionNavigation`: a small value-type state helper for selection index movement,
-  clamping/wrapping, and single-filter encoder focus.
-- `MK2SelectionLayout`: shared selection-view metrics for content/filter rectangles and
-  grid row steps. Demos should use it instead of duplicating display geometry.
-- `MK2SelectionList` / `MK2SelectionGrid`: reusable selection projections for one-screen
-  lists and configurable-cell grids, with optional bottom-third filter controls aligned to
-  fixed `E5`-`E8` rotary encoder slots. Filter state separates "active" from "focused":
-  active filters colour the label, while only the touched/turned encoder value is inverted.
-  Grids can use text cells or compact icon-only cells for icon browsers.
-- `MK2ParameterPageElement`: up to eight labelled value cells bound to encoders. The slot
-  grid anchors to the bottom of its area, clamped to the canonical encoder slots
-  (`MK2ScreenLayout.encoderSlotRect`), so cells always sit flush above the physical
-  encoders they map to.
-- `MK2PixelImage` / `MK2ImageElement`: PNG/JPEG decoded once into display-ready RGB565
-  with fill/fit aspect scaling, drawn with an optional brightness scrim — the foundation
-  for splash/about screens, including panoramas that span both displays.
-- `MK2OrderedDither`: Bayer 4x4 quantization for gradients and brightness scaling; dark
-  ramps band visibly on the OLED without it. Value cells draw as debossed wells (shadow
-  rim top, lit edge bottom) on top of this.
-
-The Scene Lab unit (`F8`) is the acceptance screen for the screen-chrome system:
-`Instance` cycles the header/footer combinations plus a double-screen splash and a
-hero-artwork panorama, with encoders driving the bezel-gap calibration and background
-brightness live.
-
-For the tracker unit, rotary encoder indices are 1-based as emitted by the MK2 decoder. The right edit bank currently maps `E5 -> NOTE`, `E6 -> INST`, `E7 -> VOL`, and `E8 -> FX`.
-For the Selection Lab unit, `Instance` cycles plain list, plain grid, filtered list, and
-filtered grid. The 4-D encoder moves by one item in lists, by one visual row in grids, and
-confirms on press; filtered modes use right-side encoders for category filters.
-For the Browser Lab unit, `F2`/unit `B` prototypes a Paulinche-style browser/settings
-surface: the left display shows detail/preview, the right display uses `MK2SelectionList` or
-`MK2SelectionGrid`, `Instance` cycles list/grid/filter variants, 4-D moves/confirms, and
-filtered modes use `E5` for area plus `E6` for source.
-
-Proof-render PNGs are generated by driving the Widget Lab REPL to the target state and
-then asking the current scene for a two-screen `PixelSnapshot`:
-
-```bash
-swift build --product MK2WidgetLabDemo
-printf 'body 19\nscreenshot /tmp/font-lab.png\nquit\n' | .build/debug/MK2WidgetLabDemo
-printf 'unit e\nrow 20\nscreenshot /tmp/pattern.png\nquit\n' | .build/debug/MK2WidgetLabDemo
-```
-
-This keeps proof rendering on the same control surface as manual hardware iteration:
-any REPL command can establish state, and `snap` / `screenshot` writes the current two
-screens as a PNG.
-
-## MK2 FreeType Font Exploration
-
-`MK2WidgetLabDemo` Unit A is the hardware workbench for larger anti-aliased typography on
-the MK2 OLED displays. `Instance` cycles the Surface Font, Typography, Phosphor icon
-browser, and action-dialog sub-demos. This path is deliberately separate from the bitmap
-tracker/grid path:
-
-- `BitmapLabel` / `SurfaceFont` / `MK2PixelFrame.drawText(...)` remain the crisp,
-  atlas-backed path for tracker grids and dense controls.
-- `FreeTypeTextRenderer` / `FreeTypeTextStyle` shape proportional text with HarfBuzz,
-  render glyphs with FreeType, and cache complete alpha-mask text runs into the same
-  RGB565 frame for calmer UI areas such as global dialogs, browser/settings views,
-  selection lists, and longer text. The fixed-pitch `SurfaceFont` tracker path remains
-  unshaped: no ligatures, one cell per scalar.
-
-Bundled production fonts live in `KontrolSurfaceKit2` resources: IBM Plex Sans Condensed
-Regular/Medium for text, JetBrains Mono for tabular data, and Phosphor Regular (MIT) for
-icons. Current UI contract: body is Plex Sans Condensed Regular at 16 px, caption 15 px,
-footnote 13 px; title is Plex Sans Condensed Medium at 24 px; demo rendering uses
-`Gray hinted`. The icon browser ships a generated codepoint catalog for all Phosphor
-regular icons.
-
-The demo prints a full control map at startup. Hardware controls:
-
-- `F1`: select the Font Lab unit; `Instance` cycles its sub-demos
-- Main rotary: scroll the icon browser list by one icon
-- `4D Up` / `4D Down`: scroll the icon browser list by one visible page
-- `Page Left` / `Page Right`: previous / next icon
-- `Plugin` / `Mixer`: jump -16 / +16 icons; on the dialog page `Mixer` also cycles
-  dialog copy
-- `Instance`: cycle the icon browser between list, grid, filtered list, and filtered grid
-- `E5`: in filtered icon-browser modes, choose the first-letter filter `ALL` / `A`-`Z`
-- `Preset Down` / `Preset Up`: smaller / larger icon size
-
-Recommended OLED default is `Gray hinted`. LCD/subpixel rendering is intentionally not used
-for the MK2 RGB565/OLED path because the panel subpixel geometry is not a stable RGB-stripe
-contract and would risk colour fringes.
-
-## Demo UI
-
-The AppKit demo UI mirrors the S25 panel and exercises the hardware:
-
-- click keys in the UI to send RGB light guide updates
-- click buttons to toggle the matching hardware LEDs
-- press hardware buttons to pulse the UI overlay
-- turn hardware encoders to update LCD progress/value pairs
-- play MIDI notes to light and clear key LEDs
-- use display 8 as a glyph test
-
-Glyph-test behavior on the last LCD:
-
-- row 0 remains a progress bar
-- row 1 shows an eight-glyph sliding window
-- row 2 shows a numeric index such as `000/128`
-- encoder 8 moves the window by one glyph per encoder event
-- clicking the last LCD also advances by one glyph
-- there is no wrap-around; the window clamps at the start and end
-
-## Display Glyphs
-
-The display font is a CP437-compatible 16-segment table derived from cabl. There are 129 entries: codes `0...127` plus the cabl extra glyph at `128`.
-
-![S25 MK1 display glyph table](Docs/glyphs.svg)
-
-The SVG is generated from the same mask values used by `KKDisplayFrame`. For hardware truth, use the demo UI glyph test because the actual LCD module is the final renderer.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    HW["S25 MK1 hardware"]
-    USB["libusb session<br/>surface interface + MIDI interface"]
-    D["ccd daemon<br/>kqueue reactor"]
-    SOCK["Unix domain socket<br/>/var/run/kompletekontrol-libusb.sock"]
-    APP["Swift app / KontrolProbe client"]
-
-    HW --> USB
-    USB --> D
-    D --> SOCK
-    SOCK --> APP
-    APP --> SOCK
-    SOCK --> D
-    D --> USB
-    USB --> HW
-```
-
-Main source files:
-
-| File | Purpose |
-| --- | --- |
-| `Sources/KompleteKontrol/KompleteKontrol.swift` | Public Swift API, display frame model, input decoding, daemon client, daemon server |
-| `Sources/KontrolUSB/KontrolUSB.c` | libusb session, endpoint discovery, async transfers, direct USB diagnostics |
-| `Tools/ccd/main.swift` | CompleteControl daemon entry point |
-| `Tools/KontrolProbe/main.swift` | REPL, benchmark, diagnostics |
-| `Tools/KontrolProbe/TestUI.swift` | AppKit surface demo |
-| `install-daemon.sh` | launchd daemon installer |
-| `media.vanille.kompletekontrol-libusb.plist` | launchd service definition |
-
-## Daemon Behavior
-
-The daemon:
-
-- refuses to start when another daemon is already active
-- creates `/var/run/kompletekontrol-libusb.sock`
-- claims the libusb surface interface and USB-MIDI streaming interface
-- owns the hardware surface only while no socket client is connected
-- clients never start, install, or restart the daemon implicitly; a daemon must already be running on the selected hardware or simulator socket
-- shows `NO CLIENT`, daemon version `0.9.<git rev-list count>`, and the git build hash when idle, and acknowledges surface/MIDI input on the LCDs for rudimentary hardware diagnosis
-- lights pressed MIDI keys on the light guide while idle
-- on MK2, briefly replaces only the left OLED's `NO CLIENT` title with the active registered client's name plus a smaller gray PID, holds client display/state output for one second, and slides the light guide left-to-right before handing surface ownership to the client
-- returns to `NO CLIENT` only after the last socket disconnects and no client remains registered
-- starts async transfers for surface input and MIDI input
-- timestamps push messages at daemon callback time
-- queues input messages for synchronous `daemonread`/`daemonmidi` diagnostics
-- keeps debug logging out of release hot paths unless explicitly enabled
-
-Set `KK_DAEMON_DISABLE_SURFACE=1` when you want the daemon to stay completely silent on the
-hardware surface even while idle.
-
-The version and git hash shown by the idle diagnostic are embedded into the binary at SwiftPM
-build time by the `GenerateBuildInfo` build-tool plugin. The daemon version is
-`0.9.<git rev-list --count HEAD>`. The short hash is shown separately; a `+` after the hash means
-the binary was built from a dirty checkout.
-
-Before changing daemon USB scheduling, read `Docs/daemon-usb-reactor.md`. Synchronous libusb
-output calls can dispatch async callbacks reentrantly, so pending-state flush paths must re-check
-after writes instead of relying on a later kqueue edge.
-
-Debug logging is structured on stderr:
-
 ```text
-timestamp=2026-06-25T10:06:01.734Z group=usb-midi level=INFO message=...
+MK2 USB composite device
+        |
+        v
+KontrolUSB + vendored libusb
+        |
+        v
+ccd privileged daemon
+  | control socket
+  | event socket
+  | display socket
+        |
+        v
+KompleteKontrol / KontrolSurfaceKit2
+        |
+        v
+Applications such as Paulinche
 ```
 
-Use:
+`ccd` owns the composite USB device and keeps one persistent session open.
+Surface and MIDI input are asynchronous libusb transfers integrated with the
+daemon's kqueue reactor. Display blits and small state reports use separate
+serial queues so display work does not serialize every LED or light-guide write.
+
+Clients normally use `KontrolSurfaceKit2`. Direct protocol APIs in
+`KompleteKontrol` remain available for hardware diagnostics and protocol work.
+
+## Daemon
+
+Build and install the release daemon:
+
+```bash
+make install-daemon
+make daemon-status
+```
+
+Run an instrumented foreground daemon:
 
 ```bash
 make daemon-debug
 ```
 
-or install the debug launchd daemon:
+Uninstall:
 
 ```bash
-make install-debug-daemon
+make uninstall-daemon
 ```
 
-Release benchmarking should use:
+The hardware socket defaults to:
 
-```bash
-make daemon-release
+```text
+/var/run/kompletekontrol-libusb.sock
 ```
 
-## Development Notes
+Set `KK_DAEMON_SOCKET` to connect clients to another endpoint.
 
-Useful checks:
+When no client is connected, the daemon displays its NO CLIENT diagnostic and
+acts as an I/O hardware test: controls illuminate their corresponding lamps,
+MIDI keys illuminate the light guide, and recent raw/event activity appears on
+the displays. On orderly shutdown the daemon restores the keyboard's standalone
+mapping-engine state and clears host-owned output.
+
+See [Docs/daemon-usb-reactor.md](Docs/daemon-usb-reactor.md) before changing USB
+scheduling or callback behavior.
+
+## KontrolSurfaceKit2
+
+Add the package products needed by an application:
+
+```swift
+.product(name: "KompleteKontrol", package: "CompleteControl"),
+.product(name: "KontrolSurfaceKit2", package: "CompleteControl"),
+```
+
+`KontrolSurfaceKit2` provides:
+
+- `MK2Surface2` scene reconciliation and daemon reconnect handling;
+- `MK2ScreenDSL` regular, full-screen, and double-screen layouts;
+- parameter pages, value cells, meters, status lines, selection and modal widgets;
+- FreeType/HarfBuzz text plus fixed-pitch tracker rendering;
+- lamps, light-guide colors, and semantic input bindings;
+- display diffing and binary display transport.
+
+New reusable Kit2 APIs should be demonstrated in `MK2WidgetLabDemo` and covered
+by focused or snapshot tests.
+
+## Tools
 
 ```bash
-swift build --product ccd
-swift build --product KontrolProbe
-swift build -c release --product ccd
-swift build -c release --product KontrolProbe
-swift build --product MK2WidgetLabDemo
+make mk2-surface-demo
+make mk2-widget-lab-demo
+make run-simulator
+make mk2-usb-spy
+```
+
+- `MK2SurfaceDemo` is the compact hardware feature demo.
+- `MK2WidgetLabDemo` exercises the production Kit2 widgets and includes a REPL
+  for palette LEDs and light-guide control.
+- `KontrolSimulator` emulates the S61 MK2 panel and can start a user-level
+  simulator daemon from its Daemon menu.
+- `MK2USBSpy` inspects low-level descriptors and input traffic without the
+  normal daemon.
+
+To run Widget Lab against the simulator daemon:
+
+```bash
+make run-simulator
+# Start the daemon from the simulator's Daemon menu.
+make mk2-widget-lab-demo-sim
+```
+
+## Development
+
+Primary verification:
+
+```bash
+swift build
 swift test
-swift test --filter PixelPipelinePerfTests
-git diff --check
+swift build -c release --product ccd
 ```
 
-`swift test` currently includes focused decoder coverage for the S25 input report path.
-
-The current installer installs the built `ccd` executable to `/usr/local/bin/ccd` and loads a launchd service under `/Library/LaunchDaemons`. If you are packaging this for users, review the installer, code signing, and notarization before release.
-
-## Safety And Compatibility
-
-This software claims USB interfaces and writes directly to controller LEDs/displays. Use it only with hardware you can reset or power-cycle. If the official Native Instruments software or background services are active, expect ownership conflicts unless the daemon has successfully claimed the needed interfaces.
-
-Only one libusb daemon should run at a time. The daemon and Makefile preflight checks intentionally refuse duplicate or stale daemon states.
-
-## License
-
-CompleteControl is released under the MIT License. See [LICENSE](LICENSE).
-
-The 16-segment glyph table is derived from shaduzlabs/cabl's `FONT_16-seg.h`, whose source comments identify it as MIT licensed.
+Protocol changes belong in the canonical protocol guide, not only in handover
+notes. Architecture experiments and deferred work belong in
+[Docs/Backlog.md](Docs/Backlog.md).

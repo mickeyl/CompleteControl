@@ -1,20 +1,8 @@
 import Foundation
 import Darwin
 import IOKit
-import IOKit.hid
 import IOKit.pwr_mgt
 import KontrolUSB
-
-public enum KompleteKontrolS25MK1Protocol {
-    public static let vendorID = 0x17cc
-    public static let productID = 0x1340
-    public static let keyCount = 25
-    public static let lightGuideReportID: UInt8 = 0x82
-    public static let buttonLEDReportID: UInt8 = 0x80
-    public static let displayReportID: UInt8 = 0xe0
-    public static let initReportID: UInt8 = 0xa0
-    public static let inputReportID: UInt32 = 0x01
-}
 
 public struct KKRGB: Equatable, Sendable {
     public var red: UInt8
@@ -52,472 +40,8 @@ public struct KKRGB: Equatable, Sendable {
     }
 }
 
-public enum KKDisplayAlignment: Sendable {
-    case left
-    case center
-    case right
-}
-
-public struct KKDisplayFrame: Equatable, Sendable {
-    public static let displayCount = 9
-    public static let rowCount = 3
-    public static let characterCount = 8
-    public static let bytesPerDisplayRow = characterCount * 2
-    public static let bytesPerReportRow = 240
-
-    private static let emptyGlyph: UInt16 = 0x0000
-
-    // CP437-compatible 16-segment glyph table from shaduzlabs/cabl
-    // src/gfx/fonts/data/FONT_16-seg.h, MIT license.
-    private static let font16Segment: [UInt16] = [
-        0x0000, 0x0578, 0x0578, 0x830f, 0x0503, 0x5a87, 0x0c7c, 0x1878,
-        0x1887, 0x4860, 0x0a81, 0x4c66, 0x5d03, 0x4a62, 0x5a7e, 0xff00,
-        0x21c0, 0x840c, 0x2466, 0x420c, 0x189f, 0xc333, 0xf878, 0x2466,
-        0xe000, 0x0700, 0x2900, 0x9400, 0x0060, 0x2466, 0xe030, 0x0703,
-        0x0000, 0x0004, 0x0204, 0x5ac0, 0x5abb, 0x7e99, 0x8b79, 0x0004,
-        0x8400, 0x2100, 0xff00, 0x5a00, 0x2000, 0x1800, 0x0000, 0x2400,
-        0x24ff, 0x040c, 0x1877, 0x183f, 0x188c, 0x18bb, 0x18fb, 0x000f,
-        0x18ff, 0x18bf, 0x0021, 0x2001, 0x8103, 0x1830, 0x2403, 0x5007,
-        0x487f, 0x18cf, 0x523f, 0x00f3, 0x423f, 0x18f3, 0x18c3, 0x10fb,
-        0x18cc, 0x4200, 0x203c, 0x8cc0, 0x00f0, 0x05cc, 0x81cc, 0x00ff,
-        0x18c7, 0x80ff, 0x98c7, 0x18bb, 0x4203, 0x00fc, 0x24c0, 0xa0cc,
-        0xa500, 0x5884, 0x2433, 0x00e1, 0x8100, 0x001e, 0x0180, 0x0030,
-        0x0100, 0xc860, 0x48e0, 0x0860, 0x4a60, 0x2860, 0x5a02, 0x4aa1,
-        0x48c0, 0x4000, 0x4220, 0xc600, 0x4200, 0x5848, 0x4840, 0x4860,
-        0x0ac1, 0x4a81, 0x0840, 0x9010, 0x08e0, 0x4060, 0x2040, 0xa048,
-        0x6600, 0x2500, 0x2820, 0x4a12, 0x4200, 0x5221, 0x0580, 0x540c,
-        0x4850,
-    ]
-
-    public private(set) var rows: [[UInt8]]
-
-    public init() {
-        rows = Array(
-            repeating: Array(repeating: 0, count: Self.bytesPerReportRow),
-            count: Self.rowCount
-        )
-    }
-
-    public static var availableGlyphCount: Int {
-        font16Segment.count
-    }
-
-    public static func glyph(at index: Int) -> UInt16? {
-        guard font16Segment.indices.contains(index) else { return nil }
-        return font16Segment[index]
-    }
-
-    public static func glyph(for scalar: Unicode.Scalar) -> UInt16 {
-        let value = Int(scalar.value)
-        guard value >= 0, value < font16Segment.count else { return emptyGlyph }
-        return font16Segment[value]
-    }
-
-    public mutating func clear() {
-        for row in rows.indices {
-            rows[row] = Array(repeating: 0, count: Self.bytesPerReportRow)
-        }
-    }
-
-    public mutating func fillDisplay(_ display: Int, glyph: UInt16 = 0xffff) {
-        guard Self.validDisplay(display) else { return }
-        for row in 1..<Self.rowCount {
-            for column in 0..<Self.characterCount {
-                setGlyph(glyph, display: display, row: row, column: column)
-            }
-        }
-    }
-
-    public mutating func setText(_ text: String, display: Int, row: Int, alignment: KKDisplayAlignment = .left) {
-        guard Self.validDisplay(display), Self.validTextRow(row) else { return }
-        let scalars = Array(text.unicodeScalars.prefix(Self.characterCount))
-        let leftPadding: Int
-        switch alignment {
-            case .left:
-                leftPadding = 0
-            case .center:
-                leftPadding = max(0, (Self.characterCount - scalars.count) / 2)
-            case .right:
-                leftPadding = max(0, Self.characterCount - scalars.count)
-        }
-        for column in 0..<Self.characterCount {
-            setGlyph(Self.emptyGlyph, display: display, row: row, column: column)
-        }
-        for (offset, scalar) in scalars.enumerated() where leftPadding + offset < Self.characterCount {
-            setGlyph(Self.glyph(for: scalar), display: display, row: row, column: leftPadding + offset)
-        }
-    }
-
-    public mutating func setRawGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int) {
-        guard Self.validDisplay(display), Self.validTextRow(row), (0..<Self.characterCount).contains(column) else { return }
-        setGlyph(glyph, display: display, row: row, column: column)
-    }
-
-    public mutating func setBar(_ value: Double, display: Int, row: Int = 0) {
-        guard Self.validDisplay(display), row == 0 else { return }
-        let clamped = max(0.0, min(1.0, value))
-        let lit = Int((clamped * 9.0).rounded())
-        writeByte(display: display, row: 0, byte: 0, value: 0x04 | (lit > 0 ? 0x03 : 0x00))
-        for column in 1..<8 {
-            writeByte(display: display, row: 0, byte: column * 2, value: lit > column ? 0x03 : 0x00)
-        }
-        writeByte(display: display, row: 0, byte: 15, value: lit > 8 ? 0x03 : 0x00)
-    }
-
-    public mutating func setBox(_ display: Int) {
-        guard Self.validDisplay(display) else { return }
-        setBar(1.0, display: display, row: 0)
-        setText("+------+", display: display, row: 1, alignment: .left)
-        setText("| SID  |", display: display, row: 2, alignment: .left)
-    }
-
-    public func rowData(_ row: Int) -> [UInt8] {
-        guard Self.validRow(row) else { return Array(repeating: 0, count: Self.bytesPerReportRow) }
-        return rows[row]
-    }
-
-    public mutating func setRowData(_ data: [UInt8], row: Int) {
-        guard Self.validRow(row) else { return }
-        var rowData = Array(data.prefix(Self.bytesPerReportRow))
-        if rowData.count < Self.bytesPerReportRow {
-            rowData += Array(repeating: 0, count: Self.bytesPerReportRow - rowData.count)
-        }
-        rows[row] = rowData
-    }
-
-    private mutating func setGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int) {
-        guard Self.validDisplay(display), Self.validRow(row), (0..<Self.characterCount).contains(column) else { return }
-        let base = (display * Self.bytesPerDisplayRow) + (column * 2)
-        rows[row][base] = UInt8(glyph & 0xff)
-        rows[row][base + 1] = UInt8((glyph >> 8) & 0xff)
-    }
-
-    private mutating func writeByte(display: Int, row: Int, byte: Int, value: UInt8) {
-        guard Self.validDisplay(display), Self.validRow(row), (0..<Self.bytesPerDisplayRow).contains(byte) else { return }
-        rows[row][display * Self.bytesPerDisplayRow + byte] = value
-    }
-
-    private static func validDisplay(_ display: Int) -> Bool {
-        (0..<displayCount).contains(display)
-    }
-
-    private static func validRow(_ row: Int) -> Bool {
-        (0..<rowCount).contains(row)
-    }
-
-    private static func validTextRow(_ row: Int) -> Bool {
-        (1..<rowCount).contains(row)
-    }
-}
-
-public enum KKButtonLED: Int, CaseIterable, Sendable {
-    case shift = 0
-    case scale
-    case arp
-    case loop
-    case rwd
-    case ffw
-    case play
-    case rec
-    case stop
-    case pageLeft
-    case pageRight
-    case browse
-    case presetUp
-    case instance
-    case presetDown
-    case back
-    case navigateUp
-    case enter
-    case navigateLeft
-    case navigateDown
-    case navigateRight
-    case octaveDownWhite
-    case octaveDownRed
-    case octaveUpWhite
-    case octaveUpRed
-
-    public var protocolName: String {
-        switch self {
-            case .shift: "shift"
-            case .scale: "scale"
-            case .arp: "arp"
-            case .loop: "loop"
-            case .rwd: "rwd"
-            case .ffw: "ffw"
-            case .play: "play"
-            case .rec: "rec"
-            case .stop: "stop"
-            case .pageLeft: "pageleft"
-            case .pageRight: "pageright"
-            case .browse: "browse"
-            case .presetUp: "presetup"
-            case .instance: "instance"
-            case .presetDown: "presetdown"
-            case .back: "back"
-            case .navigateUp: "navigateup"
-            case .enter: "enter"
-            case .navigateLeft: "navigateleft"
-            case .navigateDown: "navigatedown"
-            case .navigateRight: "navigateright"
-            case .octaveDownWhite: "octavedownwhite"
-            case .octaveDownRed: "octavedownred"
-            case .octaveUpWhite: "octaveupwhite"
-            case .octaveUpRed: "octaveupred"
-        }
-    }
-
-    public var isFirmwareOwnedStatusLED: Bool {
-        switch self {
-            case .octaveDownWhite, .octaveDownRed, .octaveUpWhite, .octaveUpRed: true
-            default: false
-        }
-    }
-
-    public static let protocolNames = KKButtonLED.allCases.map(\.protocolName)
-
-    public static func normalize(_ name: String) -> String {
-        let lower = name.lowercased()
-        if let alias = aliases[lower] {
-            return alias
-        }
-        let base = lower
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: " ", with: "")
-        return aliases[base] ?? base
-    }
-
-    public static func indices(for token: String, parseNumber: (String) -> Int?) -> [Int] {
-        if let index = parseNumber(token), (0..<protocolNames.count).contains(index) {
-            return [index]
-        }
-        let name = normalize(token)
-        if name == "octavedown" {
-            return [KKButtonLED.octaveDownWhite.rawValue, KKButtonLED.octaveDownRed.rawValue]
-        }
-        if name == "octaveup" {
-            return [KKButtonLED.octaveUpWhite.rawValue, KKButtonLED.octaveUpRed.rawValue]
-        }
-        return KKButtonLED.allCases.first { $0.protocolName == name }.map { [$0.rawValue] } ?? []
-    }
-
-    private static let aliases = [
-        "page-left": "pageleft",
-        "page-right": "pageright",
-        "preset-up": "presetup",
-        "preset-down": "presetdown",
-        "navup": "navigateup",
-        "nav-up": "navigateup",
-        "navleft": "navigateleft",
-        "nav-left": "navigateleft",
-        "navdown": "navigatedown",
-        "nav-down": "navigatedown",
-        "navright": "navigateright",
-        "nav-right": "navigateright",
-        "odownwhite": "octavedownwhite",
-        "odownred": "octavedownred",
-        "oupwhite": "octaveupwhite",
-        "oupred": "octaveupred",
-    ]
-}
-
-public enum KKInputEvent: Equatable, Sendable, CustomStringConvertible {
-    case button(name: String, pressed: Bool)
-    case touchEncoder(index: Int, touched: Bool)
-    case mainEncoderState(UInt8)
-    case mainEncoder(delta: Int)
-    case rotaryEncoder(index: Int, delta: Int, value: Int)
-    case touchStrip(name: String, value: Int)
-
-    public var description: String {
-        switch self {
-            case let .button(name, pressed):
-                "button \(name) \(pressed ? "down" : "up")"
-            case let .touchEncoder(index, touched):
-                "touch encoder \(index) \(touched ? "on" : "off")"
-            case let .mainEncoderState(value):
-                String(format: "main encoder state 0x%02x", value)
-            case let .mainEncoder(delta):
-                "main encoder \(delta > 0 ? "+" : "-") d=\(abs(delta))"
-            case let .rotaryEncoder(index, delta, value):
-                "rotary encoder \(index) \(delta > 0 ? "+" : "-") d=\(abs(delta)) value=\(value)"
-            case let .touchStrip(name, value):
-                "touch strip \(name) value=\(value)"
-        }
-    }
-}
-
-public struct KKInputReport: Sendable {
-    public var reportID: UInt32
-    public var bytes: [UInt8]
-    public var previous: [UInt8]?
-    public var events: [KKInputEvent]
-    public var receptionTimestamp: UInt64
-
-    public init(reportID: UInt32, bytes: [UInt8], previous: [UInt8]?, events: [KKInputEvent], receptionTimestamp: UInt64 = 0) {
-        self.reportID = reportID
-        self.bytes = bytes
-        self.previous = previous
-        self.events = events
-        self.receptionTimestamp = receptionTimestamp
-    }
-}
-
-public enum KKInputReportDecoder {
-    public static let buttonNames = [
-        "main encoder",
-        "preset up",
-        "enter",
-        "preset down",
-        "browse",
-        "instance",
-        "octave down",
-        "octave up",
-        "stop",
-        "rec",
-        "play",
-        "navigate right",
-        "navigate down",
-        "navigate left",
-        "back",
-        "navigate up",
-        "shift",
-        "scale",
-        "arp",
-        "loop",
-        "page right",
-        "page left",
-        "rewind",
-        "fast forward",
-    ]
-
-    public static func hexDump(_ bytes: [UInt8]) -> String {
-        bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
-    }
-
-    public static func summary(reportID: UInt32, bytes: [UInt8]) -> String {
-        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID, bytes.count >= 23 else { return "" }
-
-        func byte(_ offset: Int) -> String {
-            String(format: "%02x", bytes[offset])
-        }
-        func word(_ offset: Int) -> UInt16 {
-            UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
-        }
-
-        let buttons = (1...3).map { "b\($0):\(byte($0))" }.joined(separator: " ")
-        let touchMask = bytes[4]
-        let main = "main[b5:\(byte(5)) b6:\(byte(6))]"
-        let knobs = (0..<8).map { index -> String in
-            let touched = (touchMask & UInt8(1 << index)) != 0
-            let mark = touched ? "*" : ""
-            return String(format: "k%d%@:%04x", index, mark, word(7 + index * 2))
-        }.joined(separator: " ")
-        let pitchTail = (23..<min(31, bytes.count)).map { byte($0) }.joined(separator: " ")
-        let modTail = (31..<bytes.count).map { byte($0) }.joined(separator: " ")
-
-        return " | r01 btn[\(buttons)] touch8=0x\(byte(4)) \(main) \(knobs) pitch[\(pitchTail)] mod[\(modTail)]"
-    }
-
-    public static func events(reportID: UInt32, previous: [UInt8]?, current: [UInt8]) -> [KKInputEvent] {
-        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID,
-              let previous,
-              previous.count == current.count,
-              current.count >= 23 else { return [] }
-        var events: [KKInputEvent] = []
-
-        for position in 0..<buttonNames.count {
-            let wasPressed = reportButtonState(previous, position)
-            let isPressed = reportButtonState(current, position)
-            if wasPressed != isPressed {
-                events.append(.button(name: buttonNames[position], pressed: isPressed))
-            }
-        }
-
-        let previousTouch = previous[4]
-        let currentTouch = current[4]
-        for index in 0..<8 {
-            let mask = UInt8(1 << index)
-            let wasTouched = (previousTouch & mask) != 0
-            let isTouched = (currentTouch & mask) != 0
-            if wasTouched != isTouched {
-                events.append(.touchEncoder(index: index + 1, touched: isTouched))
-            }
-        }
-
-        if previous.count > 5, current.count > 5, previous[5] != current[5] {
-            events.append(.mainEncoderState(current[5]))
-        }
-        if previous.count > 6, current.count > 6, previous[6] != current[6] {
-            let delta = wrappedDelta(from: Int(previous[6] & 0x0f), to: Int(current[6] & 0x0f), modulo: 16)
-            if delta != 0 {
-                events.append(.mainEncoder(delta: delta))
-            }
-        }
-
-        for index in 0..<8 {
-            let offset = 7 + index * 2
-            guard let oldValue = reportWord(previous, offset),
-                  let newValue = reportWord(current, offset),
-                  oldValue != newValue else { continue }
-            let delta = wrappedDelta(from: oldValue, to: newValue)
-            if delta != 0 {
-                events.append(.rotaryEncoder(index: index + 1, delta: delta, value: newValue))
-            }
-        }
-
-        if rangeChanged(23..<min(31, current.count), previous: previous, current: current) {
-            events.append(.touchStrip(name: "pitch", value: stripValue(current, range: 23..<min(31, current.count))))
-        }
-        if rangeChanged(31..<current.count, previous: previous, current: current) {
-            events.append(.touchStrip(name: "mod", value: stripValue(current, range: 31..<current.count)))
-        }
-
-        return events
-    }
-
-    static func initialEventBaseline(reportID: UInt32, current: [UInt8]) -> [UInt8]? {
-        guard reportID == KompleteKontrolS25MK1Protocol.inputReportID,
-              current.count >= 23 else { return nil }
-        var baseline = current
-        for buttonByte in 1...3 where buttonByte < baseline.count {
-            baseline[buttonByte] = 0
-        }
-        return baseline
-    }
-
-    private static func rangeChanged(_ range: Range<Int>, previous: [UInt8], current: [UInt8]) -> Bool {
-        guard !range.isEmpty else { return false }
-        for index in range where previous[index] != current[index] {
-            return true
-        }
-        return false
-    }
-
-    private static func stripValue(_ bytes: [UInt8], range: Range<Int>) -> Int {
-        guard !range.isEmpty else { return 0 }
-        var value = 0
-        var shift = 0
-        for index in range.prefix(2) {
-            value |= Int(bytes[index]) << shift
-            shift += 8
-        }
-        return value
-    }
-
-    public static func reportWord(_ bytes: [UInt8], _ offset: Int) -> Int? {
-        guard offset + 1 < bytes.count else { return nil }
-        return Int(bytes[offset]) | (Int(bytes[offset + 1]) << 8)
-    }
-
-    public static func reportButtonState(_ bytes: [UInt8], _ position: Int) -> Bool {
-        let offset = 1 + (position / 8)
-        guard offset < bytes.count else { return false }
-        return (bytes[offset] & UInt8(1 << (position % 8))) != 0
-    }
-
-    public static func wrappedDelta(from old: Int, to new: Int, modulo: Int = 1024) -> Int {
+enum KKWrappedDelta {
+    static func wrappedDelta(from old: Int, to new: Int, modulo: Int = 1024) -> Int {
         var delta = new - old
         let half = modulo / 2
         if delta > half {
@@ -568,17 +92,6 @@ public struct KKUSBResult: Sendable, CustomStringConvertible {
             message: message
         )
     }
-}
-
-public enum KKOutputMode: Sendable {
-    case directLibUSB
-    case privilegedHelper(executablePath: String? = nil)
-}
-
-public enum KKInputMonitorMode: Int, Sendable {
-    case off
-    case changed
-    case all
 }
 
 public struct KKMIDIEvent: Sendable, Equatable {
@@ -867,762 +380,27 @@ private enum KKStderrLog {
     }
 }
 
-public final class KompleteKontrolS25MK1: @unchecked Sendable {
-    public var onInputReport: (@Sendable (KKInputReport) -> Void)?
-    public var onMIDIEvent: (@Sendable (KKMIDIEvent) -> Void)?
-    public var onMountChanged: (@Sendable (Bool) -> Void)?
-    public var log: (@Sendable (String) -> Void)?
-    public var monitorMode: KKInputMonitorMode = .changed
-
-    public private(set) var maxInputReportSize = 0
-    public private(set) var maxOutputReportSize = 0
-    public private(set) var guide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-    public private(set) var buttonLEDs = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
-    public private(set) var displayFrame = KKDisplayFrame()
-
-    private let outputMode: KKOutputMode
-    private var hidManager: IOHIDManager?
-    private var hidDevice: IOHIDDevice?
-    private var inputBuffer: UnsafeMutablePointer<UInt8>?
-    private var inputBufferLength = 0
-    private var lastReports: [UInt32: [UInt8]] = [:]
-    private var daemonSurfaceIncludesReportID: Bool?
-    private var daemonSurfaceReceiveSequence: UInt64 = 0
-    private var daemonMIDIReceiveSequence: UInt64 = 0
-    private var inputRunLoop: CFRunLoop?
-    private var inputThread: Thread?
-    private var inputUsesDaemon = false
-    private var autoMountTask: Task<Void, Never>?
-    private var helperSession: KKDaemonOutputSession?
-    private let helperSessionLock = NSLock()
-    private var surfaceReplayPending = true
-    private var clientRegisteredWithSession = false
-    private var sessionConnectionAnnounced = false
-    private let outputQueueCondition = NSCondition()
-    private var outputWorkerThread: Thread?
-    private var outputWorkerShouldStop = false
-    private var outputWritePending = false
-    private var pendingOutputs: [Int: (reportID: UInt8, payload: [UInt8])] = [:]
-    private var pendingOutputOrder: [Int] = []
-
-    public init(outputMode: KKOutputMode = .privilegedHelper()) {
-        self.outputMode = outputMode
-    }
-
-    deinit {
-        close()
-    }
-
-    public var isOpen: Bool {
-        hidDevice != nil
-    }
-
-    public var usesPrivilegedDaemonTransport: Bool {
-        if case .privilegedHelper = outputMode, geteuid() != 0 {
-            return true
-        }
-        return false
-    }
-
-    public func open(logOpen: Bool = true) throws {
-        guard mountIfAvailable(logOpen: logOpen) else {
-            throw KKDriverError.openFailed
-        }
-    }
-
-    public func openWithRetry(logOpen: Bool = true, attempts: Int = 20) throws {
-        for attempt in 0..<attempts {
-            if mountIfAvailable(logOpen: logOpen && attempt == 0) {
-                return
-            }
-            usleep(100_000)
-        }
-        throw KKDriverError.openFailed
-    }
-
-    @discardableResult
-    public func mountIfAvailable(logOpen: Bool = false) -> Bool {
-        guard hidDevice == nil else { return true }
-        guard let opened = Self.openHIDDevice(logOpen: logOpen, logger: log) else { return false }
-        install(opened)
-        scheduleInputIfMonitoring()
-        log?("Komplete Kontrol mounted.")
-        onMountChanged?(true)
-        return true
-    }
-
-    public func startAutoMount(logOpen: Bool = false, intervalMs: UInt64 = 1_000) {
-        guard autoMountTask == nil else { return }
-        autoMountTask = Task.detached { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                if !self.isOpen {
-                    _ = self.mountIfAvailable(logOpen: logOpen)
-                }
-                try? await Task.sleep(nanoseconds: intervalMs * 1_000_000)
-            }
-        }
-    }
-
-    public func startInputMonitoring() {
-        guard inputThread == nil else { return }
-        if usesPrivilegedDaemonTransport {
-            inputUsesDaemon = true
-            let thread = Thread { [weak self] in
-                Thread.current.qualityOfService = .userInteractive
-                self?.runDaemonInputLoop()
-            }
-            thread.qualityOfService = .userInteractive
-            thread.stackSize = 1 << 20
-            inputThread = thread
-            thread.start()
-            return
-        }
-        let thread = Thread { [weak self] in
-            Thread.current.qualityOfService = .userInteractive
-            guard let self else { return }
-            let runLoop = CFRunLoopGetCurrent()!
-            self.inputRunLoop = runLoop
-            self.scheduleInput(on: runLoop)
-            CFRunLoopRun()
-        }
-        thread.qualityOfService = .userInteractive
-        thread.stackSize = 1 << 20
-        inputThread = thread
-        thread.start()
-    }
-
-    public func close() {
-        autoMountTask?.cancel()
-        autoMountTask = nil
-        stopOutputWorker()
-        inputUsesDaemon = false
-        daemonSurfaceIncludesReportID = nil
-        closeHelperSession(sendQuit: true)
-        if let runLoop = inputRunLoop {
-            CFRunLoopStop(runLoop)
-        }
-        if let device = hidDevice {
-            IOHIDDeviceClose(device, Self.openOptions)
-        }
-        if let manager = hidManager {
-            IOHIDManagerClose(manager, Self.openOptions)
-        }
-        inputBuffer?.deallocate()
-        inputBuffer = nil
-        inputThread = nil
-        inputRunLoop = nil
-        hidDevice = nil
-        hidManager = nil
-    }
-
-    @discardableResult
-    public func handshake() -> KKUSBResult {
-        sendInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
-    }
-
-    public func handshakeAsync() {
-        enqueueInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
-    }
-
-    public func performOutputBatch(_ updates: () -> Void) {
-        updates()
-    }
-
-    @discardableResult
-    public func sendGuide() -> KKUSBResult {
-        sendInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: guide)
-    }
-
-    public func sendGuideAsync() {
-        enqueueInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: guide)
-    }
-
-    @discardableResult
-    public func sendButtonLEDs() -> KKUSBResult {
-        sendInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: buttonLEDs)
-    }
-
-    public func sendButtonLEDsAsync() {
-        enqueueInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: buttonLEDs)
-    }
-
-    @discardableResult
-    public func setKey(_ index: Int, color: KKRGB, flush: Bool = true) -> KKUSBResult? {
-        guard (0..<KompleteKontrolS25MK1Protocol.keyCount).contains(index) else { return nil }
-        guide[3 * index] = color.red
-        guide[3 * index + 1] = color.green
-        guide[3 * index + 2] = color.blue
-        return flush ? sendGuide() : nil
-    }
-
-    @discardableResult
-    public func setAllKeys(color: KKRGB, flush: Bool = true) -> KKUSBResult? {
-        guide = (0..<KompleteKontrolS25MK1Protocol.keyCount).flatMap { _ in [color.red, color.green, color.blue] }
-        return flush ? sendGuide() : nil
-    }
-
-    @discardableResult
-    public func setButtonLED(index: Int, value: UInt8, flush: Bool = true) -> KKUSBResult? {
-        guard (0..<buttonLEDs.count).contains(index) else { return nil }
-        buttonLEDs[index] = value
-        return flush ? sendButtonLEDs() : nil
-    }
-
-    @discardableResult
-    public func setButtonLED(name: String, value: UInt8, flush: Bool = true, parseNumber: (String) -> Int? = KKHex.parse) -> KKUSBResult? {
-        let indices = KKButtonLED.indices(for: name, parseNumber: parseNumber)
-        guard !indices.isEmpty else { return nil }
-        for index in indices {
-            buttonLEDs[index] = value
-        }
-        return flush ? sendButtonLEDs() : nil
-    }
-
-    @discardableResult
-    public func setAllButtonLEDs(value: UInt8, flush: Bool = true) -> KKUSBResult? {
-        buttonLEDs = Array(repeating: value, count: buttonLEDs.count)
-        return flush ? sendButtonLEDs() : nil
-    }
-
-    @discardableResult
-    public func clearButtonLEDs() -> KKUSBResult? {
-        setAllButtonLEDs(value: 0)
-    }
-
-    @discardableResult
-    public func clearKeys() -> KKUSBResult {
-        guide = Array(repeating: 0, count: guide.count)
-        return sendGuide()
-    }
-
-    @discardableResult
-    public func displayAllSegmentsOn() -> [KKUSBResult] {
-        displayFrame.clear()
-        for display in 0..<KKDisplayFrame.displayCount {
-            displayFrame.fillDisplay(display)
-        }
-        return sendDisplays()
-    }
-
-    @discardableResult
-    public func clearDisplays(flush: Bool = true) -> [KKUSBResult] {
-        displayFrame.clear()
-        return flush ? sendDisplays() : []
-    }
-
-    public func clearDisplaysAsync() {
-        displayFrame.clear()
-        sendDisplaysAsync()
-    }
-
-    @discardableResult
-    public func setDisplayText(
-        _ text: String,
-        display: Int,
-        row: Int,
-        alignment: KKDisplayAlignment = .left,
-        flush: Bool = true
-    ) -> [KKUSBResult]? {
-        guard (0..<KKDisplayFrame.displayCount).contains(display),
-              (1..<KKDisplayFrame.rowCount).contains(row) else { return nil }
-        displayFrame.setText(text, display: display, row: row, alignment: alignment)
-        return flush ? sendDisplays() : nil
-    }
-
-    @discardableResult
-    public func setDisplayBar(_ value: Double, display: Int, row: Int = 0, flush: Bool = true) -> [KKUSBResult]? {
-        guard (0..<KKDisplayFrame.displayCount).contains(display),
-              row == 0 else { return nil }
-        displayFrame.setBar(value, display: display, row: row)
-        return flush ? sendDisplays() : nil
-    }
-
-    @discardableResult
-    public func setDisplayGlyph(_ glyph: UInt16, display: Int, row: Int, column: Int, flush: Bool = true) -> [KKUSBResult]? {
-        guard (0..<KKDisplayFrame.displayCount).contains(display),
-              (1..<KKDisplayFrame.rowCount).contains(row),
-              (0..<KKDisplayFrame.characterCount).contains(column) else { return nil }
-        displayFrame.setRawGlyph(glyph, display: display, row: row, column: column)
-        return flush ? sendDisplays() : nil
-    }
-
-    @discardableResult
-    public func setDisplayBox(display: Int, flush: Bool = true) -> [KKUSBResult]? {
-        guard (0..<KKDisplayFrame.displayCount).contains(display) else { return nil }
-        displayFrame.setBox(display)
-        return flush ? sendDisplays() : nil
-    }
-
-    @discardableResult
-    public func sendDisplays() -> [KKUSBResult] {
-        (0..<KKDisplayFrame.rowCount).map { row in
-            sendDisplayRow(row, data: displayFrame.rowData(row))
-        }
-    }
-
-    public func sendDisplaysAsync() {
-        for row in 0..<KKDisplayFrame.rowCount {
-            sendDisplayRowAsync(row, data: displayFrame.rowData(row))
-        }
-    }
-
-    @discardableResult
-    public func sendDisplayRow(_ row: Int, data: [UInt8]) -> KKUSBResult {
-        guard (0..<KKDisplayFrame.rowCount).contains(row) else {
-            return KKUSBResult(status: -1, message: "display row out of range")
-        }
-        displayFrame.setRowData(data, row: row)
-        return sendInterruptOutput(
-            reportID: KompleteKontrolS25MK1Protocol.displayReportID,
-            payload: displayRowPayload(row, data: data)
-        )
-    }
-
-    public func sendDisplayRowAsync(_ row: Int, data: [UInt8]) {
-        guard (0..<KKDisplayFrame.rowCount).contains(row) else { return }
-        displayFrame.setRowData(data, row: row)
-        enqueueInterruptOutput(
-            reportID: KompleteKontrolS25MK1Protocol.displayReportID,
-            payload: displayRowPayload(row, data: data)
-        )
-    }
-
-    private func displayRowPayload(_ row: Int, data: [UInt8]) -> [UInt8] {
-        var rowData = Array(data.prefix(KKDisplayFrame.bytesPerReportRow))
-        if rowData.count < KKDisplayFrame.bytesPerReportRow {
-            rowData += Array(repeating: 0, count: KKDisplayFrame.bytesPerReportRow - rowData.count)
-        }
-        let header: [UInt8] = [0x00, 0x00, UInt8(row), 0x00, 0x48, 0x00, 0x01, 0x00]
-        return header + rowData
-    }
-
-    @discardableResult
-    public func runIntroAnimation(steps: UInt32 = 8, intervalMs: UInt32 = 250) -> [KKUSBResult] {
-        var results: [KKUSBResult] = []
-        results.append(handshake())
-        results.append(sendInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: Array(repeating: 0x7f, count: buttonLEDs.count)))
-
-        let count = steps == 0 ? 8 : steps
-        let delay = useconds_t((intervalMs == 0 ? 250 : intervalMs) * 1000)
-        for phase in 0..<count {
-            var keys = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-            for index in 0..<KompleteKontrolS25MK1Protocol.keyCount {
-                let lane = (index + Int(phase)) % 6
-                keys[index * 3 + 0] = (lane == 0 || lane == 1) ? 0x7f : 0x00
-                keys[index * 3 + 1] = (lane == 2 || lane == 3) ? 0x7f : 0x00
-                keys[index * 3 + 2] = (lane == 4 || lane == 5) ? 0x7f : 0x00
-            }
-            results.append(sendInterruptOutput(reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: keys))
-            usleep(delay)
-        }
-
-        guide = Array(repeating: 0, count: guide.count)
-        buttonLEDs = Array(repeating: 0, count: buttonLEDs.count)
-        results.append(sendGuide())
-        results.append(sendButtonLEDs())
-        return results
-    }
-
-    @discardableResult
-    public func sendHIDOutputDiagnostic(reportID: UInt8, payload: [UInt8]) -> IOReturn {
-        guard let hidDevice else { return kIOReturnNotOpen }
-        var payload = payload
-        return IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeOutput, CFIndex(reportID), &payload, payload.count)
-    }
-
-    @discardableResult
-    public func sendFeatureReport(reportID: UInt8, payload: [UInt8]) -> IOReturn {
-        guard let hidDevice else { return kIOReturnNotOpen }
-        var payload = payload
-        return IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeFeature, CFIndex(reportID), &payload, payload.count)
-    }
-
-    public func daemonRequest(_ line: String, timeoutUsec: useconds_t = 250_000) -> String? {
-        guard let session = startHelperSession() else { return nil }
-        let requestLine = line.hasSuffix("\n") ? line : line + "\n"
-        return requestWithReconnect(session: session, line: requestLine, timeoutUsec: timeoutUsec)
-    }
-
-    @discardableResult
-    public func sendInterruptOutput(reportID: UInt8, payload: [UInt8]) -> KKUSBResult {
-        let result: KKUSBResult
-        if case .directLibUSB = outputMode {
-            result = Self.writeLibUSB(reportID: reportID, payload: payload)
-        } else if geteuid() == 0 {
-            result = Self.writeLibUSB(reportID: reportID, payload: payload)
-        } else {
-            result = writeThroughPrivilegedHelper(reportID: reportID, payload: payload)
-        }
-
-        return result
-    }
-
-    public func enqueueInterruptOutput(reportID: UInt8, payload: [UInt8]) {
-        let payload = payload
-        let key = outputQueueKey(reportID: reportID, payload: payload)
-        outputQueueCondition.lock()
-        if pendingOutputs[key] == nil {
-            pendingOutputOrder.append(key)
-        }
-        pendingOutputs[key] = (reportID: reportID, payload: payload)
-        startOutputWorkerLocked()
-        outputQueueCondition.signal()
-        outputQueueCondition.unlock()
-        traceOutput("enqueue key=\(key) report=0x\(KKHex.byte(reportID)) bytes=\(payload.count) head=\(KKTiming.short(payload))")
-    }
-
-    private func outputQueueKey(reportID: UInt8, payload: [UInt8]) -> Int {
-        if reportID == KompleteKontrolS25MK1Protocol.displayReportID, payload.count > 2 {
-            return (Int(reportID) << 16) | Int(payload[2])
-        }
-        return (Int(reportID) << 16) | 0xffff
-    }
-
-    private func startOutputWorkerLocked() {
-        guard outputWorkerThread == nil else { return }
-        outputWorkerShouldStop = false
-        let thread = Thread { [weak self] in
-            Thread.current.qualityOfService = .userInitiated
-            self?.runOutputWorker()
-        }
-        thread.name = "KompleteKontrolOutput"
-        thread.qualityOfService = .userInitiated
-        thread.stackSize = 1 << 20
-        outputWorkerThread = thread
-        thread.start()
-    }
-
-    private func stopOutputWorker() {
-        outputQueueCondition.lock()
-        outputWorkerShouldStop = true
-        pendingOutputs.removeAll(keepingCapacity: false)
-        pendingOutputOrder.removeAll(keepingCapacity: false)
-        outputQueueCondition.broadcast()
-        while let thread = outputWorkerThread, thread !== Thread.current {
-            outputQueueCondition.wait()
-        }
-        outputQueueCondition.unlock()
-    }
-
-    private func runOutputWorker() {
-        while true {
-            outputQueueCondition.lock()
-            while pendingOutputOrder.isEmpty && !outputWorkerShouldStop {
-                outputQueueCondition.wait()
-            }
-            if outputWorkerShouldStop {
-                outputWorkerThread = nil
-                outputQueueCondition.broadcast()
-                outputQueueCondition.unlock()
-                return
-            }
-            let order = pendingOutputOrder
-            let outputs = order.compactMap { pendingOutputs.removeValue(forKey: $0) }
-            pendingOutputOrder.removeAll(keepingCapacity: true)
-            outputQueueCondition.unlock()
-
-            for output in outputs {
-                let start = KKTiming.now()
-                traceOutput("worker begin report=0x\(KKHex.byte(output.reportID)) bytes=\(output.payload.count) head=\(KKTiming.short(output.payload))")
-                setOutputWritePending(true)
-                _ = sendInterruptOutput(reportID: output.reportID, payload: output.payload)
-                setOutputWritePending(false)
-                traceOutput("worker end report=0x\(KKHex.byte(output.reportID)) elapsed=\(KKTiming.msSince(start))")
-            }
-        }
-    }
-
-    private func setOutputWritePending(_ pending: Bool) {
-        outputQueueCondition.lock()
-        outputWritePending = pending
-        outputQueueCondition.broadcast()
-        outputQueueCondition.unlock()
-    }
-
-    private func outputShouldHaveDaemonPriority() -> Bool {
-        outputQueueCondition.lock()
-        let pending = outputWritePending || !pendingOutputOrder.isEmpty || !pendingOutputs.isEmpty
-        outputQueueCondition.unlock()
-        return pending
-    }
-
-    private func traceOutput(_ message: String) {
-        guard KKTiming.traceEnabled else { return }
-        log?("kk-output \(message)")
-    }
-
-    private func traceInput(_ message: String) {
-        guard KKTiming.traceEnabled else { return }
-        log?("kk-input \(message)")
-    }
-
-    private func traceMIDI(_ message: String) {
-        guard KKTiming.traceEnabled else { return }
-        log?("kk-midi \(message)")
-    }
-
-    private static func formatChangedIndices(_ indices: [Int]) -> String {
-        if indices.isEmpty { return "[]" }
-        return "[" + indices.map(String.init).joined(separator: ",") + "]"
-    }
-
-    private static func formatInputEvents(_ events: [KKInputEvent]) -> String {
-        if events.isEmpty { return "[]" }
-        return "[" + events.map { String(describing: $0) }.joined(separator: " | ") + "]"
-    }
-
-    fileprivate static func formatMIDIEvents(_ events: [KKMIDIEvent]) -> String {
-        if events.isEmpty { return "[]" }
-        return "[" + events.map(\.description).joined(separator: " | ") + "]"
-    }
-
-    private func install(_ opened: OpenedHIDDevice, deallocateExistingBuffer: Bool = true) {
-        hidManager = opened.manager
-        hidDevice = opened.device
-        maxInputReportSize = opened.maxInputReportSize
-        maxOutputReportSize = opened.maxOutputReportSize
-        inputBufferLength = max(opened.maxInputReportSize, 64)
-        if deallocateExistingBuffer {
-            inputBuffer?.deallocate()
-        }
-        inputBuffer = .allocate(capacity: inputBufferLength)
-        inputBuffer?.initialize(repeating: 0, count: inputBufferLength)
-    }
-
-    private func scheduleInputIfMonitoring() {
-        guard let runLoop = inputRunLoop else { return }
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
-            self?.scheduleInput(on: runLoop)
-        }
-        CFRunLoopWakeUp(runLoop)
-    }
-
-    private func scheduleInput(on runLoop: CFRunLoop) {
-        guard let hidDevice, let inputBuffer else { return }
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(hidDevice, inputBuffer, inputBufferLength, kkInputCallback, context)
-        IOHIDDeviceScheduleWithRunLoop(hidDevice, runLoop, CFRunLoopMode.defaultMode.rawValue)
-    }
-
-    fileprivate func handleInput(reportID: UInt32, report: UnsafePointer<UInt8>, length: CFIndex) {
-        guard monitorMode != .off else { return }
-        let receptionTimestamp = KKTiming.now()
-        let count = Int(length)
-        let previous = lastReports[reportID]
-        var changedIndices: [Int] = []
-        if let previous, previous.count == count {
-            for index in 0..<count where previous[index] != report[index] {
-                changedIndices.append(index)
-            }
-            if changedIndices.isEmpty && monitorMode == .changed {
-                return
-            }
-        }
-        var current = [UInt8](repeating: 0, count: count)
-        for index in 0..<count {
-            current[index] = report[index]
-        }
-        lastReports[reportID] = current
-        let eventBaseline = previous ?? KKInputReportDecoder.initialEventBaseline(reportID: reportID, current: current)
-        let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
-        if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
-            return
-        }
-        traceInput(
-            "direct-hid report=0x\(KKHex.byte(UInt8(reportID & 0xff))) ts=0x\(String(receptionTimestamp, radix: 16)) bytes=\(KKHex.bytes(current)) changed=\(Self.formatChangedIndices(changedIndices)) events=\(Self.formatInputEvents(events))"
-        )
-        onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
-    }
-
-    private func handleInput(reportID: UInt32, bytes current: [UInt8], receptionTimestamp suppliedTimestamp: UInt64 = 0) {
-        guard monitorMode != .off else { return }
-        let receptionTimestamp = suppliedTimestamp > 0 ? suppliedTimestamp : KKTiming.now()
-        let previous = lastReports[reportID]
-        var changedIndices: [Int] = []
-        if let previous, previous.count == current.count {
-            for index in 0..<current.count where previous[index] != current[index] {
-                changedIndices.append(index)
-            }
-            if changedIndices.isEmpty && monitorMode == .changed {
-                return
-            }
-        }
-        lastReports[reportID] = current
-        let eventBaseline = previous ?? KKInputReportDecoder.initialEventBaseline(reportID: reportID, current: current)
-        let events = KKInputReportDecoder.events(reportID: reportID, previous: eventBaseline, current: current)
-        if monitorMode == .changed && events.isEmpty && changedIndices.isEmpty {
-            return
-        }
-        traceInput(
-            "daemon-surface parsed report=0x\(KKHex.byte(UInt8(reportID & 0xff))) ts=0x\(String(receptionTimestamp, radix: 16)) bytes=\(KKHex.bytes(current)) changed=\(Self.formatChangedIndices(changedIndices)) events=\(Self.formatInputEvents(events))"
-        )
-        onInputReport?(KKInputReport(reportID: reportID, bytes: current, previous: previous, events: events, receptionTimestamp: receptionTimestamp))
-    }
-
-    private static func parseDaemonPushPayload(_ payload: Substring) -> (timestamp: UInt64, bytes: [UInt8]) {
-        var timestamp: UInt64 = 0
-        var bytes: [UInt8] = []
-        for tokenPart in payload.split(separator: " ") {
-            let token = String(tokenPart)
-            if token.hasPrefix("@") {
-                timestamp = UInt64(String(token.dropFirst()), radix: 16) ?? timestamp
-                continue
-            }
-            if let value = KKHex.parse(token) {
-                bytes.append(UInt8(value & 0xff))
-            }
-        }
-        return (timestamp, bytes)
-    }
-
-    private func runDaemonInputLoop() {
-        var inputSession: KKDaemonOutputSession?
-        while inputUsesDaemon {
-            if inputSession == nil {
-                inputSession = startDaemonInputSession()
-                inputSession?.asyncPushHandler = { [weak self] line in
-                    guard let self else { return }
-                    if line.hasPrefix("in ") {
-                        self.handleDaemonSurfaceResponse(line)
-                    } else if line.hasPrefix("midi ") {
-                        self.handleDaemonMIDIResponse(line)
-                    } else if line.hasPrefix("device ") {
-                        self.handleDaemonDeviceResponse(line)
-                    }
-                }
-            }
-            guard let session = inputSession else {
-                log?("Komplete Kontrol libusb daemon unavailable for input.")
-                usleep(500_000)
-                continue
-            }
-            if !session.readPushes(timeoutUsec: 50_000) {
-                inputSession = nil
-                usleep(50_000)
-            }
-        }
-    }
-
-    private func startDaemonInputSession() -> KKDaemonOutputSession? {
-        guard case .privilegedHelper = outputMode else {
-            return nil
-        }
-        if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            log?("Komplete Kontrol libusb daemon not running; start it before connecting.")
-            return nil
-        }
-        guard let session = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
-            return nil
-        }
-        guard KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(session) else {
-            return nil
-        }
-        if DaemonClientRegistrationPolicy.shouldRegister(role: .inputPush) {
-            registerClient(
-                on: session,
-                tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .inputPush)
-            )
-        }
-        return session
-    }
-
-    private func handleDaemonReconnectResponse(_ response: String, source: String) -> Bool {
-        guard Self.daemonResponseRequiresReconnect(response) else { return false }
-        log?("Komplete Kontrol daemon \(source) device dropped; reconnecting.")
-        closeHelperSession(sendQuit: false)
-        return true
-    }
-
-    private func handleDaemonSurfaceResponse(_ response: String) {
-        if response == "timeout" {
-            return
-        }
-        guard response.hasPrefix("in ") else {
-            if response.hasPrefix("err ") {
-                log?("Komplete Kontrol daemon input error: \(response)")
-                usleep(50_000)
-            }
-            return
-        }
-        let payload = Self.parseDaemonPushPayload(response.dropFirst(3))
-        guard !payload.bytes.isEmpty else { return }
-        daemonSurfaceReceiveSequence &+= 1
-        traceInput(
-            "daemon-surface recv seq=\(daemonSurfaceReceiveSequence) ts=0x\(String(payload.timestamp, radix: 16)) raw=\(KKHex.bytes(payload.bytes))"
-        )
-        handleInput(
-            reportID: KompleteKontrolS25MK1Protocol.inputReportID,
-            bytes: normalizedDaemonSurfaceBytes(payload.bytes),
-            receptionTimestamp: payload.timestamp
-        )
-    }
-
-    private func normalizedDaemonSurfaceBytes(_ bytes: [UInt8]) -> [UInt8] {
-        if daemonSurfaceIncludesReportID == nil {
-            daemonSurfaceIncludesReportID = bytes.first == UInt8(KompleteKontrolS25MK1Protocol.inputReportID)
-        }
-        if daemonSurfaceIncludesReportID == true {
-            return bytes
-        }
-        return [UInt8(KompleteKontrolS25MK1Protocol.inputReportID)] + bytes
-    }
-
-    private func handleDaemonMIDIResponse(_ response: String) {
-        if response == "timeout" {
-            return
-        }
-        guard response.hasPrefix("midi ") else {
-            if response.hasPrefix("err ") {
-                log?("Komplete Kontrol daemon MIDI error: \(response)")
-                usleep(50_000)
-            }
-            return
-        }
-        let payload = Self.parseDaemonPushPayload(response.dropFirst(5))
-        let receptionTimestamp = payload.timestamp > 0 ? payload.timestamp : KKTiming.now()
-        daemonMIDIReceiveSequence &+= 1
-        let events = Self.parseUSBMIDIEvents(payload.bytes, receptionTimestamp: receptionTimestamp)
-        traceMIDI(
-            "daemon-midi recv seq=\(daemonMIDIReceiveSequence) ts=0x\(String(receptionTimestamp, radix: 16)) raw=\(KKHex.bytes(payload.bytes)) events=\(Self.formatMIDIEvents(events))"
-        )
-        for event in events {
-            onMIDIEvent?(event)
-        }
-    }
-
-    private func handleDaemonDeviceResponse(_ response: String) {
-        guard response.hasPrefix("device reconnected") else { return }
-        log?("Komplete Kontrol daemon device reconnected; replaying surface state.")
-        helperSessionLock.lock()
-        surfaceReplayPending = true
-        let session = helperSession
-        helperSessionLock.unlock()
-        if let session {
-            replaySurfaceState(on: session)
-        }
-    }
-
-    static func parseUSBMIDIEvents(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
+enum KKUSBMIDIParser {
+    static func events(_ bytes: [UInt8], receptionTimestamp: UInt64 = 0) -> [KKMIDIEvent] {
         guard bytes.count >= 4 else { return [] }
         var events: [KKMIDIEvent] = []
         var offset = 0
         while offset + 3 < bytes.count {
             let status = bytes[offset + 1]
-            let note = bytes[offset + 2]
-            let velocity = bytes[offset + 3]
+            let data1 = bytes[offset + 2]
+            let data2 = bytes[offset + 3]
             let channel = status & 0x0f
             switch status & 0xf0 {
-                case 0x90 where velocity > 0:
-                    events.append(KKMIDIEvent(kind: .noteOn, channel: channel, note: note, velocity: velocity, receptionTimestamp: receptionTimestamp))
+                case 0x90 where data2 > 0:
+                    events.append(KKMIDIEvent(kind: .noteOn, channel: channel, note: data1, velocity: data2, receptionTimestamp: receptionTimestamp))
                 case 0x90, 0x80:
-                    events.append(KKMIDIEvent(kind: .noteOff, channel: channel, note: note, velocity: velocity, receptionTimestamp: receptionTimestamp))
+                    events.append(KKMIDIEvent(kind: .noteOff, channel: channel, note: data1, velocity: data2, receptionTimestamp: receptionTimestamp))
                 case 0xb0:
-                    events.append(KKMIDIEvent(control: note, value: velocity, channel: channel, receptionTimestamp: receptionTimestamp))
+                    events.append(KKMIDIEvent(control: data1, value: data2, channel: channel, receptionTimestamp: receptionTimestamp))
                 case 0xd0:
-                    events.append(KKMIDIEvent(channelPressure: note, channel: channel, receptionTimestamp: receptionTimestamp))
+                    events.append(KKMIDIEvent(channelPressure: data1, channel: channel, receptionTimestamp: receptionTimestamp))
                 case 0xe0:
-                    events.append(KKMIDIEvent(pitchBendLSB: note, msb: velocity, channel: channel, receptionTimestamp: receptionTimestamp))
+                    events.append(KKMIDIEvent(pitchBendLSB: data1, msb: data2, channel: channel, receptionTimestamp: receptionTimestamp))
                 default:
                     break
             }
@@ -1631,226 +409,8 @@ public final class KompleteKontrolS25MK1: @unchecked Sendable {
         return events
     }
 
-    private func detachHIDDeviceForReconnect() {
-        guard let oldDevice = hidDevice else { return }
-        let oldManager = hidManager
-        let oldBuffer = inputBuffer
-        hidDevice = nil
-        hidManager = nil
-        inputBuffer = nil
-        inputBufferLength = 0
-        lastReports.removeAll(keepingCapacity: true)
-
-        if let runLoop = inputRunLoop {
-            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
-                IOHIDDeviceUnscheduleFromRunLoop(oldDevice, runLoop, CFRunLoopMode.defaultMode.rawValue)
-                IOHIDDeviceClose(oldDevice, Self.openOptions)
-                if let oldManager {
-                    IOHIDManagerClose(oldManager, Self.openOptions)
-                }
-                oldBuffer?.deallocate()
-            }
-            CFRunLoopWakeUp(runLoop)
-        } else {
-            IOHIDDeviceClose(oldDevice, Self.openOptions)
-            if let oldManager {
-                IOHIDManagerClose(oldManager, Self.openOptions)
-            }
-            oldBuffer?.deallocate()
-        }
-    }
-
-    private func writeThroughPrivilegedHelper(reportID: UInt8, payload: [UInt8]) -> KKUSBResult {
-        guard let session = startHelperSession() else {
-            return KKUSBResult(status: -1, message: "privileged output helper unavailable")
-        }
-        let line = (["write", KKHex.byte(reportID)] + payload.map(KKHex.byte)).joined(separator: " ") + "\n"
-        let start = KKTiming.now()
-        traceOutput("helper request begin report=0x\(KKHex.byte(reportID)) bytes=\(payload.count)")
-        guard let response = requestWithReconnect(session: session, line: line) else {
-            closeHelperSession(sendQuit: false)
-            traceOutput("helper request failed report=0x\(KKHex.byte(reportID)) elapsed=\(KKTiming.msSince(start))")
-            return KKUSBResult(status: -1, message: "Komplete Kontrol libusb daemon did not respond")
-        }
-        traceOutput("helper request end report=0x\(KKHex.byte(reportID)) response=\(response) elapsed=\(KKTiming.msSince(start))")
-        if response == "ok" {
-            return KKUSBResult(status: 0, opened: true, endpointAddress: 0x02, message: "ok")
-        }
-        return KKUSBResult(status: -1, message: response)
-    }
-
-    private func requestWithReconnect(session: KKDaemonOutputSession, line: String, timeoutUsec: useconds_t = 250_000) -> String? {
-        guard let response = session.request(line, timeoutUsec: timeoutUsec) else {
-            return reconnectAndRequest(line, timeoutUsec: timeoutUsec)
-        }
-        guard Self.daemonResponseRequiresReconnect(response) else {
-            return response
-        }
-        traceOutput("helper device dropped response=\(response); reconnecting")
-        return reconnectAndRequest(line, timeoutUsec: timeoutUsec)
-    }
-
-    private func startHelperSession() -> KKDaemonOutputSession? {
-        helperSessionLock.lock()
-        defer { helperSessionLock.unlock() }
-        if let helperSession {
-            return helperSession
-        }
-        guard case .privilegedHelper = outputMode else {
-            return nil
-        }
-
-        if !KompleteKontrolLibUSBServer.daemonSocketIsAvailable() {
-            log?("Komplete Kontrol libusb daemon not running; start it before connecting.")
-            return nil
-        }
-
-        guard let session = KKDaemonOutputSession(socketPath: KompleteKontrolLibUSBServer.defaultDaemonSocketPath) else {
-            log?("Komplete Kontrol libusb daemon unavailable. Install/start launchd daemon once.")
-            return nil
-        }
-
-        if !KompleteKontrolLibUSBServer.sessionHasCurrentProtocol(session) {
-            log?("Komplete Kontrol libusb daemon is outdated; install/start the matching daemon before connecting.")
-            return nil
-        }
-
-        helperSession = session
-        if !sessionConnectionAnnounced {
-            sessionConnectionAnnounced = true
-            log?("Komplete Kontrol libusb daemon connected.")
-        }
-        registerClient(
-            on: session,
-            tracksHelperRegistration: DaemonClientRegistrationPolicy.shouldTrackHelperRegistration(role: .outputHelper)
-        )
-        replaySurfaceState(on: session)
-        return session
-    }
-
-    private func closeHelperSession(sendQuit: Bool) {
-        helperSessionLock.lock()
-        let session = helperSession
-        helperSession = nil
-        surfaceReplayPending = true
-        clientRegisteredWithSession = false
-        helperSessionLock.unlock()
-        if sendQuit {
-            unregisterClient(on: session)
-        }
-    }
-
-    private func reconnectAndRequest(_ line: String, timeoutUsec: useconds_t = 250_000) -> String? {
-        closeHelperSession(sendQuit: false)
-        guard let session = startHelperSession() else { return nil }
-        return session.request(line, timeoutUsec: timeoutUsec)
-    }
-
-    private static func daemonResponseRequiresReconnect(_ response: String) -> Bool {
-        response.hasPrefix("err -1 ")
-            || response.hasPrefix("err -4 ")
-            || response.hasPrefix("err -5 ")
-            || response.hasPrefix("err -6 ")
-            || response.hasPrefix("err -9 ")
-            || response.hasPrefix("err -10 ")
-    }
-
-    private func replaySurfaceState(on session: KKDaemonOutputSession) {
-        guard surfaceReplayPending else { return }
-        surfaceReplayPending = false
-        _ = session.request((["write", KKHex.byte(KompleteKontrolS25MK1Protocol.initReportID), "00", "00"]).joined(separator: " ") + "\n")
-        _ = session.request((["write", KKHex.byte(KompleteKontrolS25MK1Protocol.lightGuideReportID)] + guide.map(KKHex.byte)).joined(separator: " ") + "\n")
-        _ = session.request((["write", KKHex.byte(KompleteKontrolS25MK1Protocol.buttonLEDReportID)] + buttonLEDs.map(KKHex.byte)).joined(separator: " ") + "\n")
-        for row in 0..<KKDisplayFrame.rowCount {
-            let payload = displayRowPayload(row, data: displayFrame.rowData(row))
-            _ = session.request((["write", KKHex.byte(KompleteKontrolS25MK1Protocol.displayReportID)] + payload.map(KKHex.byte)).joined(separator: " ") + "\n")
-        }
-    }
-
-    private func registerClient(on session: KKDaemonOutputSession, tracksHelperRegistration: Bool = true) {
-        if tracksHelperRegistration {
-            guard !clientRegisteredWithSession else { return }
-        }
-        let name = ProcessInfo.processInfo.processName
-        let pid = getpid()
-        let response = session.request("register \(pid) \(KKHex.utf8(name))\n", timeoutUsec: 750_000)
-        if response == "ok registered" {
-            if tracksHelperRegistration {
-                clientRegisteredWithSession = true
-            }
-            log?("Komplete Kontrol daemon registered client \(name) pid=\(pid).")
-        } else if let response {
-            log?("Komplete Kontrol daemon client registration returned: \(response)")
-        } else {
-            log?("Komplete Kontrol daemon client registration timed out.")
-        }
-    }
-
-    private func unregisterClient(on session: KKDaemonOutputSession?) {
-        guard let session else { return }
-        let name = ProcessInfo.processInfo.processName
-        _ = session.request("unregister \(getpid()) \(KKHex.utf8(name))\n", timeoutUsec: 500_000)
-    }
-
-    private static let openOptions = IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
-
-    private static func openHIDDevice(logOpen: Bool, logger: (@Sendable (String) -> Void)?) -> OpenedHIDDevice? {
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, openOptions)
-        IOHIDManagerSetDeviceMatching(
-            manager,
-            [
-                kIOHIDVendorIDKey: KompleteKontrolS25MK1Protocol.vendorID,
-                kIOHIDProductIDKey: KompleteKontrolS25MK1Protocol.productID,
-            ] as CFDictionary
-        )
-        let managerResult = IOHIDManagerOpen(manager, openOptions)
-        guard managerResult == kIOReturnSuccess,
-              let device = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>)?.first else {
-            if logOpen {
-                logger?("IOHIDManagerOpen -> \(String(format: "0x%08x", managerResult))")
-            }
-            IOHIDManagerClose(manager, openOptions)
-            return nil
-        }
-        let openResult = IOHIDDeviceOpen(device, openOptions)
-        if logOpen {
-            logger?("IOHIDDeviceOpen(seize) -> \(String(format: "0x%08x", openResult))")
-        }
-        guard openResult == kIOReturnSuccess else {
-            IOHIDManagerClose(manager, openOptions)
-            return nil
-        }
-        func property(_ key: String) -> Int {
-            (IOHIDDeviceGetProperty(device, key as CFString) as? Int) ?? 0
-        }
-        return OpenedHIDDevice(
-            manager: manager,
-            device: device,
-            maxInputReportSize: property(kIOHIDMaxInputReportSizeKey),
-            maxOutputReportSize: property(kIOHIDMaxOutputReportSizeKey)
-        )
-    }
-
-    private static func writeLibUSB(reportID: UInt8, payload: [UInt8]) -> KKUSBResult {
-        var payload = payload
-        let result = payload.withUnsafeMutableBufferPointer { buffer in
-            KontrolUSBLibUSBWriteReport(reportID, buffer.baseAddress, UInt32(buffer.count))
-        }
-        return KKUSBResult(result)
-    }
-
-    private static func hidDevicePresent() -> Bool {
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, 0)
-        IOHIDManagerSetDeviceMatching(
-            manager,
-            [
-                kIOHIDVendorIDKey: KompleteKontrolS25MK1Protocol.vendorID,
-                kIOHIDProductIDKey: KompleteKontrolS25MK1Protocol.productID,
-            ] as CFDictionary
-        )
-        guard IOHIDManagerOpen(manager, 0) == kIOReturnSuccess else { return false }
-        defer { IOHIDManagerClose(manager, 0) }
-        return !((IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>)?.isEmpty ?? true)
+    static func format(_ events: [KKMIDIEvent]) -> String {
+        events.isEmpty ? "[]" : "[" + events.map(\.description).joined(separator: " | ") + "]"
     }
 }
 
@@ -2021,47 +581,7 @@ public enum KompleteKontrolLibUSBServer {
             let socketPath = args.dropFirst().first ?? defaultDaemonSocketPath
             runDaemon(socketPath: socketPath)
         }
-        guard args.first == "--kk-libusb-server" || args.first == "--libusb-server" else {
-            return false
-        }
-        guard args.count >= 3 else {
-            exit(2)
-        }
-        run(requestPath: args[1], responsePath: args[2])
-    }
-
-    public static func run(requestPath: String, responsePath: String) -> Never {
-        guard freopen(requestPath, "r", stdin) != nil else {
-            exit(1)
-        }
-        guard freopen(responsePath, "w", stdout) != nil else {
-            exit(1)
-        }
-        setbuf(stdout, nil)
-
-        while let line = readLine() {
-            let tokens = line.split(separator: " ").map(String.init)
-            guard let command = tokens.first else { continue }
-            if command == "quit" {
-                print("ok quit")
-                exit(0)
-            }
-            guard command == "write", tokens.count >= 2, let reportID = KKHex.parse(tokens[1]) else {
-                print("err parse")
-                continue
-            }
-            var payload = tokens.dropFirst(2).compactMap { KKHex.parse($0).map { UInt8($0 & 0xff) } }
-            let result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBWriteReport(UInt8(reportID & 0xff), buffer.baseAddress, UInt32(buffer.count))
-            }
-            if result.status == 0 {
-                print("ok")
-            } else {
-                let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
-                print("err \(result.status) \(message)")
-            }
-        }
-        exit(0)
+        return false
     }
 
     private static func makeDaemonServerSocket(socketPath: String) -> Int32? {
@@ -2671,8 +1191,6 @@ public enum KompleteKontrolLibUSBServer {
         let patterns = [
             "ccd .*--kk-libusb-daemon",
             "ccd .*--libusb-daemon",
-            "KontrolProbe .*--kk-libusb-daemon",
-            "KontrolProbe .*--libusb-daemon",
         ]
         var candidates = Set<pid_t>()
         for pattern in patterns {
@@ -2829,7 +1347,6 @@ public enum KompleteKontrolLibUSBServer {
         private let lock = NSLock()
         private let sessionIOLock = SessionUseLock()
         private let maxQueuedPushes = 64
-        private let transientClaim = ProcessInfo.processInfo.environment["KK_DAEMON_TRANSIENT_CLAIM"] == "1"
         private let daemonSurfaceEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_DISABLE_SURFACE"] != "1"
         private var libusbSession: (any KontrolDeviceSession)?
         private var asyncTransfersStarted = false
@@ -2882,8 +1399,6 @@ public enum KompleteKontrolLibUSBServer {
             var message: String
         }
         private var idleMK2EventLog: [MK2IdleLogEntry] = []
-        private var idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-        private var idleMK1ButtonLEDs = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
         private var idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
         private var idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
         private var idleMK2JogTouched = false
@@ -2925,7 +1440,6 @@ public enum KompleteKontrolLibUSBServer {
         // factory-like templates (knob CCs, wheels, strip CC11), our LED/guide state
         // cleared, displays blanked instead of frozen on stale frames.
         private func restoreMK2StandaloneState(_ session: any KontrolDeviceSession) {
-            guard session.generation == 2 else { return }
             func write(_ reportID: UInt8, _ payload: [UInt8]) {
                 var bytes = payload
                 _ = bytes.withUnsafeMutableBufferPointer { buffer in
@@ -2967,10 +1481,6 @@ public enum KompleteKontrolLibUSBServer {
                 return unregister(clientID: clientID)
             }
 
-            if transientClaim {
-                return KompleteKontrolLibUSBServer.handleDaemonCommand(line, session: nil, transientClaim: true)
-            }
-
             if command == "read" {
                 guard ensureSession() != nil else { return "timeout" }
                 handleUsbEvents(timeoutMs: 0)
@@ -2990,7 +1500,6 @@ public enum KompleteKontrolLibUSBServer {
             // Lines/labels are UTF8-hex ("-" = empty); accents are RGB565. Labels render in a
             // small font under the eight physical function buttons for legacy socket clients.
             if command == "mk2text" {
-                guard isMK2(session) else { return "err not mk2" }
                 guard tokens.count >= 5 else { return "err parse" }
                 func text(_ token: String) -> String {
                     token == "-" ? "" : (KKHex.decodeUTF8Hex(token) ?? "")
@@ -3051,8 +1560,8 @@ public enum KompleteKontrolLibUSBServer {
             guard payload.count == pixelCount * 2 else {
                 return "err pixel-count expected \(pixelCount * 2) actual \(payload.count)"
             }
-            guard let session = ensureSession(), isMK2(session) else {
-                return "err no mk2 session"
+            guard let session = ensureSession() else {
+                return "err no session"
             }
 
             let writeStart = KKTiming.now()
@@ -3334,7 +1843,7 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func performDisplayBlit(_ blit: PendingDisplayBlit) {
-            guard let session = ensureSession(), isMK2(session) else { return }
+            guard let session = ensureSession() else { return }
             let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
@@ -3532,9 +2041,7 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
             sessionIOLock.unlock()
 
-            if isMK2(session) {
-                daemonLog("MK2 session ready: persistent libusb display + surface + MIDI", group: "mk2")
-            }
+            daemonLog("MK2 session ready: persistent libusb display + surface + MIDI", group: "mk2")
             startAsyncTransfersIfNeeded(session)
             return session
         }
@@ -3578,8 +2085,6 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func maintainConnection(forceOpen: Bool = false) -> Bool {
-            guard !transientClaim else { return true }
-
             lock.lock()
             let session = libusbSession
             let sleeping = systemSleeping
@@ -3619,11 +2124,7 @@ public enum KompleteKontrolLibUSBServer {
         private func restoreHardwareAfterReconnect(forceOpen: Bool = false) -> Bool {
             guard let session = ensureSession(forceOpen: forceOpen) else { return false }
             daemonLog("hardware session reconnected", group: "usb")
-            if isMK2(session) {
-                configureMK2HostControl(session: session)
-            } else {
-                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
-            }
+            configureMK2HostControl(session: session)
             notifyDeviceReconnected()
             if shouldDaemonShowIdleSurface() {
                 showNoClient()
@@ -3679,7 +2180,7 @@ public enum KompleteKontrolLibUSBServer {
         func reconnectDelayNs(now: UInt64 = KKTiming.now()) -> UInt64? {
             lock.lock()
             defer { lock.unlock() }
-            guard !transientClaim, libusbSession == nil, !systemSleeping else { return nil }
+            guard libusbSession == nil, !systemSleeping else { return nil }
             guard nextSessionOpenAttemptAt > now else { return 0 }
             return nextSessionOpenAttemptAt - now
         }
@@ -3696,41 +2197,7 @@ public enum KompleteKontrolLibUSBServer {
 
         private func runStartupAnimation() {
             guard let session = ensureSession() else { return }
-            if isMK2(session) {
-                prepareMK2IdleSurface(session: session)
-                return
-            }
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.initReportID, payload: [0x00, 0x00])
-
-            var allButtons = [UInt8](repeating: 0x7f, count: KKButtonLED.protocolNames.count)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: allButtons)
-            var flashGuide = startupRainbowGuide()
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: flashGuide)
-            usleep(120_000)
-
-            allButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: allButtons)
-
-            flashGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: flashGuide)
-        }
-
-        private func startupRainbowGuide() -> [UInt8] {
-            let keyCount = KompleteKontrolS25MK1Protocol.keyCount
-            return (0..<keyCount).flatMap { index -> [UInt8] in
-                let position = Double(index) / Double(max(1, keyCount - 1))
-                let hue = (265.0 + position * 320.0).truncatingRemainder(dividingBy: 360.0)
-                let color = KKRGB.hsv(hue, 0.78, 0.48)
-                return [
-                    UInt8(min(0x7f, Int(color.red))),
-                    UInt8(min(0x7f, Int(color.green))),
-                    UInt8(min(0x7f, Int(color.blue))),
-                ]
-            }
-        }
-
-        private func isMK2(_ session: any KontrolDeviceSession) -> Bool {
-            session.generation == 2
+            prepareMK2IdleSurface(session: session)
         }
 
         // Host-control mode: all LEDs (function buttons + ribbon included) belong to the
@@ -4341,39 +2808,16 @@ public enum KompleteKontrolLibUSBServer {
         private func showConnectedClient(_ client: RegisteredClient) {
             guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
-            if isMK2(session) {
-                writeMK2ConnectedClientTitle(session: session, client: client)
-                beginMK2ClientHandoffPause()
-                return
-            }
-            let name = String(client.name.prefix(8)).uppercased()
-            let pid = "PID \(client.pid)"
-            var frame = KKDisplayFrame()
-            frame.setText(name, display: 0, row: 1, alignment: .center)
-            frame.setText(String(pid.prefix(8)), display: 0, row: 2, alignment: .center)
-            frame.setText("CONNECTED", display: 1, row: 1, alignment: .center)
-            writeDarkSurface(session: session, displayFrame: frame)
+            writeMK2ConnectedClientTitle(session: session, client: client)
+            beginMK2ClientHandoffPause()
         }
 
         private func showNoClient() {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            if isMK2(session) {
-                clearMK2SurfaceLights(session: session)
-                resetIdleDiagnosticState()
-                writeMK2NoClientDiagnostic(session: session)
-                return
-            }
+            clearMK2SurfaceLights(session: session)
             resetIdleDiagnosticState()
-            let emptyButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: emptyButtons)
-            writeIdleDiagnosticSurface(
-                surfaceSummary: "PRESS ANY SURFACE",
-                midiSummary: "OR MIDI KEY FOR TEST",
-                hasInput: false,
-                lightGuide: [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount),
-                writeLightGuide: true
-            )
+            writeMK2NoClientDiagnostic(session: session)
         }
 
         private func shouldDaemonShowIdleSurface() -> Bool {
@@ -4382,36 +2826,12 @@ public enum KompleteKontrolLibUSBServer {
             return daemonSurfaceEnabled && registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
         }
 
-        private func writeDarkSurface(session: any KontrolDeviceSession, displayFrame: KKDisplayFrame) {
-            if isMK2(session) {
-                clearMK2SurfaceLights(session: session)
-                writeMK2IdleSurface(
-                    session: session,
-                    screen0: ["CLIENT", "ACTIVE"],
-                    screen1: ["MK2", "READY"],
-                    accent0: 0x07ff,
-                    accent1: 0x07e0
-                )
-                return
-            }
-            let emptyGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: emptyGuide)
-            let emptyButtons = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: emptyButtons)
-            for row in 0..<KKDisplayFrame.rowCount {
-                let payload = KompleteKontrolLibUSBServer.displayRowPayload(row, data: displayFrame.rowData(row))
-                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.displayReportID, payload: payload)
-            }
-        }
-
         private func resetIdleDiagnosticState() {
             lock.lock()
             idleSurfacePreviousReport = nil
             idleSurfaceSummary = "PRESS ANY SURFACE"
             idleMIDISummary = "OR MIDI KEY FOR TEST"
             idleHasReceivedInput = false
-            idleLightGuide = [UInt8](repeating: 0, count: 3 * KompleteKontrolS25MK1Protocol.keyCount)
-            idleMK1ButtonLEDs = [UInt8](repeating: 0, count: KKButtonLED.protocolNames.count)
             idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
             idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
             idleMK2JogTouched = false
@@ -4432,46 +2852,7 @@ public enum KompleteKontrolLibUSBServer {
 
         private func acknowledgeIdleSurfaceInput(_ bytes: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
-            if currentSessionIsMK2() {
-                acknowledgeIdleMK2SurfaceInput(bytes)
-                return
-            }
-            let report = normalizedIdleSurfaceReport(bytes)
-
-            lock.lock()
-            let previous = idleSurfacePreviousReport
-            let baseline = previous ?? KKInputReportDecoder.initialEventBaseline(
-                reportID: KompleteKontrolS25MK1Protocol.inputReportID,
-                current: report
-            ) ?? report
-            let events = KKInputReportDecoder.events(
-                reportID: KompleteKontrolS25MK1Protocol.inputReportID,
-                previous: baseline,
-                current: report
-            )
-            idleSurfacePreviousReport = report
-            if events.isEmpty, previous != nil, previous == report {
-                lock.unlock()
-                return
-            }
-            idleHasReceivedInput = true
-            idleSurfaceSummary = events.first.map(idleSurfaceSummary(for:)) ?? idleRawSurfaceSummary(bytes)
-            if idleMIDISummary == "OR MIDI KEY FOR TEST" {
-                idleMIDISummary = "--"
-            }
-            for event in events {
-                updateIdleMK1ButtonLEDs(for: event)
-            }
-            idleDiagnosticNeedsFlush = true
-            lock.unlock()
-        }
-
-        private func currentSessionIsMK2() -> Bool {
-            lock.lock()
-            let session = libusbSession
-            lock.unlock()
-            guard let session else { return false }
-            return isMK2(session)
+            acknowledgeIdleMK2SurfaceInput(bytes)
         }
 
         private func currentMK2LightGuideNoteOffset() -> Int? {
@@ -4524,57 +2905,26 @@ public enum KompleteKontrolLibUSBServer {
 
         private func acknowledgeIdleMIDIInput(_ bytes: [UInt8], timestamp: UInt64) {
             guard shouldDaemonShowIdleSurface() else { return }
-            let isMK2Idle = currentSessionIsMK2()
-            let mk2LightGuideNoteOffset = isMK2Idle ? currentMK2LightGuideNoteOffset() : nil
-            let events = KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)
+            let lightGuideNoteOffset = currentMK2LightGuideNoteOffset()
+            let events = KKUSBMIDIParser.events(bytes, receptionTimestamp: timestamp)
             guard !events.isEmpty || !bytes.isEmpty else { return }
 
             lock.lock()
             idleHasReceivedInput = true
             idleMIDISummary = events.first.map(idleMIDISummary(for:)) ?? idleRawMIDISummary(bytes)
-            if isMK2Idle {
-                appendMK2IdleLogLocked(
-                    timestamp: timestamp,
-                    messages: events.isEmpty ? [idleRawMIDISummary(bytes)] : events.map { "MIDI \(idleMIDISummary(for: $0))" }
-                )
-            }
+            appendMK2IdleLogLocked(
+                timestamp: timestamp,
+                messages: events.isEmpty ? [idleRawMIDISummary(bytes)] : events.map { "MIDI \(idleMIDISummary(for: $0))" }
+            )
             if idleSurfaceSummary == "PRESS ANY SURFACE" {
                 idleSurfaceSummary = "--"
             }
             for event in events {
-                if isMK2Idle {
-                    updateIdleMK2LightGuide(for: event, noteOffset: mk2LightGuideNoteOffset)
-                } else {
-                    updateIdleLightGuide(for: event)
-                }
+                updateIdleMK2LightGuide(for: event, noteOffset: lightGuideNoteOffset)
             }
             idleDiagnosticNeedsFlush = true
             idleDiagnosticNeedsLightGuideFlush = true
             lock.unlock()
-        }
-
-        private func normalizedIdleSurfaceReport(_ bytes: [UInt8]) -> [UInt8] {
-            guard bytes.first == UInt8(KompleteKontrolS25MK1Protocol.inputReportID) else {
-                return bytes
-            }
-            return Array(bytes.dropFirst())
-        }
-
-        private func idleSurfaceSummary(for event: KKInputEvent) -> String {
-            switch event {
-                case let .button(name, pressed):
-                    return "BTN \(shortIdleName(name)) \(pressed ? "DOWN" : "UP")"
-                case let .touchEncoder(index, touched):
-                    return "TOUCH E\(index) \(touched ? "ON" : "OFF")"
-                case let .mainEncoderState(value):
-                    return String(format: "MAIN STATE %02X", value)
-                case let .mainEncoder(delta):
-                    return "MAIN \(signedIdleDelta(delta))"
-                case let .rotaryEncoder(index, delta, value):
-                    return "ENC \(index) \(signedIdleDelta(delta)) VAL \(value)"
-                case let .touchStrip(name, value):
-                    return "\(shortIdleName(name)) STRIP \(value)"
-            }
         }
 
         private func idleMIDISummary(for event: KKMIDIEvent) -> String {
@@ -4604,46 +2954,11 @@ public enum KompleteKontrolLibUSBServer {
             "RAW " + bytes.prefix(16).map(KKHex.byte).joined(separator: " ")
         }
 
-        private func shortIdleName(_ name: String) -> String {
-            name.uppercased().replacingOccurrences(of: " ", with: "")
-        }
-
-        private func signedIdleDelta(_ value: Int) -> String {
-            value >= 0 ? "+\(value)" : "\(value)"
-        }
-
         private func idleNoteName(_ note: UInt8) -> String {
             let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
             let value = Int(note)
             let octave = value / 12 - 1
             return "\(names[value % 12])\(octave)"
-        }
-
-        private func updateIdleMK1ButtonLEDs(for event: KKInputEvent) {
-            guard case let .button(name, pressed) = event else { return }
-            let indices = idleMK1ButtonLEDIndices(for: name)
-            guard !indices.isEmpty else { return }
-            let value: UInt8 = pressed ? 0x7f : 0x00
-            var changed = false
-            for index in indices where idleMK1ButtonLEDs.indices.contains(index) && idleMK1ButtonLEDs[index] != value {
-                idleMK1ButtonLEDs[index] = value
-                changed = true
-            }
-            if changed {
-                idleDiagnosticNeedsButtonLEDFlush = true
-            }
-        }
-
-        private func idleMK1ButtonLEDIndices(for buttonName: String) -> [Int] {
-            let normalized = KKButtonLED.normalize(buttonName)
-            switch normalized {
-                case "rewind":
-                    return [KKButtonLED.rwd.rawValue]
-                case "fastforward":
-                    return [KKButtonLED.ffw.rawValue]
-                default:
-                    return KKButtonLED.indices(for: normalized) { Int($0) }
-            }
         }
 
         private func updateIdleMK2ControlLEDs(for event: KKMK2InputEvent) {
@@ -4720,23 +3035,6 @@ public enum KompleteKontrolLibUSBServer {
             idleDiagnosticNeedsButtonLEDFlush = true
         }
 
-        private func updateIdleLightGuide(for event: KKMIDIEvent) {
-            guard event.kind == .noteOn || event.kind == .noteOff else { return }
-            let keyIndex = Int(event.note) - 48
-            guard (0..<KompleteKontrolS25MK1Protocol.keyCount).contains(keyIndex) else { return }
-            let base = keyIndex * 3
-            if event.kind == .noteOn {
-                let intensity = UInt8(max(16, min(0x7f, Int(event.velocity))))
-                idleLightGuide[base] = 0
-                idleLightGuide[base + 1] = intensity
-                idleLightGuide[base + 2] = 0x7f
-            } else {
-                idleLightGuide[base] = 0
-                idleLightGuide[base + 1] = 0
-                idleLightGuide[base + 2] = 0
-            }
-        }
-
         private func updateIdleMK2LightGuide(for event: KKMIDIEvent, noteOffset: Int?) {
             guard event.kind == .noteOn || event.kind == .noteOff else { return }
             let keyIndex = Int(event.note) + (noteOffset ?? -36)
@@ -4753,40 +3051,10 @@ public enum KompleteKontrolLibUSBServer {
             idleMK2LightGuide[keyIndex] = value
         }
 
-        private func writeIdleDiagnosticSurface(
-            surfaceSummary: String,
-            midiSummary: String,
-            hasInput: Bool,
-            lightGuide: [UInt8],
-            writeLightGuide: Bool
-        ) {
+        private func writeIdleDiagnosticSurface() {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            if isMK2(session) {
-                writeMK2NoClientDiagnostic(session: session)
-                return
-            }
-
-            var frame = KKDisplayFrame()
-            frame.setText("NO", display: 0, row: 1, alignment: .center)
-            frame.setText("CLIENT", display: 0, row: 2, alignment: .center)
-            if hasInput {
-                setIdleWideText("SURF \(surfaceSummary)", row: 1, into: &frame)
-                setIdleWideText("MIDI \(midiSummary)", row: 2, into: &frame)
-            } else {
-                setIdleWideText("PRESS ANY SURFACE", row: 1, into: &frame)
-                setIdleWideText("OR MIDI KEY FOR TEST", row: 2, into: &frame)
-            }
-            frame.setText(KompleteKontrolLibUSBServer.daemonVersion, display: KKDisplayFrame.displayCount - 1, row: 1, alignment: .left)
-            frame.setText(idleRevisionSummary.hash, display: KKDisplayFrame.displayCount - 1, row: 2, alignment: .left)
-
-            if writeLightGuide {
-                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
-            }
-            for row in 0..<KKDisplayFrame.rowCount {
-                let payload = KompleteKontrolLibUSBServer.displayRowPayload(row, data: frame.rowData(row))
-                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.displayReportID, payload: payload)
-            }
+            writeMK2NoClientDiagnostic(session: session)
         }
 
         private func flushIdleDiagnosticIfNeeded() {
@@ -4795,11 +3063,6 @@ public enum KompleteKontrolLibUSBServer {
             while true {
                 guard shouldDaemonShowIdleSurface() else { return }
                 let now = KKTiming.now()
-                let surfaceSummary: String
-                let midiSummary: String
-                let hasInput: Bool
-                let guide: [UInt8]
-                let mk1ButtonLEDs: [UInt8]
                 let mk2ButtonLEDs: [UInt8]
                 let mk2LightGuide: [UInt8]
                 let needsButtonLEDs: Bool
@@ -4820,11 +3083,6 @@ public enum KompleteKontrolLibUSBServer {
                     lock.unlock()
                     return
                 }
-                surfaceSummary = idleSurfaceSummary
-                midiSummary = idleMIDISummary
-                hasInput = idleHasReceivedInput
-                guide = idleLightGuide
-                mk1ButtonLEDs = idleMK1ButtonLEDs
                 mk2ButtonLEDs = idleMK2ButtonLEDs
                 mk2LightGuide = idleMK2LightGuide
                 if decision.writeDisplay {
@@ -4839,58 +3097,27 @@ public enum KompleteKontrolLibUSBServer {
                 lock.unlock()
 
                 if decision.writeLightGuide {
-                    writeIdleDiagnosticLightGuide(guide)
                     writeIdleDiagnosticMK2LightGuide(mk2LightGuide)
                 }
                 if needsButtonLEDs {
-                    writeIdleDiagnosticButtonLEDs(mk1: mk1ButtonLEDs, mk2: mk2ButtonLEDs)
+                    writeIdleDiagnosticButtonLEDs(mk2ButtonLEDs)
                 }
                 if decision.writeDisplay {
-                    writeIdleDiagnosticSurface(
-                        surfaceSummary: surfaceSummary,
-                        midiSummary: midiSummary,
-                        hasInput: hasInput,
-                        lightGuide: guide,
-                        writeLightGuide: false
-                    )
+                    writeIdleDiagnosticSurface()
                 }
             }
-        }
-
-        private func writeIdleDiagnosticLightGuide(_ lightGuide: [UInt8]) {
-            guard shouldDaemonShowIdleSurface() else { return }
-            guard let session = ensureSession() else { return }
-            guard !isMK2(session) else { return }
-            writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.lightGuideReportID, payload: lightGuide)
         }
 
         private func writeIdleDiagnosticMK2LightGuide(_ lightGuide: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            guard isMK2(session) else { return }
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: lightGuide)
         }
 
-        private func writeIdleDiagnosticButtonLEDs(mk1: [UInt8], mk2: [UInt8]) {
+        private func writeIdleDiagnosticButtonLEDs(_ buttonLEDs: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            if isMK2(session) {
-                writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2)
-            } else {
-                writeReport(session: session, reportID: KompleteKontrolS25MK1Protocol.buttonLEDReportID, payload: mk1)
-            }
-        }
-
-        private func setIdleWideText(_ text: String, row: Int, into frame: inout KKDisplayFrame) {
-            let displayRange = 1..<(KKDisplayFrame.displayCount - 1)
-            let capacity = displayRange.count * KKDisplayFrame.characterCount
-            let scalars = Array(text.uppercased().unicodeScalars.prefix(capacity))
-            for display in displayRange {
-                let start = (display - 1) * KKDisplayFrame.characterCount
-                let end = min(start + KKDisplayFrame.characterCount, scalars.count)
-                let chunk = start < end ? String(String.UnicodeScalarView(scalars[start..<end])) : ""
-                frame.setText(chunk, display: display, row: row, alignment: .left)
-            }
+            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: buttonLEDs)
         }
 
         private func writeReport(session: any KontrolDeviceSession, reportID: UInt8, payload: [UInt8]) {
@@ -5095,7 +3322,7 @@ public enum KompleteKontrolLibUSBServer {
             let hex = bytes.map(KKHex.byte).joined(separator: " ")
             let sequence = nextMIDIPushSequence()
             daemonDebugLog(
-                "push midi seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex) parsed=\(KompleteKontrolS25MK1.formatMIDIEvents(KompleteKontrolS25MK1.parseUSBMIDIEvents(bytes, receptionTimestamp: timestamp)) )",
+                "push midi seq=\(sequence) ts=0x\(String(timestamp, radix: 16)) len=\(length) raw=\(hex) parsed=\(KKUSBMIDIParser.format(KKUSBMIDIParser.events(bytes, receptionTimestamp: timestamp)))",
                 group: "midi",
                 level: .info
             )
@@ -5188,15 +3415,7 @@ public enum KompleteKontrolLibUSBServer {
         }
     }
 
-    private static func displayRowPayload(_ row: Int, data: [UInt8]) -> [UInt8] {
-        var rowData = Array(data.prefix(KKDisplayFrame.bytesPerReportRow))
-        if rowData.count < KKDisplayFrame.bytesPerReportRow {
-            rowData += Array(repeating: 0, count: KKDisplayFrame.bytesPerReportRow - rowData.count)
-        }
-        return [0x00, 0x00, UInt8(row), 0x00, 0x48, 0x00, 0x01, 0x00] + rowData
-    }
-
-    private static func handleDaemonCommand(_ line: String, session: (any KontrolDeviceSession)?, transientClaim: Bool = false) -> String {
+    private static func handleDaemonCommand(_ line: String, session: (any KontrolDeviceSession)?) -> String {
         let tokens = line.split(separator: " ").map(String.init)
         guard let command = tokens.first else { return "err parse" }
         guard command != "quit" else { return "ok quit" }
@@ -5205,9 +3424,6 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         if command == "status" {
-            if transientClaim {
-                return "ok transient-claim"
-            }
             guard let session else { return "err no session" }
             let result = session.status
             let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
@@ -5287,18 +3503,11 @@ public enum KompleteKontrolLibUSBServer {
         guard command == "write", tokens.count >= 2, let reportID = KKHex.parse(tokens[1]) else {
             return "err parse"
         }
-        var payload = tokens.dropFirst(2).compactMap { KKHex.parse($0).map { UInt8($0 & 0xff) } }
+        let payload = tokens.dropFirst(2).compactMap { KKHex.parse($0).map { UInt8($0 & 0xff) } }
         daemonTraceLog("libusb write begin report=0x\(KKHex.byte(UInt8(reportID & 0xff))) bytes=\(payload.count) head=\(KKTiming.short(payload))")
         let writeStart = KKTiming.now()
-        let result: KontrolUSBResult
-        if transientClaim {
-            result = payload.withUnsafeMutableBufferPointer { buffer in
-                KontrolUSBLibUSBWriteReport(UInt8(reportID & 0xff), buffer.baseAddress, UInt32(buffer.count))
-            }
-        } else {
-            guard let session else { return "err no session" }
-            result = session.write(reportID: UInt8(reportID & 0xff), payload: payload)
-        }
+        guard let session else { return "err no session" }
+        let result = session.write(reportID: UInt8(reportID & 0xff), payload: payload)
         daemonTraceLog("libusb write end report=0x\(KKHex.byte(UInt8(reportID & 0xff))) status=\(result.status) elapsed=\(KKTiming.msSince(writeStart))")
         if result.status == 0 {
             return "ok"
@@ -5434,9 +3643,6 @@ public enum KompleteKontrolLibUSBServer {
             fileManager.currentDirectoryPath + "/.build/debug/ccd",
             "/usr/local/bin/ccd",
             currentExecutable?.hasSuffix("/ccd") == true ? currentExecutable : nil,
-            currentExecutableDirectory.map { $0 + "/KontrolProbe" },
-            fileManager.currentDirectoryPath + "/.build/debug/KontrolProbe",
-            currentExecutable?.hasSuffix("/KontrolProbe") == true ? currentExecutable : nil,
         ].compactMap { $0 }
 
         return candidates.compactMap { path -> String? in
@@ -5504,13 +3710,6 @@ public enum KKHex {
         }
         return String(bytes: bytes, encoding: .utf8)
     }
-}
-
-private struct OpenedHIDDevice {
-    var manager: IOHIDManager
-    var device: IOHIDDevice
-    var maxInputReportSize: Int
-    var maxOutputReportSize: Int
 }
 
 public final class KompleteKontrolDaemonClient: @unchecked Sendable {
@@ -5704,122 +3903,5 @@ public final class KompleteKontrolDaemonClient: @unchecked Sendable {
         guard result > 0 else { return false }
         let writableEvents = Int16(POLLOUT | POLLERR | POLLHUP)
         return (descriptor.revents & writableEvents) != 0
-    }
-}
-
-private typealias KKDaemonOutputSession = KompleteKontrolDaemonClient
-
-private final class KKAdminOutputSession {
-    let directory: String
-    let requestPath: String
-    let responsePath: String
-    let requestFD: Int32
-    let responseFD: Int32
-    var responseBuffer: [UInt8] = []
-
-    init(directory: String, requestPath: String, responsePath: String, requestFD: Int32, responseFD: Int32) {
-        self.directory = directory
-        self.requestPath = requestPath
-        self.responsePath = responsePath
-        self.requestFD = requestFD
-        self.responseFD = responseFD
-    }
-
-    deinit {
-        _ = sendLine("quit\n")
-        close(requestFD)
-        close(responseFD)
-        unlink(requestPath)
-        unlink(responsePath)
-        rmdir(directory)
-    }
-
-    func sendLine(_ line: String) -> Bool {
-        let bytes = Array(line.utf8)
-        var written = 0
-        while written < bytes.count {
-            let count = bytes.withUnsafeBytes { raw in
-                Darwin.write(requestFD, raw.baseAddress!.advanced(by: written), bytes.count - written)
-            }
-            if count <= 0 {
-                return false
-            }
-            written += count
-        }
-        return true
-    }
-
-    func readResponse(timeoutUsec: useconds_t = 5_000_000) -> String? {
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
-        while Date() < deadline {
-            if let newline = responseBuffer.firstIndex(of: 0x0a) {
-                let lineBytes = responseBuffer.prefix(upTo: newline)
-                responseBuffer.removeSubrange(...newline)
-                return String(bytes: lineBytes, encoding: .utf8)
-            }
-
-            var scratch = [UInt8](repeating: 0, count: 512)
-            let scratchCount = scratch.count
-            let count = scratch.withUnsafeMutableBytes { raw in
-                Darwin.read(responseFD, raw.baseAddress!, scratchCount)
-            }
-            if count > 0 {
-                responseBuffer.append(contentsOf: scratch.prefix(count))
-            } else if count == 0 {
-                usleep(10_000)
-            } else if errno == EAGAIN || errno == EWOULDBLOCK {
-                usleep(10_000)
-            } else {
-                return nil
-            }
-        }
-        return nil
-    }
-}
-
-private let kkInputCallback: IOHIDReportCallback = { context, _, _, _, reportID, report, length in
-    guard let context else { return }
-    let device = Unmanaged<KompleteKontrolS25MK1>.fromOpaque(context).takeUnretainedValue()
-    device.handleInput(reportID: reportID, report: report, length: length)
-}
-
-private enum KKFIFO {
-    static func open(_ path: String, flags: Int32, timeoutUsec: useconds_t = 5_000_000) -> Int32 {
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
-        while Date() < deadline {
-            let fd = Darwin.open(path, flags)
-            if fd >= 0 {
-                return fd
-            }
-            if errno != ENXIO && errno != ENOENT {
-                break
-            }
-            usleep(50_000)
-        }
-        return -1
-    }
-}
-
-private enum KKShell {
-    static func quote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    static func appleScriptString(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-    }
-}
-
-private enum KKProcess {
-    static func currentExecutablePath() -> String {
-        let raw = CommandLine.arguments[0]
-        if raw.hasPrefix("/") {
-            return raw
-        }
-        return URL(fileURLWithPath: raw, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
-            .standardizedFileURL
-            .path
     }
 }

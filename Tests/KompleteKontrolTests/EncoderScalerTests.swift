@@ -1,7 +1,7 @@
 import Testing
 @testable import KontrolSurfaceKit2
 
-// Feel constants ported from the MK1 kit (ParameterPage.step): span/900 per count,
+// Feel constants inherited from the original parameter-page implementation: span/900 per count,
 // 3x under 90 ms between reports, 5x under 35 ms.
 @Suite("MK2 encoder scaler")
 struct EncoderScalerTests {

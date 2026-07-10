@@ -470,7 +470,7 @@ public enum KKMK2InputReportDecoder {
             if jogStateChanged && current.indices.contains(6) && current[6] == 0x04 {
                 explained.insert(30)
             } else {
-                let delta = KKInputReportDecoder.wrappedDelta(from: Int(previous[30] & 0x0f), to: Int(current[30] & 0x0f), modulo: 16)
+                let delta = KKWrappedDelta.wrappedDelta(from: Int(previous[30] & 0x0f), to: Int(current[30] & 0x0f), modulo: 16)
                 if delta != 0 {
                     events.append(.jogScroll(delta: delta, value: Int(current[30] & 0x0f)))
                     explained.insert(30)
@@ -483,7 +483,7 @@ public enum KKMK2InputReportDecoder {
             guard let old = word(previous, offset), let new = word(current, offset), old != new else { continue }
             // Encoder counters run 0…999 (bench 2026-07-02); a 1024 modulo misdecodes
             // deltas at the wrap point.
-            let delta = KKInputReportDecoder.wrappedDelta(from: old, to: new, modulo: 1000)
+            let delta = KKWrappedDelta.wrappedDelta(from: old, to: new, modulo: 1000)
             if delta != 0 {
                 events.append(.knob(index: index + 1, delta: delta, value: new))
                 explained.insert(offset)

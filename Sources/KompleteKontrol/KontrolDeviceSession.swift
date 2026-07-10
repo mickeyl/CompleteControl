@@ -12,7 +12,6 @@ import KontrolUSB
 protocol KontrolDeviceSession: AnyObject {
     var productID: UInt16 { get }
     var keyCount: UInt8 { get }
-    var generation: UInt8 { get }
     var isDeviceLost: Bool { get }
     var status: KontrolUSBResult { get }
     var health: KontrolUSBResult { get }
@@ -61,7 +60,6 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { KontrolUSBLibUSBSessionProductID(ref) }
     var keyCount: UInt8 { KontrolUSBLibUSBSessionKeyCount(ref) }
-    var generation: UInt8 { KontrolUSBLibUSBSessionGeneration(ref) }
     var isDeviceLost: Bool { KontrolUSBLibUSBSessionDeviceLost(ref) != 0 }
     var status: KontrolUSBResult { KontrolUSBLibUSBSessionStatus(ref) }
     var health: KontrolUSBResult { KontrolUSBLibUSBSessionHealth(ref) }

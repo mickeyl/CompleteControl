@@ -2,7 +2,7 @@
 """Render a visual BDF glyph catalog.
 
 The output is intentionally generated from the BDF bitmaps, not from the host text
-renderer, so it shows the exact pixels available to KontrolSurfaceKit.
+renderer, so it shows the exact pixels available to KontrolSurfaceKit2.
 
 Examples:
 

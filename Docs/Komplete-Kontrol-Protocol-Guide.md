@@ -1,73 +1,23 @@
-# Komplete Kontrol Protocol Guide
+# Komplete Kontrol S-Series MK2 Protocol Guide
 
 This is the maintained protocol reference for the Native Instruments Komplete
-Kontrol **S-Series MK2** path implemented by CompleteControl. MK1 and MK3 are
-included only to explain the product boundary:
+Kontrol S-Series MK2 path implemented by CompleteControl. The supported models
+are S49, S61, and S88 MK2. Other hardware generations are outside this
+repository's device, daemon, protocol, middleware, and simulator scope.
 
-- the S25 MK1 implementation is frozen and maintained;
-- S-Series MK2 is the active hardware and middleware target;
-- MK3 is unsupported and its on-device-rendering protocol is not part of this
-  repository's current work.
+Unless stated otherwise, findings were bench-verified on an S61 MK2 and are
+encoded in `KompleteKontrolMK2.swift`, `KontrolUSB.c`, and their tests. Values
+for the S49/S88 variants come from the device descriptors used by the driver.
 
-Unless stated otherwise, MK2 findings were bench-verified on an S61 MK2 and are
-encoded in `KompleteKontrolMK2.swift`, `KontrolUSB.c`, and their tests. Values for
-the S49/S88 model variants come from the device descriptors used by the driver.
+CompleteControl targets MK2 because it exposes the combination required by a
+custom tracker surface:
 
-## Why MK2 is the target
-
-Paulinche needs arbitrary, frequently changing tracker graphics, exact encoder
-input, transport controls, and a programmable light guide. MK2 exposes the useful
-combination directly:
-
-- two host-owned 480×272 RGB565 displays;
+- two host-owned 480x272 RGB565 displays;
 - full-surface button, encoder, 4-D wheel, and ribbon input;
 - host-controlled button lamps, strip LEDs, and light guide;
 - standard USB-MIDI for the keybed and performance controls.
 
-MK1 has segmented displays rather than pixels. MK3 renders a semantic model on
-the device rather than accepting an equivalent raw framebuffer. For a custom
-tracker surface, MK2 is therefore the practical generation.
-
 ![Komplete Kontrol S61 MK2 running a custom tracker UI on its two displays](images/mk2-hardware-tracker.jpg)
-
-## Generations in context
-
-| Generation | CompleteControl status | Display model | Relevance |
-| --- | --- | --- | --- |
-| S25 MK1 | Frozen, maintained | 9 segmented LCD cells | Legacy compatibility and `SurfaceDemo` |
-| S-Series MK2 | Active | 2× 480×272 host-owned RGB565 framebuffers | Primary hardware and Kit2 target |
-| S-Series MK3 | Unsupported | Wide display rendered on-device from semantic state | Historical comparison only |
-
-### MK1 historical summary
-
-The repository supports the S25 MK1 (`VID 0x17cc`, `PID 0x1340`) on interface 2,
-with interrupt IN `0x84` and interrupt OUT `0x02`.
-
-| Report | Purpose |
-| --- | --- |
-| `0x01` IN | Surface input |
-| `0x80` OUT | 25 single-channel button brightness values |
-| `0x82` OUT | 25 raw RGB light-guide triples |
-| `0xA0` OUT | Initialization (`00 00`) |
-| `0xE0` OUT | One row across the nine segmented displays |
-
-The segmented-display codec and frozen public surface live in
-`KompleteKontrol` and `KontrolSurfaceKit`. New UI and protocol work belongs to
-MK2/`KontrolSurfaceKit2`.
-
-### MK3 historical summary
-
-MK3 uses an on-device renderer and a semantic host protocol rather than the MK2
-framebuffer contract. CompleteControl has no MK3 device descriptor, transport,
-decoder, or supported surface API. Earlier firmware-analysis details were useful
-for deciding not to port the MK2 stack, but they are not maintained protocol
-facts and do not belong in this reference.
-
-Any future MK3 effort must begin with fresh captures against a named hardware and
-firmware version. Do not infer MK3 compatibility from shared-looking HID report
-IDs or from the MK2 implementation.
-
----
 
 ## MK2 device identity and transport
 

@@ -18,7 +18,7 @@ import Glibc
 final class SimulatorDeviceSession: KontrolDeviceSession {
     static let defaultSocketPath = SimEndpoint.defaultSocketPath
 
-    // The simulator emulates the bench S61 MK2. generation == 2 is what gates the MK2 path.
+    // The simulator emulates the bench S61 MK2.
     private static let s61MK2ProductID: UInt16 = 0x1620
     private static let s61MK2KeyCount: UInt8 = 61
 
@@ -74,7 +74,6 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { Self.s61MK2ProductID }
     var keyCount: UInt8 { Self.s61MK2KeyCount }
-    var generation: UInt8 { 2 }
     var isDeviceLost: Bool { lock.lock(); defer { lock.unlock() }; return lostFlag }
     var status: KontrolUSBResult { Self.makeResult(status: isDeviceLost ? -4 : 0, "simulator") }
     var health: KontrolUSBResult { status }
