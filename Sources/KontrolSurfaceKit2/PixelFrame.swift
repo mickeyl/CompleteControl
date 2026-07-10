@@ -124,7 +124,7 @@ public struct MK2PixelFrame: Sendable, Equatable {
                 if coverage >= 1 {
                     self[x, y] = color
                 } else if coverage > 0 {
-                    self[x, y] = blendRGB565(color, over: self[x, y], alpha: coverage)
+                    self[x, y] = Self.blendRGB565(color, over: self[x, y], alpha: coverage)
                 }
             }
         }
@@ -132,6 +132,11 @@ public struct MK2PixelFrame: Sendable, Equatable {
 
     /// Fills a (rounded) rect with a dithered vertical gradient — the building block
     /// for embossed/debossed panel wells. Radius 0 degrades to plain gradient rows.
+    ///
+    /// The per-pixel gradient/dither/coverage math lives in a cached tile keyed by
+    /// size, radius, colors and Bayer phase (`MK2GradientTileCache`); drawing is a
+    /// per-row span copy plus a few blended corner pixels. Rendering the gradient
+    /// in place cost the instrument editor ~19 ms per encoder tick in debug builds.
     public mutating func fillRoundedVerticalGradient(
         _ rect: MK2PixelRect,
         radius: Int,
@@ -141,43 +146,88 @@ public struct MK2PixelFrame: Sendable, Equatable {
     ) {
         guard rect.width > 0, rect.height > 0 else { return }
         let radius = max(0, min(radius, rect.width / 2, rect.height / 2))
-        let topR = Double((top >> 11) & 0x1f)
-        let topG = Double((top >> 5) & 0x3f)
-        let topB = Double(top & 0x1f)
-        let bottomR = Double((bottom >> 11) & 0x1f)
-        let bottomG = Double((bottom >> 5) & 0x3f)
-        let bottomB = Double(bottom & 0x1f)
-        let span = Double(max(1, rect.height - 1))
         let smooth = antialiased && MK2RenderSettings.antialiasingEnabled && radius > 0
+        let tile = MK2GradientTileCache.tile(for: MK2GradientTileCache.Key(
+            width: rect.width,
+            height: rect.height,
+            radius: radius,
+            top: top,
+            bottom: bottom,
+            phaseX: rect.x & 3,
+            phaseY: rect.y & 3,
+            smooth: smooth
+        ))
+        blit(tile, at: rect)
+    }
 
-        for localY in 0..<rect.height {
-            let y = rect.y + localY
-            guard (0..<Self.height).contains(y) else { continue }
-            let t = Double(localY) / span
-            let r = topR + (bottomR - topR) * t
-            let g = topG + (bottomG - topG) * t
-            let b = topB + (bottomB - topB) * t
-            let inCornerBand = localY < radius || localY >= rect.height - radius
+    private mutating func blit(_ tile: MK2GradientTileCache.Tile, at rect: MK2PixelRect) {
+        pixels.withUnsafeMutableBufferPointer { destination in
+            guard let destinationBase = destination.baseAddress else { return }
+            tile.pixels.withUnsafeBufferPointer { source in
+                guard let sourceBase = source.baseAddress else { return }
+                for localY in 0..<rect.height {
+                    let y = rect.y + localY
+                    guard (0..<Self.height).contains(y) else { continue }
+                    let inset = tile.rowInsets[localY]
+                    let rowBase = localY * rect.width
 
-            if smooth, inCornerBand {
-                for localX in 0..<rect.width {
-                    let x = rect.x + localX
-                    guard (0..<Self.width).contains(x) else { continue }
-                    let inCorner = localX < radius || localX >= rect.width - radius
-                    let coverage = inCorner
-                        ? roundedRectCoverage(x: localX, y: localY, width: rect.width, height: rect.height, radius: radius, sampleCount: 4)
-                        : 1
-                    guard coverage > 0 else { continue }
-                    let color = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
-                    self[x, y] = coverage >= 1 ? color : blendRGB565(color, over: self[x, y], alpha: coverage)
+                    // Fully opaque middle span: straight copy in wire byte order.
+                    let spanStart = max(inset, -rect.x)
+                    let spanEnd = min(rect.width - inset, Self.width - rect.x)
+                    if spanEnd > spanStart {
+                        memcpy(
+                            destinationBase + y * Self.width + rect.x + spanStart,
+                            sourceBase + rowBase + spanStart,
+                            (spanEnd - spanStart) * 2
+                        )
+                    }
+
+                    // Corner columns: coverage-driven, blended over the destination.
+                    guard inset > 0 else { continue }
+                    Self.blitCornerColumns(
+                        tile,
+                        rowBase: rowBase,
+                        columns: 0..<min(inset, rect.width),
+                        rect: rect,
+                        y: y,
+                        destinationBase: destinationBase,
+                        sourceBase: sourceBase
+                    )
+                    Self.blitCornerColumns(
+                        tile,
+                        rowBase: rowBase,
+                        columns: max(0, rect.width - inset)..<rect.width,
+                        rect: rect,
+                        y: y,
+                        destinationBase: destinationBase,
+                        sourceBase: sourceBase
+                    )
                 }
+            }
+        }
+    }
+
+    private static func blitCornerColumns(
+        _ tile: MK2GradientTileCache.Tile,
+        rowBase: Int,
+        columns: Range<Int>,
+        rect: MK2PixelRect,
+        y: Int,
+        destinationBase: UnsafeMutablePointer<UInt16>,
+        sourceBase: UnsafePointer<UInt16>
+    ) {
+        for localX in columns {
+            let x = rect.x + localX
+            guard (0..<Self.width).contains(x) else { continue }
+            let coverage = tile.coverage[rowBase + localX]
+            guard coverage > 0 else { continue }
+            let destinationIndex = y * Self.width + x
+            if coverage == 255 {
+                destinationBase[destinationIndex] = sourceBase[rowBase + localX]
             } else {
-                let inset = radius > 0 ? roundedCornerInset(y: localY, height: rect.height, radius: radius) : 0
-                for localX in inset..<(rect.width - inset) {
-                    let x = rect.x + localX
-                    guard (0..<Self.width).contains(x) else { continue }
-                    self[x, y] = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
-                }
+                let color = UInt16(bigEndian: sourceBase[rowBase + localX])
+                let background = UInt16(bigEndian: destinationBase[destinationIndex])
+                destinationBase[destinationIndex] = blendRGB565(color, over: background, alpha: Double(coverage) / 255).bigEndian
             }
         }
     }
@@ -246,7 +296,7 @@ public struct MK2PixelFrame: Sendable, Equatable {
         return dx * dx + dy * dy <= radius * radius
     }
 
-    private func blendRGB565(_ foreground: UInt16, over background: UInt16, alpha: Double) -> UInt16 {
+    static func blendRGB565(_ foreground: UInt16, over background: UInt16, alpha: Double) -> UInt16 {
         let alpha = max(0, min(1, alpha))
         let inverse = 1 - alpha
         let fr = Double((foreground >> 11) & 0x1f)
