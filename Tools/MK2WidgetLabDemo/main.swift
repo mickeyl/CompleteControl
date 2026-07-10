@@ -741,6 +741,8 @@ private actor WidgetLab {
                 return (selectionStatusResult(), selectionPickerResult())
             case .pattern:
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
+            case .waveform:
+                return (screenResult(frame: waveformLoopFrame()), screenResult(frame: waveformVariantsFrame()))
             case .scene:
                 switch sceneCombo {
                     case .splash:
@@ -2783,6 +2785,59 @@ private actor WidgetLab {
                 .draw(into: &frame, x: centerX - 8, y: y + 14)
             return
         }
+    }
+
+    // MARK: - Waveform lab
+
+    /// A decaying pluck with a loopable sustain tail — enough dynamics that the
+    /// min/max merge, the region dimming and the display gain are all visible.
+    private static func waveformDemoEnvelope(bins: Int, quiet: Bool = false) -> MK2WaveformEnvelope {
+        var minima = [Float](repeating: 0, count: bins)
+        var maxima = [Float](repeating: 0, count: bins)
+        for bin in 0..<bins {
+            let t = Double(bin) / Double(bins)
+            let decay = exp(-3.2 * t)
+            let carrier = sin(t * 197.0) * 0.6 + sin(t * 41.0) * 0.4
+            let noise = sin(t * 1_211.0) * 0.35 * exp(-9.0 * t)
+            let amplitude = (abs(carrier) * decay + abs(noise)) * (quiet ? 0.18 : 0.95)
+            maxima[bin] = Float(amplitude)
+            minima[bin] = Float(-amplitude * (0.7 + 0.3 * sin(t * 63.0)))
+        }
+        return MK2WaveformEnvelope(minima: minima, maxima: maxima, gain: quiet ? 3.5 : 1)
+    }
+
+    private func waveformLoopFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        BitmapLabel("WAVEFORM DISPLAY", font: .readout, color: Palette.text).draw(into: &frame, x: 16, y: 12)
+        BitmapLabel("LOOP REGION + START MARKER + PLAYHEAD", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 44)
+        MK2WaveformDisplay(
+            envelope: Self.waveformDemoEnvelope(bins: 2_048),
+            rect: MK2PixelRect(x: 8, y: 64, width: 464, height: 200),
+            region: 0.42...0.88,
+            markers: [0.08],
+            playhead: 0.55
+        ).draw(into: &frame)
+        return frame
+    }
+
+    private func waveformVariantsFrame() -> MK2PixelFrame {
+        var frame = MK2PixelFrame(fill: Palette.page)
+        BitmapLabel("SPARSE BINS", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 8)
+        MK2WaveformDisplay(
+            envelope: Self.waveformDemoEnvelope(bins: 24),
+            rect: MK2PixelRect(x: 8, y: 26, width: 464, height: 70)
+        ).draw(into: &frame)
+        BitmapLabel("QUIET SOURCE, DISPLAY GAIN 3.5X", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 104)
+        MK2WaveformDisplay(
+            envelope: Self.waveformDemoEnvelope(bins: 2_048, quiet: true),
+            rect: MK2PixelRect(x: 8, y: 122, width: 464, height: 70)
+        ).draw(into: &frame)
+        BitmapLabel("EMPTY ENVELOPE", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 200)
+        MK2WaveformDisplay(
+            envelope: MK2WaveformEnvelope(minima: [], maxima: []),
+            rect: MK2PixelRect(x: 8, y: 218, width: 464, height: 46)
+        ).draw(into: &frame)
+        return frame
     }
 
     // MARK: - Placeholder units

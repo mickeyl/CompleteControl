@@ -12,9 +12,13 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
     public var subtitle: String
     public var instrumentIndex: Int
     public var kind: MK2PaulincheInstrumentKind
-    public var detail: String
+    public var infoLines: [String]
     public var playheadProgress: Double?
-    public var waveform: [Double]
+    public var waveform: MK2WaveformEnvelope
+    public var loopRegion: ClosedRange<Double>?
+    public var markers: [Double]
+    /// Fixed eight slots; the slot index is the encoder index (E1…E8).
+    /// Slots with empty labels are drawn as unassigned.
     public var parameters: [MK2PaulinchePatternParameter]
     public var softKeys: [MK2PaulincheSoftKey]
 
@@ -23,19 +27,23 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         subtitle: String,
         instrumentIndex: Int,
         kind: MK2PaulincheInstrumentKind,
-        detail: String,
+        infoLines: [String] = [],
         playheadProgress: Double? = nil,
-        waveform: [Double] = [],
-        parameters: [MK2PaulinchePatternParameter],
+        waveform: MK2WaveformEnvelope = MK2WaveformEnvelope(minima: [], maxima: []),
+        loopRegion: ClosedRange<Double>? = nil,
+        markers: [Double] = [],
+        parameters: [MK2PaulinchePatternParameter] = [],
         softKeys: [MK2PaulincheSoftKey] = []
     ) {
         self.title = title
         self.subtitle = subtitle
         self.instrumentIndex = max(0, instrumentIndex)
         self.kind = kind
-        self.detail = detail
+        self.infoLines = infoLines
         self.playheadProgress = playheadProgress.map { MK2PaulincheRendererSupport.clamped01($0) }
-        self.waveform = waveform.map { Swift.max(-1, Swift.min(1, $0)) }
+        self.waveform = waveform
+        self.loopRegion = loopRegion
+        self.markers = markers
         self.parameters = Array(parameters.prefix(8))
         self.softKeys = Array(softKeys.prefix(8))
     }
@@ -57,15 +65,23 @@ public struct MK2PaulincheInstrumentActions: Sendable {
     }
 }
 
+/// Renders the instrument editor in the tracker's surface layout: the left
+/// screen carries the waveform with the loop region right above the encoders
+/// that move it (E1–E3), the right screen carries the sample facts and the
+/// mix-relevant values (E5…E7). Encoder slots sit bottom-flush above the
+/// physical encoders; the function buttons stay unassigned for now.
 public enum MK2PaulincheInstrumentRenderer {
+    static let encoderSlotRect = MK2PixelRect(x: 8, y: 215, width: 456, height: 57)
+    static let waveformRect = MK2PixelRect(x: 8, y: 32, width: 464, height: 174)
+
     public static func render(
         _ scene: MK2PaulincheInstrumentScene,
         actions: MK2PaulincheInstrumentActions = MK2PaulincheInstrumentActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
         MK2DoubleScreenDSL(
-            left: identityScreen(scene, actions: actions, renderer: renderer),
-            right: parameterScreen(scene, actions: actions, renderer: renderer)
+            left: waveformScreen(scene, actions: actions, renderer: renderer),
+            right: detailScreen(scene, actions: actions, renderer: renderer)
         )
     }
 
@@ -77,45 +93,102 @@ public enum MK2PaulincheInstrumentRenderer {
         render(scene, actions: actions, renderer: renderer).scene()
     }
 
-    private static func identityScreen(
+    // MARK: - Left screen: waveform
+
+    private static func waveformScreen(
         _ scene: MK2PaulincheInstrumentScene,
         actions: MK2PaulincheInstrumentActions,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
-        MK2RegularScreenDSL(
-            header: .title(title: scene.title, subtitle: scene.subtitle, subtitleAlignment: .trailing),
-            footer: .filters(height: 42)
-        ) {
-            MK2RenderBlock { frame, context in
-                drawInstrumentIdentity(scene, into: &frame, context: context, renderer: renderer)
-                drawFooterSoftKeys(scene.softKeys, into: &frame, context: context, renderer: renderer)
+        typealias Support = MK2PaulincheRendererSupport
+        return MK2FullScreenDSL(background: Support.Palette.background) {
+            MK2RenderBlock { frame, _ in
+                Support.drawText(scene.title.uppercased(), into: &frame, x: 8, y: 6, style: Support.textStyle(weight: .bold, pixelSize: 15, color: Support.Palette.blue), renderer: renderer, maxWidth: 330)
+                Support.drawText(scene.subtitle.uppercased(), into: &frame, x: 344, y: 8, style: Support.captionStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 128)
+                MK2WaveformDisplay(
+                    envelope: scene.waveform,
+                    rect: waveformRect,
+                    region: scene.loopRegion,
+                    markers: scene.markers,
+                    playhead: scene.playheadProgress,
+                    colors: waveformColors
+                ).draw(into: &frame)
             }
-            MK2PaulincheRendererSupport.softKeyBindings(scene.softKeys, onSoftKey: actions.onSoftKey)
+            MK2ParameterPageElement(
+                slots: parameterPageSlots(scene.parameters, range: 0..<4),
+                rect: encoderSlotRect,
+                columns: 4,
+                relativeToContent: false
+            )
+            encoderBindings(range: 0..<4, actions: actions)
         }.build(renderer: renderer)
     }
 
-    private static func parameterScreen(
+    // MARK: - Right screen: facts and mix values
+
+    private static func detailScreen(
         _ scene: MK2PaulincheInstrumentScene,
         actions: MK2PaulincheInstrumentActions,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
-        MK2RegularScreenDSL(
-            header: .title(title: scene.kind.label, subtitle: String(format: "INS %02d", scene.instrumentIndex + 1), subtitleAlignment: .trailing),
-            footer: .filters(height: 42),
-            progress: scene.playheadProgress.map { MK2ScreenProgressBar(placement: .bottom, progress: $0) }
-        ) {
-            MK2ParameterPageElement(slots: parameterSlots(scene.parameters), columns: 4)
-            parameterEncoderBindings(scene.parameters, actions: actions)
-            MK2RenderBlock { frame, context in
-                drawFooterSoftKeys(scene.softKeys, into: &frame, context: context, renderer: renderer)
+        typealias Support = MK2PaulincheRendererSupport
+        return MK2FullScreenDSL(background: Support.Palette.background) {
+            MK2RenderBlock { frame, _ in
+                drawKindTag(scene, into: &frame, renderer: renderer)
+                for (index, line) in scene.infoLines.prefix(6).enumerated() {
+                    Support.drawText(line.uppercased(), into: &frame, x: 8, y: 56 + index * 22, style: Support.monoBodyStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 464)
+                }
             }
-            MK2PaulincheRendererSupport.softKeyBindings(scene.softKeys, onSoftKey: actions.onSoftKey)
+            MK2ParameterPageElement(
+                slots: parameterPageSlots(scene.parameters, range: 4..<8),
+                rect: encoderSlotRect,
+                columns: 4,
+                relativeToContent: false
+            )
+            encoderBindings(range: 4..<8, actions: actions)
         }.build(renderer: renderer)
     }
 
-    private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
-        parameters.prefix(8).map { parameter in
-            MK2ParameterPageSlot(
+    private static func drawKindTag(
+        _ scene: MK2PaulincheInstrumentScene,
+        into frame: inout MK2PixelFrame,
+        renderer: FreeTypeTextRenderer?
+    ) {
+        typealias Support = MK2PaulincheRendererSupport
+        let tagRect = MK2PixelRect(x: 8, y: 8, width: 96, height: 24)
+        frame.fillRounded(tagRect, radius: 5, Support.Palette.panelFill, antialiased: true)
+        frame.stroke(tagRect, MK2HIG.Chrome.border)
+        Support.drawText(scene.kind.label, into: &frame, x: tagRect.x + 10, y: tagRect.y + 5, style: Support.captionStyle(color: MK2HIG.Chrome.accent), renderer: renderer, maxWidth: tagRect.width - 20)
+        Support.drawText(String(format: "SLOT %02d", scene.instrumentIndex + 1), into: &frame, x: tagRect.maxX + 14, y: tagRect.y + 5, style: Support.captionStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 140)
+    }
+
+    // MARK: - Shared pieces
+
+    private static var waveformColors: MK2WaveformDisplay.Colors {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        return MK2WaveformDisplay.Colors(
+            background: Palette.secondaryPanelFill,
+            border: Palette.border,
+            centerLine: Palette.border,
+            wave: Palette.green,
+            waveOutsideRegion: Palette.empty,
+            regionFill: Palette.playbackRow,
+            regionEdge: Palette.blue,
+            marker: Palette.orange,
+            playhead: MK2HIG.Chrome.accent
+        )
+    }
+
+    /// Keeps the encoder-index correspondence while hiding unassigned slots:
+    /// empty labels stay in place as blank cells.
+    private static func parameterPageSlots(
+        _ parameters: [MK2PaulinchePatternParameter],
+        range: Range<Int>
+    ) -> [MK2ParameterPageSlot] {
+        range.map { index in
+            guard parameters.indices.contains(index) else { return MK2ParameterPageSlot(label: "", value: "") }
+            let parameter = parameters[index]
+            return MK2ParameterPageSlot(
                 label: parameter.label,
                 value: parameter.value,
                 isFocused: parameter.isFocused
@@ -123,11 +196,11 @@ public enum MK2PaulincheInstrumentRenderer {
         }
     }
 
-    private static func parameterEncoderBindings(
-        _ parameters: [MK2PaulinchePatternParameter],
+    private static func encoderBindings(
+        range: Range<Int>,
         actions: MK2PaulincheInstrumentActions
     ) -> [any MK2ScreenElement] {
-        parameters.prefix(8).enumerated().map { index, _ in
+        range.map { index in
             let encoder = index + 1
             return MK2EncoderBindingElement(
                 encoder,
@@ -139,62 +212,6 @@ public enum MK2PaulincheInstrumentRenderer {
                 }
             )
         }
-    }
-
-    private static func drawInstrumentIdentity(
-        _ scene: MK2PaulincheInstrumentScene,
-        into frame: inout MK2PixelFrame,
-        context: MK2ScreenContext,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        guard let contentRect = context.layout?.contentRect else { return }
-        let tagRect = MK2PixelRect(x: contentRect.x + 8, y: contentRect.y + 4, width: 118, height: 28)
-        frame.fillRounded(tagRect, radius: 5, MK2PaulincheRendererSupport.Palette.panelFill, antialiased: true)
-        frame.stroke(tagRect, MK2HIG.Chrome.border)
-        MK2PaulincheRendererSupport.drawText(scene.kind.label.uppercased(), into: &frame, x: tagRect.x + 10, y: tagRect.y + 7, style: MK2PaulincheRendererSupport.captionStyle(color: MK2HIG.Chrome.accent), renderer: renderer, maxWidth: tagRect.width - 20)
-        MK2PaulincheRendererSupport.drawText(String(format: "SLOT %02d", scene.instrumentIndex + 1), into: &frame, x: tagRect.maxX + 16, y: tagRect.y + 7, style: MK2PaulincheRendererSupport.captionStyle(color: MK2HIG.Chrome.dim), renderer: renderer, maxWidth: 120)
-        MK2PaulincheRendererSupport.drawWrappedText(scene.detail, into: &frame, x: contentRect.x + 8, y: contentRect.y + 44, style: MK2PaulincheRendererSupport.bodyStyle(color: MK2HIG.Chrome.text), renderer: renderer, maxWidth: contentRect.width - 16, maxLines: 2, lineSpacing: 2)
-        drawWaveform(scene.waveform, playheadProgress: scene.playheadProgress, rect: MK2PixelRect(x: contentRect.x + 8, y: contentRect.y + 102, width: contentRect.width - 16, height: 70), into: &frame)
-    }
-
-    private static func drawWaveform(
-        _ samples: [Double],
-        playheadProgress: Double?,
-        rect: MK2PixelRect,
-        into frame: inout MK2PixelFrame
-    ) {
-        frame.fillRounded(rect, radius: 4, MK2PaulincheRendererSupport.Palette.secondaryPanelFill, antialiased: true)
-        frame.stroke(rect, MK2HIG.Chrome.border)
-        let inner = MK2PixelRect(x: rect.x + 3, y: rect.y + 3, width: max(0, rect.width - 6), height: max(0, rect.height - 6))
-        let midY = inner.y + inner.height / 2
-        frame.fill(MK2PixelRect(x: inner.x, y: midY, width: inner.width, height: 1), MK2HIG.Chrome.border)
-
-        guard !samples.isEmpty else { return }
-        let sourceSpan = Double(max(1, samples.count - 1))
-        let targetSpan = Double(max(1, inner.width - 1))
-        for xOffset in 0..<inner.width {
-            let position = Double(xOffset) / targetSpan
-            let sampleIndex = min(samples.count - 1, Int((position * sourceSpan).rounded()))
-            let amplitude = samples[sampleIndex]
-            let height = max(1, Int((abs(amplitude) * Double(inner.height - 2) / 2).rounded()))
-            let y = amplitude >= 0 ? midY - height : midY
-            frame.fill(MK2PixelRect(x: inner.x + xOffset, y: y, width: 1, height: height), MK2PaulincheRendererSupport.Palette.green)
-        }
-
-        if let playheadProgress {
-            let x = inner.x + Int((Double(max(0, inner.width - 1)) * playheadProgress).rounded())
-            frame.fill(MK2PixelRect(x: x, y: inner.y, width: 2, height: inner.height), MK2HIG.Chrome.accent)
-        }
-    }
-
-    private static func drawFooterSoftKeys(
-        _ softKeys: [MK2PaulincheSoftKey],
-        into frame: inout MK2PixelFrame,
-        context: MK2ScreenContext,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        guard let footer = context.layout?.footerRect else { return }
-        MK2PaulincheRendererSupport.drawSoftKeyStrip(softKeys, into: &frame, renderer: renderer, y: footer.y, height: footer.height)
     }
 }
 

@@ -41,40 +41,39 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(box.payload == nil)
     }
 
-    @Test("Instrument scene renders identity and parameter screens")
-    func instrumentSceneRendersIdentityAndParameterScreens() {
+    @Test("Instrument scene renders waveform and detail screens in the surface layout")
+    func instrumentSceneRendersWaveformAndDetailScreens() {
         let renderer = try? FreeTypeTextRenderer()
         let scene = Self.instrumentFixture()
 
         let rendered = MK2PaulincheInstrumentRenderer.render(scene, renderer: renderer)
 
-        #expect(rendered.left.screen.kind == .regular)
-        #expect(rendered.right.screen.kind == .regular)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: 0x464f) > 250)
-        #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 148, width: 448, height: 70), matching: MK2HIG.Chrome.accent) > 40)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 95, width: 448, height: 128), notMatching: MK2HIG.Chrome.background) > 900)
-        #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 228, width: 480, height: 2), notMatching: MK2HIG.Chrome.background) > 900)
-        #expect(rendered.right.screen.frame[0, 228] == MK2HIG.Chrome.progressFillStart)
+        let left = rendered.left.screen.frame
+        let right = rendered.right.screen.frame
+        // The waveform fills the left content area: wave columns inside the loop region…
+        #expect(left.countPixels(in: MK2PixelRect(x: 100, y: 40, width: 260, height: 160), matching: 0x464f) > 800)
+        // …dimmed columns outside, and a playhead line.
+        #expect(left.countPixels(in: MK2PixelRect(x: 12, y: 40, width: 60, height: 160), matching: 0x4a69) > 100)
+        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 36, width: 464, height: 166), matching: MK2HIG.Chrome.accent) > 100)
+        // Encoder slots sit bottom-flush on both screens.
+        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: 0x0841) > 300)
+        #expect(right.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: 0x0841) > 300)
+
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
+            try? PixelSnapshot.write([left, right], to: "\(dir)/paulinche-instrument.png")
+        }
     }
 
-    @Test("Instrument scene binds soft keys to function buttons")
-    func instrumentSceneBindsSoftKeysToFunctionButtons() {
-        let box = SoftKeyBox()
-        let rendered = MK2PaulincheInstrumentRenderer.surfaceScene(
-            Self.instrumentFixture(),
-            actions: MK2PaulincheInstrumentActions { index, softKey in
-                box.index = index
-                box.commandID = softKey.commandID
-                box.payload = softKey.integerPayload
-            }
-        )
-
-        rendered.bindings.buttonDown[.function6]?()
+    @Test("Instrument scene leaves function buttons unbound and binds all encoders")
+    func instrumentSceneLeavesFunctionButtonsUnbound() {
+        let rendered = MK2PaulincheInstrumentRenderer.surfaceScene(Self.instrumentFixture())
 
         #expect(rendered.displays[0] != nil)
         #expect(rendered.displays[1] != nil)
-        #expect(box.index == 5)
-        #expect(box.commandID == "deleteSelectedInstrument")
+        #expect(rendered.bindings.buttonDown[.function1] == nil)
+        #expect(rendered.bindings.buttonDown[.function5] == nil)
+        #expect(rendered.bindings.encoder[1] != nil)
+        #expect(rendered.bindings.encoder[8] != nil)
     }
 
     private static func songFixture() -> MK2PaulincheSongScene {
@@ -105,30 +104,32 @@ struct PaulincheSongInstrumentRendererTests {
     }
 
     private static func instrumentFixture() -> MK2PaulincheInstrumentScene {
-        let waveform = (0..<96).map { index in
-            sin(Double(index) * 0.29) * (0.35 + 0.65 * sin(Double(index) * 0.05))
+        let samples = (0..<512).map { index in
+            Float(sin(Double(index) * 0.29) * (0.35 + 0.65 * sin(Double(index) * 0.05)))
         }
+        let empty = MK2PaulinchePatternParameter(label: "", value: "")
         return MK2PaulincheInstrumentScene(
             title: "PULSE LEAD",
-            subtitle: "EDIT 04 SAMPLE 38%",
+            subtitle: "EDIT 04 SAMPLE",
             instrumentIndex: 3,
             kind: .sample,
-            detail: "Looped mono sample, root C-4, tuned for fast tracker audition.",
+            infoLines: ["8420 FRAMES · 8363 HZ", "LOOP 1440…7900 · 6460 FRM"],
             playheadProgress: 0.38,
-            waveform: waveform,
+            waveform: MK2WaveformEnvelope(
+                minima: samples.map { min($0, -abs($0) * 0.6) },
+                maxima: samples.map { max($0, abs($0) * 0.6) }
+            ),
+            loopRegion: 0.17...0.94,
+            markers: [0.05],
             parameters: [
-                MK2PaulinchePatternParameter(label: "TRIM ST", value: "0"),
-                MK2PaulinchePatternParameter(label: "TRIM END", value: "8420"),
                 MK2PaulinchePatternParameter(label: "LOOP ST", value: "1440", isFocused: true),
                 MK2PaulinchePatternParameter(label: "LOOP END", value: "7900"),
-            ],
-            softKeys: [
-                MK2PaulincheSoftKey(label: "Prev", commandID: "selectPreviousInstrument"),
-                MK2PaulincheSoftKey(label: "Next", commandID: "selectNextInstrument"),
-                MK2PaulincheSoftKey(label: "New S", commandID: "createSampleInstrument"),
-                MK2PaulincheSoftKey(label: "New W", commandID: "createSynthInstrument"),
-                MK2PaulincheSoftKey(label: "Dup", commandID: "duplicateInstrument"),
-                MK2PaulincheSoftKey(label: "Delete", commandID: "deleteSelectedInstrument"),
+                MK2PaulinchePatternParameter(label: "START", value: "420"),
+                empty,
+                MK2PaulinchePatternParameter(label: "LEVEL", value: "80%"),
+                MK2PaulinchePatternParameter(label: "FINE", value: "0ct"),
+                MK2PaulinchePatternParameter(label: "ROOT", value: "C-4"),
+                empty,
             ]
         )
     }
