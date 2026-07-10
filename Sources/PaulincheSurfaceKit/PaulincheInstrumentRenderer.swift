@@ -71,7 +71,7 @@ public struct MK2PaulincheInstrumentActions: Sendable {
 /// mix-relevant values (E5…E7). Encoder slots sit bottom-flush above the
 /// physical encoders; the function buttons stay unassigned for now.
 public enum MK2PaulincheInstrumentRenderer {
-    static let encoderSlotRect = MK2PixelRect(x: 8, y: 215, width: 456, height: 57)
+    static let encoderSlotRect = MK2PixelRect(x: 8, y: 215, width: 464, height: 57)
     static let waveformRect = MK2PixelRect(x: 8, y: 32, width: 464, height: 174)
 
     public static func render(

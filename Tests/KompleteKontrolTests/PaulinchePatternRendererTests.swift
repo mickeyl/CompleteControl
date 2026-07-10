@@ -63,7 +63,7 @@ struct PaulinchePatternRendererTests {
     func patternEditScreenDrawsParameterPage() {
         let rendered = MK2PaulinchePatternRenderer.render(Self.fixture())
         let edit = rendered.right.screen.frame
-        #expect(edit.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: Self.background) > 300)
+        #expect(edit.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: Self.background) > 300)
         // The area between the status line and the parameter page stays empty (no meters, no hint text).
         #expect(edit.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 130), notMatching: Self.background) == 0)
     }

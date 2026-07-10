@@ -1712,7 +1712,7 @@ private actor WidgetLab {
             }
             MK2ParameterPageElement(
                 slots: slots,
-                rect: MK2PixelRect(x: 8, y: 215, width: 456, height: 57),
+                rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
                 columns: 4,
                 relativeToContent: false
             )

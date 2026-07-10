@@ -93,3 +93,9 @@
 - Caveat to revisit: capital umlauts (`ÄÖÜ`) clip at the top of the 16 px grid cell because
   JetBrains Mono's diacritics + descenders want ~17 px. The tracker grid is ASCII so it is
   unaffected, but grid text with capital umlauts (e.g. instrument names) loses its dots.
+
+- Encoder-slot geometry is duplicated by convention, not enforced: every page passes
+  its own footer rect (now `x: 8, width: 464`) into `MK2ParameterPageElement`, and only
+  discipline keeps four-column pages aligned with `MK2ScreenLayout.encoderSlotXs`/
+  `encoderSlotWidth`. Introduce a dedicated encoder-row container element that owns the
+  canonical rect and spacing/padding itself, so individual pages cannot drift.

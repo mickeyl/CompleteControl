@@ -323,7 +323,7 @@ public enum MK2PaulinchePatternRenderer {
             }
             MK2ParameterPageElement(
                 slots: parameterSlots(scene.parameters),
-                rect: MK2PixelRect(x: 8, y: 215, width: 456, height: 57),
+                rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
                 columns: 4,
                 relativeToContent: false
             )

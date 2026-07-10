@@ -89,7 +89,10 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
     }
 
     private func drawSlots(in area: MK2PixelRect, into frame: inout MK2PixelFrame) {
-        let columnGap = 12
+        // Matches the canonical slot geometry: inter-cell gaps equal the screen margin,
+        // so a four-column page over the full content width lands exactly on
+        // `MK2ScreenLayout.encoderSlotXs`/`encoderSlotWidth`.
+        let columnGap = MK2ScreenLayout.margin
         let rowGap = 18
         let rows = max(1, Int((Double(slots.count) / Double(columns)).rounded(.up)))
         let indicatorReserve = hasPageIndicator ? 12 : 0

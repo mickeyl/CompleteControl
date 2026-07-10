@@ -142,8 +142,10 @@ public enum MK2ScreenLayout {
     // encoders beneath each display. They sit bottom-flush (a 2 px breathing inset
     // to the glass edge) so the mapping to the hardware row below reads immediately —
     // trailing whitespace under an encoder cell breaks that association.
+    // Horizontal whitespace is uniform: edge margins and inter-cell gaps all equal
+    // `margin`, which the slot width fills exactly (8 + 4×110 + 3×8 + 8 = 480).
     public static let encoderSlotXs = [8, 126, 244, 362]
-    public static let encoderSlotWidth = 102
+    public static let encoderSlotWidth = 110
     public static let encoderSlotHeight = 38
     public static let encoderSlotBottomInset = 2
     public static var encoderSlotBottom: Int { bounds.height - encoderSlotBottomInset }

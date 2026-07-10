@@ -56,8 +56,8 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(left.countPixels(in: MK2PixelRect(x: 12, y: 40, width: 60, height: 160), matching: 0x4a69) > 100)
         #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 36, width: 464, height: 166), matching: MK2HIG.Chrome.accent) > 100)
         // Encoder slots sit bottom-flush on both screens.
-        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: 0x0841) > 300)
-        #expect(right.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 456, height: 57), notMatching: 0x0841) > 300)
+        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: 0x0841) > 300)
+        #expect(right.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: 0x0841) > 300)
 
         if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
             try? PixelSnapshot.write([left, right], to: "\(dir)/paulinche-instrument.png")
