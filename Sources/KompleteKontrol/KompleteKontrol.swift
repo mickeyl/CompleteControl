@@ -1618,6 +1618,28 @@ public enum KompleteKontrolLibUSBServer {
                         return ack(-1, "display parse")
                     }
                     return ack(enqueueDisplayBlit(command, sequence: frame.sequence, clientID: clientID), "display queued")
+                case .displaySnapshot:
+                    // Deliberately session-free: the shadow is read under its own lock and
+                    // no registration happens, so a snapshot can never evict or stall the
+                    // connected client.
+                    guard channel == .control, let screen = frame.payload.first else {
+                        return ack(-1, "snapshot parse")
+                    }
+                    guard let pixels = MK2DisplayShadow.shared.snapshot(screen: screen) else {
+                        return ack(-2, "no frame recorded for screen \(screen)")
+                    }
+                    daemonTraceLog("display snapshot client=\(clientID) screen=\(screen) bytes=\(pixels.count)", group: "mk2")
+                    return KKDaemonBinaryFrame(
+                        channel: channel,
+                        type: .displaySnapshot,
+                        sequence: frame.sequence,
+                        payload: KKDaemonBinaryCodec.displaySnapshotResponsePayload(
+                            screen: screen,
+                            width: UInt16(MK2DisplayShadow.width),
+                            height: UInt16(MK2DisplayShadow.height),
+                            pixelsRGB565BE: pixels
+                        )
+                    )
                 case .ack, .input, .midi, .device:
                     return ack(-1, "unexpected type")
             }
@@ -3531,6 +3553,11 @@ public enum KompleteKontrolLibUSBServer {
     private static func writeBinaryFrame(_ frame: KKDaemonBinaryFrame, to fd: Int32) {
         let bytes = frame.encoded()
         var written = 0
+        // Client fds are non-blocking; responses larger than the socket buffer
+        // (a display snapshot is ~260 KB) hit EAGAIN mid-frame. Wait briefly for
+        // writability instead of truncating, but bound the total wait so a wedged
+        // client cannot stall the reactor.
+        var pollBudget = 5
         while written < bytes.count {
             let count = bytes.withUnsafeBytes { raw in
                 Darwin.write(fd, raw.baseAddress!.advanced(by: written), bytes.count - written)
@@ -3540,6 +3567,14 @@ public enum KompleteKontrolLibUSBServer {
                 continue
             }
             if errno == EINTR {
+                continue
+            }
+            if count < 0, errno == EAGAIN || errno == EWOULDBLOCK, pollBudget > 0 {
+                pollBudget -= 1
+                var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                guard poll(&descriptor, 1, 200) > 0, (descriptor.revents & Int16(POLLOUT)) != 0 else {
+                    return
+                }
                 continue
             }
             return

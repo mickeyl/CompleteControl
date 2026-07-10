@@ -90,7 +90,11 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayBytes(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                               pixels: [UInt8], timeoutMs: UInt32) -> KontrolUSBResult {
-        send(.displayBlit(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels))
+        let result = send(.displayBlit(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels))
+        if result.status == 0 {
+            MK2DisplayShadow.shared.recordBytes(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels)
+        }
+        return result
     }
 
     func writeMK2DisplayPixels(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
@@ -101,7 +105,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
             be.append(UInt8(pixel >> 8))
             be.append(UInt8(pixel & 0xff))
         }
-        return send(.displayBlit(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: be))
+        return writeMK2DisplayBytes(screen: screen, x: x, y: y, width: width, height: height, pixels: be, timeoutMs: timeoutMs)
     }
 
     func fillMK2Display(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
@@ -111,7 +115,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
         be.reserveCapacity(count * 2)
         let hi = UInt8(rgb565 >> 8), lo = UInt8(rgb565 & 0xff)
         for _ in 0..<count { be.append(hi); be.append(lo) }
-        return send(.displayBlit(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: be))
+        return writeMK2DisplayBytes(screen: screen, x: x, y: y, width: width, height: height, pixels: be, timeoutMs: timeoutMs)
     }
 
     // The synchronous diagnostic reads have no simulator analogue; report timeout.

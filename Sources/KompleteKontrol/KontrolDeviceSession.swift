@@ -73,23 +73,35 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayBytes(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                               pixels: [UInt8], timeoutMs: UInt32) -> KontrolUSBResult {
-        pixels.withUnsafeBufferPointer { buffer in
+        let result = pixels.withUnsafeBufferPointer { buffer in
             KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
                 ref, screen, x, y, width, height, buffer.baseAddress, UInt32(buffer.count), timeoutMs)
         }
+        if result.status == 0 {
+            MK2DisplayShadow.shared.recordBytes(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels)
+        }
+        return result
     }
 
     func writeMK2DisplayPixels(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                                pixels: [UInt16], timeoutMs: UInt32) -> KontrolUSBResult {
-        pixels.withUnsafeBufferPointer { buffer in
+        let result = pixels.withUnsafeBufferPointer { buffer in
             KontrolUSBLibUSBSessionWriteMK2Display(
                 ref, screen, x, y, width, height, buffer.baseAddress, UInt32(buffer.count), timeoutMs)
         }
+        if result.status == 0 {
+            MK2DisplayShadow.shared.recordPixels(screen: screen, x: x, y: y, width: width, height: height, pixels: pixels)
+        }
+        return result
     }
 
     func fillMK2Display(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                         rgb565: UInt16, timeoutMs: UInt32) -> KontrolUSBResult {
-        KontrolUSBLibUSBSessionFillMK2Display(ref, screen, x, y, width, height, rgb565, timeoutMs)
+        let result = KontrolUSBLibUSBSessionFillMK2Display(ref, screen, x, y, width, height, rgb565, timeoutMs)
+        if result.status == 0 {
+            MK2DisplayShadow.shared.recordFill(screen: screen, x: x, y: y, width: width, height: height, rgb565: rgb565)
+        }
+        return result
     }
 
     func read(maxBytes: Int, timeoutMs: UInt32) -> (result: KontrolUSBResult, bytes: [UInt8]) {

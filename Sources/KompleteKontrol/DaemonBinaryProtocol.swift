@@ -14,6 +14,10 @@ public enum KKDaemonBinaryMessageType: UInt16, Sendable {
     case writeReport = 4
     case displayBlit = 5
     case ack = 6
+    /// Out-of-band read of the daemon's display shadow: never requires a
+    /// registration and never touches the device, so it cannot disturb the
+    /// connected client.
+    case displaySnapshot = 7
     case input = 16
     case midi = 17
     case device = 18
@@ -151,6 +155,35 @@ public enum KKDaemonBinaryCodec {
         let height = payload.readUInt16LE(at: 8)
         let timeoutMs = payload.readUInt32LE(at: 10)
         return (screen, x, y, width, height, timeoutMs, Array(payload.dropFirst(14)))
+    }
+
+    public static func displaySnapshotRequestPayload(screen: UInt8) -> [UInt8] {
+        [screen]
+    }
+
+    public static func displaySnapshotResponsePayload(
+        screen: UInt8,
+        width: UInt16,
+        height: UInt16,
+        pixelsRGB565BE: [UInt8]
+    ) -> [UInt8] {
+        var payload: [UInt8] = [screen, 0]
+        payload.appendUInt16LE(width)
+        payload.appendUInt16LE(height)
+        payload.append(contentsOf: pixelsRGB565BE)
+        return payload
+    }
+
+    public static func parseDisplaySnapshotResponsePayload(
+        _ payload: [UInt8]
+    ) -> (screen: UInt8, width: UInt16, height: UInt16, pixelsRGB565BE: [UInt8])? {
+        guard payload.count >= 6 else { return nil }
+        let screen = payload[0]
+        let width = payload.readUInt16LE(at: 2)
+        let height = payload.readUInt16LE(at: 4)
+        let pixels = Array(payload.dropFirst(6))
+        guard pixels.count == Int(width) * Int(height) * 2 else { return nil }
+        return (screen, width, height, pixels)
     }
 
     public static func eventPayload(timestamp: UInt64, bytes eventBytes: [UInt8]) -> [UInt8] {

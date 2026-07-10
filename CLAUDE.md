@@ -58,6 +58,14 @@ Key invariants:
 
 Read `Docs/daemon-usb-reactor.md` before changing scheduling.
 
+`Scripts/kk-screenshot.py` (also available as the `/kk-screen` skill) grabs
+live PNGs of both hardware screens from the
+running daemon (hardware or simulator) and prints the file paths. It is
+out-of-band: it reads the daemon's display shadow over an unregistered control
+connection (`displaySnapshot`), so it never evicts, stalls, or otherwise
+disturbs the connected client. The shadow is recorded at the
+`KontrolDeviceSession` seam, so all display paths are mirrored.
+
 The NO CLIENT mode is an active hardware test. Surface controls drive their
 lamps, MIDI keys drive the light guide, and both displays show decoded and raw
 activity. It is also the stress case for MIDI chord release and callback
