@@ -3555,15 +3555,18 @@ public enum KompleteKontrolLibUSBServer {
         var written = 0
         // Client fds are non-blocking; responses larger than the socket buffer
         // (a display snapshot is ~260 KB) hit EAGAIN mid-frame. Wait briefly for
-        // writability instead of truncating, but bound the total wait so a wedged
-        // client cannot stall the reactor.
-        var pollBudget = 5
+        // writability instead of truncating. The poll budget refills on every
+        // successful write: a draining client can take as many cycles as the
+        // frame needs, while a wedged one costs the reactor at most ~1 s.
+        let pollBudgetPerStall = 5
+        var pollBudget = pollBudgetPerStall
         while written < bytes.count {
             let count = bytes.withUnsafeBytes { raw in
                 Darwin.write(fd, raw.baseAddress!.advanced(by: written), bytes.count - written)
             }
             if count > 0 {
                 written += count
+                pollBudget = pollBudgetPerStall
                 continue
             }
             if errno == EINTR {
