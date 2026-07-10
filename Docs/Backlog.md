@@ -99,3 +99,8 @@
   discipline keeps four-column pages aligned with `MK2ScreenLayout.encoderSlotXs`/
   `encoderSlotWidth`. Introduce a dedicated encoder-row container element that owns the
   canonical rect and spacing/padding itself, so individual pages cannot drift.
+
+- The song scenes still draw their soft keys through the ad-hoc
+  `drawSoftKeyStrip` (eight 60 px slots at the footer) instead of
+  `MK2FunctionKeyBarElement`. Migrate them so all function-button labels share
+  the top-flush uniform-grid bar, then retire the strip helper.

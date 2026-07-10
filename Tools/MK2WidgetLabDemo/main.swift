@@ -1704,10 +1704,19 @@ private actor WidgetLab {
         let slots = trackerEditParameterSlots(cell: cell)
 
         return MK2FullScreenDSL(background: Palette.page) {
+            MK2FunctionKeyBarElement(
+                slots: [
+                    MK2FunctionKeySlot("COPY"),
+                    MK2FunctionKeySlot("PASTE"),
+                    MK2FunctionKeySlot("CLEAR", isEnabled: false),
+                    MK2FunctionKeySlot("TRIM"),
+                ],
+                side: .right
+            )
             MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 8, items: statusItems).draw(into: &frame)
+                MK2StatusLine(y: 26, items: statusItems).draw(into: &frame)
                 BitmapLabel(selectedInstrumentText, font: .grid, color: Palette.instrument)
-                    .draw(into: &frame, x: 232, y: 8, clip: MK2PixelRect(x: 232, y: 8, width: 240, height: SurfaceFont.grid.cellHeight))
+                    .draw(into: &frame, x: 232, y: 26, clip: MK2PixelRect(x: 232, y: 26, width: 240, height: SurfaceFont.grid.cellHeight))
                 frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
             }
             MK2ParameterPageElement(

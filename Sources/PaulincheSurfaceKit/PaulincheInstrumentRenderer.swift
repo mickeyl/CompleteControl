@@ -132,11 +132,24 @@ public enum MK2PaulincheInstrumentRenderer {
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
         typealias Support = MK2PaulincheRendererSupport
+        let softKeys = scene.softKeys
         return MK2FullScreenDSL(background: Support.Palette.background) {
+            MK2FunctionKeyBarElement(
+                slots: (4..<8).map { index in
+                    let softKey = softKeys.indices.contains(index) ? softKeys[index] : MK2PaulincheSoftKey(label: "", isEnabled: false)
+                    return MK2FunctionKeySlot(softKey.label, isEnabled: softKey.isEnabled)
+                },
+                side: .right,
+                onPress: { slot in
+                    let index = slot + 4
+                    guard softKeys.indices.contains(index) else { return }
+                    actions.onSoftKey?(index, softKeys[index])
+                }
+            )
             MK2RenderBlock { frame, _ in
                 drawKindTag(scene, into: &frame, renderer: renderer)
                 for (index, line) in scene.infoLines.prefix(6).enumerated() {
-                    Support.drawText(line.uppercased(), into: &frame, x: 8, y: 56 + index * 22, style: Support.monoBodyStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 464)
+                    Support.drawText(line.uppercased(), into: &frame, x: 8, y: 60 + index * 22, style: Support.monoBodyStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 464)
                 }
             }
             MK2ParameterPageElement(
@@ -155,7 +168,7 @@ public enum MK2PaulincheInstrumentRenderer {
         renderer: FreeTypeTextRenderer?
     ) {
         typealias Support = MK2PaulincheRendererSupport
-        let tagRect = MK2PixelRect(x: 8, y: 8, width: 96, height: 24)
+        let tagRect = MK2PixelRect(x: 8, y: 28, width: 96, height: 24)
         frame.fillRounded(tagRect, radius: 5, Support.Palette.panelFill, antialiased: true)
         frame.stroke(tagRect, MK2HIG.Chrome.border)
         Support.drawText(scene.kind.label, into: &frame, x: tagRect.x + 10, y: tagRect.y + 5, style: Support.captionStyle(color: MK2HIG.Chrome.accent), renderer: renderer, maxWidth: tagRect.width - 20)

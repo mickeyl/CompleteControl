@@ -98,6 +98,9 @@ Layout rules:
 - left display is typically the dense tracker/pattern view;
 - right display is the focused edit surface;
 - encoder-bound values use the canonical bottom-flush encoder slots;
+- function-button actions use `MK2FunctionKeyBarElement`: top-flush under the
+  physical F-buttons, slots on the same uniform grid as the encoder cells,
+  and the element owns both drawing and the F1–F4/F5–F8 press bindings;
 - hardware labels must describe the action/value directly above the physical
   control they belong to;
 - pixel display diffs must preserve deterministic rendering and stable geometry.
