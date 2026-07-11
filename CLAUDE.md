@@ -105,6 +105,21 @@ Layout rules:
   control they belong to;
 - pixel display diffs must preserve deterministic rendering and stable geometry.
 
+Interaction and rendering rules:
+
+- `MK2HIG.Waveform` mirrors the Paulinche app's `Design.Waveform` /
+  `Design.Accent` tokens (PaulincheApp/EditorDesign.swift) quantized to
+  RGB565 — change both sides together so hardware and app render sample
+  material in one identity;
+- encoder-bound discrete values never wrap on tiny domains (on/off, few
+  modes); `MK2EncoderDiscreteValue` enforces the clamp below
+  `wrapMinimumValueCount`;
+- gradients must render dithered (`MK2OrderedDither`, or the gradient tile
+  cache via `fillRoundedVerticalGradient`) — per-row/column RGB565 lerps band
+  visibly on the OLEDs;
+- the encoder/filter footer height derives from its content
+  (`MK2ScreenLayout.encoderFooterHeight`); do not reintroduce fixed literals.
+
 Typography uses FreeType/HarfBuzz for proportional UI and fixed-pitch rendering
 for tracker/grid content. Keep repeated text in the glyph/run caches.
 
