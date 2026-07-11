@@ -226,7 +226,10 @@ public enum MK2PaulincheInstrumentRenderer {
             return MK2ParameterPageSlot(
                 label: parameter.label,
                 value: parameter.value,
-                isFocused: parameter.isFocused
+                isFocused: parameter.isFocused,
+                // Encoders are bound separately (velocity-scaled app-side
+                // values), so the touch selection names its encoder itself.
+                selectionEncoder: index + 1
             )
         }
     }

@@ -144,6 +144,10 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(rendered.displays[1] != nil)
         #expect(rendered.bindings.buttonDown[.function1] == nil)
         #expect(rendered.bindings.buttonDown[.function5] == nil)
+        // Non-focused assigned parameter slots carry a touch overlay on the
+        // display their encoder sits under.
+        #expect(rendered.encoderTouchOverlays[2]?.screen == 0)
+        #expect(rendered.encoderTouchOverlays[5]?.screen == 1)
         #expect(rendered.bindings.encoder[1] != nil)
         #expect(rendered.bindings.encoder[8] != nil)
     }

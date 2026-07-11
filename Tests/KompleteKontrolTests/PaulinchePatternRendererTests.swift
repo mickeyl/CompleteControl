@@ -31,6 +31,13 @@ struct PaulinchePatternRendererTests {
         #expect(grid.countPixels(in: MK2PixelRect(x: 438, y: 34, width: 14, height: 16), matching: Self.soloFill) > 40)
         // The pattern overview minimap occupies the right edge.
         #expect(grid.countPixels(in: MK2PixelRect(x: 466, y: 62, width: 9, height: 200), notMatching: Self.background) > 150)
+
+        // Edit cells carry touch overlays for their encoders (E5–E8); the
+        // focused INST slot needs none — touched and focused look identical.
+        #expect(rendered.right.touchOverlays[5] != nil)
+        #expect(rendered.right.touchOverlays[6] == nil)
+        #expect(rendered.right.touchOverlays[7] != nil)
+        #expect(rendered.right.touchOverlays[8] != nil)
     }
 
     @Test("Playback row uses the playhead fill")

@@ -337,7 +337,11 @@ public enum MK2PaulinchePatternRenderer {
                 label: parameter.label,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
-                colors: editCellColors(value: editValueColor(at: index))
+                colors: editCellColors(value: editValueColor(at: index)),
+                // The touch highlight bridges the app round trip: the runtime
+                // inverts instantly, the app confirms by moving `cursor.field`
+                // (→ isFocused) with no further visible change.
+                selectionEncoder: index + 5
             )
         }
     }

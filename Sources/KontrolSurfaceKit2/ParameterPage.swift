@@ -10,6 +10,10 @@ public struct MK2ParameterPageSlot: Sendable {
     /// appearance without an app round trip. `isFocused` stays the
     /// app-declared persistent selection on top of this.
     public var selection: MK2EncoderSelectionBehavior
+    /// The encoder whose touch drives the selection when the slot carries no
+    /// `encoderValue` — for slots whose encoder is bound separately (raw
+    /// `MK2EncoderBindingElement`, velocity-scaled app-side values).
+    public var selectionEncoder: Int?
 
     public init(
         label: String,
@@ -17,7 +21,8 @@ public struct MK2ParameterPageSlot: Sendable {
         isFocused: Bool = false,
         encoderValue: MK2EncoderDiscreteValue? = nil,
         colors: MK2ValueCellColors? = nil,
-        selection: MK2EncoderSelectionBehavior = .momentary
+        selection: MK2EncoderSelectionBehavior = .momentary,
+        selectionEncoder: Int? = nil
     ) {
         self.label = label
         self.value = value
@@ -25,6 +30,7 @@ public struct MK2ParameterPageSlot: Sendable {
         self.encoderValue = encoderValue
         self.colors = colors
         self.selection = selection
+        self.selectionEncoder = selectionEncoder
     }
 }
 
@@ -156,7 +162,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
             // pass never captures: its overlays would be dropped anyway and
             // touch highlights are suppressed while the layer is held.
             if !isShiftPass, !slot.isFocused, slot.selection != .none,
-               let encoder = slot.encoderValue?.encoder {
+               let encoder = slot.encoderValue?.encoder ?? slot.selectionEncoder {
                 var focusedCell = cell
                 focusedCell.isFocused = true
                 focusedCell.draw(into: &frame)

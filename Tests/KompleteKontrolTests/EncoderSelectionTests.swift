@@ -51,6 +51,23 @@ struct EncoderSelectionTests {
         #expect(Self.parameterPage(selection: .none).touchOverlays.isEmpty)
     }
 
+    @Test("Slots with separately bound encoders declare their selection encoder")
+    func selectionEncoderWithoutEncoderValue() {
+        let result = MK2FullScreenDSL {
+            MK2ParameterPageElement(
+                slots: [
+                    MK2ParameterPageSlot(label: "START", value: "420", selectionEncoder: 7),
+                    MK2ParameterPageSlot(label: "", value: ""),
+                ],
+                rect: Self.slotRect,
+                relativeToContent: false
+            )
+        }.build()
+
+        #expect(result.touchOverlays.count == 1)
+        #expect(result.touchOverlays[7] != nil)
+    }
+
     @Test("Scene assembly assigns the display index to each overlay")
     func sceneAssignsScreenIndex() {
         let scene = MK2DoubleScreenDSL(
