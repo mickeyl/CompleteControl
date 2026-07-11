@@ -36,12 +36,30 @@ bottom-flush, F-Key-Slots top-flush, beide auf demselben X-Raster
 
 ### 2.1 Paulinche (`Sources/PaulincheSurfaceKit`)
 
-| Renderer | Standard genutzt | Custom |
-|---|---|---|
-| **Pattern** | StatusLine (rechts), ParameterPage, ButtonToggleDisplay, EncoderBinding | Linker Screen fast komplett: `drawGridStatusLine` (:182), `drawChannelHeaders` (:193), `drawPatternGrid` (:208, Playhead/Cursor/Stripe-Fills, Ruler), `drawTrackerCell` (:239), `drawPatternOverview` (:284, Minimap) |
-| **Instrument** | WaveformDisplay, ParameterPage ×2, FunctionKeyBar (inkl. Shift), EncoderBinding | Title/Subtitle via FreeType direkt (:115), `drawKindTag`-Pill (:177), Info-Zeilen (:163) |
-| **Song** | RegularScreenDSL (Header/Footer), ProgressBar | `drawOrders`-Tabelle (:136), `drawFooterSoftKeys` → `drawSoftKeyStrip` (:169), `drawParameterSlots` statt ParameterPage (:111) |
-| **Splash** | FullScreenDSL, ImageElement, ContentText | nur die prozedurale Artwork-*Daten*-Generierung (`PaulincheSplashArtwork`) — läuft standardkonform über ImageElement |
+**Pattern**
+— Standard: StatusLine (rechts), ParameterPage, ButtonToggleDisplay,
+EncoderBinding.
+— Custom: linker Screen fast komplett — `drawGridStatusLine` (:182),
+`drawChannelHeaders` (:193), `drawPatternGrid` (:208,
+Playhead/Cursor/Stripe-Fills, Ruler), `drawTrackerCell` (:239),
+`drawPatternOverview` (:284, Minimap).
+
+**Instrument**
+— Standard: WaveformDisplay, ParameterPage ×2, FunctionKeyBar
+(inkl. Shift), EncoderBinding.
+— Custom: Title/Subtitle via FreeType direkt (:115),
+`drawKindTag`-Pill (:177), Info-Zeilen (:163).
+
+**Song**
+— Standard: RegularScreenDSL (Header/Footer), ProgressBar.
+— Custom: `drawOrders`-Tabelle (:136), `drawFooterSoftKeys` →
+`drawSoftKeyStrip` (:169), `drawParameterSlots` statt
+ParameterPage (:111).
+
+**Splash**
+— Standard: FullScreenDSL, ImageElement, ContentText.
+— Custom: nur die prozedurale Artwork-*Daten*-Generierung
+(`PaulincheSplashArtwork`) — läuft standardkonform über ImageElement.
 
 `PaulincheRendererSupport.swift` (geteilte Custom-Helfer):
 `Palette` (~40 RGB565-Farben), `drawSoftKeyStrip` (:45),
