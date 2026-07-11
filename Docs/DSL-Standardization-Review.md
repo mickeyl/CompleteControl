@@ -143,6 +143,40 @@ kommen.
 ![B1: Die Edit-Zellen des Pattern-Editors; die invertierte INST-Zelle ist das Touch-Highlight, das jede Szene selbst nachbauen muss](images/dsl-review/pattern-editcells.png)
 *B1: Die Edit-Zellen des Pattern-Editors; die invertierte INST-Zelle ist das Touch-Highlight, das jede Szene selbst nachbauen muss*
 
+**Design (beschlossen 2026-07-11):** Zwei Ebenen, eine Optik.
+
+- *Ebene 1 — `focus` (App-deklariert, persistent):* bleibt das bestehende
+  `isFocused` pro Slot; Modell-Zustand („dieses Feld wird editiert"),
+  gehört der App. Der Pattern-Editor treibt es weiter aus `cursor.field`.
+- *Ebene 2 — `touch` (Runtime-eigen, ohne App-Roundtrip):* neu, pro Slot
+  parametriert über `MK2EncoderSelectionBehavior`:
+  `.none` (Opt-out, nur App-`isFocused`), `.momentary` (Highlight
+  solange berührt — Default für encoder-gebundene Slots) und
+  `.latched` (zuletzt berührter Slot bleibt selektiert, bis ein anderer
+  berührt wird — ersetzt die `focusedFilterEncoder`-Handarbeit des
+  Browsers).
+- *Eine Erscheinung:* Gerendert wird `isFocused || isTouched` mit den
+  bestehenden `focused*`-Tokens aus `MK2ValueCellColors`. Keine eigene
+  Touch-Farbe — das transiente Highlight überbrückt den App-Roundtrip
+  unsichtbar: Touch invertiert sofort (Runtime), die App bestätigt per
+  `isFocused` in der nächsten Projektion, optisch ändert sich dabei
+  nichts. Amber bleibt SHIFT vorbehalten.
+- *Mechanik:* Wie SHIFT aus vorbereiteten Pixeln — `present()` erhält
+  fertige Frames, die Runtime kann den DSL-Build nicht wiederholen.
+  Der Build rendert deshalb pro Slot ein „berührt"-Patch
+  (Slot-Rechteck, ~110×38 px) in die Szene; die Runtime blittet es bei
+  Touch lokal und stellt beim Release aus dem Basis-Frame wieder her.
+  Latenzfrei, der Reconciler überträgt nur das Slot-Band. Während
+  gehaltener SHIFT-Ebene sind Touch-Overlays unterdrückt (die
+  Shift-Slots zeigen andere Werte).
+- *Bewusst nicht:* eigene Touch-Farbe, Release-Linger (erst bei
+  nachgewiesenem Flackern), Double-Touch-Semantik (separates Thema).
+- *Migration:* Instrument-Editor erhält das Highlight per Default
+  gratis; Pattern-Editor behält `isFocused` und verdrahtet `selectField`
+  über den bestehenden `encoderTouch`-Pfad; Browser-Filter ziehen auf
+  `.latched` um; `SurfaceUIState.touchedEncoderIndex` (nie konsumiert)
+  entfällt ersatzlos.
+
 > Kommentar:
 
 **B2 — `ValueCell`-Familie um Tag/Chip-Erscheinung ergänzen** (oder

@@ -6,19 +6,25 @@ public struct MK2ParameterPageSlot: Sendable {
     public var isFocused: Bool
     public var encoderValue: MK2EncoderDiscreteValue?
     public var colors: MK2ValueCellColors?
+    /// Touch selection of the bound encoder; the runtime shows the focused
+    /// appearance without an app round trip. `isFocused` stays the
+    /// app-declared persistent selection on top of this.
+    public var selection: MK2EncoderSelectionBehavior
 
     public init(
         label: String,
         value: String,
         isFocused: Bool = false,
         encoderValue: MK2EncoderDiscreteValue? = nil,
-        colors: MK2ValueCellColors? = nil
+        colors: MK2ValueCellColors? = nil,
+        selection: MK2EncoderSelectionBehavior = .momentary
     ) {
         self.label = label
         self.value = value
         self.isFocused = isFocused
         self.encoderValue = encoderValue
         self.colors = colors
+        self.selection = selection
     }
 }
 
@@ -70,7 +76,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         let area = resolvedRect(contentRect: contentRect)
         guard !activeSlots.isEmpty, !area.isEmpty else { return }
 
-        drawSlots(activeSlots, in: area, into: &frame)
+        drawSlots(activeSlots, in: area, into: &frame, isShiftPass: context.isShiftPass, result: &result)
         drawPageIndicatorIfNeeded(in: area, into: &frame)
     }
 
@@ -100,7 +106,13 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         return MK2PixelRect(x: contentRect.x + base.x, y: contentRect.y + base.y, width: base.width, height: base.height)
     }
 
-    private func drawSlots(_ slots: [MK2ParameterPageSlot], in area: MK2PixelRect, into frame: inout MK2PixelFrame) {
+    private func drawSlots(
+        _ slots: [MK2ParameterPageSlot],
+        in area: MK2PixelRect,
+        into frame: inout MK2PixelFrame,
+        isShiftPass: Bool,
+        result: inout MK2ScreenBuildResult
+    ) {
         // Matches the canonical slot geometry: inter-cell gaps equal the screen margin,
         // so a four-column page over the full content width lands exactly on
         // `MK2ScreenLayout.encoderSlotXs`/`encoderSlotWidth`.
@@ -128,7 +140,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
             let valueY = y + SurfaceFont.label.cellHeight + 4
             let valueHeight = min(MK2ScreenLayout.encoderSlotHeight, max(24, rowHeight - SurfaceFont.label.cellHeight - 4))
             let valueRect = MK2PixelRect(x: x, y: valueY, width: cellWidth, height: valueHeight)
-            MK2ValueCell(
+            let cell = MK2ValueCell(
                 label: slot.label.uppercased(),
                 value: slot.value,
                 rect: valueRect,
@@ -137,7 +149,24 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
                 labelFont: .label,
                 cornerRadius: 6,
                 colors: slot.colors ?? colors
-            ).draw(into: &frame)
+            )
+            // Touch selection: capture the focused appearance as a prepared
+            // overlay before the real cell paints over it. An already-focused
+            // slot needs none — touched and focused look identical. The shift
+            // pass never captures: its overlays would be dropped anyway and
+            // touch highlights are suppressed while the layer is held.
+            if !isShiftPass, !slot.isFocused, slot.selection != .none,
+               let encoder = slot.encoderValue?.encoder {
+                var focusedCell = cell
+                focusedCell.isFocused = true
+                focusedCell.draw(into: &frame)
+                result.touchOverlays[encoder] = MK2EncoderTouchOverlay(
+                    rect: valueRect,
+                    pixels: frame.pixels(in: valueRect),
+                    behavior: slot.selection
+                )
+            }
+            cell.draw(into: &frame)
         }
     }
 

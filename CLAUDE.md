@@ -130,6 +130,15 @@ Interaction and rendering rules:
   button lamp is automatic (dim = layer available, bright = held) unless a
   scene sets it explicitly. Shift is momentary, never latching.
 
+- encoder touch selection is runtime-owned: encoder-bound `MK2ParameterPageSlot`s
+  capture a prepared touch overlay (`MK2EncoderSelectionBehavior`, default
+  `.momentary`; `.latched` keeps the last-touched slot; `.none` opts out) and
+  the surface flips the highlight locally on touch events — never rebuild the
+  app-side `.encoderTouch` → state → `isFocused` round trip per scene. Touched
+  and focused render identically (the `focused*` ValueCell tokens), so an app
+  confirming a touch via `isFocused` causes no visible change. Overlays are
+  suppressed while the shift layer is held.
+
 Typography uses FreeType/HarfBuzz for proportional UI and fixed-pitch rendering
 for tracker/grid content. Keep repeated text in the glyph/run caches.
 

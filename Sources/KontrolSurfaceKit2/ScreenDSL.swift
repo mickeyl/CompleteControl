@@ -37,6 +37,9 @@ public struct MK2ScreenBuildResult: Sendable {
     public var shiftLamps: [KKMK2ButtonLED: MK2LampState2]
     public var shiftKeyColors: [Int: KKRGB]
     public var shiftBindings: MK2InputBindings2
+    /// Prepared touch highlights of encoder-bound slots, keyed by encoder.
+    /// The `screen` field is assigned when two results merge into a scene.
+    public var touchOverlays: [Int: MK2EncoderTouchOverlay]
 
     public init(
         screen: MK2Screen,
@@ -52,6 +55,7 @@ public struct MK2ScreenBuildResult: Sendable {
         shiftLamps = [:]
         shiftKeyColors = [:]
         shiftBindings = MK2InputBindings2()
+        touchOverlays = [:]
     }
 
     public mutating func merge(_ other: MK2ScreenBuildResult) {
@@ -63,6 +67,7 @@ public struct MK2ScreenBuildResult: Sendable {
         shiftLamps.merge(other.shiftLamps) { _, next in next }
         shiftKeyColors.merge(other.shiftKeyColors) { _, next in next }
         shiftBindings.merge(other.shiftBindings)
+        touchOverlays.merge(other.touchOverlays) { _, next in next }
     }
 }
 
@@ -231,13 +236,23 @@ public struct MK2DoubleScreenDSL: Sendable {
         mergedBindings.merge(left.bindings)
         mergedBindings.merge(right.bindings)
 
+        var overlays: [Int: MK2EncoderTouchOverlay] = [:]
+        for (screenIndex, result) in [left, right].enumerated() {
+            for (encoder, overlay) in result.touchOverlays {
+                var placed = overlay
+                placed.screen = screenIndex
+                overlays[encoder] = placed
+            }
+        }
+
         return MK2SurfaceScene2(
             left: left.screen.frame,
             right: right.screen.frame,
             lamps: mergedLamps,
             keyColors: mergedKeyColors,
             bindings: mergedBindings,
-            shift: shiftLayer()
+            shift: shiftLayer(),
+            encoderTouchOverlays: overlays
         )
     }
 

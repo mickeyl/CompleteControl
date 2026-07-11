@@ -171,6 +171,10 @@ public struct MK2SurfaceScene2: Sendable {
     public var keyColors: [Int: KKRGB]
     public var bindings: MK2InputBindings2
     public var shift: ShiftLayer?
+    /// Prepared touch highlights of encoder-bound slots, keyed by encoder;
+    /// the runtime blits them locally while the touch selection is active.
+    /// Suppressed while the shift layer is held — its slots show other values.
+    public var encoderTouchOverlays: [Int: MK2EncoderTouchOverlay]
 
     public init(
         left: MK2PixelFrame? = nil,
@@ -178,12 +182,14 @@ public struct MK2SurfaceScene2: Sendable {
         lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
         keyColors: [Int: KKRGB] = [:],
         bindings: MK2InputBindings2 = MK2InputBindings2(),
-        shift: ShiftLayer? = nil
+        shift: ShiftLayer? = nil,
+        encoderTouchOverlays: [Int: MK2EncoderTouchOverlay] = [:]
     ) {
         displays = [left, right]
         self.lamps = lamps
         self.keyColors = keyColors
         self.bindings = bindings
         self.shift = shift
+        self.encoderTouchOverlays = encoderTouchOverlays
     }
 }

@@ -84,6 +84,12 @@ public actor MK2Surface2 {
     // session — that stale-callback path was the reconnect-cascade bug.
     private var daemonSessionGeneration: UInt64 = 0
     private var pressedButtons: Set<KKMK2ButtonLED> = []
+    // Touch selection state for the scene's encoder overlays. Physical state
+    // like `pressedButtons`, so it survives scene re-presents: an app that
+    // re-projects while a finger rests on an encoder must not lose the
+    // highlight, and a latch keeps pointing at its slot across projections.
+    private var touchedEncoders: Set<Int> = []
+    private var latchedEncoder: Int?
     private var buttonPressResolutions: [KKMK2ButtonLED: ButtonResolution] = [:]
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
     private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
@@ -126,6 +132,8 @@ public actor MK2Surface2 {
         lastDaemonHeartbeatNanos = 0
         lastDaemonStartAttemptNanos = 0
         cancelButtonHolds()
+        touchedEncoders = []
+        latchedEncoder = nil
         scene = MK2SurfaceScene2()
         displayReconciler.reset()
         publish(.stopped)
@@ -431,10 +439,32 @@ public actor MK2Surface2 {
     }
 
     private var activeDisplays: [MK2PixelFrame?] {
-        guard let layer = activeShiftLayer else { return scene.displays }
+        // Touch overlays stay suppressed while the shift layer shows: its
+        // slots carry other values, so the base highlight pixels would lie.
+        guard let layer = activeShiftLayer else { return displaysWithTouchOverlays(scene.displays) }
         return scene.displays.enumerated().map { index, base in
             layer.displays.indices.contains(index) ? layer.displays[index] ?? base : base
         }
+    }
+
+    private func displaysWithTouchOverlays(_ base: [MK2PixelFrame?]) -> [MK2PixelFrame?] {
+        var displays = base
+        for (encoder, overlay) in scene.encoderTouchOverlays {
+            let isActive = switch overlay.behavior {
+                case .none:
+                    false
+                case .momentary:
+                    touchedEncoders.contains(encoder)
+                case .latched:
+                    latchedEncoder == encoder || touchedEncoders.contains(encoder)
+            }
+            guard isActive,
+                  displays.indices.contains(overlay.screen),
+                  var frame = displays[overlay.screen] else { continue }
+            frame.blit(overlay.pixels, into: overlay.rect)
+            displays[overlay.screen] = frame
+        }
+        return displays
     }
 
     private func advanceLamps(dt: Double, lamps: [KKMK2ButtonLED: MK2LampState2]) {
@@ -627,6 +657,14 @@ public actor MK2Surface2 {
                 case let .knob(index, delta, value):
                     (activeShiftLayer?.bindings.encoder[index] ?? scene.bindings.encoder[index])?(delta, value, timestampNanos)
                 case let .touchEncoder(index, touched):
+                    if touched {
+                        touchedEncoders.insert(index)
+                        if scene.encoderTouchOverlays[index]?.behavior == .latched {
+                            latchedEncoder = index
+                        }
+                    } else {
+                        touchedEncoders.remove(index)
+                    }
                     (activeShiftLayer?.bindings.encoderTouch[index] ?? scene.bindings.encoderTouch[index])?(touched)
                     if touched, lastEncoderTouchNanos.indices.contains(index) {
                         let now = DispatchTime.now().uptimeNanoseconds
@@ -636,6 +674,11 @@ public actor MK2Surface2 {
                         } else {
                             lastEncoderTouchNanos[index] = now
                         }
+                    }
+                    if scene.encoderTouchOverlays[index] != nil {
+                        // Flip the highlight now, same as the shift layer: waiting
+                        // for the next tick makes the touch feel rubbery.
+                        tick(forceDisplay: false)
                     }
                 case let .jog(direction):
                     (activeShiftLayer?.bindings.jog ?? scene.bindings.jog)?(direction)

@@ -400,6 +400,18 @@ public struct MK2PixelFrame: Sendable, Equatable {
         }
     }
 
+    /// Writes back a pixel block previously captured with `pixels(in:)`.
+    /// The rect must lie fully inside the frame and match the pixel count.
+    public mutating func blit(_ sourcePixels: [UInt16], into rect: MK2PixelRect) {
+        guard rect.clipped(to: Self.bounds) == rect,
+              sourcePixels.count == rect.width * rect.height else { return }
+        for row in 0..<rect.height {
+            let destination = (rect.y + row) * Self.width + rect.x
+            let source = row * rect.width
+            pixels.replaceSubrange(destination..<(destination + rect.width), with: sourcePixels[source..<(source + rect.width)])
+        }
+    }
+
     public func pixels(in rect: MK2PixelRect) -> [UInt16] {
         guard let clipped = rect.clipped(to: Self.bounds) else { return [] }
         // Full-width rects are contiguous storage: a single memcpy.
