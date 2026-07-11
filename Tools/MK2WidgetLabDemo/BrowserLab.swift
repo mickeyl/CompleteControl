@@ -67,8 +67,9 @@ enum BrowserLabFixtures {
 
     static let areas = ["All", "Browse", "Settings", "System"]
     static let sources = ["All", "Factory", "User", "Session", "Device"]
+    // 154×54 puts three rows into the filtered grid (3×54 = 162 ≤ 166 content).
     static let gridCellSizes = [
-        MK2SelectionCellSize(width: 154, height: 58),
+        MK2SelectionCellSize(width: 154, height: 54),
         MK2SelectionCellSize(width: 232, height: 66),
     ]
 }

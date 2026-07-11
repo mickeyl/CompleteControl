@@ -163,7 +163,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .scene }
+    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform || self == .scene }
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -317,6 +317,32 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
     }
 }
 
+private enum WaveformLabVariant: Int, CaseIterable, Sendable {
+    case pluck, sparse, quiet, empty
+
+    var title: String {
+        switch self {
+            case .pluck: "PLUCK, 2048 BINS"
+            case .sparse: "SPARSE, 24 BINS"
+            case .quiet: "QUIET SOURCE, GAIN 3.5X"
+            case .empty: "EMPTY ENVELOPE"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+            case .pluck: "PLUCK"
+            case .sparse: "SPARSE"
+            case .quiet: "QUIET"
+            case .empty: "EMPTY"
+        }
+    }
+
+    var next: WaveformLabVariant {
+        Self.allCases[(rawValue + 1) % Self.allCases.count]
+    }
+}
+
 private actor WidgetLab {
     private let surface: MK2Surface2
     private let metronome = DemoMetronome()
@@ -371,6 +397,13 @@ private actor WidgetLab {
     private var mutedChannels: Set<Int> = []
     private var soloedChannels: Set<Int> = []
     private var focusedEditField: TrackerEditField = .note
+    private var waveformVariant: WaveformLabVariant = .pluck
+    private var waveformLoopEnabled = true
+    private var waveformLoopStartPercent = 42
+    private var waveformLoopEndPercent = 88
+    private var waveformMarkersEnabled = true
+    private var waveformPlayheadPercent = 55
+    private var waveformFocusedEncoder: Int?
     private var sceneCombo: SceneChromeCombo = .titleHint
     private var sceneProgressMode = 1
     private var sceneProgressPercent = 42
@@ -530,6 +563,8 @@ private actor WidgetLab {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
+        } else if unit == .waveform {
+            lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .scene {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .pattern {
@@ -612,6 +647,13 @@ private actor WidgetLab {
         } else if unit == .list {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleSelectionMode() }
+            }
+        } else if unit == .waveform {
+            bindings.onPress(.instance) { [weak self] in
+                Task { await self?.cycleWaveformVariant() }
+            }
+            for value in waveformEncoderValues() {
+                value.apply(bindings: &bindings)
             }
         } else if unit == .scene {
             bindings.onPress(.instance) { [weak self] in
@@ -742,7 +784,7 @@ private actor WidgetLab {
             case .pattern:
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
             case .waveform:
-                return (screenResult(frame: waveformLoopFrame()), screenResult(frame: waveformVariantsFrame()))
+                return (screenResult(frame: waveformLoopFrame()), waveformControlResult())
             case .scene:
                 switch sceneCombo {
                     case .splash:
@@ -1295,7 +1337,7 @@ private actor WidgetLab {
         let headerLine = "HEADER \(combo.headerLabel) \(layout.headerRect?.height ?? 0)  FOOTER \(combo.footerLabel) \(layout.footerRect?.height ?? 0)"
         let progressLine = sceneProgressMode == 0 ? "PROGRESS OFF" : "PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%"
         let typoLine = "CAPTION \(sceneCaptionSize)PX  FOOTNOTE \(sceneFootnoteSize)PX"
-        let footerDisplays = (layout.footerRect?.height ?? 0) >= 88 ? sceneEncoderDisplays() : []
+        let footerDisplays = (layout.footerRect?.height ?? 0) >= MK2ScreenLayout.encoderFooterHeight ? sceneEncoderDisplays() : []
 
         return MK2RegularScreenDSL(
             header: combo.header,
@@ -1364,7 +1406,6 @@ private actor WidgetLab {
                 encoder: 5,
                 value: sceneProgressMode,
                 bounds: 0...2,
-                wraps: true,
                 display: displays[0],
                 onTouch: { [weak self] touched in
                     Task { await self?.setSceneFocusedEncoder(5, touched: touched) }
@@ -1854,6 +1895,9 @@ private actor WidgetLab {
                 guard !isPlaying else { return }
                 playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
                 await render()
+            case .waveform:
+                waveformPlayheadPercent = max(0, min(100, waveformPlayheadPercent + delta))
+                await render()
             default:
                 return
         }
@@ -1892,7 +1936,6 @@ private actor WidgetLab {
                 encoder: 7,
                 value: iconSampleIndex,
                 bounds: 0...(Self.fontIconSamples.count - 1),
-                wraps: true,
                 display: fontLabValueDisplay(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, color: icon.color),
                 onTouch: { [weak self] touched in
                     Task { await self?.setFontFocusedEncoder(7, touched: touched) }
@@ -2019,7 +2062,6 @@ private actor WidgetLab {
                 encoder: 8,
                 value: iconSelectionMode.rawValue,
                 bounds: 0...(IconSelectionMode.allCases.count - 1),
-                wraps: true,
                 onChange: { [weak self] value in
                     Task { await self?.setIconSelectionMode(value) }
                 }
@@ -2815,38 +2857,173 @@ private actor WidgetLab {
         return MK2WaveformEnvelope(minima: minima, maxima: maxima, gain: quiet ? 3.5 : 1)
     }
 
+    private static let waveformStartMarker = 0.08
+    private static let waveformEndMarker = 0.95
+
+    private func waveformLabEnvelope() -> MK2WaveformEnvelope {
+        switch waveformVariant {
+            case .pluck: Self.waveformDemoEnvelope(bins: 2_048)
+            case .sparse: Self.waveformDemoEnvelope(bins: 24)
+            case .quiet: Self.waveformDemoEnvelope(bins: 2_048, quiet: true)
+            case .empty: MK2WaveformEnvelope(minima: [], maxima: [])
+        }
+    }
+
     private func waveformLoopFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.page)
         BitmapLabel("WAVEFORM DISPLAY", font: .readout, color: Palette.text).draw(into: &frame, x: 16, y: 12)
-        BitmapLabel("LOOP REGION + START MARKER + PLAYHEAD", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 44)
+        BitmapLabel(waveformVariant.title, font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 44)
         MK2WaveformDisplay(
-            envelope: Self.waveformDemoEnvelope(bins: 2_048),
+            envelope: waveformLabEnvelope(),
             rect: MK2PixelRect(x: 8, y: 64, width: 464, height: 200),
-            region: 0.42...0.88,
-            markers: [0.08],
-            playhead: 0.55
+            region: waveformLoopEnabled
+                ? Double(waveformLoopStartPercent) / 100...Double(waveformLoopEndPercent) / 100
+                : nil,
+            markers: waveformMarkersEnabled ? [Self.waveformStartMarker, Self.waveformEndMarker] : [],
+            playhead: Double(waveformPlayheadPercent) / 100
         ).draw(into: &frame)
         return frame
     }
 
-    private func waveformVariantsFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("SPARSE BINS", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 8)
-        MK2WaveformDisplay(
-            envelope: Self.waveformDemoEnvelope(bins: 24),
-            rect: MK2PixelRect(x: 8, y: 26, width: 464, height: 70)
-        ).draw(into: &frame)
-        BitmapLabel("QUIET SOURCE, DISPLAY GAIN 3.5X", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 104)
-        MK2WaveformDisplay(
-            envelope: Self.waveformDemoEnvelope(bins: 2_048, quiet: true),
-            rect: MK2PixelRect(x: 8, y: 122, width: 464, height: 70)
-        ).draw(into: &frame)
-        BitmapLabel("EMPTY ENVELOPE", font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 200)
-        MK2WaveformDisplay(
-            envelope: MK2WaveformEnvelope(minima: [], maxima: []),
-            rect: MK2PixelRect(x: 8, y: 218, width: 464, height: 46)
-        ).draw(into: &frame)
-        return frame
+    private func waveformControlResult() -> MK2ScreenBuildResult {
+        let values = waveformEncoderValues()
+        let variant = waveformVariant
+        let summary: [(String, UInt16)] = [
+            ("SOURCE   \(variant.title)", Palette.text),
+            ("LOOP     \(waveformLoopEnabled ? "\(waveformLoopStartPercent)% - \(waveformLoopEndPercent)%" : "OFF")", Palette.text),
+            ("MARKERS  \(waveformMarkersEnabled ? "START + END" : "OFF")", Palette.text),
+            ("PLAYHEAD \(waveformPlayheadPercent)% VIA 4D ENCODER", Palette.blue),
+            ("INSTANCE CYCLES THE SOURCE", Palette.dim),
+            ("F-BAR IS DUMMY, F5-F8 STILL SWITCH UNITS", Palette.dim),
+        ]
+        return MK2FullScreenDSL(background: Palette.page) {
+            // Look-and-feel probe only: no onPress, so F5–F8 keep switching units.
+            MK2FunctionKeyBarElement(
+                slots: [
+                    MK2FunctionKeySlot("Zoom"),
+                    MK2FunctionKeySlot("Snap"),
+                    MK2FunctionKeySlot("Norm", isEnabled: false),
+                    MK2FunctionKeySlot("Trim"),
+                ],
+                side: .right
+            )
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 30, items: [
+                    MK2StatusLineItem("WAVEFORM LAB", x: 8, color: Palette.blue),
+                    MK2StatusLineItem(variant.shortTitle, x: 140, color: Palette.text, font: .gridBold),
+                ]).draw(into: &frame)
+                frame.hline(y: 54, x: 0, width: 480, color: Palette.border)
+                var y = 66
+                for (text, color) in summary {
+                    BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
+                    y += SurfaceFont.grid.cellHeight + 6
+                }
+                for value in values {
+                    value.drawDisplay(into: &frame)
+                }
+            }
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func waveformEncoderValues() -> [MK2EncoderDiscreteValue] {
+        let loopColor = waveformLoopEnabled ? Palette.text : Palette.dim
+        return [
+            MK2EncoderDiscreteValue(
+                encoder: 5,
+                value: waveformLoopEnabled ? 1 : 0,
+                bounds: 0...1,
+                display: waveformValueDisplay(label: "LOOP", value: waveformLoopEnabled ? "ON" : "OFF", encoder: 5, color: loopColor),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setWaveformFocusedEncoder(5, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setWaveformLoopEnabled(value == 1) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 6,
+                value: waveformLoopStartPercent,
+                bounds: 0...waveformLoopEndPercent,
+                display: waveformValueDisplay(label: "LP ST", value: "\(waveformLoopStartPercent)%", encoder: 6, color: loopColor),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setWaveformFocusedEncoder(6, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setWaveformLoopStart(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 7,
+                value: waveformLoopEndPercent,
+                bounds: waveformLoopStartPercent...100,
+                display: waveformValueDisplay(label: "LP END", value: "\(waveformLoopEndPercent)%", encoder: 7, color: loopColor),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setWaveformFocusedEncoder(7, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setWaveformLoopEnd(value) }
+                }
+            ),
+            MK2EncoderDiscreteValue(
+                encoder: 8,
+                value: waveformMarkersEnabled ? 1 : 0,
+                bounds: 0...1,
+                display: waveformValueDisplay(label: "MARKS", value: waveformMarkersEnabled ? "ON" : "OFF", encoder: 8, color: waveformMarkersEnabled ? Palette.text : Palette.dim),
+                onTouch: { [weak self] touched in
+                    Task { await self?.setWaveformFocusedEncoder(8, touched: touched) }
+                },
+                onChange: { [weak self] value in
+                    Task { await self?.setWaveformMarkersEnabled(value == 1) }
+                }
+            ),
+        ]
+    }
+
+    private func waveformValueDisplay(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
+        MK2EncoderDiscreteValueDisplay(
+            label: label,
+            value: value,
+            rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
+            isFocused: waveformFocusedEncoder == encoder,
+            valueFont: .readoutBold,
+            cornerRadius: 7,
+            colors: editCellColors(value: color)
+        )
+    }
+
+    private func cycleWaveformVariant() async {
+        guard unit == .waveform else { return }
+        waveformVariant = waveformVariant.next
+        await render()
+    }
+
+    private func setWaveformFocusedEncoder(_ encoder: Int, touched: Bool) async {
+        if touched {
+            waveformFocusedEncoder = encoder
+        } else if waveformFocusedEncoder == encoder {
+            waveformFocusedEncoder = nil
+        }
+        await render()
+    }
+
+    private func setWaveformLoopEnabled(_ enabled: Bool) async {
+        waveformLoopEnabled = enabled
+        await render()
+    }
+
+    private func setWaveformLoopStart(_ value: Int) async {
+        waveformLoopStartPercent = max(0, min(waveformLoopEndPercent, value))
+        await render()
+    }
+
+    private func setWaveformLoopEnd(_ value: Int) async {
+        waveformLoopEndPercent = max(waveformLoopStartPercent, min(100, value))
+        await render()
+    }
+
+    private func setWaveformMarkersEnabled(_ enabled: Bool) async {
+        waveformMarkersEnabled = enabled
+        await render()
     }
 
     // MARK: - Placeholder units
@@ -3125,6 +3302,12 @@ private actor WidgetLab {
                         clampSelectionIndex()
                         await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
                     }
+                case .waveform:
+                    for variant in WaveformLabVariant.allCases {
+                        waveformVariant = variant
+                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(variant.shortTitle)).png")
+                    }
+                    waveformVariant = .pluck
                 case .scene:
                     for combo in SceneChromeCombo.allCases {
                         sceneCombo = combo
