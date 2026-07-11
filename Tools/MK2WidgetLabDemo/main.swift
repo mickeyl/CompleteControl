@@ -572,7 +572,8 @@ private actor WidgetLab {
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
             lamps[.clear] = Self.availableLamp(Self.actionWhite)
-            lamps[.shift] = Self.availableLamp(Self.actionWhite)
+            // No explicit shift lamp: the scene declares a shift layer, so the kit's
+            // automatic convention (dim = available, bright = held) takes over.
             lamps[.pageLeft] = focusedChannel > 0 ? Self.availableLamp(Self.actionWhite) : .off
             lamps[.pageRight] = focusedChannel < 3 ? Self.availableLamp(Self.actionWhite) : .off
         }
@@ -714,7 +715,14 @@ private actor WidgetLab {
         var keyColors = leftResult.keyColors
         keyColors.merge(rightResult.keyColors) { _, next in next }
         applyGuideOverrides(to: &keyColors)
-        return MK2SurfaceScene2(left: leftResult.screen.frame, right: rightResult.screen.frame, lamps: lamps, keyColors: keyColors, bindings: bindings)
+        return MK2SurfaceScene2(
+            left: leftResult.screen.frame,
+            right: rightResult.screen.frame,
+            lamps: lamps,
+            keyColors: keyColors,
+            bindings: bindings,
+            shift: MK2SurfaceScene2.ShiftLayer(left: leftResult, right: rightResult)
+        )
     }
 
     private func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
@@ -1745,6 +1753,10 @@ private actor WidgetLab {
         let slots = trackerEditParameterSlots(cell: cell)
 
         return MK2FullScreenDSL(background: Palette.page) {
+            // The base F-buttons stay the lab's unit switchers, so the base bar keeps
+            // its decorative labels without bindings. The shift slots are live: CLR PAT
+            // sits above the CLEAR slot, REVERSE above TRIM, and the two empty shift
+            // slots demonstrate that an unlabeled slot swallows the press under shift.
             MK2FunctionKeyBarElement(
                 slots: [
                     MK2FunctionKeySlot("COPY"),
@@ -1752,7 +1764,22 @@ private actor WidgetLab {
                     MK2FunctionKeySlot("CLEAR", isEnabled: false),
                     MK2FunctionKeySlot("TRIM"),
                 ],
-                side: .right
+                shiftSlots: [
+                    MK2FunctionKeySlot(),
+                    MK2FunctionKeySlot(),
+                    MK2FunctionKeySlot("CLR PAT"),
+                    MK2FunctionKeySlot("REVERSE"),
+                ],
+                side: .right,
+                onShiftPress: { [weak self] slot in
+                    Task {
+                        switch slot {
+                            case 2: await self?.showClearPatternDialog()
+                            case 3: await self?.reversePattern()
+                            default: break
+                        }
+                    }
+                }
             )
             MK2AnyScreenElement { frame, _, _ in
                 MK2StatusLine(y: 26, items: statusItems).draw(into: &frame)
@@ -1762,6 +1789,7 @@ private actor WidgetLab {
             }
             MK2ParameterPageElement(
                 slots: slots,
+                shiftSlots: trackerShiftEditParameterSlots(cell: cell),
                 rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
                 columns: 4,
                 relativeToContent: false
@@ -1818,6 +1846,43 @@ private actor WidgetLab {
                     }
                 ),
                 colors: editCellColors(value: field.valueColor)
+            )
+        }
+    }
+
+    /// Under shift the NOTE encoder steps in octaves; the other cells keep their
+    /// visual but bring no encoder value, so their base bindings stay active.
+    private func trackerShiftEditParameterSlots(cell: TrackerDemoCell) -> [MK2ParameterPageSlot] {
+        TrackerEditField.allCases.map { field in
+            guard field == .note else {
+                return MK2ParameterPageSlot(
+                    label: field.label,
+                    value: editDisplayValue(for: field, cell: cell),
+                    isFocused: focusedEditField == field,
+                    colors: editCellColors(value: field.valueColor)
+                )
+            }
+            var colors = editCellColors(value: field.valueColor)
+            colors.label = MK2HIG.Chrome.shiftAccent
+            return MK2ParameterPageSlot(
+                label: "OCTAVE",
+                value: editDisplayValue(for: .note, cell: cell),
+                isFocused: focusedEditField == .note,
+                encoderValue: MK2EncoderDiscreteValue(
+                    encoder: field.encoder,
+                    value: editValue(for: .note, cell: cell),
+                    bounds: field.bounds,
+                    step: 12,
+                    wraps: false,
+                    onTouch: { [weak self] touched in
+                        guard touched else { return }
+                        Task { await self?.focusEditField(.note) }
+                    },
+                    onChange: { [weak self] value in
+                        Task { await self?.setFocusedEditValue(value, field: .note) }
+                    }
+                ),
+                colors: colors
             )
         }
     }
@@ -2617,6 +2682,12 @@ private actor WidgetLab {
         await render()
     }
 
+    private func reversePattern() async {
+        guard unit == .pattern else { return }
+        patternRows.reverse()
+        await render()
+    }
+
     private func toggleRecordArm() async {
         guard unit == .pattern else { return }
         recordArmed.toggle()
@@ -3308,6 +3379,9 @@ private actor WidgetLab {
                         await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(variant.shortTitle)).png")
                     }
                     waveformVariant = .pluck
+                case .pattern:
+                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
+                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-shift.png", layer: .shift)
                 case .scene:
                     for combo in SceneChromeCombo.allCases {
                         sceneCombo = combo
@@ -3329,9 +3403,20 @@ private actor WidgetLab {
             .joined(separator: "-")
     }
 
-    private func snapshot(to path: String?) async {
+    private enum SnapshotLayer {
+        case base
+        case shift
+    }
+
+    private func snapshot(to path: String?, layer: SnapshotLayer = .base) async {
         let currentScene = scene()
-        let frames = currentScene.displays.map { $0 ?? MK2PixelFrame() }
+        var displays = currentScene.displays
+        if layer == .shift, let shift = currentScene.shift {
+            displays = displays.enumerated().map { index, base in
+                shift.displays.indices.contains(index) ? shift.displays[index] ?? base : base
+            }
+        }
+        let frames = displays.map { $0 ?? MK2PixelFrame() }
         let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-\(unit.short.lowercased()).png"
         do {
             let written = try PixelSnapshot.write(frames, to: target)

@@ -63,6 +63,11 @@ public enum MK2HIG {
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
         public static let accent: UInt16 = 0xffe0
+        // Shift-layer treatment: labels that only apply while SHIFT is held render
+        // in this amber, the classic shifted-function idiom — deliberately not the
+        // yellow accent (call to action) and not plain text (base layer). Judged on
+        // PNG so far; tune on the OLED.
+        public static let shiftAccent: UInt16 = 0xfc00   // (255, 129, 0) amber
         public static let border: UInt16 = 0x4208
         public static let footerFill: UInt16 = 0x1083
         // Chrome progress gradient: deep blue running into a luminous cyan tip.

@@ -24,6 +24,12 @@ public struct MK2ParameterPageSlot: Sendable {
 
 public struct MK2ParameterPageElement: MK2ScreenElement {
     public var slots: [MK2ParameterPageSlot]
+    /// Alternate slots shown while SHIFT is held. Slot indices keep their
+    /// encoder correspondence; a shift slot without an `encoderValue` leaves
+    /// the base encoder binding active (turning the encoder under shift then
+    /// still edits the base parameter), so shift cells that change meaning
+    /// must bring their own encoder value.
+    public var shiftSlots: [MK2ParameterPageSlot]?
     public var rect: MK2PixelRect?
     public var columns: Int
     public var pageIndex: Int?
@@ -33,6 +39,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
 
     public init(
         slots: [MK2ParameterPageSlot],
+        shiftSlots: [MK2ParameterPageSlot]? = nil,
         rect: MK2PixelRect? = nil,
         columns: Int = 4,
         pageIndex: Int? = nil,
@@ -41,6 +48,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         relativeToContent: Bool = true
     ) {
         self.slots = Array(slots.prefix(8))
+        self.shiftSlots = shiftSlots.map { Array($0.prefix(8)) }
         self.rect = rect
         self.columns = min(4, max(1, columns))
         self.pageIndex = pageIndex
@@ -50,15 +58,19 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
     }
 
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
-        for slot in slots {
+        if shiftSlots != nil {
+            result.wantsShiftPass = true
+        }
+        let activeSlots = context.isShiftPass ? (shiftSlots ?? slots) : slots
+        for slot in activeSlots {
             slot.encoderValue?.apply(bindings: &result.bindings)
         }
 
         let contentRect = context.layout?.contentRect ?? MK2PixelFrame.bounds
         let area = resolvedRect(contentRect: contentRect)
-        guard !slots.isEmpty, !area.isEmpty else { return }
+        guard !activeSlots.isEmpty, !area.isEmpty else { return }
 
-        drawSlots(in: area, into: &frame)
+        drawSlots(activeSlots, in: area, into: &frame)
         drawPageIndicatorIfNeeded(in: area, into: &frame)
     }
 
@@ -88,7 +100,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         return MK2PixelRect(x: contentRect.x + base.x, y: contentRect.y + base.y, width: base.width, height: base.height)
     }
 
-    private func drawSlots(in area: MK2PixelRect, into frame: inout MK2PixelFrame) {
+    private func drawSlots(_ slots: [MK2ParameterPageSlot], in area: MK2PixelRect, into frame: inout MK2PixelFrame) {
         // Matches the canonical slot geometry: inter-cell gaps equal the screen margin,
         // so a four-column page over the full content width lands exactly on
         // `MK2ScreenLayout.encoderSlotXs`/`encoderSlotWidth`.

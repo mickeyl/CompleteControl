@@ -51,10 +51,18 @@
   edit-field encoder bindings through `MK2ParameterPageElement`. Selection filter encoders
   now use `MK2SelectionFilterEncoderElement`, so focus-touch and value changes are a
   reusable screen-owned pattern.
-- Done in WidgetLab tracker demo: Shift is the only first-class key modifier in Kit2.
-  `Clear` deletes the currently selected row immediately, without a confirmation dialog;
-  `Shift + Clear` clears the whole pattern and keeps the existing confirmation dialog.
-  Keep future modifier behavior in the DSL/input layer, not as view-local chord handling.
+- Done: Shift is a scene-owned modifier layer (`Docs/Shift-Layer-Plan.md`). Scenes carry
+  an optional `MK2SurfaceScene2.ShiftLayer` (frames, lamps, key colors, bindings with
+  base fallback); the DSL builds it in a second pass when a screen declares shift content
+  via `MK2ShiftBranch`, `MK2FunctionKeyBarElement` `shiftSlots`/`onShiftPress`, or
+  `MK2ParameterPageElement.shiftSlots`. Realized in the WidgetLab pattern lab (CLR
+  PAT/REVERSE shift function keys, NOTE→OCTAVE shift encoder cell, automatic shift lamp)
+  and in `MK2PaulincheInstrumentRenderer` via `shiftSoftKeys`/`onShiftSoftKey`.
+  Deferred follow-ups: review `MK2HIG.Chrome.shiftAccent` (amber) and the dim/bright
+  shift-lamp intensities on the OLED/hardware; other held-button layers and a latching
+  shift would be `MK2Surface2`-local extensions of the same layer model; MIDI routing
+  deliberately stays base-only under shift; multi-band display diffing only if the
+  near-full-band blit on shift flips ever shows as a cost.
 - Add a WidgetLab realization plus snapshot coverage for each formal screen/component class
   before Paulinche starts consuming them.
 - Prepare the Paulinche boundary as a small semantic `SurfaceProjection`: Paulinche emits
@@ -93,6 +101,16 @@
 - Caveat to revisit: capital umlauts (`ÄÖÜ`) clip at the top of the 16 px grid cell because
   JetBrains Mono's diacritics + descenders want ~17 px. The tracker grid is ASCII so it is
   unaffected, but grid text with capital umlauts (e.g. instrument names) loses its dots.
+
+- Grow the DSL's first-class element vocabulary; there is still too much hand-drawn
+  content hiding in `MK2RenderBlock`/`MK2AnyScreenElement` escape hatches. Every such
+  closure bypasses the element contract (no build-result participation, no shift-pass
+  awareness, no reuse) and re-invents layout constants inline. Known offenders to
+  audit: the WidgetLab unit screens (status rows, ad-hoc labels, separator lines,
+  pattern overview strip), the Paulinche renderers' title/tag/info-line drawing, and
+  the song scenes' `drawSoftKeyStrip` (already tracked below). Candidates for
+  promotion: a titled status row, an icon+label tag chip, a plain separator rule,
+  and a key/value info-line stack.
 
 - Encoder-slot geometry is duplicated by convention, not enforced: every page passes
   its own footer rect (now `x: 8, width: 464`) into `MK2ParameterPageElement`, and only

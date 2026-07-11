@@ -21,6 +21,10 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
     /// Slots with empty labels are drawn as unassigned.
     public var parameters: [MK2PaulinchePatternParameter]
     public var softKeys: [MK2PaulincheSoftKey]
+    /// Alternate soft keys shown while SHIFT is held, same fixed eight-slot
+    /// indexing as `softKeys`. An empty list declares no shift layer; a
+    /// non-empty list makes every unassigned slot dark and inert under shift.
+    public var shiftSoftKeys: [MK2PaulincheSoftKey]
 
     public init(
         title: String,
@@ -33,7 +37,8 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         loopRegion: ClosedRange<Double>? = nil,
         markers: [Double] = [],
         parameters: [MK2PaulinchePatternParameter] = [],
-        softKeys: [MK2PaulincheSoftKey] = []
+        softKeys: [MK2PaulincheSoftKey] = [],
+        shiftSoftKeys: [MK2PaulincheSoftKey] = []
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -46,20 +51,24 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         self.markers = markers
         self.parameters = Array(parameters.prefix(8))
         self.softKeys = Array(softKeys.prefix(8))
+        self.shiftSoftKeys = Array(shiftSoftKeys.prefix(8))
     }
 }
 
 public struct MK2PaulincheInstrumentActions: Sendable {
     public var onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
+    public var onShiftSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
     public var onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)?
     public var onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)?
 
     public init(
         onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
+        onShiftSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
         onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)? = nil,
         onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)? = nil
     ) {
         self.onSoftKey = onSoftKey
+        self.onShiftSoftKey = onShiftSoftKey
         self.onEncoderTouch = onEncoderTouch
         self.onEncoderChange = onEncoderChange
     }
@@ -132,19 +141,23 @@ public enum MK2PaulincheInstrumentRenderer {
     ) -> MK2ScreenBuildResult {
         typealias Support = MK2PaulincheRendererSupport
         let softKeys = scene.softKeys
+        let shiftSoftKeys = scene.shiftSoftKeys
         return MK2FullScreenDSL(background: Support.Palette.background) {
-            MK2FunctionKeyBarElement(
-                slots: (4..<8).map { index in
-                    let softKey = softKeys.indices.contains(index) ? softKeys[index] : MK2PaulincheSoftKey(label: "", isEnabled: false)
-                    return MK2FunctionKeySlot(softKey.label, isEnabled: softKey.isEnabled)
-                },
-                side: .right,
-                onPress: { slot in
-                    let index = slot + 4
-                    guard softKeys.indices.contains(index) else { return }
-                    actions.onSoftKey?(index, softKeys[index])
-                }
-            )
+            if shiftSoftKeys.isEmpty {
+                MK2FunctionKeyBarElement(
+                    slots: functionKeySlots(softKeys, range: 4..<8),
+                    side: .right,
+                    onPress: softKeyPress(softKeys, offset: 4, handler: actions.onSoftKey)
+                )
+            } else {
+                MK2FunctionKeyBarElement(
+                    slots: functionKeySlots(softKeys, range: 4..<8),
+                    shiftSlots: functionKeySlots(shiftSoftKeys, range: 4..<8),
+                    side: .right,
+                    onPress: softKeyPress(softKeys, offset: 4, handler: actions.onSoftKey),
+                    onShiftPress: softKeyPress(shiftSoftKeys, offset: 4, handler: actions.onShiftSoftKey)
+                )
+            }
             MK2RenderBlock { frame, _ in
                 drawKindTag(scene, into: &frame, renderer: renderer)
                 for (index, line) in scene.infoLines.prefix(6).enumerated() {
@@ -175,6 +188,29 @@ public enum MK2PaulincheInstrumentRenderer {
     }
 
     // MARK: - Shared pieces
+
+    private static func functionKeySlots(
+        _ softKeys: [MK2PaulincheSoftKey],
+        range: Range<Int>
+    ) -> [MK2FunctionKeySlot] {
+        range.map { index in
+            guard softKeys.indices.contains(index) else { return MK2FunctionKeySlot("", isEnabled: false) }
+            return MK2FunctionKeySlot(softKeys[index].label, isEnabled: softKeys[index].isEnabled)
+        }
+    }
+
+    private static func softKeyPress(
+        _ softKeys: [MK2PaulincheSoftKey],
+        offset: Int,
+        handler: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
+    ) -> (@Sendable (_ slot: Int) -> Void)? {
+        guard let handler else { return nil }
+        return { slot in
+            let index = slot + offset
+            guard softKeys.indices.contains(index) else { return }
+            handler(index, softKeys[index])
+        }
+    }
 
     /// Keeps the encoder-index correspondence while hiding unassigned slots:
     /// empty labels stay in place as blank cells.

@@ -64,6 +64,74 @@ struct PaulincheSongInstrumentRendererTests {
         }
     }
 
+    @Test("Instrument scene shift soft keys build and dispatch the shift layer")
+    func instrumentSceneShiftSoftKeys() async {
+        let renderer = try? FreeTypeTextRenderer()
+        let base = SoftKeyBox()
+        let shift = SoftKeyBox()
+        let pad = MK2PaulincheSoftKey(label: "", isEnabled: false)
+        var fixture = Self.instrumentFixture()
+        fixture.softKeys = [
+            pad, pad, pad, pad,
+            MK2PaulincheSoftKey(label: "Cut", commandID: "cutSample"),
+            MK2PaulincheSoftKey(label: "Crop", commandID: "cropToLoop"),
+            MK2PaulincheSoftKey(label: "Fade", commandID: "fadeOut"),
+            MK2PaulincheSoftKey(label: "Norm", commandID: "normalize"),
+        ]
+        fixture.shiftSoftKeys = [
+            pad, pad, pad, pad,
+            MK2PaulincheSoftKey(label: "Reverse", commandID: "reverseSample"),
+            pad,
+            pad,
+            MK2PaulincheSoftKey(label: "DC Fix", commandID: "removeDCOffset"),
+        ]
+
+        let scene = MK2PaulincheInstrumentRenderer.surfaceScene(
+            fixture,
+            actions: MK2PaulincheInstrumentActions(
+                onSoftKey: { index, softKey in
+                    base.index = index
+                    base.commandID = softKey.commandID
+                },
+                onShiftSoftKey: { index, softKey in
+                    shift.index = index
+                    shift.commandID = softKey.commandID
+                }
+            ),
+            renderer: renderer
+        )
+
+        // Only the right screen declares shift content; the left keeps its base frame.
+        #expect(scene.shift != nil)
+        #expect(scene.shift?.displays[0] == nil)
+        #expect(scene.shift?.displays[1] != nil)
+
+        let surface = MK2Surface2()
+        await surface.present(scene)
+
+        await surface.handleForTesting([.button(led: .function5, pressed: true)])
+        await surface.handleForTesting([.button(led: .function5, pressed: false)])
+        #expect(base.index == 4)
+        #expect(base.commandID == "cutSample")
+
+        await surface.handleForTesting([.button(led: .shift, pressed: true)])
+        await surface.handleForTesting([.button(led: .function5, pressed: true)])
+        await surface.handleForTesting([.button(led: .function5, pressed: false)])
+        #expect(shift.index == 4)
+        #expect(shift.commandID == "reverseSample")
+
+        // F6 has a base action (Crop) but an empty shift slot: swallowed under shift.
+        await surface.handleForTesting([.button(led: .function6, pressed: true)])
+        await surface.handleForTesting([.button(led: .function6, pressed: false)])
+        #expect(base.commandID == "cutSample")
+        await surface.handleForTesting([.button(led: .shift, pressed: false)])
+
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"],
+           let left = scene.displays[0], let shiftRight = scene.shift?.displays[1] {
+            try? PixelSnapshot.write([left, shiftRight], to: "\(dir)/paulinche-instrument-shift.png")
+        }
+    }
+
     @Test("Instrument scene leaves function buttons unbound and binds all encoders")
     func instrumentSceneLeavesFunctionButtonsUnbound() {
         let rendered = MK2PaulincheInstrumentRenderer.surfaceScene(Self.instrumentFixture())

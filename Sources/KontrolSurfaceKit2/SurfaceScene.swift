@@ -31,6 +31,13 @@ public struct MIDIFocus: Sendable {
     }
 }
 
+/// A held hardware key that modifies the surface. Shift is the only first-class
+/// modifier; the set shape keeps the door open for other held-button layers
+/// without another API change.
+public enum MK2Modifier: Sendable, Hashable {
+    case shift
+}
+
 public struct MK2InputBindings2: Sendable {
     public enum ModifierRequirement: Sendable, Hashable {
         case any
@@ -132,21 +139,51 @@ public struct MK2InputBindings2: Sendable {
 }
 
 public struct MK2SurfaceScene2: Sendable {
+    /// Alternate surface state active while the hardware SHIFT button is held.
+    ///
+    /// The layer is an overlay, not a second scene: per-screen frames replace the
+    /// base frames (`nil` keeps the base visible), lamps and key colors merge over
+    /// the base, and bindings are consulted before the base bindings. Controls the
+    /// layer leaves unbound keep working through the base scene, so a layer only
+    /// declares what actually changes under shift.
+    public struct ShiftLayer: Sendable {
+        public var displays: [MK2PixelFrame?]
+        public var lamps: [KKMK2ButtonLED: MK2LampState2]
+        public var keyColors: [Int: KKRGB]
+        public var bindings: MK2InputBindings2
+
+        public init(
+            left: MK2PixelFrame? = nil,
+            right: MK2PixelFrame? = nil,
+            lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
+            keyColors: [Int: KKRGB] = [:],
+            bindings: MK2InputBindings2 = MK2InputBindings2()
+        ) {
+            displays = [left, right]
+            self.lamps = lamps
+            self.keyColors = keyColors
+            self.bindings = bindings
+        }
+    }
+
     public var displays: [MK2PixelFrame?]
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
     public var keyColors: [Int: KKRGB]
     public var bindings: MK2InputBindings2
+    public var shift: ShiftLayer?
 
     public init(
         left: MK2PixelFrame? = nil,
         right: MK2PixelFrame? = nil,
         lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
         keyColors: [Int: KKRGB] = [:],
-        bindings: MK2InputBindings2 = MK2InputBindings2()
+        bindings: MK2InputBindings2 = MK2InputBindings2(),
+        shift: ShiftLayer? = nil
     ) {
         displays = [left, right]
         self.lamps = lamps
         self.keyColors = keyColors
         self.bindings = bindings
+        self.shift = shift
     }
 }

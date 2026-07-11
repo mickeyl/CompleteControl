@@ -5,16 +5,23 @@ public struct MK2ScreenContext: Sendable {
     public let layout: MK2RegularScreenLayout?
     public let renderer: FreeTypeTextRenderer?
     public let chromeColors: MK2ScreenChromeColors
+    /// Which variant pass is rendering: empty for the base layer, `[.shift]`
+    /// while building the shift layer of a screen that declared one.
+    public let modifiers: Set<MK2Modifier>
 
     public init(
         layout: MK2RegularScreenLayout? = nil,
         renderer: FreeTypeTextRenderer? = nil,
-        chromeColors: MK2ScreenChromeColors = MK2ScreenChromeColors()
+        chromeColors: MK2ScreenChromeColors = MK2ScreenChromeColors(),
+        modifiers: Set<MK2Modifier> = []
     ) {
         self.layout = layout
         self.renderer = renderer
         self.chromeColors = chromeColors
+        self.modifiers = modifiers
     }
+
+    public var isShiftPass: Bool { modifiers.contains(.shift) }
 }
 
 public struct MK2ScreenBuildResult: Sendable {
@@ -22,6 +29,14 @@ public struct MK2ScreenBuildResult: Sendable {
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
     public var keyColors: [Int: KKRGB]
     public var bindings: MK2InputBindings2
+    /// Set during the base pass by elements that declare shift content; the DSL
+    /// builders then run a second pass with `context.modifiers = [.shift]` and
+    /// store its output in the `shift*` fields below.
+    public var wantsShiftPass: Bool
+    public var shiftScreen: MK2Screen?
+    public var shiftLamps: [KKMK2ButtonLED: MK2LampState2]
+    public var shiftKeyColors: [Int: KKRGB]
+    public var shiftBindings: MK2InputBindings2
 
     public init(
         screen: MK2Screen,
@@ -33,12 +48,21 @@ public struct MK2ScreenBuildResult: Sendable {
         self.lamps = lamps
         self.keyColors = keyColors
         self.bindings = bindings
+        wantsShiftPass = false
+        shiftLamps = [:]
+        shiftKeyColors = [:]
+        shiftBindings = MK2InputBindings2()
     }
 
     public mutating func merge(_ other: MK2ScreenBuildResult) {
         lamps.merge(other.lamps) { _, next in next }
         keyColors.merge(other.keyColors) { _, next in next }
         bindings.merge(other.bindings)
+        wantsShiftPass = wantsShiftPass || other.wantsShiftPass
+        if let shiftScreen = other.shiftScreen { self.shiftScreen = shiftScreen }
+        shiftLamps.merge(other.shiftLamps) { _, next in next }
+        shiftKeyColors.merge(other.shiftKeyColors) { _, next in next }
+        shiftBindings.merge(other.shiftBindings)
     }
 }
 
@@ -114,11 +138,22 @@ public struct MK2RegularScreenDSL: Sendable {
     }
 
     public func build(renderer: FreeTypeTextRenderer? = nil) -> MK2ScreenBuildResult {
+        var result = buildPass(renderer: renderer, modifiers: [])
+        guard result.wantsShiftPass else { return result }
+        let shiftResult = buildPass(renderer: renderer, modifiers: [.shift])
+        result.shiftScreen = shiftResult.screen
+        result.shiftLamps = shiftResult.lamps
+        result.shiftKeyColors = shiftResult.keyColors
+        result.shiftBindings = shiftResult.bindings
+        return result
+    }
+
+    private func buildPass(renderer: FreeTypeTextRenderer?, modifiers: Set<MK2Modifier>) -> MK2ScreenBuildResult {
         let chrome = MK2RegularScreenChrome(header: header, footer: footer, progress: progress, typography: typography, colors: colors)
         var frame = MK2PixelFrame()
         chrome.draw(into: &frame, renderer: renderer)
         var result = MK2ScreenBuildResult(screen: .regular(frame))
-        let context = MK2ScreenContext(layout: chrome.layout, renderer: renderer, chromeColors: colors)
+        let context = MK2ScreenContext(layout: chrome.layout, renderer: renderer, chromeColors: colors, modifiers: modifiers)
         for element in elements {
             element.apply(to: &frame, context: context, result: &result)
         }
@@ -140,9 +175,20 @@ public struct MK2FullScreenDSL: Sendable {
     }
 
     public func build(renderer: FreeTypeTextRenderer? = nil) -> MK2ScreenBuildResult {
+        var result = buildPass(renderer: renderer, modifiers: [])
+        guard result.wantsShiftPass else { return result }
+        let shiftResult = buildPass(renderer: renderer, modifiers: [.shift])
+        result.shiftScreen = shiftResult.screen
+        result.shiftLamps = shiftResult.lamps
+        result.shiftKeyColors = shiftResult.keyColors
+        result.shiftBindings = shiftResult.bindings
+        return result
+    }
+
+    private func buildPass(renderer: FreeTypeTextRenderer?, modifiers: Set<MK2Modifier>) -> MK2ScreenBuildResult {
         var frame = MK2PixelFrame(fill: background)
         var result = MK2ScreenBuildResult(screen: .fullScreen(frame))
-        let context = MK2ScreenContext(renderer: renderer)
+        let context = MK2ScreenContext(renderer: renderer, modifiers: modifiers)
         for element in elements {
             element.apply(to: &frame, context: context, result: &result)
         }
@@ -190,7 +236,34 @@ public struct MK2DoubleScreenDSL: Sendable {
             right: right.screen.frame,
             lamps: mergedLamps,
             keyColors: mergedKeyColors,
-            bindings: mergedBindings
+            bindings: mergedBindings,
+            shift: shiftLayer()
+        )
+    }
+
+    private func shiftLayer() -> MK2SurfaceScene2.ShiftLayer? {
+        MK2SurfaceScene2.ShiftLayer(left: left, right: right)
+    }
+}
+
+public extension MK2SurfaceScene2.ShiftLayer {
+    /// Merges the shift output of two screen build results into one scene layer;
+    /// nil when neither side declared shift content. `MK2DoubleScreenDSL` uses
+    /// this, and clients that assemble `MK2SurfaceScene2` by hand should too.
+    init?(left: MK2ScreenBuildResult, right: MK2ScreenBuildResult) {
+        guard left.shiftScreen != nil || right.shiftScreen != nil else { return nil }
+        var lamps = left.shiftLamps
+        lamps.merge(right.shiftLamps) { _, next in next }
+        var keyColors = left.shiftKeyColors
+        keyColors.merge(right.shiftKeyColors) { _, next in next }
+        var bindings = left.shiftBindings
+        bindings.merge(right.shiftBindings)
+        self.init(
+            left: left.shiftScreen?.frame,
+            right: right.shiftScreen?.frame,
+            lamps: lamps,
+            keyColors: keyColors,
+            bindings: bindings
         )
     }
 }
@@ -198,6 +271,30 @@ public struct MK2DoubleScreenDSL: Sendable {
 public extension MK2SurfaceScene2 {
     init(_ doubleScreen: MK2DoubleScreenDSL) {
         self = doubleScreen.scene()
+    }
+}
+
+/// The generic shift-variance element: its `shifted` branch renders only into
+/// the shift layer, the optional `otherwise` branch only into the base layer.
+/// Elements outside a branch render identically in both layers, so wrapping
+/// only what actually changes keeps the two passes aligned by construction.
+public struct MK2ShiftBranch: MK2ScreenElement {
+    public var shifted: [any MK2ScreenElement]
+    public var base: [any MK2ScreenElement]
+
+    public init(
+        @MK2ScreenBuilder _ shifted: () -> [any MK2ScreenElement],
+        @MK2ScreenBuilder otherwise base: () -> [any MK2ScreenElement] = { [] }
+    ) {
+        self.shifted = shifted()
+        self.base = base()
+    }
+
+    public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
+        result.wantsShiftPass = true
+        for element in context.isShiftPass ? shifted : base {
+            element.apply(to: &frame, context: context, result: &result)
+        }
     }
 }
 

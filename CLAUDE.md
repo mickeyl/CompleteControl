@@ -118,7 +118,17 @@ Interaction and rendering rules:
   cache via `fillRoundedVerticalGradient`) — per-row/column RGB565 lerps band
   visibly on the OLEDs;
 - the encoder/filter footer height derives from its content
-  (`MK2ScreenLayout.encoderFooterHeight`); do not reintroduce fixed literals.
+  (`MK2ScreenLayout.encoderFooterHeight`); do not reintroduce fixed literals;
+- SHIFT is the only first-class modifier and is scene-owned: screens declare a
+  shift layer in the DSL (`MK2ShiftBranch`, `MK2FunctionKeyBarElement`
+  `shiftSlots`/`onShiftPress`, `MK2ParameterPageElement.shiftSlots`); never
+  re-present scenes on shift transitions or hand-roll chord handling. While
+  held, layer bindings dispatch first with fallback to the base scene. Shift
+  reveals rarer alternates related to the base action in the same physical
+  slot (base CUT → shift TRIM); it never relocates a frequent action.
+  Shift-layer function labels render in `MK2HIG.Chrome.shiftAccent`; the shift
+  button lamp is automatic (dim = layer available, bright = held) unless a
+  scene sets it explicitly. Shift is momentary, never latching.
 
 Typography uses FreeType/HarfBuzz for proportional UI and fixed-pitch rendering
 for tracker/grid content. Keep repeated text in the glyph/run caches.

@@ -84,6 +84,7 @@ public actor MK2Surface2 {
     // session — that stale-callback path was the reconnect-cascade bug.
     private var daemonSessionGeneration: UInt64 = 0
     private var pressedButtons: Set<KKMK2ButtonLED> = []
+    private var buttonPressResolutions: [KKMK2ButtonLED: ButtonResolution] = [:]
     private var buttonHoldTokens: [KKMK2ButtonLED: UInt64] = [:]
     private var buttonHoldTasks: [KKMK2ButtonLED: Task<Void, Never>] = [:]
     private var nextButtonHoldToken: UInt64 = 0
@@ -398,15 +399,46 @@ public actor MK2Surface2 {
         guard controlClient != nil else { return }
         let dt = Double(now &- lastTick) / 1_000_000_000.0
         lastTick = now
-        advanceLamps(dt: dt)
-        reconcileLamps()
+        let lamps = activeLamps
+        advanceLamps(dt: dt, lamps: lamps)
+        reconcileLamps(lamps)
         reconcileKeys()
         reconcileDisplays(force: forceDisplay)
         maybeCheckIdleDaemon(now: now)
     }
 
-    private func advanceLamps(dt: Double) {
-        for (led, state) in scene.lamps {
+    // Auto shift lamp: a scene with a shift layer advertises it (dim) and confirms
+    // the held state (bright) unless the scene or its layer set the lamp explicitly.
+    private static let shiftAvailableLamp: MK2LampState2 = .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
+    private static let shiftHeldLamp: MK2LampState2 = .white
+
+    private var activeLamps: [KKMK2ButtonLED: MK2LampState2] {
+        var lamps = scene.lamps
+        if let layer = activeShiftLayer {
+            lamps.merge(layer.lamps) { _, next in next }
+        }
+        if scene.shift != nil, scene.lamps[.shift] == nil, scene.shift?.lamps[.shift] == nil {
+            lamps[.shift] = pressedButtons.contains(.shift) ? Self.shiftHeldLamp : Self.shiftAvailableLamp
+        }
+        return lamps
+    }
+
+    private var activeKeyColors: [Int: KKRGB] {
+        guard let layer = activeShiftLayer, !layer.keyColors.isEmpty else { return scene.keyColors }
+        var colors = scene.keyColors
+        colors.merge(layer.keyColors) { _, next in next }
+        return colors
+    }
+
+    private var activeDisplays: [MK2PixelFrame?] {
+        guard let layer = activeShiftLayer else { return scene.displays }
+        return scene.displays.enumerated().map { index, base in
+            layer.displays.indices.contains(index) ? layer.displays[index] ?? base : base
+        }
+    }
+
+    private func advanceLamps(dt: Double, lamps: [KKMK2ButtonLED: MK2LampState2]) {
+        for (led, state) in lamps {
             switch state {
                 case let .blink(_, period, _), let .pulse(_, period):
                     if period > 0 {
@@ -418,9 +450,9 @@ public actor MK2Surface2 {
         }
     }
 
-    private func reconcileLamps() {
+    private func reconcileLamps(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
         var bytes = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
-        for (led, state) in scene.lamps where bytes.indices.contains(led.rawValue) {
+        for (led, state) in lamps where bytes.indices.contains(led.rawValue) {
             bytes[led.rawValue] = paletteByte(for: state, led: led)
         }
         guard bytes != lastLampBytes else { return }
@@ -439,7 +471,7 @@ public actor MK2Surface2 {
     private func reconcileKeys() {
         let keyCount = 88
         var colors = Array(repeating: KKRGB.off, count: keyCount)
-        for (index, color) in scene.keyColors where colors.indices.contains(index) {
+        for (index, color) in activeKeyColors where colors.indices.contains(index) {
             colors[index] = color
         }
         guard colors != lastKeyColors else { return }
@@ -460,7 +492,7 @@ public actor MK2Surface2 {
     }
 
     private func reconcileDisplays(force: Bool) {
-        let blits = displayReconciler.reconcile(frames: scene.displays, force: force)
+        let blits = displayReconciler.reconcile(frames: activeDisplays, force: force)
         for blit in blits {
             let response = blitDisplay(
                 screen: blit.screen,
@@ -565,51 +597,66 @@ public actor MK2Surface2 {
         handle(events, timestampNanos: timestampNanos)
     }
 
+    func activeDisplaysForTesting() -> [MK2PixelFrame?] { activeDisplays }
+    func activeLampsForTesting() -> [KKMK2ButtonLED: MK2LampState2] { activeLamps }
+    func activeKeyColorsForTesting() -> [Int: KKRGB] { activeKeyColors }
+
     private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {
             switch event {
                 case let .button(led, pressed):
                     if pressed {
-                        beginButtonHold(led)
-                        buttonHandler(for: led, event: .press)?()
+                        let resolution = buttonResolution(for: led)
+                        buttonPressResolutions[led] = resolution
+                        beginButtonHold(led, resolution: resolution)
+                        buttonHandler(for: led, event: .press, resolution: resolution)?()
                     } else {
-                        let handler = buttonHandler(for: led, event: .release)
+                        // Resolve the release against the layer/requirement captured at
+                        // press time: a press taken under shift must pair with its own
+                        // release even when shift went up first.
+                        let resolution = buttonPressResolutions[led] ?? buttonResolution(for: led)
+                        let handler = buttonHandler(for: led, event: .release, resolution: resolution)
                         endButtonHold(led)
                         handler?()
                     }
+                    if led == .shift, scene.shift != nil {
+                        // Flip the displayed layer now; waiting for the next 30 Hz tick
+                        // makes a held modifier feel rubbery.
+                        tick(forceDisplay: false)
+                    }
                 case let .knob(index, delta, value):
-                    scene.bindings.encoder[index]?(delta, value, timestampNanos)
+                    (activeShiftLayer?.bindings.encoder[index] ?? scene.bindings.encoder[index])?(delta, value, timestampNanos)
                 case let .touchEncoder(index, touched):
-                    scene.bindings.encoderTouch[index]?(touched)
+                    (activeShiftLayer?.bindings.encoderTouch[index] ?? scene.bindings.encoderTouch[index])?(touched)
                     if touched, lastEncoderTouchNanos.indices.contains(index) {
                         let now = DispatchTime.now().uptimeNanoseconds
                         if now &- lastEncoderTouchNanos[index] < Self.doubleTouchWindowNanos {
                             lastEncoderTouchNanos[index] = 0
-                            scene.bindings.encoderDoubleTouch[index]?()
+                            (activeShiftLayer?.bindings.encoderDoubleTouch[index] ?? scene.bindings.encoderDoubleTouch[index])?()
                         } else {
                             lastEncoderTouchNanos[index] = now
                         }
                     }
                 case let .jog(direction):
-                    scene.bindings.jog?(direction)
+                    (activeShiftLayer?.bindings.jog ?? scene.bindings.jog)?(direction)
                 case .jogCenter:
-                    scene.bindings.jogCenter?()
+                    (activeShiftLayer?.bindings.jogCenter ?? scene.bindings.jogCenter)?()
                 case let .jogScroll(delta, value):
-                    scene.bindings.jogScroll?(delta, value)
+                    (activeShiftLayer?.bindings.jogScroll ?? scene.bindings.jogScroll)?(delta, value)
                 case let .jogTouch(touched):
-                    scene.bindings.jogTouch?(touched)
+                    (activeShiftLayer?.bindings.jogTouch ?? scene.bindings.jogTouch)?(touched)
                 case let .strip(position, time):
-                    scene.bindings.strip?(position, time)
+                    (activeShiftLayer?.bindings.strip ?? scene.bindings.strip)?(position, time)
                 case .rawChanged:
                     break
             }
         }
     }
 
-    private func beginButtonHold(_ led: KKMK2ButtonLED) {
+    private func beginButtonHold(_ led: KKMK2ButtonLED, resolution: ButtonResolution) {
         pressedButtons.insert(led)
         buttonHoldTasks[led]?.cancel()
-        guard let handler = buttonHandler(for: led, event: .hold) else { return }
+        guard let handler = buttonHandler(for: led, event: .hold, resolution: resolution) else { return }
 
         nextButtonHoldToken &+= 1
         let token = nextButtonHoldToken
@@ -631,26 +678,57 @@ public actor MK2Surface2 {
         case hold
     }
 
+    private struct ButtonResolution {
+        var viaShiftLayer: Bool
+        var requirement: MK2InputBindings2.ModifierRequirement
+    }
+
+    /// The shift layer of the current scene, but only while SHIFT is physically held.
+    private var activeShiftLayer: MK2SurfaceScene2.ShiftLayer? {
+        guard pressedButtons.contains(.shift) else { return nil }
+        return scene.shift
+    }
+
+    private func buttonResolution(for led: KKMK2ButtonLED) -> ButtonResolution {
+        let shiftHeld = led != .shift && pressedButtons.contains(.shift)
+        return ButtonResolution(
+            viaShiftLayer: shiftHeld && scene.shift != nil,
+            requirement: shiftHeld ? .shift : .unmodified
+        )
+    }
+
     private func buttonHandler(
         for led: KKMK2ButtonLED,
+        event: ButtonBindingEvent,
+        resolution: ButtonResolution
+    ) -> (@Sendable () -> Void)? {
+        let key = MK2InputBindings2.ModifiedButton(led, resolution.requirement)
+        if resolution.viaShiftLayer, let layer = scene.shift,
+           let handler = Self.buttonHandler(in: layer.bindings, led: led, key: key, event: event) {
+            return handler
+        }
+        return Self.buttonHandler(in: scene.bindings, led: led, key: key, event: event)
+    }
+
+    private static func buttonHandler(
+        in bindings: MK2InputBindings2,
+        led: KKMK2ButtonLED,
+        key: MK2InputBindings2.ModifiedButton,
         event: ButtonBindingEvent
     ) -> (@Sendable () -> Void)? {
-        let requirement: MK2InputBindings2.ModifierRequirement =
-            led != .shift && pressedButtons.contains(.shift) ? .shift : .unmodified
-        let key = MK2InputBindings2.ModifiedButton(led, requirement)
-
         switch event {
             case .press:
-                return scene.bindings.modifiedButtonDown[key] ?? scene.bindings.buttonDown[led]
+                bindings.modifiedButtonDown[key] ?? bindings.buttonDown[led]
             case .release:
-                return scene.bindings.modifiedButtonUp[key] ?? scene.bindings.buttonUp[led]
+                bindings.modifiedButtonUp[key] ?? bindings.buttonUp[led]
             case .hold:
-                return scene.bindings.modifiedButtonHold[key] ?? scene.bindings.buttonHold[led]
+                bindings.modifiedButtonHold[key] ?? bindings.buttonHold[led]
         }
     }
 
     private func endButtonHold(_ led: KKMK2ButtonLED) {
         pressedButtons.remove(led)
+        buttonPressResolutions[led] = nil
         buttonHoldTokens[led] = nil
         buttonHoldTasks[led]?.cancel()
         buttonHoldTasks[led] = nil
@@ -672,6 +750,7 @@ public actor MK2Surface2 {
             task.cancel()
         }
         pressedButtons.removeAll()
+        buttonPressResolutions.removeAll()
         buttonHoldTokens.removeAll()
         buttonHoldTasks.removeAll()
     }

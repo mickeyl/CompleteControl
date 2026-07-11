@@ -50,6 +50,30 @@ struct InstrumentRenderTimingTests {
         time("full render (2 screens)") { i in
             _ = MK2PaulincheInstrumentRenderer.render(scene(value: i), renderer: renderer)
         }
+        time("full render + shift layer") { i in
+            var shifted = scene(value: i)
+            shifted.softKeys = [
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "Cut"),
+                MK2PaulincheSoftKey(label: "Crop"),
+                MK2PaulincheSoftKey(label: "Fade"),
+                MK2PaulincheSoftKey(label: "Norm"),
+            ]
+            shifted.shiftSoftKeys = [
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "Reverse"),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "", isEnabled: false),
+                MK2PaulincheSoftKey(label: "DC Fix"),
+            ]
+            _ = MK2PaulincheInstrumentRenderer.render(shifted, renderer: renderer)
+        }
         time("full render, no freetype") { i in
             _ = MK2PaulincheInstrumentRenderer.render(scene(value: i), renderer: nil)
         }
