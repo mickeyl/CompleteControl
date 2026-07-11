@@ -74,7 +74,8 @@ struct WaveformDisplayTests {
         MK2WaveformDisplay(envelope: MK2WaveformEnvelope(minima: [], maxima: []), rect: Self.rect).draw(into: &frame)
         let colors = MK2WaveformDisplay.Colors()
         #expect(count(in: frame, rect: Self.rect, color: colors.wave) == 0)
-        #expect(frame[Self.rect.x, Self.rect.y] == colors.border)
+        // Probe the border on the top edge center — the corners are rounded now.
+        #expect(frame[Self.rect.x + Self.rect.width / 2, Self.rect.y] == colors.border)
     }
 
     private func count(in frame: MK2PixelFrame, rect: MK2PixelRect, color: UInt16) -> Int {

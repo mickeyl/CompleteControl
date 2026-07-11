@@ -72,6 +72,34 @@ public enum MK2HIG {
         public static let progressFillEnd: UInt16 = 0x465f   // (64, 201, 248)
     }
 
+    /// Waveform palette, mirroring the Paulinche app's sample waveform view
+    /// (`Design.Waveform` / `Design.Accent` in PaulincheApp) so hardware and
+    /// app render sample material in one identity: black canvas, blue trace,
+    /// green start/stop beacons, white playhead. Values are the app's sRGB
+    /// tokens quantized to RGB565; opacity-based tokens are pre-composited
+    /// over the black canvas. Change them here and in the app together.
+    public enum Waveform {
+        public static let background: UInt16 = 0x0000
+        /// The app frames the waveform with a hairline, not a border: secondary at 18 %.
+        public static let border: UInt16 = 0x2945
+        /// App center line: secondary at 35 %.
+        public static let centerLine: UInt16 = 0x39c7
+        /// `Design.Waveform.trace` blue (0.18, 0.68, 1.0).
+        public static let trace: UInt16 = 0x357f
+        /// Trace dimmed to ~45 % for columns outside the highlighted region.
+        public static let traceOutsideRegion: UInt16 = 0x1a6e
+        /// Trace at 12 % over black — the app's loop-region shading.
+        public static let regionFill: UInt16 = 0x08a4
+        /// `Design.Waveform.loopMarker` (0.72, 0.83, 0.95).
+        public static let regionEdge: UInt16 = 0xb69d
+        /// `Design.Accent.startOffset` beacon green (0.33, 0.85, 0.42).
+        public static let marker: UInt16 = 0x56cd
+        /// App playhead: white at 86 % over black.
+        public static let playhead: UInt16 = 0xdedb
+        /// Matches the app's `SampleWaveformView` corner radius.
+        public static let cornerRadius = 6
+    }
+
     public static func bodyTextStyle(color: UInt16) -> FreeTypeTextStyle {
         textStyle(
             weight: Fonts.bodyWeight,

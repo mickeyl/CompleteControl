@@ -51,10 +51,10 @@ struct PaulincheSongInstrumentRendererTests {
         let left = rendered.left.screen.frame
         let right = rendered.right.screen.frame
         // The waveform fills the left content area: wave columns inside the loop region…
-        #expect(left.countPixels(in: MK2PixelRect(x: 100, y: 40, width: 260, height: 160), matching: 0x464f) > 800)
+        #expect(left.countPixels(in: MK2PixelRect(x: 100, y: 40, width: 260, height: 160), matching: MK2HIG.Waveform.trace) > 800)
         // …dimmed columns outside, and a playhead line.
-        #expect(left.countPixels(in: MK2PixelRect(x: 12, y: 40, width: 60, height: 160), matching: 0x4a69) > 100)
-        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 36, width: 464, height: 166), matching: MK2HIG.Chrome.accent) > 100)
+        #expect(left.countPixels(in: MK2PixelRect(x: 12, y: 40, width: 60, height: 160), matching: MK2HIG.Waveform.traceOutsideRegion) > 100)
+        #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 36, width: 464, height: 166), matching: MK2HIG.Waveform.playhead) > 100)
         // Encoder slots sit bottom-flush on both screens.
         #expect(left.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: 0x0841) > 300)
         #expect(right.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: 0x0841) > 300)

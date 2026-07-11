@@ -24,7 +24,8 @@ public struct MK2WaveformEnvelope: Sendable, Equatable {
 }
 
 /// Draws a sample waveform from a min/max envelope, sized for the MK2 OLEDs:
-/// one column pass over the target rect, integer fills only, no text and no
+/// one column pass over the target rect inside an antialiased rounded panel,
+/// integer fills only, no text and no
 /// allocation in the draw loop. Bins are merged (envelope wider than the
 /// rect) or replicated (envelope narrower) so any envelope resolution maps
 /// onto any pixel width without aliasing artifacts.
@@ -44,15 +45,15 @@ public struct MK2WaveformDisplay: Sendable {
         public var playhead: UInt16
 
         public init(
-            background: UInt16 = MK2HIG.Chrome.background,
-            border: UInt16 = MK2HIG.Chrome.border,
-            centerLine: UInt16 = MK2HIG.Chrome.border,
-            wave: UInt16 = 0x464f,
-            waveOutsideRegion: UInt16 = 0x2949,
-            regionFill: UInt16 = 0x1124,
-            regionEdge: UInt16 = 0x2d7f,
-            marker: UInt16 = MK2HIG.Chrome.dim,
-            playhead: UInt16 = MK2HIG.Chrome.accent
+            background: UInt16 = MK2HIG.Waveform.background,
+            border: UInt16 = MK2HIG.Waveform.border,
+            centerLine: UInt16 = MK2HIG.Waveform.centerLine,
+            wave: UInt16 = MK2HIG.Waveform.trace,
+            waveOutsideRegion: UInt16 = MK2HIG.Waveform.traceOutsideRegion,
+            regionFill: UInt16 = MK2HIG.Waveform.regionFill,
+            regionEdge: UInt16 = MK2HIG.Waveform.regionEdge,
+            marker: UInt16 = MK2HIG.Waveform.marker,
+            playhead: UInt16 = MK2HIG.Waveform.playhead
         ) {
             self.background = background
             self.border = border
@@ -75,6 +76,7 @@ public struct MK2WaveformDisplay: Sendable {
     public var markers: [Double]
     /// Playhead line at a fraction position.
     public var playhead: Double?
+    public var cornerRadius: Int
     public var colors: Colors
 
     public init(
@@ -83,6 +85,7 @@ public struct MK2WaveformDisplay: Sendable {
         region: ClosedRange<Double>? = nil,
         markers: [Double] = [],
         playhead: Double? = nil,
+        cornerRadius: Int = MK2HIG.Waveform.cornerRadius,
         colors: Colors = Colors()
     ) {
         self.envelope = envelope
@@ -90,13 +93,17 @@ public struct MK2WaveformDisplay: Sendable {
         self.region = region.map { Self.clamped01($0.lowerBound)...Self.clamped01(max($0.lowerBound, $0.upperBound)) }
         self.markers = markers.map(Self.clamped01)
         self.playhead = playhead.map(Self.clamped01)
+        self.cornerRadius = max(0, cornerRadius)
         self.colors = colors
     }
 
     public func draw(into frame: inout MK2PixelFrame) {
         guard !rect.isEmpty else { return }
-        frame.fill(rect, colors.background)
-        frame.stroke(rect, colors.border)
+        let radius = min(cornerRadius, rect.width / 2, rect.height / 2)
+        frame.fillRounded(rect, radius: radius, colors.border, antialiased: true)
+        let panel = MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2)
+        guard !panel.isEmpty else { return }
+        frame.fillRounded(panel, radius: max(0, radius - 1), colors.background, antialiased: true)
 
         let inner = MK2PixelRect(x: rect.x + 2, y: rect.y + 2, width: rect.width - 4, height: rect.height - 4)
         guard !inner.isEmpty else { return }

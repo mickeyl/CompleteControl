@@ -110,8 +110,7 @@ public enum MK2PaulincheInstrumentRenderer {
                     rect: waveformRect,
                     region: scene.loopRegion,
                     markers: scene.markers,
-                    playhead: scene.playheadProgress,
-                    colors: waveformColors
+                    playhead: scene.playheadProgress
                 ).draw(into: &frame)
             }
             MK2ParameterPageElement(
@@ -176,21 +175,6 @@ public enum MK2PaulincheInstrumentRenderer {
     }
 
     // MARK: - Shared pieces
-
-    private static var waveformColors: MK2WaveformDisplay.Colors {
-        typealias Palette = MK2PaulincheRendererSupport.Palette
-        return MK2WaveformDisplay.Colors(
-            background: Palette.secondaryPanelFill,
-            border: Palette.border,
-            centerLine: Palette.border,
-            wave: Palette.green,
-            waveOutsideRegion: Palette.empty,
-            regionFill: Palette.playbackRow,
-            regionEdge: Palette.blue,
-            marker: Palette.orange,
-            playhead: MK2HIG.Chrome.accent
-        )
-    }
 
     /// Keeps the encoder-index correspondence while hiding unassigned slots:
     /// empty labels stay in place as blank cells.
