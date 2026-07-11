@@ -163,8 +163,8 @@ public enum MK2SelectionLayout {
     public static let contentWidth = regularLayout.contentRect.width
     public static let contentHeight = regularLayout.contentRect.height
     public static let filteredContentHeight = filteredLayout.contentRect.height
-    public static let filterAreaY = filteredLayout.footerRect?.y ?? 184
-    public static let filterAreaHeight = filteredLayout.footerRect?.height ?? 88
+    public static let filterAreaY = filteredLayout.footerRect?.y ?? (MK2ScreenLayout.bounds.height - MK2ScreenLayout.encoderFooterHeight)
+    public static let filterAreaHeight = filteredLayout.footerRect?.height ?? MK2ScreenLayout.encoderFooterHeight
 
     public static func contentRect(hasFilters: Bool) -> MK2PixelRect {
         (hasFilters ? filteredLayout : regularLayout).contentRect
@@ -247,6 +247,9 @@ public struct MK2SelectionList: Sendable {
     public var filters: [MK2SelectionFilter]
     public var colors: MK2SelectionViewColors
     public var rowHeight: Int
+    /// Air between adjacent rows so neighboring cells don't touch; costs a
+    /// visible row on tall lists. Pass 0 for the packed look.
+    public var rowGap: Int
 
     public init(
         title: String,
@@ -255,6 +258,7 @@ public struct MK2SelectionList: Sendable {
         selectedIndex: Int,
         filters: [MK2SelectionFilter] = [],
         rowHeight: Int = 30,
+        rowGap: Int = 6,
         colors: MK2SelectionViewColors = MK2SelectionViewColors()
     ) {
         self.title = title
@@ -263,6 +267,7 @@ public struct MK2SelectionList: Sendable {
         self.selectedIndex = selectedIndex
         self.filters = filters
         self.rowHeight = max(24, rowHeight)
+        self.rowGap = max(0, rowGap)
         self.colors = colors
     }
 
@@ -276,13 +281,16 @@ public struct MK2SelectionList: Sendable {
             return
         }
 
-        let visibleRows = max(1, content.height / rowHeight)
+        // The trailing row needs no gap below it, so one gap's worth of height
+        // comes for free when dividing by the row stride.
+        let rowStride = rowHeight + rowGap
+        let visibleRows = max(1, (content.height + rowGap) / rowStride)
         let selected = selectedIndex.clamped(to: 0...(items.count - 1))
         let first = min(max(0, selected - visibleRows / 2), max(0, items.count - visibleRows))
         let last = min(items.count, first + visibleRows)
 
         for visible in first..<last {
-            let y = content.y + (visible - first) * rowHeight
+            let y = content.y + (visible - first) * rowStride
             drawRow(items[visible], index: visible, selected: visible == selected, y: y, into: &frame, renderer: renderer)
         }
         MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
