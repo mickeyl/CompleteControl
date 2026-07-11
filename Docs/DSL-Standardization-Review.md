@@ -50,11 +50,12 @@ Playhead/Cursor/Stripe-Fills, Ruler), `drawTrackerCell` (:239),
 — Custom: Title/Subtitle via FreeType direkt (:115),
 `drawKindTag`-Pill (:177), Info-Zeilen (:163).
 
-**Song**
-— Standard: RegularScreenDSL (Header/Footer), ProgressBar.
-— Custom: `drawOrders`-Tabelle (:136), `drawFooterSoftKeys` →
-`drawSoftKeyStrip` (:169), `drawParameterSlots` statt
-ParameterPage (:111).
+**Song** *(2026-07-11 komplett entfernt — die Szene war auf mehreren
+Ebenen nicht standardkonform, allen voran die Function-Bar unten; eine
+künftige SCENE/Arranger-Szene startet frisch und DSL-first.)*
+— ~~Standard: RegularScreenDSL (Header/Footer), ProgressBar.~~
+— ~~Custom: `drawOrders`-Tabelle, `drawFooterSoftKeys` →
+`drawSoftKeyStrip`, `drawParameterSlots` statt ParameterPage.~~
 
 **Splash**
 — Standard: FullScreenDSL, ImageElement, ContentText.
@@ -94,6 +95,8 @@ Handgerollter Nachbau dessen, was Pattern- und Instrument-Renderer längst
 ![A1: Die vier Slots (BPM/SPD/LEN/PAT) auf dem rechten Song-Screen — handgerollt statt ParameterPage](images/dsl-review/song-parameterslots.png)
 *A1: Die vier Slots (BPM/SPD/LEN/PAT) auf dem rechten Song-Screen — handgerollt statt ParameterPage*
 
+**Erledigt 2026-07-11:** Song-Renderer komplett entfernt; der Punkt ist gegenstandslos.
+
 > Kommentar:
 
 **A2 — Song-Renderer Footer-Softkeys → Standard-`MK2FunctionKeyBarElement`
@@ -106,6 +109,8 @@ bei >4 Aktionen pro Screen: auf beide Screens verteilen oder auf die
 Shift-Ebene ausweichen.
 ![A2: Der Footer-Softkey-Strip der Song-Szene, unten über beide Screens — dort gibt es keine physischen Tasten](images/dsl-review/song-footersoftkeys.png)
 *A2: Der Footer-Softkey-Strip der Song-Szene, unten über beide Screens — dort gibt es keine physischen Tasten*
+
+**Erledigt 2026-07-11:** Song-Renderer komplett entfernt; der Punkt ist gegenstandslos.
 
 > Kommentar:
 
@@ -195,6 +200,8 @@ Table-Widget und gäbe der Song-Szene gratis die vorhandene
 `MK2SelectionInputElement`-Navigation (Jog/Encoder, Lampen).
 ![B3: Die Order-Tabelle der Song-Szene — strukturell eine SelectionList mit Spalten](images/dsl-review/song-ordertable.png)
 *B3: Die Order-Tabelle der Song-Szene — strukturell eine SelectionList mit Spalten*
+
+**Teilweise erledigt 2026-07-11:** Der Song-Renderer (einziger Nutzer der Order-Tabelle) ist entfernt. Die `columns:`-Parametrierung bleibt als Anforderung für die künftige SCENE/Arranger-Szene bestehen.
 
 > Kommentar:
 
