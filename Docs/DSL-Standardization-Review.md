@@ -91,6 +91,9 @@ Textstil-Fabriken, `MK2PixelFrame`-Extensions `hline`/`dottedVLine` (:189).
 **A1 — Song-Renderer `drawParameterSlots` → `MK2ParameterPageElement`.**
 Handgerollter Nachbau dessen, was Pattern- und Instrument-Renderer längst
 über das echte Widget beziehen. Klarster Fall im Inventar.
+![A1: Die vier Slots (BPM/SPD/LEN/PAT) auf dem rechten Song-Screen — handgerollt statt ParameterPage](images/dsl-review/song-parameterslots.png)
+*A1: Die vier Slots (BPM/SPD/LEN/PAT) auf dem rechten Song-Screen — handgerollt statt ParameterPage*
+
 > Kommentar:
 
 **A2 — Song-Renderer Footer-Softkeys → Standard-`MK2FunctionKeyBarElement`
@@ -101,15 +104,24 @@ nur *oben*, je 4 pro Screen. Der Strip ist damit doppelt nicht-standard
 Kein DSL-Ausbau nötig, sondern Umbau der Song-Szene auf die echte Bar;
 bei >4 Aktionen pro Screen: auf beide Screens verteilen oder auf die
 Shift-Ebene ausweichen.
+![A2: Der Footer-Softkey-Strip der Song-Szene, unten über beide Screens — dort gibt es keine physischen Tasten](images/dsl-review/song-footersoftkeys.png)
+*A2: Der Footer-Softkey-Strip der Song-Szene, unten über beide Screens — dort gibt es keine physischen Tasten*
+
 > Kommentar:
 
 **A3 — Pattern-Renderer `drawGridStatusLine` → `MK2StatusLineElement`.**
 Feste x-Positionen mit Einzeltexten ist exakt dessen Modell; der rechte
 Screen nutzt `MK2StatusLine` bereits.
+![A3: Die handgebaute Statuszeile des Pattern-Grids (PAT/ROW/PLAY/Position)](images/dsl-review/pattern-gridstatusline.png)
+*A3: Die handgebaute Statuszeile des Pattern-Grids (PAT/ROW/PLAY/Position)*
+
 > Kommentar:
 
 **A4 — Instrument-Renderer Title/Subtitle → `MK2ContentText`** statt
 direkter FreeType-Aufrufe über `Support.drawText`.
+![A4: Title/Subtitle des Instrument-Editors („PULSE LEAD" / „EDIT 04 SAMPLE") — direkte FreeType-Aufrufe](images/dsl-review/instrument-title.png)
+*A4: Title/Subtitle des Instrument-Editors („PULSE LEAD" / „EDIT 04 SAMPLE") — direkte FreeType-Aufrufe*
+
 > Kommentar:
 
 **A5 — `hline`/`dottedVLine` ins Kit heben.** Beide Codebases definieren
@@ -128,11 +140,17 @@ Instrument-Editor nicht (kein Highlight), und
 konsumierte Inkarnation. Die Runtime kennt den Touch-Zustand lokal —
 das Highlight kann wie die Shift-Ebene ohne App-Roundtrip aus der DSL
 kommen.
+![B1: Die Edit-Zellen des Pattern-Editors; die invertierte INST-Zelle ist das Touch-Highlight, das jede Szene selbst nachbauen muss](images/dsl-review/pattern-editcells.png)
+*B1: Die Edit-Zellen des Pattern-Editors; die invertierte INST-Zelle ist das Touch-Highlight, das jede Szene selbst nachbauen muss*
+
 > Kommentar:
 
 **B2 — `ValueCell`-Familie um Tag/Chip-Erscheinung ergänzen** (oder
 Mini-Widget `MK2TagElement`): deckt den `drawKindTag`-Pill im
 Instrument-Renderer ab (SAMPLE/WAVETABLE).
+![B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand](images/dsl-review/instrument-kindtag.png)
+*B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand*
+
 > Kommentar:
 
 **B3 — `SelectionList` um Spalten erweitern.** Die Order-Tabelle des
@@ -141,6 +159,9 @@ Playback-Marker) ist strukturell eine SelectionList mit Spalten statt
 Icon+Badge. Eine `columns:`-Parametrierung erspart ein eigenes
 Table-Widget und gäbe der Song-Szene gratis die vorhandene
 `MK2SelectionInputElement`-Navigation (Jog/Encoder, Lampen).
+![B3: Die Order-Tabelle der Song-Szene — strukturell eine SelectionList mit Spalten](images/dsl-review/song-ordertable.png)
+*B3: Die Order-Tabelle der Song-Szene — strukturell eine SelectionList mit Spalten*
+
 > Kommentar:
 
 ### C. Neu zu entwickelnde Widgets
@@ -152,6 +173,9 @@ Minimap existieren zweimal (WidgetLab ↔ Paulinche). Nach der
 WidgetLab-Regel gehört das ins Kit. Datenmodell ist mit
 `MK2PaulinchePatternCell` faktisch definiert — es fehlt die Heimat.
 Die Minimap ist separat wiederverwendbar (jede scrollende Szene).
+![C1: Das Tracker-Grid (links) mit Minimap am rechten Rand — existiert so doppelt in WidgetLab und Paulinche](images/dsl-review/paulinche-pattern.png)
+*C1: Das Tracker-Grid (links) mit Minimap am rechten Rand — existiert so doppelt in WidgetLab und Paulinche*
+
 > Kommentar:
 
 **C2 — Kein neues Widget für den Splash.** Prozedurale

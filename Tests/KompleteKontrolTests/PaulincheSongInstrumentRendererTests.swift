@@ -20,6 +20,10 @@ struct PaulincheSongInstrumentRendererTests {
         #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 55, width: 448, height: 120), notMatching: MK2HIG.Chrome.background) > 900)
         #expect(rendered.right.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 189, width: 432, height: 14), matching: MK2HIG.Chrome.accent) > 80)
         #expect(rendered.left.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 222, width: 480, height: 42), notMatching: MK2HIG.Chrome.background) > 400)
+
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
+            try? PixelSnapshot.write([rendered.left.screen.frame, rendered.right.screen.frame], to: "\(dir)/paulinche-song.png")
+        }
     }
 
     @Test("Song scene binds soft keys to function buttons")
