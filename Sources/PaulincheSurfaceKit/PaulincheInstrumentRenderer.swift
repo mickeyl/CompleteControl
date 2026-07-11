@@ -199,16 +199,18 @@ public enum MK2PaulincheInstrumentRenderer {
         }
     }
 
+    /// Always non-nil so enabled slots bind their F-buttons even without a
+    /// handler — an unclaimed function button falling through to scene-global
+    /// bindings would fire an action the bar's label does not announce.
     private static func softKeyPress(
         _ softKeys: [MK2PaulincheSoftKey],
         offset: Int,
         handler: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
-    ) -> (@Sendable (_ slot: Int) -> Void)? {
-        guard let handler else { return nil }
-        return { slot in
+    ) -> @Sendable (_ slot: Int) -> Void {
+        { slot in
             let index = slot + offset
             guard softKeys.indices.contains(index) else { return }
-            handler(index, softKeys[index])
+            handler?(index, softKeys[index])
         }
     }
 

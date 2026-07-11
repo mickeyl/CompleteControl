@@ -311,7 +311,8 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         draw(run: run, into: &frame, x: x, baselineY: baselineY, color: style.color, limitX: widthLimit, clip: bounds)
     }
 
-    #if DEBUG
+    /// Test probe: internal (only reachable via @testable), so it must exist in
+    /// every configuration — release test runs compile this file too.
     func debugShapedGlyphIDs(_ text: String, style: FreeTypeTextStyle) throws -> [FT_UInt] {
         renderLock.lock()
         defer { renderLock.unlock() }
@@ -319,7 +320,6 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         let face = try configuredFace(style: style).face
         return shape(text, face: face).map(\.glyphIndex)
     }
-    #endif
 
     public func wrappedLayout(
         _ text: String,
