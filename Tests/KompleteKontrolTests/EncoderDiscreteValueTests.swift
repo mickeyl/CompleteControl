@@ -15,12 +15,25 @@ struct EncoderDiscreteValueTests {
 
     @Test("Wrapping values cycle through the range")
     func wrapsAroundRange() {
-        let low = MK2EncoderDiscreteValue(encoder: 4, value: 0, bounds: 0...3, wraps: true, onChange: { _ in })
-        let high = MK2EncoderDiscreteValue(encoder: 4, value: 3, bounds: 0...3, wraps: true, onChange: { _ in })
+        let low = MK2EncoderDiscreteValue(encoder: 4, value: 0, bounds: 0...9, wraps: true, onChange: { _ in })
+        let high = MK2EncoderDiscreteValue(encoder: 4, value: 9, bounds: 0...9, wraps: true, onChange: { _ in })
 
-        #expect(low.value(after: -1) == 3)
+        #expect(low.value(after: -1) == 9)
         #expect(high.value(after: 1) == 0)
-        #expect(low.value(after: 5) == 1)
+        #expect(low.value(after: 11) == 1)
+    }
+
+    @Test("Tiny domains clamp even when wrapping is requested")
+    func tinyDomainsNeverWrap() {
+        // An on/off toggle or a three-way mode must park at its ends — one
+        // detent past the end would otherwise flip the value around again.
+        let toggle = MK2EncoderDiscreteValue(encoder: 4, value: 1, bounds: 0...1, wraps: true, onChange: { _ in })
+        let mode = MK2EncoderDiscreteValue(encoder: 4, value: 0, bounds: 0...2, wraps: true, onChange: { _ in })
+
+        #expect(toggle.value(after: 1) == 1)
+        #expect(toggle.value(after: -3) == 0)
+        #expect(mode.value(after: -1) == 0)
+        #expect(mode.value(after: 7) == 2)
     }
 
     @Test("Apply installs touch and encoder callbacks")

@@ -46,7 +46,15 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
 }
 
 /// A discrete encoder-bound integer value with optional wrap-around.
+///
+/// Wrap-around is honored only for domains of at least
+/// `wrapMinimumValueCount` values. With only a handful — an on/off toggle, a
+/// three-way mode — a wrapping value can hardly be controlled: one detent
+/// past the end flips it around again instead of parking it, so tiny
+/// domains always clamp regardless of `wraps`.
 public struct MK2EncoderDiscreteValue: Sendable {
+    public static let wrapMinimumValueCount = 8
+
     public var encoder: Int
     public var value: Int
     public var bounds: ClosedRange<Int>
@@ -80,7 +88,7 @@ public struct MK2EncoderDiscreteValue: Sendable {
     public func value(after delta: Int) -> Int {
         guard delta != 0 else { return value }
         let raw = value + delta * step
-        if wraps {
+        if wraps, bounds.count >= Self.wrapMinimumValueCount {
             return raw.wrapped(to: bounds)
         }
         return min(bounds.upperBound, max(bounds.lowerBound, raw))
