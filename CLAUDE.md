@@ -114,6 +114,10 @@ Interaction and rendering rules:
 - encoder-bound discrete values never wrap on tiny domains (on/off, few
   modes); `MK2EncoderDiscreteValue` enforces the clamp below
   `wrapMinimumValueCount`;
+- encoder double-touch is the "back to default" gesture: declare
+  `MK2EncoderDiscreteValue.defaultValue` for value slots (silent when already
+  at default); the raw `MK2EncoderBindingElement.onDoubleTouch` hook is for
+  actions beyond a reset — never bind double-touch to something destructive;
 - gradients must render dithered (`MK2OrderedDither`, or the gradient tile
   cache via `fillRoundedVerticalGradient`) — per-row/column RGB565 lerps band
   visibly on the OLEDs;

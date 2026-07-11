@@ -1386,6 +1386,7 @@ private actor WidgetLab {
             ("PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%", Palette.text),
             ("CONTENT  \(layout.contentRect.x),\(layout.contentRect.y) \(layout.contentRect.width)*\(layout.contentRect.height)", Palette.blue),
             ("INSTANCE WECHSELT DIE KOMBINATION", Palette.dim),
+            ("ENCODER 2*TIPPEN = WERT ZURUECKSETZEN", Palette.dim),
         ]
 
         return MK2FullScreenDSL(background: Palette.page) {
@@ -1414,6 +1415,7 @@ private actor WidgetLab {
                 encoder: 5,
                 value: sceneProgressMode,
                 bounds: 0...2,
+                defaultValue: 1,
                 display: displays[0],
                 onTouch: { [weak self] touched in
                     Task { await self?.setSceneFocusedEncoder(5, touched: touched) }
@@ -1428,6 +1430,7 @@ private actor WidgetLab {
                 bounds: 0...100,
                 step: 2,
                 wraps: false,
+                defaultValue: 42,
                 display: displays[1],
                 onTouch: { [weak self] touched in
                     Task { await self?.setSceneFocusedEncoder(6, touched: touched) }
@@ -1441,6 +1444,7 @@ private actor WidgetLab {
                 value: sceneCaptionSize,
                 bounds: 10...24,
                 wraps: false,
+                defaultValue: MK2HIG.Typography.captionPixelSize,
                 display: displays[2],
                 onTouch: { [weak self] touched in
                     Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
@@ -1454,6 +1458,7 @@ private actor WidgetLab {
                 value: sceneFootnoteSize,
                 bounds: 10...24,
                 wraps: false,
+                defaultValue: MK2HIG.Typography.footnotePixelSize,
                 display: displays[3],
                 onTouch: { [weak self] touched in
                     Task { await self?.setSceneFocusedEncoder(8, touched: touched) }

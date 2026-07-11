@@ -54,6 +54,54 @@ struct EncoderDiscreteValueTests {
 
         #expect(box.touches == [true])
         #expect(box.values == [12])
+        // No default value declared: double-touch stays unbound.
+        #expect(bindings.encoderDoubleTouch[6] == nil)
+    }
+
+    @Test("Double-touch resets to the default value")
+    func doubleTouchResetsToDefault() {
+        let box = EncoderBox()
+        var bindings = MK2InputBindings2()
+
+        MK2EncoderDiscreteValue(
+            encoder: 6,
+            value: 10,
+            bounds: 0...64,
+            defaultValue: 32,
+            onChange: { box.change($0) }
+        ).apply(bindings: &bindings)
+
+        bindings.encoderDoubleTouch[6]?()
+        #expect(box.values == [32])
+    }
+
+    @Test("Double-touch on an already-default value stays silent")
+    func doubleTouchAtDefaultIsSilent() {
+        let box = EncoderBox()
+        var bindings = MK2InputBindings2()
+
+        MK2EncoderDiscreteValue(
+            encoder: 6,
+            value: 32,
+            bounds: 0...64,
+            defaultValue: 32,
+            onChange: { box.change($0) }
+        ).apply(bindings: &bindings)
+
+        bindings.encoderDoubleTouch[6]?()
+        #expect(box.values.isEmpty)
+    }
+
+    @Test("Out-of-bounds default values clamp into the domain")
+    func defaultValueClamps() {
+        let value = MK2EncoderDiscreteValue(
+            encoder: 6,
+            value: 10,
+            bounds: 0...64,
+            defaultValue: 100,
+            onChange: { _ in }
+        )
+        #expect(value.defaultValue == 64)
     }
 
     @Test("Display projection draws the standard value cell")

@@ -919,14 +919,20 @@ public struct MK2EncoderBindingElement: MK2ScreenElement {
     public var encoder: Int
     private let onChange: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void
     private let onTouch: (@Sendable (_ touched: Bool) -> Void)?
+    /// Two touch-downs within the double-touch window; for value-typed slots
+    /// prefer `MK2EncoderDiscreteValue.defaultValue` — this raw hook is for
+    /// actions beyond a reset.
+    private let onDoubleTouch: (@Sendable () -> Void)?
 
     public init(
         _ encoder: Int,
         onTouch: (@Sendable (_ touched: Bool) -> Void)? = nil,
+        onDoubleTouch: (@Sendable () -> Void)? = nil,
         onChange: @escaping @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void
     ) {
         self.encoder = encoder
         self.onTouch = onTouch
+        self.onDoubleTouch = onDoubleTouch
         self.onChange = onChange
     }
 
@@ -934,6 +940,9 @@ public struct MK2EncoderBindingElement: MK2ScreenElement {
         result.bindings.encoder[encoder] = onChange
         if let onTouch {
             result.bindings.encoderTouch[encoder] = onTouch
+        }
+        if let onDoubleTouch {
+            result.bindings.encoderDoubleTouch[encoder] = onDoubleTouch
         }
     }
 }

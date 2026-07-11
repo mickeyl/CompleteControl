@@ -60,6 +60,9 @@ public struct MK2EncoderDiscreteValue: Sendable {
     public var bounds: ClosedRange<Int>
     public var step: Int
     public var wraps: Bool
+    /// Double-touching the encoder resets to this value — the pro-audio
+    /// "back to default" gesture. `nil` leaves double-touch unbound.
+    public var defaultValue: Int?
     public var display: MK2EncoderDiscreteValueDisplay?
 
     private let onTouch: @Sendable (_ touched: Bool) -> Void
@@ -71,6 +74,7 @@ public struct MK2EncoderDiscreteValue: Sendable {
         bounds: ClosedRange<Int>,
         step: Int = 1,
         wraps: Bool = false,
+        defaultValue: Int? = nil,
         display: MK2EncoderDiscreteValueDisplay? = nil,
         onTouch: @escaping @Sendable (_ touched: Bool) -> Void = { _ in },
         onChange: @escaping @Sendable (_ value: Int) -> Void
@@ -80,6 +84,7 @@ public struct MK2EncoderDiscreteValue: Sendable {
         self.bounds = bounds
         self.step = max(1, step)
         self.wraps = wraps
+        self.defaultValue = defaultValue.map { min(bounds.upperBound, max(bounds.lowerBound, $0)) }
         self.display = display
         self.onTouch = onTouch
         self.onChange = onChange
@@ -102,6 +107,12 @@ public struct MK2EncoderDiscreteValue: Sendable {
             let next = value(after: delta)
             if next != value {
                 onChange(next)
+            }
+        }
+        if let defaultValue {
+            bindings.encoderDoubleTouch[encoder] = {
+                guard defaultValue != value else { return }
+                onChange(defaultValue)
             }
         }
     }
