@@ -30,6 +30,9 @@ public struct MK2ValueCellColors: Sendable, Equatable {
 
 /// A labelled fixed-size value field intended for encoder-bound controls.
 public struct MK2ValueCell: Sendable {
+    /// Vertical gap between the label line and the value well below it.
+    public static let labelGap = 3
+
     public var label: String
     public var value: String
     public var rect: MK2PixelRect
@@ -61,7 +64,7 @@ public struct MK2ValueCell: Sendable {
 
     public func draw(into frame: inout MK2PixelFrame) {
         BitmapLabel(label, font: labelFont, color: colors.label)
-            .draw(into: &frame, x: rect.x, y: max(0, rect.y - labelFont.cellHeight - 3))
+            .draw(into: &frame, x: rect.x, y: max(0, rect.y - labelFont.cellHeight - Self.labelGap))
 
         // The value well is debossed into the panel: the border ring runs from a dark
         // shadow rim at the top into a lit edge at the bottom, and the fill falls

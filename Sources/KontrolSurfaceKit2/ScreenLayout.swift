@@ -78,8 +78,8 @@ public enum MK2ScreenHeader: Sendable {
 public enum MK2ScreenFooter: Sendable, Equatable {
     case none
     case hint(String)
-    case encoderArea(height: Int = 88)
-    case filters(height: Int = 88)
+    case encoderArea(height: Int = MK2ScreenLayout.encoderFooterHeight)
+    case filters(height: Int = MK2ScreenLayout.encoderFooterHeight)
 
     /// The hint band derives from the footnote style its text is set in; the encoder
     /// and filter areas keep their explicit widget-sized heights.
@@ -149,6 +149,13 @@ public enum MK2ScreenLayout {
     public static let encoderSlotHeight = 38
     public static let encoderSlotBottomInset = 2
     public static var encoderSlotBottom: Int { bounds.height - encoderSlotBottomInset }
+
+    /// Height of the encoder/filter footer band: exactly the bottom-flush value
+    /// cell with its label line plus a tight 6 px of air under the band's bevel —
+    /// anything taller floats as dead space above the encoder row.
+    public static var encoderFooterHeight: Int {
+        encoderSlotHeight + encoderSlotBottomInset + SurfaceFont.label.cellHeight + MK2ValueCell.labelGap + 6
+    }
 
     public static func encoderSlotRect(_ slot: Int) -> MK2PixelRect {
         MK2PixelRect(
@@ -348,15 +355,16 @@ public struct MK2RegularScreenChrome: Sendable {
     // Shared raised-band look for header and footer: a bright bevel on the top edge,
     // a subtle vertical fill gradient (lit from above, falling into the bottom
     // shadow), and a shadow line on the bottom edge. The gradient is derived from
-    // the single fill color so custom chrome palettes keep working.
+    // the single fill color so custom chrome palettes keep working, and renders
+    // through the dithered gradient tile cache — per-row 565 quantization banded
+    // visibly on bands taller than the header.
     private func drawChromeBand(_ rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
-        let fillTop = Self.scale565(colors.headerFill, by: 1.4)
-        let fillBottom = Self.scale565(colors.headerFill, by: 0.6)
-        let span = Double(max(1, rect.height - 1))
-        for row in 0..<rect.height {
-            let color = Self.lerp565(fillTop, fillBottom, Double(row) / span)
-            frame.fill(MK2PixelRect(x: rect.x, y: rect.y + row, width: rect.width, height: 1), color)
-        }
+        frame.fillRoundedVerticalGradient(
+            rect,
+            radius: 0,
+            top: Self.scale565(colors.headerFill, by: 1.4),
+            bottom: Self.scale565(colors.headerFill, by: 0.6)
+        )
         frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), colors.headerTopLine)
         frame.fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), colors.headerRule)
     }
@@ -368,23 +376,20 @@ public struct MK2RegularScreenChrome: Sendable {
         let fillWidth = min(rect.width, Int((Double(rect.width) * clamped).rounded()))
         guard fillWidth > 0 else { return }
         // The fill runs a start→end gradient across its current width, so the bright
-        // tip always marks the progress edge.
+        // tip always marks the progress edge; dithered so the ramp stays band-free.
         let span = Double(max(1, fillWidth - 1))
         for offset in 0..<fillWidth {
-            let color = Self.lerp565(progress.fillStart, progress.fillEnd, Double(offset) / span)
-            frame.fill(MK2PixelRect(x: rect.x + offset, y: rect.y, width: 1, height: rect.height), color)
+            let t = Double(offset) / span
+            for row in 0..<rect.height {
+                frame[rect.x + offset, rect.y + row] = MK2OrderedDither.lerp(
+                    progress.fillStart,
+                    progress.fillEnd,
+                    t: t,
+                    x: rect.x + offset,
+                    y: rect.y + row
+                )
+            }
         }
-    }
-
-    private static func lerp565(_ from: UInt16, _ to: UInt16, _ t: Double) -> UInt16 {
-        let t = max(0, min(1, t))
-        func mix(_ a: UInt16, _ b: UInt16) -> UInt16 {
-            UInt16((Double(a) + (Double(b) - Double(a)) * t).rounded())
-        }
-        let r = mix((from >> 11) & 0x1f, (to >> 11) & 0x1f)
-        let g = mix((from >> 5) & 0x3f, (to >> 5) & 0x3f)
-        let b = mix(from & 0x1f, to & 0x1f)
-        return (r << 11) | (g << 5) | b
     }
 
     private static func scale565(_ color: UInt16, by factor: Double) -> UInt16 {

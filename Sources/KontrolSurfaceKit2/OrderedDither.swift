@@ -26,6 +26,23 @@ public enum MK2OrderedDither {
         return (rq << 11) | (gq << 5) | bq
     }
 
+    /// Interpolates between two RGB565 colors at `t` with dithered quantization —
+    /// the building block for band-free gradient ramps in any direction. Exact
+    /// endpoints stay exact: integer channel values survive the threshold.
+    public static func lerp(_ from: UInt16, _ to: UInt16, t: Double, x: Int, y: Int) -> UInt16 {
+        let t = min(1, max(0, t))
+        func mix(_ a: UInt16, _ b: UInt16) -> Double {
+            Double(a) + (Double(b) - Double(a)) * t
+        }
+        return rgb565(
+            r: mix((from >> 11) & 0x1f, (to >> 11) & 0x1f),
+            g: mix((from >> 5) & 0x3f, (to >> 5) & 0x3f),
+            b: mix(from & 0x1f, to & 0x1f),
+            x: x,
+            y: y
+        )
+    }
+
     /// Scales an RGB565 pixel by `factor` with dithered quantization.
     public static func scaled(_ pixel: UInt16, by factor: Double, x: Int, y: Int) -> UInt16 {
         rgb565(
