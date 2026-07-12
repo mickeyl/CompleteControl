@@ -165,15 +165,19 @@ Referenzen (Session-Notizen) sind Wegwerf-Artefakte, keine Doku-Pfade.
 
 ## 5. Phasenplan (je Phase ein Commit, Build + Snapshots + Simulator-Rauchtest)
 
-**Stand 2026-07-12 abends:** Phase 1 geliefert (`4b92c98` + Polish
-`7a09504`: Browser mit E4-Kategorie-Filter, SCENE-Exit, hellblauer
-Akzent). Phase 2 geliefert (`4ca2a09`: Scene-Lab → Chrome Slots,
-Panorama & Bezel Gap, Encoder Feel, Header & Ruler Forms als
-LabDemo-Klassen; LabSupport mit geteilter Palette). Phase 3 begonnen:
-FreeType-Helfer sind bereits geteilte freie Funktionen; die Aufspaltung
-des Font-Labs in Type Specimen / Icon Browser / Dialog Card steht aus.
-Noch offen außerdem: REPL-Hooks am LabDemo-Protokoll (demo-lokale
-Kommandos laufen bis dahin über die Legacy-Wrapper).
+**Stand 2026-07-12 nachts:** Phasen 1-4 geliefert. Phase 1 (`4b92c98` +
+Polish `7a09504`), Phase 2 (`4ca2a09`), Phase 3 (`77d1764`: Type
+Specimen / Icon Browser / Dialog Card, REPL-Hooks am Protokoll, tote
+focus*-Zustände raus), Phase 4 (`b105ab4`: Selection & Browser-Merge,
+Meter, Waveform; SelectionLab.swift gelöscht; push-Emulation raus).
+Unterwegs gefixt: 4-D-Center-Confirm decodiert jetzt das Click-Bit
+(`4b4da39`) — vorher tat der Press am Simulator nichts und Push-Release
+hätte auf Hardware bestätigt. main.swift: 4338 → 1953 Zeilen; nur noch
+der Tracker läuft als Legacy-Wrapper.
+
+**Noch offen:** Phase 5 (Tracker Pattern als echte Demo, Modal Dialog
+eigenständig, Light Guide & LEDs für Diagnostics) und Phase 6 (Abriss:
+Unit-Enum weg, main.swift → Entry + LabShell, Doku-Updates).
 
 1. **Gerüst:** `LabShell`/`LabDemo`/`DemoBrowser` + SCENE-Exit + Registry.
    Alle acht Alt-Units zunächst als je **eine Wrapper-Demo** registriert
