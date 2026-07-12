@@ -5,23 +5,24 @@ import KontrolSurfaceKit2
 
 // A lab bench for the KontrolSurfaceKit2 widget layer. Everything on screen is composed
 // exclusively from kit2 public APIs (BitmapLabel, MK2PixelFrame, MK2SurfaceScene2,
-// PixelSnapshot) — no private drawing helpers, no legacy placeholder font. If a unit
+// PixelSnapshot) — no private drawing helpers, no legacy placeholder font. If a demo
 // needs something the kit can't express yet, that capability goes into the kit first.
 //
-// Eight units select via the function buttons. Hardware encoders drive the active
-// unit's most useful parameters; the readline REPL mirrors them for fast iteration.
+// Navigation (rework 2026-07-12, Docs/WidgetLab-Rework-Plan.md): the top level is a
+// filterable demo browser — 4-D selects and opens a demo, which then owns every
+// control except SCENE, the reserved exit back to the browser.
 @main
 struct MK2WidgetLabDemo {
     static func main() async {
         let surface = MK2Surface2(options: .init(tickHz: 60))
         let lab = WidgetLab(surface: surface)
         if let snapshotDir = ProcessInfo.processInfo.environment["WIDGETLAB_SNAPSHOT_DIR"] {
-            await lab.snapshotImplementedUnits(to: snapshotDir)
+            await lab.snapshotAll(to: snapshotDir)
             return
         }
         let runner = MK2SurfaceEventRunner(name: "surface", surface: surface)
         await runner.run { _ in
-            await lab.show(.font)
+            await lab.showBrowser()
             let replEnabled = LineReader.hasInteractiveInput
             printBanner(replEnabled: replEnabled)
             if replEnabled {
@@ -32,9 +33,9 @@ struct MK2WidgetLabDemo {
 
     private static func printBanner(replEnabled: Bool) {
         if replEnabled {
-            print("MK2WidgetLabDemo — units A…H via function buttons or REPL. Type 'help' or press Tab.")
+            print("MK2WidgetLabDemo — 4-D browses and opens demos, SCENE exits. Type 'help' or press Tab.")
         } else {
-            print("MK2WidgetLabDemo — units A…H via function buttons. REPL disabled: stdin is not a TTY.")
+            print("MK2WidgetLabDemo — 4-D browses and opens demos, SCENE exits. REPL disabled: stdin is not a TTY.")
         }
     }
 
@@ -75,7 +76,9 @@ let ledCompletionValues = ledGroupNames
 let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted()
 
 let replCommands: [ReplCommand] = [
-    ReplCommand(name: "unit", arg: "<a-h>", summary: "switch unit", values: Unit.allCases.map { $0.letter }),
+    ReplCommand(name: "list", arg: "", summary: "list demos and their ids", values: []),
+    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id }),
+    ReplCommand(name: "exit", arg: "", summary: "leave the demo, back to the browser", values: []),
     ReplCommand(name: "browsemode", arg: "", summary: "browser unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "fontdemo", arg: "surface|typography|icons|dialog|next", summary: "font lab: switch sub-demo", values: ["surface", "typography", "icons", "dialog", "next"]),
     ReplCommand(name: "iconmode", arg: "list|grid|filterlist|filtergrid|next", summary: "font icon lab: switch list/grid/filter mode", values: ["list", "grid", "filterlist", "filtergrid", "next"]),
@@ -119,7 +122,7 @@ let replCommands: [ReplCommand] = [
 ]
 
 func replComplete(_ tokens: [String]) -> [String] {
-    if tokens.count <= 1 { return replCommands.map { $0.name } + Unit.allCases.map { $0.letter } }
+    if tokens.count <= 1 { return replCommands.map { $0.name } }
     guard tokens.count == 2, let command = replCommands.first(where: { $0.name == tokens[0].lowercased() }) else { return [] }
     return command.values
 }
@@ -130,7 +133,6 @@ func printReplHelp() {
         let left = "\(command.name) \(command.arg)".padding(toLength: 26, withPad: " ", startingAt: 0)
         print("  \(left)\(command.summary)")
     }
-    print("  " + "a…h".padding(toLength: 26, withPad: " ", startingAt: 0) + "shortcut for 'unit <letter>'")
 }
 
 private enum Unit: Int, CaseIterable, Sendable {
@@ -164,6 +166,88 @@ private enum Unit: Int, CaseIterable, Sendable {
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
     var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform || self == .scene }
+
+    /// Phase-1 wrapper descriptors: each legacy unit is one browsable demo;
+    /// later phases split them into real per-file demos (see the rework plan).
+    /// The KEYS placeholder is gone — a Diagnostics light-guide demo replaces
+    /// it in a later phase.
+    var descriptor: DemoDescriptor {
+        switch self {
+            case .font:
+                DemoDescriptor(
+                    id: "font-lab",
+                    title: "Font Lab",
+                    category: .lookAndFeel,
+                    summary: "Type, icons and dialog card",
+                    detail: "SurfaceFont and FreeType specimens, the Phosphor icon browser and the action dialog card. INSTANCE cycles the sub-demos; encoders drive sizes and colours."
+                )
+            case .chrome:
+                DemoDescriptor(
+                    id: "browser-lab",
+                    title: "Browser Lab",
+                    category: .catalogue,
+                    summary: "Detail pane and picker screens",
+                    detail: "Regular-screen browser detail next to the selection picker. INSTANCE cycles list, grid and filter modes; 4-D navigates, filter encoders narrow the set."
+                )
+            case .meter:
+                DemoDescriptor(
+                    id: "meter",
+                    title: "Meter",
+                    category: .catalogue,
+                    summary: "Multi-channel level meters",
+                    detail: "Horizontal and vertical meter elements with peak markers and warning and danger zones, driven by a simulated programme."
+                )
+            case .list:
+                DemoDescriptor(
+                    id: "selection-lab",
+                    title: "Selection Lab",
+                    category: .catalogue,
+                    summary: "Selection list and grid",
+                    detail: "The selection list and grid elements with filters. INSTANCE cycles plain and filtered modes; 4-D navigates and confirms."
+                )
+            case .pattern:
+                DemoDescriptor(
+                    id: "tracker-pattern",
+                    title: "Tracker Pattern",
+                    category: .catalogue,
+                    summary: "Pattern grid, transport, shift layer",
+                    detail: "The hand-built tracker grid with playhead, transport and channel toggles, the parameter page with shift slots, and the clear-pattern modal via SHIFT+CLEAR."
+                )
+            case .waveform:
+                DemoDescriptor(
+                    id: "waveform",
+                    title: "Waveform",
+                    category: .catalogue,
+                    summary: "Waveform display variants",
+                    detail: "The waveform element with region, markers and playhead across four material variants. INSTANCE cycles them; encoders move the loop."
+                )
+            case .keys:
+                DemoDescriptor(
+                    id: "keys",
+                    title: "Keys",
+                    category: .diagnostics,
+                    summary: "(unbuilt placeholder)",
+                    detail: "Placeholder — replaced by the Light Guide & LEDs demo in a later rework phase."
+                )
+            case .scene:
+                DemoDescriptor(
+                    id: "scene-lab",
+                    title: "Scene Lab",
+                    category: .lookAndFeel,
+                    summary: "Chrome slots, panoramas, feel rigs",
+                    detail: "Chrome slot combinations, the splash and hero panoramas, the encoder feel rig and the header and ruler forms catalog. INSTANCE cycles the combos."
+                )
+        }
+    }
+
+    /// Browser order: grouped by category, calibration-adjacent rigs first.
+    static let registry: [Unit] = {
+        let visible = allCases.filter { $0.implemented }
+        return DemoCategory.allCases.flatMap { category in
+            visible.filter { $0.descriptor.category == category }
+        }
+    }()
+
     var functionLED: KKMK2ButtonLED {
         KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
     }
@@ -354,6 +438,14 @@ private actor WidgetLab {
     private let iconSource: String
     private let icons: [PhosphorIcon]
     private var unit: Unit = .font
+    /// Browser/demo navigation (rework 2026-07-12): the browser owns the
+    /// surface until a demo is opened; an open demo owns everything except
+    /// the reserved SCENE exit.
+    private enum LabMode { case browser, demo }
+    private var mode: LabMode = .browser
+    private var demoBrowserNavigation = MK2SelectionNavigation()
+    /// 0 = All, 1… = DemoCategory raw value + 1.
+    private var demoBrowserCategoryIndex = 0
 
     // Font lab focus: the single combination we render prominently while iterating
     // toward a locked-in choice.
@@ -519,16 +611,6 @@ private actor WidgetLab {
         return Self.demoInstruments[index]
     }
 
-    func show(_ next: Unit) async {
-        if next != .pattern {
-            isPlaying = false
-            playbackTimer?.cancel()
-            playbackTimer = nil
-        }
-        unit = next
-        await render()
-    }
-
     private func render() async {
         await surface.present(scene())
     }
@@ -542,13 +624,16 @@ private actor WidgetLab {
             applyGuideOverrides(to: &scene.keyColors)
             return scene
         }
-
-        var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
-        for candidate in Unit.allCases {
-            lamps[candidate.functionLED] = candidate == unit
-                ? Self.activeLamp(Self.actionWhite)
-                : (candidate.implemented ? Self.availableLamp(Self.actionWhite) : .off)
+        switch mode {
+            case .browser:
+                return demoBrowserScene()
+            case .demo:
+                return demoScene()
         }
+    }
+
+    private func demoScene() -> MK2SurfaceScene2 {
+        var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
         if unit == .font {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
             if fontSubDemo == .icons || fontSubDemo == .actionDialog {
@@ -588,34 +673,31 @@ private actor WidgetLab {
         }
 
         var bindings = MK2InputBindings2()
-        for candidate in Unit.allCases {
-            bindings.onPress(candidate.functionLED) { [weak self] in
-                Task { await self?.show(candidate) }
-            }
-        }
-        bindings.onPress(.play) { [weak self] in
-            Task { await self?.play() }
-        }
-        bindings.onPress(.stop) { [weak self] in
-            Task { await self?.stopPlayback() }
-        }
-        bindings.onPress(.record) { [weak self] in
-            Task { await self?.toggleRecordArm() }
-        }
-        bindings.onPress(.clear, modifiers: .unmodified) { [weak self] in
-            Task { await self?.clearSelectedPatternRow() }
-        }
-        bindings.onPress(.clear, modifiers: .shift) { [weak self] in
-            Task { await self?.showClearPatternDialog() }
-        }
-        bindings.onPress(.pageLeft) { [weak self] in
-            Task { await self?.moveFocusedChannel(-1) }
-        }
-        bindings.onPress(.pageRight) { [weak self] in
-            Task { await self?.moveFocusedChannel(1) }
-        }
         bindings.jogScroll = { [weak self] delta, _ in
             Task { await self?.turnMainEncoder(delta) }
+        }
+        if unit == .pattern {
+            bindings.onPress(.play) { [weak self] in
+                Task { await self?.play() }
+            }
+            bindings.onPress(.stop) { [weak self] in
+                Task { await self?.stopPlayback() }
+            }
+            bindings.onPress(.record) { [weak self] in
+                Task { await self?.toggleRecordArm() }
+            }
+            bindings.onPress(.clear, modifiers: .unmodified) { [weak self] in
+                Task { await self?.clearSelectedPatternRow() }
+            }
+            bindings.onPress(.clear, modifiers: .shift) { [weak self] in
+                Task { await self?.showClearPatternDialog() }
+            }
+            bindings.onPress(.pageLeft) { [weak self] in
+                Task { await self?.moveFocusedChannel(-1) }
+            }
+            bindings.onPress(.pageRight) { [weak self] in
+                Task { await self?.moveFocusedChannel(1) }
+            }
         }
         if unit == .font {
             bindings.onPress(.instance) { [weak self] in
@@ -720,6 +802,13 @@ private actor WidgetLab {
         bindings.merge(leftResult.bindings)
         bindings.merge(rightResult.bindings)
 
+        // The one control a demo never owns: SCENE always leads back to the
+        // browser. Installed after the merge so no demo content can shadow it.
+        lamps[.scene] = Self.availableLamp(Self.actionWhite)
+        bindings.onPress(.scene) { [weak self] in
+            Task { await self?.showBrowser() }
+        }
+
         applyLampOverrides(to: &lamps)
         var keyColors = leftResult.keyColors
         keyColors.merge(rightResult.keyColors) { _, next in next }
@@ -732,6 +821,174 @@ private actor WidgetLab {
             bindings: bindings,
             shift: MK2SurfaceScene2.ShiftLayer(left: leftResult, right: rightResult)
         )
+    }
+
+    // MARK: - Demo browser
+
+    private static let demoBrowserCategoryValues = ["All"] + DemoCategory.allCases.map(\.title)
+
+    private func visibleBrowserDemos() -> [Unit] {
+        guard demoBrowserCategoryIndex > 0,
+              let category = DemoCategory(rawValue: demoBrowserCategoryIndex - 1) else { return Unit.registry }
+        return Unit.registry.filter { $0.descriptor.category == category }
+    }
+
+    private func demoBrowserScene() -> MK2SurfaceScene2 {
+        let visible = visibleBrowserDemos()
+        let leftResult = demoBrowserListResult(visible)
+        let rightResult = demoBrowserDetailPaneResult(visible)
+
+        var lamps = leftResult.lamps
+        lamps.merge(rightResult.lamps) { _, next in next }
+        var bindings = leftResult.bindings
+        bindings.merge(rightResult.bindings)
+
+        applyLampOverrides(to: &lamps)
+        var keyColors = leftResult.keyColors
+        keyColors.merge(rightResult.keyColors) { _, next in next }
+        applyGuideOverrides(to: &keyColors)
+        return MK2SurfaceScene2(
+            left: leftResult.screen.frame,
+            right: rightResult.screen.frame,
+            lamps: lamps,
+            keyColors: keyColors,
+            bindings: bindings
+        )
+    }
+
+    private func demoBrowserListResult(_ visible: [Unit]) -> MK2ScreenBuildResult {
+        let items = visible.map { unit in
+            MK2SelectionItem(
+                title: unit.descriptor.title,
+                detail: unit.descriptor.summary,
+                badge: unit.descriptor.category.badge
+            )
+        }
+        let colors = MK2SelectionViewColors(
+            background: Palette.page,
+            text: Palette.text,
+            dim: Palette.dim,
+            muted: Palette.empty,
+            accent: Palette.accent,
+            selectionFill: Palette.selectionFill,
+            border: Palette.border,
+            filterFill: Palette.filterFill
+        )
+        return fullScreenResult {
+            MK2SelectionListElement(
+                title: "WIDGET LAB",
+                subtitle: "4-D opens · E8 filters",
+                items: items,
+                selectedIndex: demoBrowserNavigation.selectedIndex,
+                filters: [
+                    MK2SelectionFilter(
+                        label: "CATEGORY",
+                        value: Self.demoBrowserCategoryValues[demoBrowserCategoryIndex].uppercased(),
+                        encoder: 8,
+                        isFocused: demoBrowserNavigation.focusedFilterEncoder == 8
+                    ),
+                ],
+                rowHeight: 44,
+                colors: colors
+            )
+            MK2SelectionInputElement(
+                navigation: demoBrowserNavigation,
+                itemCount: items.count,
+                layout: .list(step: 4),
+                availableLamp: Self.availableLamp(Self.actionWhite),
+                onMove: { [weak self] delta in
+                    Task { await self?.moveDemoBrowserSelection(delta) }
+                },
+                onConfirm: { [weak self] in
+                    Task { await self?.confirmDemoBrowserSelection() }
+                }
+            )
+            MK2SelectionFilterEncoderElement([
+                MK2SelectionFilterEncoderBinding(
+                    encoder: 8,
+                    value: demoBrowserCategoryIndex,
+                    bounds: 0...(Self.demoBrowserCategoryValues.count - 1),
+                    wraps: true,
+                    onFocus: { [weak self] _, touched in
+                        Task { await self?.setDemoBrowserFilterFocus(touched) }
+                    },
+                    onChange: { [weak self] value in
+                        Task { await self?.setDemoBrowserCategory(value) }
+                    }
+                ),
+            ])
+        }
+    }
+
+    private func demoBrowserDetailPaneResult(_ visible: [Unit]) -> MK2ScreenBuildResult {
+        guard let index = demoBrowserNavigation.clampedSelectedIndex(itemCount: visible.count) else {
+            return regularScreenResult(header: .title(title: "Widget Lab", subtitle: "Demo Browser")) {
+                MK2EmptyStateElement(
+                    title: "No demos in this category",
+                    detail: "Turn E8 to widen the filter"
+                )
+            }
+        }
+        let descriptor = visible[index].descriptor
+        return regularScreenResult(
+            header: .title(title: descriptor.title, subtitle: descriptor.category.title),
+            footer: .hint("4-D press opens the demo · SCENE returns here")
+        ) {
+            MK2BrowserDetailElement(
+                title: descriptor.title,
+                detail: descriptor.detail,
+                metadata: "\(descriptor.category.title) · open \(descriptor.id)"
+            )
+        }
+    }
+
+    func showBrowser() async {
+        stopPatternPlaybackIfNeeded()
+        mode = .browser
+        demoBrowserNavigation.clamp(itemCount: visibleBrowserDemos().count)
+        await render()
+    }
+
+    private func openDemo(_ target: Unit) async {
+        if target != .pattern {
+            stopPatternPlaybackIfNeeded()
+        }
+        unit = target
+        mode = .demo
+        await render()
+    }
+
+    private func stopPatternPlaybackIfNeeded() {
+        isPlaying = false
+        playbackTimer?.cancel()
+        playbackTimer = nil
+    }
+
+    private func moveDemoBrowserSelection(_ delta: Int) async {
+        guard mode == .browser, delta != 0 else { return }
+        if demoBrowserNavigation.move(by: delta, itemCount: visibleBrowserDemos().count) {
+            await render()
+        }
+    }
+
+    private func confirmDemoBrowserSelection() async {
+        guard mode == .browser else { return }
+        let visible = visibleBrowserDemos()
+        guard let index = demoBrowserNavigation.clampedSelectedIndex(itemCount: visible.count) else { return }
+        await openDemo(visible[index])
+    }
+
+    private func setDemoBrowserCategory(_ value: Int) async {
+        let clamped = max(0, min(Self.demoBrowserCategoryValues.count - 1, value))
+        guard clamped != demoBrowserCategoryIndex else { return }
+        demoBrowserCategoryIndex = clamped
+        demoBrowserNavigation.select(0, itemCount: visibleBrowserDemos().count)
+        await render()
+    }
+
+    private func setDemoBrowserFilterFocus(_ touched: Bool) async {
+        demoBrowserNavigation.touchFilter(encoder: 8, touched: touched)
+        await render()
     }
 
     private func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
@@ -3299,20 +3556,28 @@ private actor WidgetLab {
         let verb = parts.first.map(String.init)?.lowercased() ?? ""
         let rest = parts.count > 1 ? String(parts[1]) : ""
 
-        // Single-letter unit switch.
-        if verb.count == 1, let unit = Unit.allCases.first(where: { $0.letter == verb }) {
-            await show(unit)
-            print("→ \(unit.title)")
-            return
-        }
-
         switch verb {
-            case "unit":
-                guard let unit = Unit.allCases.first(where: { $0.letter == rest.lowercased() || $0.short.lowercased() == rest.lowercased() }) else {
-                    print("? unit a…h"); return
+            case "list":
+                for category in DemoCategory.allCases {
+                    let demos = Unit.registry.filter { $0.descriptor.category == category }
+                    guard !demos.isEmpty else { continue }
+                    print("\(category.title):")
+                    for demo in demos {
+                        let id = demo.descriptor.id.padding(toLength: 18, withPad: " ", startingAt: 0)
+                        print("  \(id)\(demo.descriptor.summary)")
+                    }
                 }
-                await show(unit)
-                print("→ \(unit.title)")
+
+            case "open":
+                guard let target = Unit.registry.first(where: { $0.descriptor.id == rest.lowercased() }) else {
+                    print("? open <id> — see 'list'"); return
+                }
+                await openDemo(target)
+                print("→ \(target.descriptor.title)")
+
+            case "exit":
+                await showBrowser()
+                print("→ browser")
 
             case "text":
                 sampleText = rest.isEmpty ? " " : rest
@@ -3518,8 +3783,18 @@ private actor WidgetLab {
 
     // Headless verification hook: render each implemented unit's two-screen scene to a PNG
     // without a surface/daemon connection. Driven by WIDGETLAB_SNAPSHOT_DIR at launch.
-    func snapshotImplementedUnits(to directory: String) async {
-        for candidate in Unit.allCases where candidate.implemented {
+    func snapshotAll(to directory: String) async {
+        // The browser itself, once per category filter.
+        mode = .browser
+        for index in 0..<Self.demoBrowserCategoryValues.count {
+            demoBrowserCategoryIndex = index
+            demoBrowserNavigation.select(0, itemCount: visibleBrowserDemos().count)
+            await snapshot(to: directory + "/widgetlab-browser-\(Self.snapshotSlug(Self.demoBrowserCategoryValues[index])).png")
+        }
+        demoBrowserCategoryIndex = 0
+
+        mode = .demo
+        for candidate in Unit.registry {
             unit = candidate
             switch candidate {
                 case .font:
