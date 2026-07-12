@@ -48,6 +48,9 @@ public actor MK2Surface2 {
 
     private let options: Options
     private var scene = MK2SurfaceScene2()
+    /// The connected device's identity, queried from the daemon at session
+    /// setup. Nil while disconnected or against a daemon predating deviceInfo.
+    public private(set) var deviceModel: KompleteKontrolDeviceModel?
     private var displayReconciler = PixelDisplayReconciler2()
     private var timer: DispatchSourceTimer?
     private var running = false
@@ -121,6 +124,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        deviceModel = nil
         daemonThread?.cancel()
         daemonThread = nil
         eventContinuation?.finish()
@@ -352,6 +356,11 @@ public actor MK2Surface2 {
             return
         }
         recordDaemonCommunication()
+        // Best effort: an older daemon answers "unexpected type" (status != 0)
+        // and the model stays unknown — clients keep their fallback mapping.
+        if let info = control.request(type: .deviceInfo, timeoutUsec: 500_000), info.status == 0 {
+            deviceModel = KompleteKontrolDeviceModel.parse(deviceInfoMessage: info.message)
+        }
         guard configureHostControl() else {
             handleDaemonFailure("daemon host-control setup failed")
             return
@@ -598,6 +607,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        deviceModel = nil
         activeDaemonSocketPath = nil
         daemonThread?.cancel()
         daemonThread = nil

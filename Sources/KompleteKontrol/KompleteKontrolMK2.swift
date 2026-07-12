@@ -130,6 +130,25 @@ public enum KompleteKontrolDeviceModel: CaseIterable, Sendable {
     public static func productID(_ productID: Int) -> KompleteKontrolDeviceModel? {
         allCases.first { $0.productID == productID }
     }
+
+    /// Parses the daemon's deviceInfo ack message ("product=0x1620 keys=61").
+    public static func parse(deviceInfoMessage message: String) -> KompleteKontrolDeviceModel? {
+        for token in message.split(separator: " ") {
+            guard token.hasPrefix("product=0x"),
+                  let id = Int(token.dropFirst("product=0x".count), radix: 16) else { continue }
+            return productID(id)
+        }
+        return nil
+    }
+
+    /// The physical light-guide key for a MIDI note; nil when the note lies
+    /// outside the keybed. Assumes the keybed's own octave transposition is
+    /// at its default — the hardware does not report octave shifts.
+    public func lightGuideKeyIndex(forMIDINote midiNote: Int) -> Int? {
+        let index = midiNote + lightGuideNoteOffset
+        guard (0..<keyCount).contains(index) else { return nil }
+        return index
+    }
 }
 
 // Index map fully bench-verified 2026-07-02 (host-control mode) except octaveDown/Up,

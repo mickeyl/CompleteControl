@@ -1598,6 +1598,11 @@ public enum KompleteKontrolLibUSBServer {
             switch frame.type {
                 case .version:
                     return ack(0, KompleteKontrolLibUSBServer.daemonVersionMessage)
+                case .deviceInfo:
+                    guard let session = ensureSession() else {
+                        return ack(-2, "no session")
+                    }
+                    return ack(0, "product=0x\(String(session.productID, radix: 16)) keys=\(session.keyCount)")
                 case .register:
                     guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
                         return ack(-1, "register parse")

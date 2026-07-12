@@ -18,6 +18,9 @@ public enum KKDaemonBinaryMessageType: UInt16, Sendable {
     /// registration and never touches the device, so it cannot disturb the
     /// connected client.
     case displaySnapshot = 7
+    /// Connected-device identity (product id, key count), answered as an ack
+    /// message ("product=0x1620 keys=61") like `version`.
+    case deviceInfo = 8
     case input = 16
     case midi = 17
     case device = 18
