@@ -258,6 +258,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
     case splash
     case hero
     case granularity
+    case forms
 
     var title: String {
         switch self {
@@ -270,6 +271,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
             case .splash: "SPLASH"
             case .hero: "HERO PANORAMA"
             case .granularity: "ENCODER FEEL"
+            case .forms: "HEADER & RULER FORMS"
         }
     }
 
@@ -283,14 +285,14 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
                     MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
                     MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
                 ])
-            case .bare, .footerOnly, .splash, .hero, .granularity:
+            case .bare, .footerOnly, .splash, .hero, .granularity, .forms:
                 .none
         }
     }
 
     var footer: MK2ScreenFooter {
         switch self {
-            case .titleOnly, .bare, .splash, .hero, .granularity: .none
+            case .titleOnly, .bare, .splash, .hero, .granularity, .forms: .none
             case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
             case .titleEncoders, .footerOnly: .encoderArea()
             case .statusFilters: .filters()
@@ -299,7 +301,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
 
     var footerLabel: String {
         switch self {
-            case .titleOnly, .bare, .splash, .hero, .granularity: "NONE"
+            case .titleOnly, .bare, .splash, .hero, .granularity, .forms: "NONE"
             case .titleHint: "HINT"
             case .titleEncoders, .footerOnly: "ENCODER"
             case .statusFilters: "FILTERS"
@@ -310,7 +312,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
         switch self {
             case .titleOnly, .titleHint, .titleEncoders: "TITLE"
             case .statusFilters: "STATUS"
-            case .bare, .footerOnly, .splash, .hero, .granularity: "NONE"
+            case .bare, .footerOnly, .splash, .hero, .granularity, .forms: "NONE"
         }
     }
 
@@ -808,6 +810,8 @@ private actor WidgetLab {
                         return (heroLeftResult(), heroRightResult())
                     case .granularity:
                         return (granularityResult(range: 0..<4), granularityResult(range: 4..<8))
+                    case .forms:
+                        return (formsHeadersResult(), formsRulersResult())
                     default:
                         return (sceneChromeDemoResult(), sceneControlResult())
                 }
@@ -1463,6 +1467,119 @@ private actor WidgetLab {
         guard granularityValues.indices.contains(index) else { return }
         granularityValues[index] = value
         await render()
+    }
+
+    // MARK: - Header & ruler forms catalog
+
+    /// Left screen: every header form that exists in the wild today, stacked
+    /// with its origin — the decision basis for which forms become
+    /// first-class elements (plural allowed; the goal is a sanctioned set,
+    /// not one form to rule them all).
+    private func formsHeadersResult() -> MK2ScreenBuildResult {
+        let titleBand = MK2RegularScreenDSL(header: .title(title: "Titel + Untertitel", subtitle: "TRAILING")) {}
+            .build(renderer: freeTypeRenderer).screen.frame
+        let statusBand = MK2RegularScreenDSL(header: .status([
+            MK2StatusLineItem("STATUS", x: 8, color: Palette.blue),
+            MK2StatusLineItem("ITEMS", x: 92, color: Palette.dim),
+            MK2StatusLineItem("FESTE X-POSITIONEN", x: 196, color: Palette.text, font: .gridBold),
+        ])) {}.build(renderer: freeTypeRenderer).screen.frame
+
+        let renderer = freeTypeRenderer
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 6, items: [
+                    MK2StatusLineItem("HEADER-FORMEN", x: 8, color: Palette.blue),
+                    MK2StatusLineItem("H1-H4 · HERKUNFT IM LABEL", x: 170, color: Palette.dim),
+                ]).draw(into: &frame)
+
+                var y = 26
+                func caption(_ text: String) {
+                    BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
+                    y += SurfaceFont.label.cellHeight + 2
+                }
+
+                caption("H1 CHROME-BAND .TITLE — REGULAR SCREEN (BROWSER/METER)")
+                frame.blit(titleBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
+                y += 36
+
+                caption("H2 CHROME-BAND .STATUS — REGULAR SCREEN (SCENE-LAB)")
+                frame.blit(statusBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
+                y += 36
+
+                caption("H3 STATUSLINE + HLINE — FULLSCREEN BITMAP (PATTERN-GRID, LAB-UNITS)")
+                MK2StatusLine(y: y + 4, items: [
+                    MK2StatusLineItem("PAT 00", x: 8, color: Palette.blue),
+                    MK2StatusLineItem("ROW 1F", x: 120, color: Palette.text, font: .gridBold),
+                    MK2StatusLineItem("PLAY", x: 230, color: Palette.green),
+                ]).draw(into: &frame)
+                frame.hline(y: y + 24, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
+                y += 32
+
+                caption("H4 FREETYPE FREIFORM — FULLSCREEN (INSTRUMENT-EDITOR TITEL)")
+                if let renderer {
+                    try? renderer.drawText(
+                        "PULSE LEAD", into: &frame, x: 8, y: y + 2,
+                        style: MK2HIG.textStyle(weight: MK2HIG.Fonts.titleWeight, pixelSize: 15, color: Palette.blue),
+                        maxWidth: 330
+                    )
+                    try? renderer.drawText(
+                        "EDIT 04 SAMPLE", into: &frame, x: 344, y: y + 4,
+                        style: MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: MK2HIG.Typography.captionPixelSize, color: Palette.dim),
+                        maxWidth: 128
+                    )
+                }
+            }
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    /// Right screen: the separator/ruler forms in use plus the one obvious
+    /// missing candidate (dotted horizontal), each labeled with its origin.
+    private func formsRulersResult() -> MK2ScreenBuildResult {
+        let footerBand = MK2RegularScreenDSL(header: .none, footer: .hint("GRADIENT-BAND MIT BEVEL + SCHATTEN")) {}
+            .build(renderer: freeTypeRenderer).screen.frame
+
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 6, items: [
+                    MK2StatusLineItem("RULER-FORMEN", x: 8, color: Palette.blue),
+                    MK2StatusLineItem("R1-R4 + VERTIKAL", x: 170, color: Palette.dim),
+                ]).draw(into: &frame)
+
+                var y = 26
+                func caption(_ text: String) {
+                    BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
+                    y += SurfaceFont.label.cellHeight + 2
+                }
+
+                caption("R1 HLINE 1PX BORDER — PATTERN-GRID Y=55, LAB-UNITS Y=32, INFO-TRENNER")
+                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
+                y += 14
+
+                caption("R2 HLINE 1PX AKZENT — HERVORGEHOBENE TRENNUNG (BISHER AD HOC)")
+                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.accent)
+                y += 14
+
+                caption("R3 CHROME-BAND-KANTE — HEADER/FOOTER-RAND (BEVEL + SCHATTEN)")
+                let footerRect = MK2PixelRect(x: 0, y: MK2PixelFrame.height - 24, width: 480, height: 24)
+                frame.blit(footerBand.pixels(in: footerRect), into: MK2PixelRect(x: 0, y: y + 2, width: 480, height: 24))
+                y += 32
+
+                caption("R4 GEPUNKTET HORIZONTAL — EXISTIERT NICHT (KANDIDAT)")
+                var dotX = 0
+                while dotX < MK2PixelFrame.width {
+                    frame.fill(MK2PixelRect(x: dotX, y: y + 3, width: 1, height: 1), MK2HIG.Chrome.dim)
+                    dotX += 2
+                }
+                y += 14
+
+                caption("V1 GEPUNKTET VERTIKAL — KANAL-RULER (PATTERN-GRID, TRACKER-LAB)")
+                for column in 0..<4 {
+                    frame.dottedVLine(x: 40 + column * 120, y: y + 4, height: 52, color: Palette.border)
+                }
+                BitmapLabel("KANAL 1", font: .label, color: Palette.dim).draw(into: &frame, x: 48, y: y + 8)
+                BitmapLabel("KANAL 2", font: .label, color: Palette.dim).draw(into: &frame, x: 168, y: y + 8)
+            }
+        }.build(renderer: freeTypeRenderer)
     }
 
     private func sceneEncoderValues() -> [MK2EncoderDiscreteValue] {
