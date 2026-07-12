@@ -118,7 +118,19 @@
   `encoderSlotWidth`. Introduce a dedicated encoder-row container element that owns the
   canonical rect and spacing/padding itself, so individual pages cannot drift.
 
-- The song scenes still draw their soft keys through the ad-hoc
-  `drawSoftKeyStrip` (eight 60 px slots at the footer) instead of
-  `MK2FunctionKeyBarElement`. Migrate them so all function-button labels share
-  the top-flush uniform-grid bar, then retire the strip helper.
+- Done (2026-07-11, by removal): the Paulinche song renderer and its ad-hoc
+  `drawSoftKeyStrip` are deleted — the scene was non-standard on several levels
+  and no client reached it. A future SCENE/arranger scene starts DSL-first.
+
+- Encoder-feel constants should be live-tunable in the widget lab before the
+  next tuning round: the ENCODER FEEL rig (scene lab) shows the derived
+  counts-per-step and acceleration ceilings, but changing
+  `targetSweepCounts`/`maximumCountsPerStep`/`minimumCountsPerStep`/
+  `fastSweepCounts` (and the rate thresholds in `MK2EncoderDetents`) still
+  means rebuild-and-relaunch per iteration — the 2026-07-12 calibration took
+  four builds. Wanted: select a constant with the 4-D encoder, adjust it by
+  turning, and have the rig re-derive labels and feel immediately. Requires
+  the constants to become an injectable configuration (e.g. an
+  `MK2EncoderFeel` struct threaded through `MK2EncoderDiscreteValue` and
+  `MK2EncoderDetents`) instead of `static let`s. Current bench-approved
+  values: sweep 480, max 42, min 24, fast sweep 600, rates 150/1200 c/s.
