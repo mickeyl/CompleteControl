@@ -77,7 +77,7 @@ let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted(
 
 let replCommands: [ReplCommand] = [
     ReplCommand(name: "list", arg: "", summary: "list demos and their ids", values: []),
-    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id }),
+    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id } + ["encoder-feel", "panorama", "chrome-slots", "forms"]),
     ReplCommand(name: "exit", arg: "", summary: "leave the demo, back to the browser", values: []),
     ReplCommand(name: "browsemode", arg: "", summary: "browser unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "fontdemo", arg: "surface|typography|icons|dialog|next", summary: "font lab: switch sub-demo", values: ["surface", "typography", "icons", "dialog", "next"]),
@@ -136,7 +136,7 @@ func printReplHelp() {
 }
 
 private enum Unit: Int, CaseIterable, Sendable {
-    case font, chrome, meter, list, pattern, waveform, keys, scene
+    case font, chrome, meter, list, pattern, waveform, keys
 
     var title: String {
         switch self {
@@ -147,7 +147,6 @@ private enum Unit: Int, CaseIterable, Sendable {
             case .pattern: "PATTERN LAB"
             case .waveform: "WAVEFORM LAB"
             case .keys: "KEYS LAB"
-            case .scene: "SCENE LAB"
         }
     }
 
@@ -160,12 +159,11 @@ private enum Unit: Int, CaseIterable, Sendable {
             case .pattern: "PATT"
             case .waveform: "WAVE"
             case .keys: "KEYS"
-            case .scene: "SCEN"
         }
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform || self == .scene }
+    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform }
 
     /// Phase-1 wrapper descriptors: each legacy unit is one browsable demo;
     /// later phases split them into real per-file demos (see the rework plan).
@@ -228,14 +226,6 @@ private enum Unit: Int, CaseIterable, Sendable {
                     category: .diagnostics,
                     summary: "(unbuilt placeholder)",
                     detail: "Placeholder — replaced by the Light Guide & LEDs demo in a later rework phase."
-                )
-            case .scene:
-                DemoDescriptor(
-                    id: "scene-lab",
-                    title: "Scene Lab",
-                    category: .lookAndFeel,
-                    summary: "Chrome slots, panoramas, feel rigs",
-                    detail: "Chrome slot combinations, the splash and hero panoramas, the encoder feel rig and the header and ruler forms catalog. INSTANCE cycles the combos."
                 )
         }
     }
@@ -332,79 +322,6 @@ private struct ActionCandidate: Sendable {
     let action: String
 }
 
-private enum SceneChromeCombo: Int, CaseIterable, Sendable {
-    case titleOnly
-    case titleHint
-    case titleEncoders
-    case statusFilters
-    case bare
-    case footerOnly
-    case splash
-    case hero
-    case granularity
-    case forms
-
-    var title: String {
-        switch self {
-            case .titleOnly: "TITLE + NONE"
-            case .titleHint: "TITLE + HINT"
-            case .titleEncoders: "TITLE + ENCODERS"
-            case .statusFilters: "STATUS + FILTERS"
-            case .bare: "NONE + NONE"
-            case .footerOnly: "NONE + ENCODERS"
-            case .splash: "SPLASH"
-            case .hero: "HERO PANORAMA"
-            case .granularity: "ENCODER FEEL"
-            case .forms: "HEADER & RULER FORMS"
-        }
-    }
-
-    var header: MK2ScreenHeader {
-        switch self {
-            case .titleOnly, .titleHint, .titleEncoders:
-                .title(title: "Scene Lab", subtitle: "Chrome Slots")
-            case .statusFilters:
-                .status([
-                    MK2StatusLineItem("SCENE", x: 8, color: Palette.blue),
-                    MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
-                    MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
-                ])
-            case .bare, .footerOnly, .splash, .hero, .granularity, .forms:
-                .none
-        }
-    }
-
-    var footer: MK2ScreenFooter {
-        switch self {
-            case .titleOnly, .bare, .splash, .hero, .granularity, .forms: .none
-            case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
-            case .titleEncoders, .footerOnly: .encoderArea()
-            case .statusFilters: .filters()
-        }
-    }
-
-    var footerLabel: String {
-        switch self {
-            case .titleOnly, .bare, .splash, .hero, .granularity, .forms: "NONE"
-            case .titleHint: "HINT"
-            case .titleEncoders, .footerOnly: "ENCODER"
-            case .statusFilters: "FILTERS"
-        }
-    }
-
-    var headerLabel: String {
-        switch self {
-            case .titleOnly, .titleHint, .titleEncoders: "TITLE"
-            case .statusFilters: "STATUS"
-            case .bare, .footerOnly, .splash, .hero, .granularity, .forms: "NONE"
-        }
-    }
-
-    var next: SceneChromeCombo {
-        Self.allCases[(rawValue + 1) % Self.allCases.count]
-    }
-}
-
 private enum WaveformLabVariant: Int, CaseIterable, Sendable {
     case pluck, sparse, quiet, empty
 
@@ -446,6 +363,32 @@ private actor WidgetLab {
     private var demoBrowserNavigation = MK2SelectionNavigation()
     /// 0 = All, 1… = DemoCategory raw value + 1.
     private var demoBrowserCategoryIndex = 0
+    /// A browsable demo: either a not-yet-extracted legacy unit or a
+    /// self-contained LabDemo instance (rework phases 2-5).
+    private enum DemoRef {
+        case legacy(Unit)
+        case modern(any LabDemo)
+
+        var descriptor: DemoDescriptor {
+            switch self {
+                case let .legacy(unit): unit.descriptor
+                case let .modern(demo): demo.descriptor
+            }
+        }
+    }
+    private let modernDemos: [any LabDemo] = [
+        EncoderFeelDemo(),
+        PanoramaDemo(),
+        ChromeSlotsDemo(),
+        FormsDemo(),
+    ]
+    private lazy var demoRegistry: [DemoRef] = {
+        let entries = Unit.registry.map { DemoRef.legacy($0) } + modernDemos.map { DemoRef.modern($0) }
+        return DemoCategory.allCases.flatMap { category in
+            entries.filter { $0.descriptor.category == category }
+        }
+    }()
+    private var activeDemo: DemoRef?
 
     // Font lab focus: the single combination we render prominently while iterating
     // toward a locked-in choice.
@@ -500,24 +443,6 @@ private actor WidgetLab {
     private var waveformMarkersEnabled = true
     private var waveformPlayheadPercent = 55
     private var waveformFocusedEncoder: Int?
-    private var sceneCombo: SceneChromeCombo = .titleHint
-    private var sceneProgressMode = 1
-    private var sceneProgressPercent = 42
-    private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
-    private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
-    private var sceneFocusedEncoder: Int?
-    /// Encoder-feel playground: one value per encoder, small domains doubling
-    /// on the left screen, large ones growing 8× on the right — the sweep
-    /// acceleration only shows on genuinely big ranges. Midpoint start.
-    private static let granularityDomains = [2, 4, 8, 16, 32, 256, 1024, 8192]
-    private var granularityValues = WidgetLab.granularityDomains.map { $0 / 2 }
-    private var sceneSplashGap = 53
-    private var cachedSplashArtwork: MK2PixelImage?
-    private var cachedSplashGap = -1
-    private var splashRenderTask: Task<Void, Never>?
-    private var splashRenderPending = false
-    private var cachedHeroArtwork: MK2PixelImage?
-    private var cachedHeroGap = -1
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -628,8 +553,42 @@ private actor WidgetLab {
             case .browser:
                 return demoBrowserScene()
             case .demo:
+                if case let .modern(demo) = activeDemo {
+                    return modernDemoScene(demo)
+                }
                 return demoScene()
         }
+    }
+
+    private func labContext() -> LabContext {
+        LabContext(
+            renderer: freeTypeRenderer,
+            update: { [weak self] mutation in
+                Task { await self?.applyDemoMutation(mutation, rerender: true) }
+            },
+            mutate: { [weak self] mutation in
+                Task { await self?.applyDemoMutation(mutation, rerender: false) }
+            }
+        )
+    }
+
+    private func applyDemoMutation(_ mutation: @escaping @Sendable () -> Void, rerender: Bool) async {
+        mutation()
+        if rerender {
+            await render()
+        }
+    }
+
+    private func modernDemoScene(_ demo: any LabDemo) -> MK2SurfaceScene2 {
+        var scene = demo.buildScene(labContext())
+        // The one control a demo never owns: SCENE always exits to the browser.
+        scene.lamps[.scene] = Self.availableLamp(Self.actionWhite)
+        scene.bindings.onPress(.scene) { [weak self] in
+            Task { await self?.showBrowser() }
+        }
+        applyLampOverrides(to: &scene.lamps)
+        applyGuideOverrides(to: &scene.keyColors)
+        return scene
     }
 
     private func demoScene() -> MK2SurfaceScene2 {
@@ -658,8 +617,6 @@ private actor WidgetLab {
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .waveform {
-            lamps[.instance] = Self.availableLamp(Self.actionWhite)
-        } else if unit == .scene {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
@@ -747,17 +704,6 @@ private actor WidgetLab {
             for value in waveformEncoderValues() {
                 value.apply(bindings: &bindings)
             }
-        } else if unit == .scene {
-            bindings.onPress(.instance) { [weak self] in
-                Task { await self?.cycleSceneCombo() }
-            }
-            if sceneCombo == .splash || sceneCombo == .hero {
-                applySplashEncoderBindings(into: &bindings)
-            } else {
-                for value in sceneEncoderValues() {
-                    value.apply(bindings: &bindings)
-                }
-            }
         } else if unit == .pattern {
             MK2ButtonToggle(
                 button: .metro,
@@ -827,10 +773,10 @@ private actor WidgetLab {
 
     private static let demoBrowserCategoryValues = ["All"] + DemoCategory.allCases.map(\.filterValue)
 
-    private func visibleBrowserDemos() -> [Unit] {
+    private func visibleBrowserDemos() -> [DemoRef] {
         guard demoBrowserCategoryIndex > 0,
-              let category = DemoCategory(rawValue: demoBrowserCategoryIndex - 1) else { return Unit.registry }
-        return Unit.registry.filter { $0.descriptor.category == category }
+              let category = DemoCategory(rawValue: demoBrowserCategoryIndex - 1) else { return demoRegistry }
+        return demoRegistry.filter { $0.descriptor.category == category }
     }
 
     private func demoBrowserScene() -> MK2SurfaceScene2 {
@@ -856,12 +802,12 @@ private actor WidgetLab {
         )
     }
 
-    private func demoBrowserListResult(_ visible: [Unit]) -> MK2ScreenBuildResult {
-        let items = visible.map { unit in
+    private func demoBrowserListResult(_ visible: [DemoRef]) -> MK2ScreenBuildResult {
+        let items = visible.map { demo in
             MK2SelectionItem(
-                title: unit.descriptor.title,
-                detail: unit.descriptor.summary,
-                badge: unit.descriptor.category.badge
+                title: demo.descriptor.title,
+                detail: demo.descriptor.summary,
+                badge: demo.descriptor.category.badge
             )
         }
         let colors = MK2SelectionViewColors(
@@ -920,7 +866,7 @@ private actor WidgetLab {
         }
     }
 
-    private func demoBrowserDetailPaneResult(_ visible: [Unit]) -> MK2ScreenBuildResult {
+    private func demoBrowserDetailPaneResult(_ visible: [DemoRef]) -> MK2ScreenBuildResult {
         guard let index = demoBrowserNavigation.clampedSelectedIndex(itemCount: visible.count) else {
             return regularScreenResult(header: .title(title: "Widget Lab", subtitle: "Demo Browser")) {
                 MK2EmptyStateElement(
@@ -950,11 +896,16 @@ private actor WidgetLab {
         await render()
     }
 
-    private func openDemo(_ target: Unit) async {
-        if target != .pattern {
+    private func openDemo(_ target: DemoRef) async {
+        if case let .legacy(legacyUnit) = target {
+            if legacyUnit != .pattern {
+                stopPatternPlaybackIfNeeded()
+            }
+            unit = legacyUnit
+        } else {
             stopPatternPlaybackIfNeeded()
         }
-        unit = target
+        activeDemo = target
         mode = .demo
         await render()
     }
@@ -1060,19 +1011,6 @@ private actor WidgetLab {
                 return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
             case .waveform:
                 return (screenResult(frame: waveformLoopFrame()), waveformControlResult())
-            case .scene:
-                switch sceneCombo {
-                    case .splash:
-                        return (splashIdentityResult(), splashDetailResult())
-                    case .hero:
-                        return (heroLeftResult(), heroRightResult())
-                    case .granularity:
-                        return (granularityResult(range: 0..<4), granularityResult(range: 4..<8))
-                    case .forms:
-                        return (formsHeadersResult(), formsRulersResult())
-                    default:
-                        return (sceneChromeDemoResult(), sceneControlResult())
-                }
             default:
                 return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
         }
@@ -1582,537 +1520,6 @@ private actor WidgetLab {
 
     // MARK: - Scene lab
 
-    private func sceneProgressBar() -> MK2ScreenProgressBar? {
-        switch sceneProgressMode {
-            case 1:
-                MK2ScreenProgressBar(placement: .top, progress: Double(sceneProgressPercent) / 100.0)
-            case 2:
-                MK2ScreenProgressBar(placement: .bottom, progress: Double(sceneProgressPercent) / 100.0)
-            default:
-                nil
-        }
-    }
-
-    private func sceneProgressLabel() -> String {
-        switch sceneProgressMode {
-            case 1: "TOP"
-            case 2: "BTM"
-            default: "OFF"
-        }
-    }
-
-    private func sceneLayout() -> MK2RegularScreenLayout {
-        MK2ScreenLayout.regular(
-            header: sceneCombo.header,
-            footer: sceneCombo.footer,
-            progress: sceneProgressBar()?.placement,
-            typography: MK2ScreenChromeTypography(captionPixelSize: sceneCaptionSize, footnotePixelSize: sceneFootnoteSize)
-        )
-    }
-
-    private func sceneChromeDemoResult() -> MK2ScreenBuildResult {
-        let combo = sceneCombo
-        let layout = sceneLayout()
-        let headerLine = "HEADER \(combo.headerLabel) \(layout.headerRect?.height ?? 0)  FOOTER \(combo.footerLabel) \(layout.footerRect?.height ?? 0)"
-        let progressLine = sceneProgressMode == 0 ? "PROGRESS OFF" : "PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%"
-        let typoLine = "CAPTION \(sceneCaptionSize)PX  FOOTNOTE \(sceneFootnoteSize)PX"
-        let footerDisplays = (layout.footerRect?.height ?? 0) >= MK2ScreenLayout.encoderFooterHeight ? sceneEncoderDisplays() : []
-
-        return MK2RegularScreenDSL(
-            header: combo.header,
-            footer: combo.footer,
-            progress: sceneProgressBar(),
-            typography: MK2ScreenChromeTypography(captionPixelSize: sceneCaptionSize, footnotePixelSize: sceneFootnoteSize)
-        ) {
-            MK2AnyScreenElement { frame, context, _ in
-                guard let layout = context.layout else { return }
-                let content = layout.contentRect
-                frame.stroke(content, Palette.border)
-                let lines: [(String, SurfaceFont, UInt16)] = [
-                    (combo.title, .gridBold, Palette.blue),
-                    (headerLine, .grid, Palette.dim),
-                    (progressLine, .grid, Palette.dim),
-                    ("CONTENT \(content.x),\(content.y) \(content.width)*\(content.height)", .grid, Palette.text),
-                    (typoLine, .grid, Palette.dim),
-                ]
-                var y = content.y + 6
-                for (text, font, color) in lines {
-                    guard y + font.cellHeight <= content.maxY else { break }
-                    BitmapLabel(text, font: font, color: color)
-                        .draw(into: &frame, x: content.x + 8, y: y, clip: content)
-                    y += font.cellHeight + 4
-                }
-            }
-            MK2EncoderFooterElement(footerDisplays)
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func sceneControlResult() -> MK2ScreenBuildResult {
-        let combo = sceneCombo
-        let layout = sceneLayout()
-        let values = sceneEncoderValues()
-        let summary: [(String, UInt16)] = [
-            ("HEADER   \(combo.headerLabel) \(layout.headerRect?.height ?? 0)", Palette.text),
-            ("FOOTER   \(combo.footerLabel) \(layout.footerRect?.height ?? 0)", Palette.text),
-            ("PROGRESS \(sceneProgressLabel()) \(sceneProgressPercent)%", Palette.text),
-            ("CONTENT  \(layout.contentRect.x),\(layout.contentRect.y) \(layout.contentRect.width)*\(layout.contentRect.height)", Palette.blue),
-            ("INSTANCE WECHSELT DIE KOMBINATION", Palette.dim),
-            ("ENCODER 2*TIPPEN = WERT ZURUECKSETZEN", Palette.dim),
-        ]
-
-        return MK2FullScreenDSL(background: Palette.page) {
-            MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 8, items: [
-                    MK2StatusLineItem("SCENE LAB", x: 8, color: Palette.blue),
-                    MK2StatusLineItem(combo.title, x: 140, color: Palette.text, font: .gridBold),
-                ]).draw(into: &frame)
-                frame.hline(y: 32, x: 0, width: 480, color: Palette.border)
-                var y = 44
-                for (text, color) in summary {
-                    BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
-                    y += SurfaceFont.grid.cellHeight + 6
-                }
-                for value in values {
-                    value.drawDisplay(into: &frame)
-                }
-            }
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    /// Encoder-feel playground: eight discrete values across both screens,
-    /// domain sizes doubling per encoder, so the adaptive counts-per-step
-    /// derivation can be judged side by side on hardware. Cells show
-    /// value/domain plus the derived counts-per-step; double-touch resets
-    /// to the midpoint.
-    private func granularityResult(range: Range<Int>) -> MK2ScreenBuildResult {
-        let title = range.lowerBound == 0 ? "ENCODER FEEL" : "ADAPTIVE THROW"
-        let hint = range.lowerBound == 0 ? "2*TIPPEN = RESET AUF MITTE" : "SCHNELL DREHEN BESCHLEUNIGT BIS X-FAKTOR"
-        let slots = range.map { index -> MK2ParameterPageSlot in
-            let domain = Self.granularityDomains[index]
-            let bounds = 0...(domain - 1)
-            let value = granularityValues[index]
-            let displayValue = domain == 2 ? (value == 1 ? "ON" : "OFF") : "\(value + 1)/\(domain)"
-            let countsPerStep = MK2EncoderDiscreteValue.automaticCountsPerStep(for: bounds)
-            let acceleration = MK2EncoderDiscreteValue.sweepAcceleration(for: bounds, countsPerStep: countsPerStep)
-            let accelerationSuffix = acceleration > 1.5 ? "·\(Int(acceleration.rounded()))X" : ""
-            return MK2ParameterPageSlot(
-                label: "\(domain)V·\(countsPerStep)C\(accelerationSuffix)",
-                value: displayValue,
-                encoderValue: MK2EncoderDiscreteValue(
-                    encoder: index + 1,
-                    value: value,
-                    bounds: bounds,
-                    defaultValue: domain / 2,
-                    onChange: { [weak self] value in
-                        Task { await self?.setGranularityValue(index, value) }
-                    }
-                )
-            )
-        }
-        return MK2FullScreenDSL(
-            background: Palette.page,
-            header: .status([
-                MK2StatusLineItem(title, x: 8, color: Palette.blue),
-                MK2StatusLineItem(hint, x: 150, color: Palette.dim),
-            ])
-        ) {
-            MK2ParameterPageElement(slots: slots)
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func setGranularityValue(_ index: Int, _ value: Int) async {
-        guard granularityValues.indices.contains(index) else { return }
-        granularityValues[index] = value
-        await render()
-    }
-
-    // MARK: - Header & ruler forms catalog
-
-    /// Left screen: every header form that exists in the wild today, stacked
-    /// with its origin — the decision basis for which forms become
-    /// first-class elements (plural allowed; the goal is a sanctioned set,
-    /// not one form to rule them all).
-    private func formsHeadersResult() -> MK2ScreenBuildResult {
-        let titleBand = MK2RegularScreenDSL(header: .title(title: "Titel + Untertitel", subtitle: "TRAILING")) {}
-            .build(renderer: freeTypeRenderer).screen.frame
-        let statusBand = MK2RegularScreenDSL(header: .status([
-            MK2StatusLineItem("STATUS", x: 8, color: Palette.blue),
-            MK2StatusLineItem("ITEMS", x: 92, color: Palette.dim),
-            MK2StatusLineItem("FESTE X-POSITIONEN", x: 196, color: Palette.text, font: .gridBold),
-        ])) {}.build(renderer: freeTypeRenderer).screen.frame
-
-        let renderer = freeTypeRenderer
-        return MK2FullScreenDSL(
-            background: Palette.page,
-            header: .status([
-                MK2StatusLineItem("HEADER-FORMEN", x: 8, color: Palette.blue),
-                MK2StatusLineItem("H1-H4 · STANDARDISIERT", x: 170, color: Palette.dim),
-            ])
-        ) {
-            MK2AnyScreenElement { frame, _, _ in
-
-                var y = 38
-                func caption(_ text: String) {
-                    BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
-                    y += SurfaceFont.label.cellHeight + 2
-                }
-
-                caption("H1 CHROME-BAND .TITLE — REGULAR SCREEN (BROWSER/METER)")
-                frame.blit(titleBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
-                y += 36
-
-                caption("H2 CHROME-BAND .STATUS — REGULAR SCREEN (SCENE-LAB)")
-                frame.blit(statusBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
-                y += 36
-
-                caption("H3 FULLSCREEN HEADER .STATUS — FIXED-PITCH, JETZT header:-SLOT")
-                MK2StatusLine(y: y + 4, items: [
-                    MK2StatusLineItem("PAT 00", x: 8, color: Palette.blue),
-                    MK2StatusLineItem("ROW 1F", x: 120, color: Palette.text, font: .gridBold),
-                    MK2StatusLineItem("PLAY", x: 230, color: Palette.green),
-                ]).draw(into: &frame)
-                frame.hline(y: y + 24, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
-                y += 32
-
-                caption("H4 FULLSCREEN HEADER .TITLE — PROPORTIONAL, JETZT header:-SLOT")
-                if let renderer {
-                    try? renderer.drawText(
-                        "PULSE LEAD", into: &frame, x: 8, y: y + 2,
-                        style: MK2HIG.textStyle(weight: MK2HIG.Fonts.titleWeight, pixelSize: 15, color: Palette.blue),
-                        maxWidth: 330
-                    )
-                    try? renderer.drawText(
-                        "EDIT 04 SAMPLE", into: &frame, x: 344, y: y + 4,
-                        style: MK2HIG.textStyle(weight: MK2HIG.Fonts.bodyWeight, pixelSize: MK2HIG.Typography.captionPixelSize, color: Palette.dim),
-                        maxWidth: 128
-                    )
-                }
-            }
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    /// Right screen: the separator/ruler forms in use plus the one obvious
-    /// missing candidate (dotted horizontal), each labeled with its origin.
-    private func formsRulersResult() -> MK2ScreenBuildResult {
-        return MK2FullScreenDSL(
-            background: Palette.page,
-            header: .status([
-                MK2StatusLineItem("RULER-FORMEN", x: 8, color: Palette.blue),
-                MK2StatusLineItem("R1-R4 · VERTIKAL: PATTERNGRID", x: 170, color: Palette.dim),
-            ])
-        ) {
-            MK2AnyScreenElement { frame, _, _ in
-                var y = 38
-                func caption(_ text: String) {
-                    BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
-                    y += SurfaceFont.label.cellHeight + 2
-                }
-
-                caption("R1 SEPARATOR .LINE (BORDER) — JETZT MK2SEPARATORELEMENT")
-                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
-                y += 14
-
-                caption("R2 SEPARATOR .ACCENT — HERVORGEHOBENE TRENNUNG")
-                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.accent)
-                y += 14
-
-                caption("R3 SEPARATOR .BANDEDGE — BEVEL + SCHATTEN, 2PX")
-                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.headerTopLine)
-                frame.hline(y: y + 4, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.headerBottomLine)
-                y += 16
-
-                caption("R4 SEPARATOR .DOTTED — JETZT STANDARDFORM")
-                frame.dottedHLine(y: y + 3, color: MK2HIG.Chrome.dim)
-                y += 14
-
-                caption("V1 GEPUNKTET VERTIKAL — KANAL-RULER (PATTERN-GRID, TRACKER-LAB)")
-                for column in 0..<4 {
-                    frame.dottedVLine(x: 40 + column * 120, y: y + 4, height: 52, color: Palette.border)
-                }
-                BitmapLabel("KANAL 1", font: .label, color: Palette.dim).draw(into: &frame, x: 48, y: y + 8)
-                BitmapLabel("KANAL 2", font: .label, color: Palette.dim).draw(into: &frame, x: 168, y: y + 8)
-            }
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func sceneEncoderValues() -> [MK2EncoderDiscreteValue] {
-        let displays = sceneEncoderDisplays()
-        return [
-            MK2EncoderDiscreteValue(
-                encoder: 5,
-                value: sceneProgressMode,
-                bounds: 0...2,
-                defaultValue: 1,
-                display: displays[0],
-                onTouch: { [weak self] touched in
-                    Task { await self?.setSceneFocusedEncoder(5, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSceneProgressMode(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 6,
-                value: sceneProgressPercent,
-                bounds: 0...100,
-                step: 2,
-                wraps: false,
-                defaultValue: 42,
-                display: displays[1],
-                onTouch: { [weak self] touched in
-                    Task { await self?.setSceneFocusedEncoder(6, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSceneProgressPercent(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 7,
-                value: sceneCaptionSize,
-                bounds: 10...24,
-                wraps: false,
-                defaultValue: MK2HIG.Typography.captionPixelSize,
-                display: displays[2],
-                onTouch: { [weak self] touched in
-                    Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSceneCaptionSize(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 8,
-                value: sceneFootnoteSize,
-                bounds: 10...24,
-                wraps: false,
-                defaultValue: MK2HIG.Typography.footnotePixelSize,
-                display: displays[3],
-                onTouch: { [weak self] touched in
-                    Task { await self?.setSceneFocusedEncoder(8, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSceneFootnoteSize(value) }
-                }
-            ),
-        ]
-    }
-
-    private func sceneEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let entries: [(label: String, value: String, encoder: Int)] = [
-            ("PROG", sceneProgressLabel(), 5),
-            ("VALUE", "\(sceneProgressPercent)%", 6),
-            ("CAPT", "\(sceneCaptionSize)", 7),
-            ("FOOT", "\(sceneFootnoteSize)", 8),
-        ]
-        return entries.enumerated().map { index, entry in
-            MK2EncoderDiscreteValueDisplay(
-                label: entry.label,
-                value: entry.value,
-                rect: MK2ScreenLayout.encoderSlotRect(index),
-                isFocused: sceneFocusedEncoder == entry.encoder,
-                valueFont: .readoutBold,
-                cornerRadius: 7,
-                colors: editCellColors(value: Palette.text)
-            )
-        }
-    }
-
-    // The double splash: the wave panorama spans both screens at uniform brightness
-    // (the decode path itself is pinned by PixelImageTests). E5 dials the virtual
-    // bezel-gap columns so the right constant for the physical display gap can be
-    // calibrated on hardware; E6 drives the background brightness.
-    private func splashIdentityResult() -> MK2ScreenBuildResult {
-        let panorama = splashPanorama()
-        let brightness = Double(sceneProgressPercent) / 100.0
-        return MK2FullScreenDSL(background: Palette.page) {
-            MK2ImageElement(panorama, x: 0, brightness: brightness)
-            MK2ContentText("PAULINCHE", x: 0, y: 88, maxWidth: 480, role: .title, alignment: .center)
-            MK2ContentText("AMIGA MOD TRACKER", x: 0, y: 128, maxWidth: 480, color: Palette.dim, alignment: .center)
-            MK2ContentText("VERSION 0.1 — KONTROLSURFACEKIT2", x: 0, y: 244, maxWidth: 480, role: .footnote, color: Palette.dim, alignment: .center)
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func splashDetailResult() -> MK2ScreenBuildResult {
-        let panorama = splashPanorama()
-        let brightness = Double(sceneProgressPercent) / 100.0
-        let displays = splashEncoderDisplays()
-        return MK2FullScreenDSL(background: Palette.page) {
-            MK2ImageElement(panorama, x: MK2PixelFrame.width - panorama.width, brightness: brightness)
-            MK2EncoderFooterElement(displays)
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func splashPanorama() -> MK2PixelImage {
-        if let cachedSplashArtwork, cachedSplashGap == sceneSplashGap { return cachedSplashArtwork }
-        let width = MK2PixelFrame.width * 2 + sceneSplashGap
-        let height = MK2PixelFrame.height
-        var pixels = [UInt16](repeating: 0, count: width * height)
-        for y in 0..<height {
-            let t = Double(y) / Double(height - 1)
-            let r = 3.0 * (1 - t)
-            let g = 10.0 * (1 - t)
-            let b = 20.0 * (1 - t) + 2
-            for x in 0..<width {
-                pixels[y * width + x] = MK2OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
-            }
-        }
-        func plot(x: Int, y: Int, height waveHeight: Int, color: UInt16) {
-            for row in y..<(y + waveHeight) where row >= 0 && row < height {
-                pixels[row * width + x] = color
-            }
-        }
-        for x in 0..<width {
-            let phase = Double(x) / Double(MK2PixelFrame.width) * .pi * 4
-            let y1 = 136 + Int((sin(phase) * 78).rounded())
-            let y2 = 136 + Int((sin(phase + 1.2) * 52).rounded())
-            plot(x: x, y: y1 - 1, height: 3, color: Palette.green)
-            plot(x: x, y: y2, height: 2, color: Palette.solo)
-        }
-        let image = MK2PixelImage(width: width, height: height, pixels: pixels)
-        cachedSplashArtwork = image
-        cachedSplashGap = sceneSplashGap
-        return image
-    }
-
-    // Raw delta bindings with a render throttle: every encoder count lands in the
-    // value immediately, but the expensive part (panorama regeneration + two
-    // full-screen draws) runs at most a few times per second with a trailing
-    // render, so fast turns cannot queue work behind the actor.
-    // "Zum Spass": the AboutHero artwork decoded once as a double-screen panorama
-    // (aspect-fill across 2x480 plus the bezel-gap columns) - a photographic test
-    // subject for the image DSL, sharing the E7/E8 gap and brightness knobs.
-    private func heroLeftResult() -> MK2ScreenBuildResult {
-        let brightness = Double(sceneProgressPercent) / 100.0
-        return MK2FullScreenDSL(background: Palette.page) {
-            if let hero = heroPanorama() {
-                MK2ImageElement(hero, x: 0, brightness: brightness)
-            } else {
-                MK2ContentText("AboutHero.png fehlt im Bundle", x: 0, y: 128, maxWidth: 480, color: Palette.orange, alignment: .center)
-            }
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func heroRightResult() -> MK2ScreenBuildResult {
-        let brightness = Double(sceneProgressPercent) / 100.0
-        let displays = splashEncoderDisplays()
-        return MK2FullScreenDSL(background: Palette.page) {
-            if let hero = heroPanorama() {
-                MK2ImageElement(hero, x: MK2PixelFrame.width - hero.width, brightness: brightness)
-            }
-            MK2EncoderFooterElement(displays)
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func heroPanorama() -> MK2PixelImage? {
-        if let cachedHeroArtwork, cachedHeroGap == sceneSplashGap { return cachedHeroArtwork }
-        let decoded = Bundle.module.url(forResource: "AboutHero", withExtension: "png")
-            .flatMap { try? Data(contentsOf: $0) }
-            .flatMap { MK2PixelImage(data: $0, width: MK2PixelFrame.width * 2 + sceneSplashGap, height: MK2PixelFrame.height, scaling: .fill) }
-        cachedHeroArtwork = decoded
-        cachedHeroGap = sceneSplashGap
-        return decoded
-    }
-
-    private func applySplashEncoderBindings(into bindings: inout MK2InputBindings2) {
-        bindings.encoderTouch[7] = { [weak self] touched in
-            Task { await self?.setSceneFocusedEncoder(7, touched: touched) }
-        }
-        bindings.encoder[7] = { [weak self] delta, _, _ in
-            Task { await self?.adjustSplashGap(delta) }
-        }
-        bindings.encoderTouch[8] = { [weak self] touched in
-            Task { await self?.setSceneFocusedEncoder(8, touched: touched) }
-        }
-        bindings.encoder[8] = { [weak self] delta, _, _ in
-            Task { await self?.adjustSplashBrightness(delta) }
-        }
-    }
-
-    private func adjustSplashGap(_ delta: Int) async {
-        guard delta != 0 else { return }
-        sceneSplashGap = max(0, min(128, sceneSplashGap + delta))
-        scheduleSplashRender()
-    }
-
-    private func adjustSplashBrightness(_ delta: Int) async {
-        guard delta != 0 else { return }
-        sceneProgressPercent = max(0, min(100, sceneProgressPercent + delta))
-        scheduleSplashRender()
-    }
-
-    private func scheduleSplashRender() {
-        guard splashRenderTask == nil else {
-            splashRenderPending = true
-            return
-        }
-        splashRenderTask = Task { [weak self] in
-            await self?.runSplashRenderLoop()
-        }
-    }
-
-    private func runSplashRenderLoop() async {
-        repeat {
-            splashRenderPending = false
-            await render()
-            try? await Task.sleep(for: .milliseconds(250))
-        } while splashRenderPending
-        splashRenderTask = nil
-    }
-
-    private func splashEncoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let entries: [(label: String, value: String, encoder: Int, slot: Int)] = [
-            ("GAP", "\(sceneSplashGap)", 7, 2),
-            ("BRIGHT", "\(sceneProgressPercent)%", 8, 3),
-        ]
-        return entries.map { entry in
-            MK2EncoderDiscreteValueDisplay(
-                label: entry.label,
-                value: entry.value,
-                rect: MK2ScreenLayout.encoderSlotRect(entry.slot),
-                isFocused: sceneFocusedEncoder == entry.encoder,
-                valueFont: .readoutBold,
-                cornerRadius: 7,
-                colors: editCellColors(value: Palette.text)
-            )
-        }
-    }
-
-
-    private func cycleSceneCombo() async {
-        guard unit == .scene else { return }
-        sceneCombo = sceneCombo.next
-        await render()
-    }
-
-    private func setSceneFocusedEncoder(_ encoder: Int, touched: Bool) async {
-        if touched {
-            sceneFocusedEncoder = encoder
-        } else if sceneFocusedEncoder == encoder {
-            sceneFocusedEncoder = nil
-        }
-        await render()
-    }
-
-    private func setSceneProgressMode(_ value: Int) async {
-        sceneProgressMode = value.wrapped(to: 0...2)
-        await render()
-    }
-
-    private func setSceneProgressPercent(_ value: Int) async {
-        sceneProgressPercent = max(0, min(100, value))
-        await render()
-    }
-
-    private func setSceneCaptionSize(_ value: Int) async {
-        sceneCaptionSize = max(10, min(24, value))
-        await render()
-    }
-
-    private func setSceneFootnoteSize(_ value: Int) async {
-        sceneFootnoteSize = max(10, min(24, value))
-        await render()
-    }
-
     // MARK: - Tracker unit
 
     private func trackerGridFrame() -> MK2PixelFrame {
@@ -2246,18 +1653,6 @@ private actor WidgetLab {
         toggle.drawDisplay(into: &frame)
     }
 
-    private func editCellColors(value: UInt16) -> MK2ValueCellColors {
-        MK2ValueCellColors(
-            label: Palette.dim,
-            value: value,
-            border: Palette.border,
-            fill: Palette.editFieldFill,
-            focusedValue: 0x0000,
-            focusedFill: Palette.editFieldFocusedFill,
-            focusedBorder: Palette.text
-        )
-    }
-
     private func trackerEditParameterSlots(cell: TrackerDemoCell) -> [MK2ParameterPageSlot] {
         TrackerEditField.allCases.map { field in
             MK2ParameterPageSlot(
@@ -2277,7 +1672,7 @@ private actor WidgetLab {
                         Task { await self?.setFocusedEditValue(value, field: field) }
                     }
                 ),
-                colors: editCellColors(value: field.valueColor)
+                colors: labEditCellColors(value: field.valueColor)
             )
         }
     }
@@ -2291,10 +1686,10 @@ private actor WidgetLab {
                     label: field.label,
                     value: editDisplayValue(for: field, cell: cell),
                     isFocused: focusedEditField == field,
-                    colors: editCellColors(value: field.valueColor)
+                    colors: labEditCellColors(value: field.valueColor)
                 )
             }
-            var colors = editCellColors(value: field.valueColor)
+            var colors = labEditCellColors(value: field.valueColor)
             colors.label = MK2HIG.Chrome.shiftAccent
             return MK2ParameterPageSlot(
                 label: "OCTAVE",
@@ -2466,7 +1861,7 @@ private actor WidgetLab {
             isFocused: fontFocusedEncoder == encoder,
             valueFont: .readoutBold,
             cornerRadius: 7,
-            colors: editCellColors(value: color)
+            colors: labEditCellColors(value: color)
         )
     }
 
@@ -3490,7 +2885,7 @@ private actor WidgetLab {
             isFocused: waveformFocusedEncoder == encoder,
             valueFont: .readoutBold,
             cornerRadius: 7,
-            colors: editCellColors(value: color)
+            colors: labEditCellColors(value: color)
         )
     }
 
@@ -3560,7 +2955,7 @@ private actor WidgetLab {
         switch verb {
             case "list":
                 for category in DemoCategory.allCases {
-                    let demos = Unit.registry.filter { $0.descriptor.category == category }
+                    let demos = demoRegistry.filter { $0.descriptor.category == category }
                     guard !demos.isEmpty else { continue }
                     print("\(category.title):")
                     for demo in demos {
@@ -3570,7 +2965,7 @@ private actor WidgetLab {
                 }
 
             case "open":
-                guard let target = Unit.registry.first(where: { $0.descriptor.id == rest.lowercased() }) else {
+                guard let target = demoRegistry.first(where: { $0.descriptor.id == rest.lowercased() }) else {
                     print("? open <id> — see 'list'"); return
                 }
                 await openDemo(target)
@@ -3795,8 +3190,18 @@ private actor WidgetLab {
         demoBrowserCategoryIndex = 0
 
         mode = .demo
+        for demo in modernDemos {
+            activeDemo = .modern(demo)
+            for variant in [""] + demo.descriptor.snapshotVariants {
+                demo.prepareSnapshot(variant: variant)
+                let suffix = variant.isEmpty ? "" : "-\(variant)"
+                await snapshot(to: directory + "/widgetlab-\(demo.descriptor.id)\(suffix).png")
+            }
+            demo.prepareSnapshot(variant: "")
+        }
         for candidate in Unit.registry {
             unit = candidate
+            activeDemo = .legacy(candidate)
             switch candidate {
                 case .font:
                     for subDemo in FontSubDemo.allCases {
@@ -3832,15 +3237,6 @@ private actor WidgetLab {
                 case .pattern:
                     await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
                     await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-shift.png", layer: .shift)
-                case .scene:
-                    for combo in SceneChromeCombo.allCases {
-                        sceneCombo = combo
-                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(combo.title)).png")
-                    }
-                    sceneCombo = .titleHint
-                    (sceneCaptionSize, sceneFootnoteSize) = (12, 12)
-                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-title-hint-compact.png")
-                    (sceneCaptionSize, sceneFootnoteSize) = (MK2HIG.Typography.captionPixelSize, MK2HIG.Typography.footnotePixelSize)
                 default:
                     await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
             }
@@ -4569,46 +3965,4 @@ private extension Int {
     }
 }
 
-private enum Palette {
-    static let page: UInt16 = 0x0841       // near-black blue
-    static let text: UInt16 = 0xffff
-    static let dim: UInt16 = 0x8410        // mid grey
-    static let accent: UInt16 = 0x7dbf     // light blue, mirrors MK2HIG.Chrome.accent
-    static let border: UInt16 = 0x4208     // faint frame
-    static let blue: UInt16 = 0x7dbf
-    static let green: UInt16 = 0x464f
-    static let orange: UInt16 = 0xec88
-    static let question: UInt16 = 0x9a7f
-    static let solo: UInt16 = 0x03ff
-    static let soloBorder: UInt16 = 0x5dff
-    static let mute: UInt16 = 0xf8c3
-    static let muteBorder: UInt16 = 0xf800
-    static let note: UInt16 = 0xdedf
-    static let instrument: UInt16 = 0x95f2
-    static let effect: UInt16 = 0xec88
-    static let empty: UInt16 = 0x4a69
-    static let ruler: UInt16 = 0x632e
-    static let rowStripe: UInt16 = 0x1083
-    static let cursorFill: UInt16 = 0x19aa
-    static let playheadFill: UInt16 = 0x1125
-    static let focusedChannelFill: UInt16 = 0x1026
-    static let channelButtonFill: UInt16 = 0x1083
-    static let channelButtonBorder: UInt16 = 0x4208
-    static let channelButtonActiveText: UInt16 = 0xffff
-    static let editFieldFill: UInt16 = 0x1083
-    static let editFieldFocusedFill: UInt16 = 0xc618
-    static let track: UInt16 = 0x2126
-    static let dialogSurface: UInt16 = 0x18e3
-    static let selectionFill: UInt16 = 0x2126
-    static let filterFill: UInt16 = 0x1083
-}
 
-private extension Int {
-    func wrapped(to bounds: ClosedRange<Int>) -> Int {
-        let count = bounds.upperBound - bounds.lowerBound + 1
-        guard count > 0 else { return bounds.lowerBound }
-        let raw = (self - bounds.lowerBound) % count
-        let offset = raw >= 0 ? raw : raw + count
-        return bounds.lowerBound + offset
-    }
-}

@@ -1,4 +1,6 @@
 import Foundation
+import KompleteKontrol
+import KontrolSurfaceKit2
 
 /// Demo taxonomy of the lab browser (rework plan, decisions 2026-07-12):
 /// Calibration tunes hardware physics, Look & Feel judges rendering,
@@ -67,4 +69,32 @@ struct DemoDescriptor: Sendable {
         self.detail = detail
         self.snapshotVariants = snapshotVariants
     }
+}
+
+/// What the shell hands a demo: the shared text renderer and a way to run a
+/// state mutation on the shell's executor followed by a re-present. Demos
+/// never talk to the surface directly.
+struct LabContext: Sendable {
+    let renderer: FreeTypeTextRenderer?
+    /// Run a mutation on the shell's executor, then re-present.
+    let update: @Sendable (_ mutation: @escaping @Sendable () -> Void) -> Void
+    /// Run a mutation on the shell's executor without re-presenting — for
+    /// demos that coalesce expensive renders themselves.
+    let mutate: @Sendable (_ mutation: @escaping @Sendable () -> Void) -> Void
+}
+
+/// One self-contained demo: it builds its complete scene (screens, lamps,
+/// bindings, shift layer) and owns every control while open — the shell
+/// injects only the reserved SCENE exit and the REPL LED overrides on top.
+/// Instances are held and called exclusively by the shell actor; binding
+/// closures route mutations back through `LabContext.update`.
+protocol LabDemo: AnyObject, Sendable {
+    var descriptor: DemoDescriptor { get }
+    func buildScene(_ context: LabContext) -> MK2SurfaceScene2
+    /// The harness sets up the named variant before capturing; "" is the default.
+    func prepareSnapshot(variant: String)
+}
+
+extension LabDemo {
+    func prepareSnapshot(variant: String) {}
 }
