@@ -1073,14 +1073,14 @@ private actor WidgetLab {
         BitmapLabel("FONT LAB - FREETYPE + BITMAP", font: .label, color: Palette.accent)
             .draw(into: &frame, x: 8, y: 8)
 
-        drawFreeTypeTitle("Globaler Dialogtitel", into: &frame, x: 8, y: 32, size: 24, color: Palette.text, maxWidth: 448)
-        drawFreeTypeBody("Body Regular 16 px: Listen, Dialoge, Browser, Settings.", into: &frame, x: 8, y: 70, size: 16, color: Palette.dim, maxWidth: 448)
-        drawFreeTypeBody("Tracker und Grid bleiben bitmap-scharf.", into: &frame, x: 8, y: 94, size: 16, color: Palette.empty, maxWidth: 448)
+        drawFreeTypeTitle("Globaler Dialogtitel", into: &frame, renderer: freeTypeRenderer, x: 8, y: 32, size: 24, color: Palette.text, maxWidth: 448)
+        drawFreeTypeBody("Body Regular 16 px: Listen, Dialoge, Browser, Settings.", into: &frame, renderer: freeTypeRenderer, x: 8, y: 70, size: 16, color: Palette.dim, maxWidth: 448)
+        drawFreeTypeBody("Tracker und Grid bleiben bitmap-scharf.", into: &frame, renderer: freeTypeRenderer, x: 8, y: 94, size: 16, color: Palette.empty, maxWidth: 448)
 
         let icons = Array(Self.fontIconSamples.prefix(4))
         for (index, icon) in icons.enumerated() {
             let x = 28 + index * 110
-            drawFreeTypeIcon(icon.glyph, into: &frame, x: x, y: 122, size: 40, color: icon.color)
+            drawFreeTypeIcon(icon.glyph, into: &frame, renderer: freeTypeRenderer, x: x, y: 122, size: 40, color: icon.color)
             BitmapLabel(icon.name.uppercased(), font: .label, color: Palette.dim)
                 .draw(into: &frame, x: x - 10, y: 174, clip: MK2PixelRect(x: x - 10, y: 174, width: 92, height: 14))
         }
@@ -1112,13 +1112,13 @@ private actor WidgetLab {
     private func typographySpecimenFrame() -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: Palette.page)
         drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "INSTANCE: \(fontSubDemo.next.shortTitle)")
-        drawFreeTypeTitle("Browser Selection", into: &frame, x: 18, y: 56, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody("Body Regular 16 px. Ruhiger Text für längere MK2-OLED-Flächen.", into: &frame, x: 18, y: 91, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeTitle("Settings", into: &frame, x: 18, y: 126, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        let settingsLines = drawFreeTypeBody("Listen, Dialoge, Browser-Panes und Preferences teilen einen gemeinsamen Rhythmus.", into: &frame, x: 18, y: 160, size: Self.bodySize, color: Palette.dim, maxWidth: 432, maxLines: 2)
+        drawFreeTypeTitle("Browser Selection", into: &frame, renderer: freeTypeRenderer, x: 18, y: 56, size: Self.titleSize, color: Palette.text, maxWidth: 432)
+        drawFreeTypeBody("Body Regular 16 px. Ruhiger Text für längere MK2-OLED-Flächen.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 91, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
+        drawFreeTypeTitle("Settings", into: &frame, renderer: freeTypeRenderer, x: 18, y: 126, size: Self.titleSize, color: Palette.text, maxWidth: 432)
+        let settingsLines = drawFreeTypeBody("Listen, Dialoge, Browser-Panes und Preferences teilen einen gemeinsamen Rhythmus.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 160, size: Self.bodySize, color: Palette.dim, maxWidth: 432, maxLines: 2)
         let ligatureY = 160 + settingsLines * freeTypeLineAdvance(size: Self.bodySize) + 8
         BitmapLabel("PROPORTIONAL LIGATURE TEST", font: .label, color: Palette.empty).draw(into: &frame, x: 18, y: ligatureY)
-        drawFreeTypeTitle("office affine efficient", into: &frame, x: 18, y: ligatureY + 16, size: 20, color: Palette.text, maxWidth: 432)
+        drawFreeTypeTitle("office affine efficient", into: &frame, renderer: freeTypeRenderer, x: 18, y: ligatureY + 16, size: 20, color: Palette.text, maxWidth: 432)
         BitmapLabel("BITMAP GRID 0123456789 ffi", font: .grid, color: Palette.accent).draw(into: &frame, x: 18, y: 252)
         return frame
     }
@@ -1129,7 +1129,7 @@ private actor WidgetLab {
         drawTypographyRow(into: &frame, y: 54, title: "Piano Noir", body: "Felt grand with quiet release samples", focused: true)
         drawTypographyRow(into: &frame, y: 114, title: "Tape Strings", body: "Warm ensemble, filtered attack", focused: false)
         drawTypographyRow(into: &frame, y: 174, title: "System", body: "Display brightness, browser defaults", focused: false)
-        drawFreeTypeBody("INSTANCE wechselt: Font, Typo, Icons, Dialog.", into: &frame, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeBody("INSTANCE wechselt: Font, Typo, Icons, Dialog.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -1137,17 +1137,17 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         guard let icon = selectedIcon else {
             drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "catalog missing")
-            drawFreeTypeBody("PhosphorIcons.pro.json wurde nicht geladen.", into: &frame, x: 18, y: 62, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
+            drawFreeTypeBody("PhosphorIcons.pro.json wurde nicht geladen.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 62, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
             return frame
         }
         let visible = visibleIcons()
         let visibleIndex = selectedVisibleIconIndex(in: visible)
         drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "\(visibleIndex + 1)/\(max(1, visible.count)) \(iconSelectionMode.title)")
-        drawFreeTypeIconCentered(icon.glyph, into: &frame, centerX: 240, y: 72, size: currentIconSize, color: Palette.text)
-        drawFreeTypeTitle(icon.label, into: &frame, x: 18, y: 158, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody(icon.name, into: &frame, x: 18, y: 194, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, currentIconSize, Self.iconStyleLabel), into: &frame, x: 18, y: 222, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("INSTANCE demo  4D/Page icons  E5 A-Z filter", into: &frame, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: 240, y: 72, size: currentIconSize, color: Palette.text)
+        drawFreeTypeTitle(icon.label, into: &frame, renderer: freeTypeRenderer, x: 18, y: 158, size: Self.titleSize, color: Palette.text, maxWidth: 432)
+        drawFreeTypeBody(icon.name, into: &frame, renderer: freeTypeRenderer, x: 18, y: 194, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
+        drawFreeTypeBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, currentIconSize, Self.iconStyleLabel), into: &frame, renderer: freeTypeRenderer, x: 18, y: 222, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
+        drawFreeTypeBody("INSTANCE demo  4D/Page icons  E5 A-Z filter", into: &frame, renderer: freeTypeRenderer, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -1209,12 +1209,12 @@ private actor WidgetLab {
         frame.fill(dialog, Palette.dialogSurface)
         frame.stroke(dialog, Palette.border)
         if let icon {
-            drawFreeTypeIconCentered(icon.glyph, into: &frame, centerX: 240, y: 77, size: Self.actionDialogIconSize, color: Palette.accent)
+            drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: 240, y: 77, size: Self.actionDialogIconSize, color: Palette.accent)
         }
-        drawFreeTypeTitle(candidate.title, into: &frame, x: 74, y: 133, size: Self.titleSize, color: Palette.text, maxWidth: 332)
-        drawFreeTypeBody(candidate.body, into: &frame, x: 74, y: 171, size: Self.bodySize, color: Palette.dim, maxWidth: 332)
-        drawFreeTypeBody("[\(candidate.action)]        CANCEL", into: &frame, x: 142, y: 204, size: Self.bodySize, color: Palette.text, maxWidth: 240)
-        drawFreeTypeBody("Page Left/Right browsen Icons. Preset ändert Größe.", into: &frame, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeTitle(candidate.title, into: &frame, renderer: freeTypeRenderer, x: 74, y: 133, size: Self.titleSize, color: Palette.text, maxWidth: 332)
+        drawFreeTypeBody(candidate.body, into: &frame, renderer: freeTypeRenderer, x: 74, y: 171, size: Self.bodySize, color: Palette.dim, maxWidth: 332)
+        drawFreeTypeBody("[\(candidate.action)]        CANCEL", into: &frame, renderer: freeTypeRenderer, x: 142, y: 204, size: Self.bodySize, color: Palette.text, maxWidth: 240)
+        drawFreeTypeBody("Page Left/Right browsen Icons. Preset ändert Größe.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -1222,21 +1222,21 @@ private actor WidgetLab {
         var frame = MK2PixelFrame(fill: Palette.page)
         drawBitmapHeader(into: &frame, title: "DIALOG TEST", subtitle: "global action style")
         guard let icon = selectedIcon else {
-            drawFreeTypeBody(iconSource, into: &frame, x: 18, y: 58, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
+            drawFreeTypeBody(iconSource, into: &frame, renderer: freeTypeRenderer, x: 18, y: 58, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
             return frame
         }
-        drawFreeTypeTitle("Current Icon", into: &frame, x: 18, y: 58, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody(icon.name, into: &frame, x: 18, y: 94, size: Self.bodySize, color: Palette.dim, maxWidth: 300)
-        drawFreeTypeBody(String(format: "Phosphor  U+%04X  action 48 px", icon.codepoint), into: &frame, x: 18, y: 122, size: Self.bodySize, color: Palette.dim, maxWidth: 420)
+        drawFreeTypeTitle("Current Icon", into: &frame, renderer: freeTypeRenderer, x: 18, y: 58, size: Self.titleSize, color: Palette.text, maxWidth: 432)
+        drawFreeTypeBody(icon.name, into: &frame, renderer: freeTypeRenderer, x: 18, y: 94, size: Self.bodySize, color: Palette.dim, maxWidth: 300)
+        drawFreeTypeBody(String(format: "Phosphor  U+%04X  action 48 px", icon.codepoint), into: &frame, renderer: freeTypeRenderer, x: 18, y: 122, size: Self.bodySize, color: Palette.dim, maxWidth: 420)
         var x = 18
         for size in [24, 32, 42, 56, 72] {
             let item = MK2PixelRect(x: x - 3, y: 158, width: 58, height: 74)
             if size == currentIconSize { frame.stroke(item, Palette.accent) }
-            drawFreeTypeIconCentered(icon.glyph, into: &frame, centerX: x + 25, y: 164, size: size, color: Palette.text)
-            drawFreeTypeBody("\(size)", into: &frame, x: x + 9, y: 216, size: 14, color: size == currentIconSize ? Palette.text : Palette.empty, maxWidth: 46)
+            drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: x + 25, y: 164, size: size, color: Palette.text)
+            drawFreeTypeBody("\(size)", into: &frame, renderer: freeTypeRenderer, x: x + 9, y: 216, size: 14, color: size == currentIconSize ? Palette.text : Palette.empty, maxWidth: 46)
             x += 84
         }
-        drawFreeTypeBody(iconSource, into: &frame, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
+        drawFreeTypeBody(iconSource, into: &frame, renderer: freeTypeRenderer, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
         return frame
     }
 
@@ -1244,8 +1244,8 @@ private actor WidgetLab {
         if focused {
             frame.fill(MK2PixelRect(x: 12, y: y - 6, width: 456, height: 54), Palette.selectionFill)
         }
-        drawFreeTypeTitle(title, into: &frame, x: 22, y: y, size: Self.titleSize, color: focused ? Palette.text : Palette.dim, maxWidth: 420)
-        drawFreeTypeBody(body, into: &frame, x: 22, y: y + 31, size: Self.bodySize, color: focused ? Palette.dim : Palette.empty, maxWidth: 420)
+        drawFreeTypeTitle(title, into: &frame, renderer: freeTypeRenderer, x: 22, y: y, size: Self.titleSize, color: focused ? Palette.text : Palette.dim, maxWidth: 420)
+        drawFreeTypeBody(body, into: &frame, renderer: freeTypeRenderer, x: 22, y: y + 31, size: Self.bodySize, color: focused ? Palette.dim : Palette.empty, maxWidth: 420)
     }
 
     private func drawBitmapHeader(into frame: inout MK2PixelFrame, title: String, subtitle: String) {
@@ -2589,151 +2589,17 @@ private actor WidgetLab {
             Palette.dialogSurface,
             antialiased: true
         )
-        drawFreeTypeIcon(icon.glyph, into: &frame, x: 28, y: 70, size: iconPixelSize, color: icon.color)
-        drawFreeTypeTitle(sample.title, into: &frame, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
-        let bodyLines = drawFreeTypeBody(sample.body, into: &frame, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336, maxLines: 2)
+        drawFreeTypeIcon(icon.glyph, into: &frame, renderer: freeTypeRenderer, x: 28, y: 70, size: iconPixelSize, color: icon.color)
+        drawFreeTypeTitle(sample.title, into: &frame, renderer: freeTypeRenderer, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
+        let bodyLines = drawFreeTypeBody(sample.body, into: &frame, renderer: freeTypeRenderer, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336, maxLines: 2)
         let detailSize = max(12, min(18, bodyPixelSize - 1))
         let detailY = 104 + bodyLines * freeTypeLineAdvance(size: bodyPixelSize) + 2
-        drawFreeTypeBody(sample.detail, into: &frame, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
+        drawFreeTypeBody(sample.detail, into: &frame, renderer: freeTypeRenderer, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
 
         for binding in fontLabEncoderBindings() {
             binding.drawDisplay(into: &frame)
         }
         return frame
-    }
-
-    private func drawFreeTypeTitle(
-        _ text: String,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        size: Int,
-        color: UInt16,
-        maxWidth: Int
-    ) {
-        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: MK2HIG.Fonts.titleWeight, color: color, maxWidth: maxWidth)
-    }
-
-    @discardableResult
-    private func drawFreeTypeBody(
-        _ text: String,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        size: Int,
-        color: UInt16,
-        maxWidth: Int,
-        maxLines: Int = 1
-    ) -> Int {
-        drawFreeTypeText(text, into: &frame, x: x, y: y, size: size, weight: MK2HIG.Fonts.bodyWeight, color: color, maxWidth: maxWidth, maxLines: maxLines)
-    }
-
-    @discardableResult
-    private func drawFreeTypeText(
-        _ text: String,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        size: Int,
-        weight: FreeTypeFontWeight,
-        color: UInt16,
-        maxWidth: Int,
-        maxLines: Int = 1
-    ) -> Int {
-        let style = MK2HIG.textStyle(
-            weight: weight,
-            pixelSize: size,
-            color: color
-        )
-        let lineAdvance = freeTypeLineAdvance(size: size)
-        let lineLimit = max(1, maxLines)
-
-        if let freeTypeRenderer {
-            if lineLimit == 1,
-               (try? freeTypeRenderer.drawText(text, into: &frame, x: x, y: y, style: style, maxWidth: maxWidth)) != nil {
-                return 1
-            }
-            if let layout = try? freeTypeRenderer.wrappedLayout(text, style: style, maxWidth: maxWidth) {
-                let count = min(lineLimit, max(1, layout.lines.count))
-                for index in 0..<count {
-                    let line = layout.lines.indices.contains(index) ? layout.lines[index] : ""
-                    try? freeTypeRenderer.drawText(line, into: &frame, x: x, y: y + index * lineAdvance, style: style, maxWidth: maxWidth)
-                }
-                return count
-            }
-        }
-
-        let font: SurfaceFont = weight == MK2HIG.Fonts.titleWeight ? .gridBold : .grid
-        let lines = wrappedBitmapLines(text, font: font, maxWidth: maxWidth)
-        let count = min(lineLimit, max(1, lines.count))
-        for index in 0..<count {
-            let line = lines.indices.contains(index) ? lines[index] : ""
-            BitmapLabel(line, font: font, color: color)
-                .draw(into: &frame, x: x, y: y + index * lineAdvance + 3, clip: MK2PixelRect(x: x, y: y + index * lineAdvance, width: maxWidth, height: max(18, size + 6)))
-        }
-        return count
-    }
-
-    private func freeTypeLineAdvance(size: Int) -> Int {
-        max(18, size + 4)
-    }
-
-    private func wrappedBitmapLines(_ text: String, font: SurfaceFont, maxWidth: Int) -> [String] {
-        let words = text
-            .split(whereSeparator: { $0.unicodeScalars.allSatisfy(\.properties.isWhitespace) })
-            .map(String.init)
-        guard !words.isEmpty else { return text.isEmpty ? [] : [""] }
-
-        var lines: [String] = []
-        var current = ""
-        for word in words {
-            let candidate = current.isEmpty ? word : current + " " + word
-            if font.measure(candidate) <= maxWidth {
-                current = candidate
-            } else {
-                if !current.isEmpty { lines.append(current) }
-                current = word
-            }
-        }
-        if !current.isEmpty {
-            lines.append(current)
-        }
-        return lines
-    }
-
-    private func drawFreeTypeIcon(
-        _ glyph: String,
-        into frame: inout MK2PixelFrame,
-        x: Int,
-        y: Int,
-        size: Int,
-        color: UInt16
-    ) {
-        let style = MK2HIG.iconStyle(pixelSize: size, color: color)
-        guard let freeTypeRenderer,
-              (try? freeTypeRenderer.drawText(glyph, into: &frame, x: x, y: y, style: style, maxWidth: max(80, size + 20))) != nil else {
-            BitmapLabel("?", font: .readoutBold, color: color)
-                .draw(into: &frame, x: x + 12, y: y + 14)
-            return
-        }
-    }
-
-    private func drawFreeTypeIconCentered(
-        _ glyph: String,
-        into frame: inout MK2PixelFrame,
-        centerX: Int,
-        y: Int,
-        size: Int,
-        color: UInt16
-    ) {
-        let style = MK2HIG.iconStyle(pixelSize: size, color: color)
-        let width = (try? freeTypeRenderer?.measure(glyph, style: style)) ?? size
-        guard let freeTypeRenderer,
-              (try? freeTypeRenderer.drawText(glyph, into: &frame, x: centerX - width / 2, y: y, style: style, maxWidth: max(80, size + 20))) != nil else {
-            BitmapLabel("?", font: .readoutBold, color: color)
-                .draw(into: &frame, x: centerX - 8, y: y + 14)
-            return
-        }
     }
 
     // MARK: - Waveform lab
