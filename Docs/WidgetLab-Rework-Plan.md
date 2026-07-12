@@ -165,6 +165,16 @@ Referenzen (Session-Notizen) sind Wegwerf-Artefakte, keine Doku-Pfade.
 
 ## 5. Phasenplan (je Phase ein Commit, Build + Snapshots + Simulator-Rauchtest)
 
+**Stand 2026-07-12 abends:** Phase 1 geliefert (`4b92c98` + Polish
+`7a09504`: Browser mit E4-Kategorie-Filter, SCENE-Exit, hellblauer
+Akzent). Phase 2 geliefert (`4ca2a09`: Scene-Lab → Chrome Slots,
+Panorama & Bezel Gap, Encoder Feel, Header & Ruler Forms als
+LabDemo-Klassen; LabSupport mit geteilter Palette). Phase 3 begonnen:
+FreeType-Helfer sind bereits geteilte freie Funktionen; die Aufspaltung
+des Font-Labs in Type Specimen / Icon Browser / Dialog Card steht aus.
+Noch offen außerdem: REPL-Hooks am LabDemo-Protokoll (demo-lokale
+Kommandos laufen bis dahin über die Legacy-Wrapper).
+
 1. **Gerüst:** `LabShell`/`LabDemo`/`DemoBrowser` + SCENE-Exit + Registry.
    Alle acht Alt-Units zunächst als je **eine Wrapper-Demo** registriert
    (Inhalt und Sub-Cycling unverändert, INSTANCE dann demo-lokal) — die
