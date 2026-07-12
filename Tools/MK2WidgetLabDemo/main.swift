@@ -257,6 +257,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
     case footerOnly
     case splash
     case hero
+    case granularity
 
     var title: String {
         switch self {
@@ -268,6 +269,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
             case .footerOnly: "NONE + ENCODERS"
             case .splash: "SPLASH"
             case .hero: "HERO PANORAMA"
+            case .granularity: "ENCODER FEEL"
         }
     }
 
@@ -281,14 +283,14 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
                     MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
                     MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
                 ])
-            case .bare, .footerOnly, .splash, .hero:
+            case .bare, .footerOnly, .splash, .hero, .granularity:
                 .none
         }
     }
 
     var footer: MK2ScreenFooter {
         switch self {
-            case .titleOnly, .bare, .splash, .hero: .none
+            case .titleOnly, .bare, .splash, .hero, .granularity: .none
             case .titleHint: .hint("4D bestätigt, Instance wechselt die Kombination.")
             case .titleEncoders, .footerOnly: .encoderArea()
             case .statusFilters: .filters()
@@ -297,7 +299,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
 
     var footerLabel: String {
         switch self {
-            case .titleOnly, .bare, .splash, .hero: "NONE"
+            case .titleOnly, .bare, .splash, .hero, .granularity: "NONE"
             case .titleHint: "HINT"
             case .titleEncoders, .footerOnly: "ENCODER"
             case .statusFilters: "FILTERS"
@@ -308,7 +310,7 @@ private enum SceneChromeCombo: Int, CaseIterable, Sendable {
         switch self {
             case .titleOnly, .titleHint, .titleEncoders: "TITLE"
             case .statusFilters: "STATUS"
-            case .bare, .footerOnly, .splash, .hero: "NONE"
+            case .bare, .footerOnly, .splash, .hero, .granularity: "NONE"
         }
     }
 
@@ -410,6 +412,10 @@ private actor WidgetLab {
     private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
     private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
     private var sceneFocusedEncoder: Int?
+    /// Encoder-feel playground: one value per encoder, domain sizes doubling
+    /// from on/off to 256, all starting at their midpoint.
+    private static let granularityDomains = [2, 4, 8, 16, 32, 64, 128, 256]
+    private var granularityValues = WidgetLab.granularityDomains.map { $0 / 2 }
     private var sceneSplashGap = 53
     private var cachedSplashArtwork: MK2PixelImage?
     private var cachedSplashGap = -1
@@ -799,6 +805,8 @@ private actor WidgetLab {
                         return (splashIdentityResult(), splashDetailResult())
                     case .hero:
                         return (heroLeftResult(), heroRightResult())
+                    case .granularity:
+                        return (granularityResult(range: 0..<4), granularityResult(range: 4..<8))
                     default:
                         return (sceneChromeDemoResult(), sceneControlResult())
                 }
@@ -1406,6 +1414,52 @@ private actor WidgetLab {
                 }
             }
         }.build(renderer: freeTypeRenderer)
+    }
+
+    /// Encoder-feel playground: eight discrete values across both screens,
+    /// domain sizes doubling per encoder, so the adaptive counts-per-step
+    /// derivation can be judged side by side on hardware. Cells show
+    /// value/domain plus the derived counts-per-step; double-touch resets
+    /// to the midpoint.
+    private func granularityResult(range: Range<Int>) -> MK2ScreenBuildResult {
+        let title = range.lowerBound == 0 ? "ENCODER FEEL" : "ADAPTIVE THROW"
+        let hint = range.lowerBound == 0 ? "DOMAENE VERDOPPELT SICH PRO ENCODER" : "2*TIPPEN = RESET AUF MITTE"
+        let slots = range.map { index -> MK2ParameterPageSlot in
+            let domain = Self.granularityDomains[index]
+            let bounds = 0...(domain - 1)
+            let value = granularityValues[index]
+            let displayValue = domain == 2 ? (value == 1 ? "ON" : "OFF") : "\(value + 1)/\(domain)"
+            let countsPerStep = MK2EncoderDiscreteValue.automaticCountsPerStep(for: bounds)
+            return MK2ParameterPageSlot(
+                label: "\(domain) VAL · \(countsPerStep)C",
+                value: displayValue,
+                encoderValue: MK2EncoderDiscreteValue(
+                    encoder: index + 1,
+                    value: value,
+                    bounds: bounds,
+                    defaultValue: domain / 2,
+                    onChange: { [weak self] value in
+                        Task { await self?.setGranularityValue(index, value) }
+                    }
+                )
+            )
+        }
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2AnyScreenElement { frame, _, _ in
+                MK2StatusLine(y: 8, items: [
+                    MK2StatusLineItem(title, x: 8, color: Palette.blue),
+                    MK2StatusLineItem(hint, x: 150, color: Palette.dim),
+                ]).draw(into: &frame)
+                frame.hline(y: 32, x: 0, width: 480, color: Palette.border)
+            }
+            MK2ParameterPageElement(slots: slots)
+        }.build(renderer: freeTypeRenderer)
+    }
+
+    private func setGranularityValue(_ index: Int, _ value: Int) async {
+        guard granularityValues.indices.contains(index) else { return }
+        granularityValues[index] = value
+        await render()
     }
 
     private func sceneEncoderValues() -> [MK2EncoderDiscreteValue] {
