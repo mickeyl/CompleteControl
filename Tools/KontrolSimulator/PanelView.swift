@@ -47,6 +47,10 @@ final class PanelView: NSView {
         let rect: NSRect
     }
     private struct EncoderControl { let index: Int; let rect: NSRect }
+    /// Counts one scroll notch / 4 px drag step feeds into a rotary — matches
+    /// the hardware's ~360-counts-per-revolution resolution so the kit's
+    /// throw scaling and rate acceleration feel like the real encoders.
+    private static let encoderCountsPerScrollTick = 12
     private struct KeyControl {
         let index: Int
         let note: UInt8
@@ -877,7 +881,7 @@ final class PanelView: NSView {
         guard let index = activeEncoder else { return }
         let steps = Int((lastDragY - point.y) / 4) // drag up = increase (flipped view)
         if steps != 0 {
-            emitEncoder(index: index, delta: steps)
+            emitEncoder(index: index, delta: steps * Self.encoderCountsPerScrollTick)
             lastDragY -= CGFloat(steps) * 4
         }
     }
@@ -943,7 +947,11 @@ final class PanelView: NSView {
         }
         if let encoder = encoders.first(where: { $0.rect.contains(point) }) {
             beginEncoderTouch(index: encoder.index)
-            emitEncoder(index: encoder.index, delta: delta)
+            // Hardware fidelity: the real rotaries deliver ~900 counts for a
+            // slow full sweep (~360 per revolution), so one wheel notch — a
+            // ~12° twist — must emit a bundle of counts, not a single one.
+            // The 4-D wheel below stays 1:1: its wire counter is 4-bit.
+            emitEncoder(index: encoder.index, delta: delta * Self.encoderCountsPerScrollTick)
             scheduleEncoderTouchRelease(index: encoder.index)
         } else if fourDWheelRect.contains(point) {
             beginFourDTouch()
