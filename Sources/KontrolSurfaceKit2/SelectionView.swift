@@ -6,17 +6,59 @@ public struct MK2SelectionItem: Sendable, Equatable {
     public var detail: String?
     public var badge: String?
     public var iconGlyph: String?
+    /// Values for a tabular list, matched by index to the list's `columns`.
+    /// Ignored by lists without columns.
+    public var columns: [String]
 
     public init(
         title: String,
         detail: String? = nil,
         badge: String? = nil,
-        iconGlyph: String? = nil
+        iconGlyph: String? = nil,
+        columns: [String] = []
     ) {
         self.title = title
         self.detail = detail
         self.badge = badge
         self.iconGlyph = iconGlyph
+        self.columns = columns
+    }
+}
+
+/// Column spec for tabular selection lists — order lists, arranger rows.
+/// Optional by design: a list without columns keeps the title/detail/badge
+/// row layout, so existing clients are untouched.
+public struct MK2SelectionColumn: Sendable, Equatable {
+    public enum Alignment: Sendable, Equatable {
+        case leading
+        case trailing
+    }
+
+    /// Header caption; drawn once above the rows when any column has one.
+    public var header: String?
+    /// Offset from the row's leading text edge.
+    public var x: Int
+    public var width: Int
+    public var alignment: Alignment
+    /// nil follows the row's selection state (text when selected, dim otherwise).
+    public var color: UInt16?
+    /// Fixed-pitch rendering for numeric/tracker columns.
+    public var fixedPitch: Bool
+
+    public init(
+        header: String? = nil,
+        x: Int,
+        width: Int,
+        alignment: Alignment = .leading,
+        color: UInt16? = nil,
+        fixedPitch: Bool = false
+    ) {
+        self.header = header
+        self.x = x
+        self.width = max(1, width)
+        self.alignment = alignment
+        self.color = color
+        self.fixedPitch = fixedPitch
     }
 }
 
@@ -245,6 +287,10 @@ public struct MK2SelectionList: Sendable {
     public var items: [MK2SelectionItem]
     public var selectedIndex: Int
     public var filters: [MK2SelectionFilter]
+    /// Tabular layout: when set, rows render the items' `columns` values at
+    /// these positions instead of title/badge/detail. Optional — most
+    /// clients keep the plain row layout.
+    public var columns: [MK2SelectionColumn]
     public var colors: MK2SelectionViewColors
     public var rowHeight: Int
     /// Air between adjacent rows so neighboring cells don't touch; costs a
@@ -257,6 +303,7 @@ public struct MK2SelectionList: Sendable {
         items: [MK2SelectionItem],
         selectedIndex: Int,
         filters: [MK2SelectionFilter] = [],
+        columns: [MK2SelectionColumn] = [],
         rowHeight: Int = 30,
         rowGap: Int = 6,
         colors: MK2SelectionViewColors = MK2SelectionViewColors()
@@ -266,6 +313,7 @@ public struct MK2SelectionList: Sendable {
         self.items = items
         self.selectedIndex = selectedIndex
         self.filters = filters
+        self.columns = columns
         self.rowHeight = max(24, rowHeight)
         self.rowGap = max(0, rowGap)
         self.colors = colors
@@ -274,7 +322,16 @@ public struct MK2SelectionList: Sendable {
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
         MK2SelectionDrawing.screenChrome(title: title, subtitle: subtitle, filters: filters, colors: colors)
             .draw(into: &frame, renderer: renderer)
-        let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
+        var content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
+        if columns.contains(where: { $0.header != nil }) {
+            drawColumnHeaders(into: &frame, renderer: renderer, contentY: content.y)
+            content = MK2PixelRect(
+                x: content.x,
+                y: content.y + Self.columnHeaderHeight,
+                width: content.width,
+                height: max(0, content.height - Self.columnHeaderHeight)
+            )
+        }
         guard !items.isEmpty else {
             MK2SelectionDrawing.drawEmpty("No entries", into: &frame, rect: content, colors: colors)
             MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
@@ -326,6 +383,10 @@ public struct MK2SelectionList: Sendable {
             )
         }
         let textX = item.iconGlyph == nil ? 20 : 58
+        guard columns.isEmpty else {
+            drawColumns(of: item, selected: selected, textX: textX, y: y, into: &frame, renderer: renderer)
+            return
+        }
         MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + 3, color: selected ? colors.text : colors.dim, maxWidth: item.badge == nil ? 392 : 322)
         if let badge = item.badge {
             MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: 386, y: y + 3, color: selected ? colors.text : colors.muted, maxWidth: 74)
@@ -333,6 +394,60 @@ public struct MK2SelectionList: Sendable {
         if rowHeight >= 44, let detail = item.detail {
             MK2SelectionDrawing.drawBody(detail, into: &frame, renderer: renderer, x: textX, y: y + 24, color: selected ? colors.dim : colors.muted, maxWidth: 392)
         }
+    }
+
+    private static let columnHeaderHeight = 18
+
+    private func drawColumnHeaders(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer?, contentY: Int) {
+        for column in columns {
+            guard let header = column.header else { continue }
+            let label = BitmapLabel(header.uppercased(), font: .label, color: colors.muted)
+            let x = column.alignment == .leading
+                ? 20 + column.x
+                : 20 + column.x + max(0, column.width - label.width)
+            label.draw(
+                into: &frame,
+                x: x,
+                y: contentY + 2,
+                clip: MK2PixelRect(x: 20 + column.x, y: contentY, width: column.width, height: Self.columnHeaderHeight)
+            )
+        }
+    }
+
+    private func drawColumns(
+        of item: MK2SelectionItem,
+        selected: Bool,
+        textX: Int,
+        y: Int,
+        into frame: inout MK2PixelFrame,
+        renderer: FreeTypeTextRenderer?
+    ) {
+        for (index, column) in columns.enumerated() {
+            guard item.columns.indices.contains(index) else { continue }
+            let value = item.columns[index]
+            guard !value.isEmpty else { continue }
+            let color = column.color ?? (selected ? colors.text : colors.dim)
+            let x = textX + column.x
+            let drawX = column.alignment == .leading
+                ? x
+                : x + max(0, column.width - Self.textWidth(value, fixedPitch: column.fixedPitch, renderer: renderer))
+            if column.fixedPitch {
+                BitmapLabel(value, font: .grid, color: color)
+                    .draw(into: &frame, x: drawX, y: y + 6, clip: MK2PixelRect(x: x, y: y, width: column.width, height: rowHeight))
+            } else {
+                MK2SelectionDrawing.drawBody(value, into: &frame, renderer: renderer, x: drawX, y: y + 3, color: color, maxWidth: column.width)
+            }
+        }
+    }
+
+    private static func textWidth(_ text: String, fixedPitch: Bool, renderer: FreeTypeTextRenderer?) -> Int {
+        if fixedPitch {
+            return BitmapLabel(text, font: .grid, color: 0).width
+        }
+        if let renderer, let width = try? renderer.measure(text, style: MK2HIG.bodyTextStyle(color: 0xffff)) {
+            return width
+        }
+        return BitmapLabel(text, font: .grid, color: 0).width
     }
 }
 

@@ -635,6 +635,7 @@ public struct MK2SelectionListElement: MK2ScreenElement {
         items: [MK2SelectionItem],
         selectedIndex: Int,
         filters: [MK2SelectionFilter] = [],
+        columns: [MK2SelectionColumn] = [],
         rowHeight: Int = 36,
         rowGap: Int = 6,
         colors: MK2SelectionViewColors = MK2SelectionViewColors()
@@ -645,6 +646,7 @@ public struct MK2SelectionListElement: MK2ScreenElement {
             items: items,
             selectedIndex: selectedIndex,
             filters: filters,
+            columns: columns,
             rowHeight: rowHeight,
             rowGap: rowGap,
             colors: colors

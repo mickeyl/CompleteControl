@@ -12,9 +12,9 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
         id: "selection-browser",
         title: "Selection & Browser",
         category: .catalogue,
-        summary: "Detail pane, list/grid picker, filters",
-        detail: "Browser detail pane next to the selection picker. INSTANCE cycles list, grid and filtered modes; 4-D navigates and confirms, E5/E6 filter by area and source.",
-        snapshotVariants: ["grid", "filtered", "filtered-grid"]
+        summary: "Detail pane, list/grid picker, filters, table",
+        detail: "Browser detail pane next to the selection picker. INSTANCE cycles list, grid, filtered and order-table modes; 4-D navigates and confirms, E5/E6 filter by area and source.",
+        snapshotVariants: ["grid", "filtered", "filtered-grid", "table"]
     )
 
     private var mode: BrowserDemoMode = .plainList
@@ -36,7 +36,7 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
                 if !self.mode.hasFilters {
                     self.navigation.setFilterFocus(encoder: nil)
                 }
-                self.navigation.clamp(itemCount: self.filteredItems().count)
+                self.navigation.clamp(itemCount: self.itemCount())
             }
         }
         return scene
@@ -47,9 +47,10 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
             case "grid": mode = .plainGrid
             case "filtered": mode = .filteredList
             case "filtered-grid": mode = .filteredGrid
+            case "table": mode = .orderTable
             default: mode = .plainList
         }
-        navigation.clamp(itemCount: filteredItems().count)
+        navigation.clamp(itemCount: itemCount())
     }
 
     private func filteredItems() -> [BrowserDemoItem] {
@@ -62,7 +63,19 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
         }
     }
 
+    private func itemCount() -> Int {
+        mode == .orderTable ? BrowserLabFixtures.orderRows.count : filteredItems().count
+    }
+
+    private func selectedTitle() -> String? {
+        guard let index = navigation.clampedSelectedIndex(itemCount: itemCount()) else { return nil }
+        return mode == .orderTable
+            ? BrowserLabFixtures.orderRows[index].title
+            : filteredItems()[index].title
+    }
+
     private func selectedItem() -> BrowserDemoItem? {
+        guard mode != .orderTable else { return nil }
         let items = filteredItems()
         guard let index = navigation.clampedSelectedIndex(itemCount: items.count) else { return nil }
         return items[index]
@@ -82,17 +95,25 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
         ) {
             MK2ContentText(mode.title, x: 8, y: 0, role: .title)
             MK2ContentText(
-                "INSTANCE cycles list/grid/filters. 4-D selects, 4-D press opens.",
+                mode == .orderTable
+                    ? "Optional columns turn the list into a table — position, pattern, title and row count with headers; navigation and lamps stay the standard picker."
+                    : "INSTANCE cycles list/grid/filters. 4-D selects, 4-D press opens.",
                 x: 8,
                 y: 40,
                 maxWidth: 432,
                 color: Palette.dim,
-                maxLines: 2,
+                maxLines: 3,
                 lineSpacing: 2
             )
-            MK2ContentText("Matches: \(items.count) / \(BrowserLabFixtures.items.count)", x: 8, y: 80, maxWidth: 432)
+            if mode == .orderTable {
+                MK2ContentText("Entries: \(BrowserLabFixtures.orderRows.count) order positions", x: 8, y: 104, maxWidth: 432)
+            } else {
+                MK2ContentText("Matches: \(items.count) / \(BrowserLabFixtures.items.count)", x: 8, y: 80, maxWidth: 432)
+            }
 
-            if let selected {
+            if mode == .orderTable {
+                MK2ContentText("Selected: \(selectedTitle() ?? "—")", x: 8, y: 128, maxWidth: 432, color: Palette.text)
+            } else if let selected {
                 MK2BrowserDetailElement(
                     title: selected.title,
                     detail: selected.detail,
@@ -123,7 +144,23 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
         )
         let subtitle = mode.hasFilters ? "4-D select, E5/E6 filter" : "4-D select, INSTANCE mode"
         return MK2FullScreenDSL {
-            if mode.isGrid {
+            if mode == .orderTable {
+                MK2SelectionListElement(
+                    title: mode.shortTitle,
+                    subtitle: subtitle,
+                    items: BrowserLabFixtures.orderRows.map(\.selectionItem),
+                    selectedIndex: navigation.selectedIndex,
+                    columns: [
+                        MK2SelectionColumn(header: "POS", x: 0, width: 36, alignment: .trailing, fixedPitch: true),
+                        MK2SelectionColumn(header: "PAT", x: 56, width: 36, alignment: .trailing, color: Palette.accent, fixedPitch: true),
+                        MK2SelectionColumn(header: "Title", x: 120, width: 210),
+                        MK2SelectionColumn(header: "ROWS", x: 350, width: 44, alignment: .trailing, fixedPitch: true),
+                    ],
+                    rowHeight: 28,
+                    rowGap: 4,
+                    colors: colors
+                )
+            } else if mode.isGrid {
                 MK2SelectionGridElement(
                     title: mode.shortTitle,
                     subtitle: subtitle,
@@ -146,19 +183,19 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
             }
             MK2SelectionInputElement(
                 navigation: navigation,
-                itemCount: items.count,
+                itemCount: mode == .orderTable ? BrowserLabFixtures.orderRows.count : items.count,
                 layout: jogLayout,
                 availableLamp: .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01),
                 onMove: { [weak self] delta in
                     context.update {
                         guard let self else { return }
-                        _ = self.navigation.move(by: delta, itemCount: self.filteredItems().count)
+                        _ = self.navigation.move(by: delta, itemCount: self.itemCount())
                     }
                 },
                 onConfirm: { [weak self] in
                     context.update {
-                        guard let self, let selected = self.selectedItem() else { return }
-                        self.confirmation = "Opened: \(selected.title)"
+                        guard let self, let selected = self.selectedTitle() else { return }
+                        self.confirmation = "Opened: \(selected)"
                     }
                 }
             )

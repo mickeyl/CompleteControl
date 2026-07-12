@@ -303,6 +303,52 @@ struct SelectionViewTests {
         #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 250, width: 52, height: 14), matching: colors.muted) == 0)
     }
 
+    @Test("Optional columns render a tabular list with headers and alignment")
+    func listColumnsRenderTable() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let columns = [
+            MK2SelectionColumn(header: "POS", x: 0, width: 36, alignment: .trailing, fixedPitch: true),
+            MK2SelectionColumn(header: "Title", x: 60, width: 210),
+            MK2SelectionColumn(header: "ROWS", x: 300, width: 44, alignment: .trailing, fixedPitch: true),
+        ]
+        let items = [
+            MK2SelectionItem(title: "Intro", columns: ["00", "Intro", "32"]),
+            MK2SelectionItem(title: "Verse", columns: ["01", "Verse", "64"]),
+        ]
+        var frame = MK2PixelFrame()
+        MK2SelectionList(title: "ORDER", items: items, selectedIndex: 0, columns: columns)
+            .draw(into: &frame, renderer: renderer)
+
+        let contentY = MK2SelectionLayout.contentY
+        // The header band renders above the rows: caption pixels in the
+        // trailing ROWS header region.
+        #expect(countBrightPixels(frame, in: MK2PixelRect(x: 20 + 300, y: contentY, width: 44, height: 18)) > 0)
+        // Trailing-aligned fixed-pitch value: pixels hug the column's right
+        // edge, the leading half stays empty.
+        let rowY = contentY + 18
+        let posColumn = MK2PixelRect(x: 20, y: rowY, width: 36, height: 30)
+        let posLeading = MK2PixelRect(x: 20, y: rowY, width: 16, height: 30)
+        #expect(countBrightPixels(frame, in: posColumn) > 0)
+        #expect(countBrightPixels(frame, in: posLeading) == 0)
+        // The proportional title column renders too.
+        #expect(countBrightPixels(frame, in: MK2PixelRect(x: 20 + 60, y: rowY, width: 210, height: 30)) > 0)
+    }
+
+    @Test("Lists without columns keep the plain row layout")
+    func plainListsIgnoreColumnValues() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let items = [MK2SelectionItem(title: "Piano Noir", columns: ["00", "ignored"])]
+
+        var plain = MK2PixelFrame()
+        MK2SelectionList(title: "BROWSE", items: [MK2SelectionItem(title: "Piano Noir")], selectedIndex: 0)
+            .draw(into: &plain, renderer: renderer)
+        var withValues = MK2PixelFrame()
+        MK2SelectionList(title: "BROWSE", items: items, selectedIndex: 0)
+            .draw(into: &withValues, renderer: renderer)
+
+        #expect(plain.pixels(in: MK2PixelFrame.bounds) == withValues.pixels(in: MK2PixelFrame.bounds))
+    }
+
     @Test("Selection list and grid can be captured as a two-screen snapshot")
     func selectionSnapshotSmoke() {
         var list = MK2PixelFrame()

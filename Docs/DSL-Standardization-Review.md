@@ -241,6 +241,12 @@ Table-Widget und gäbe der Song-Szene gratis die vorhandene
 *B3: Die Order-Tabelle der Song-Szene — strukturell eine SelectionList mit Spalten*
 
 **Teilweise erledigt 2026-07-11:** Der Song-Renderer (einziger Nutzer der Order-Tabelle) ist entfernt. Die `columns:`-Parametrierung bleibt als Anforderung für die künftige SCENE/Arranger-Szene bestehen.
+**Erledigt 2026-07-12:** `MK2SelectionColumn` (Header, x/Breite,
+leading/trailing, optionale Farbe, fixed-pitch für Zahlenspalten) +
+`MK2SelectionItem.columns` — bewusst optional: Listen ohne Spalten
+rendern unverändert (per Test fixiert). Realisiert als „Order Table"-
+Modus im Selection & Browser-Demo; die Arranger-Szene startet damit
+nicht mehr als Custom-Renderer.
 
 > Kommentar:
 
