@@ -3,6 +3,19 @@ import Testing
 import KompleteKontrol
 @testable import KontrolSurfaceKit2
 
+/// The focused filter cell fills with the accent through the value cell's
+/// dithered gradient, so exact-color counting is meaningless (it only ever
+/// worked for yellow, which saturates under the gradient's clamp). Count
+/// bright pixels instead.
+private func countBrightPixels(_ frame: MK2PixelFrame, in rect: MK2PixelRect) -> Int {
+    frame.pixels(in: rect).filter { pixel in
+        let r = Int((pixel >> 11) & 0x1f)
+        let g = Int((pixel >> 5) & 0x3f)
+        let b = Int(pixel & 0x1f)
+        return r + g + b > 55
+    }.count
+}
+
 @Suite("Selection list and grid", .serialized)
 struct SelectionViewTests {
     @Test("Navigation clamps or wraps selected indices")
@@ -149,7 +162,7 @@ struct SelectionViewTests {
 
         #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 464, height: 24), matching: 0x2126) > 200)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 211, width: 480, height: 60)) > 25_000)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(countBrightPixels(frame, in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34)) > 200)
     }
 
     @Test("Filter value cells stay in fixed encoder slots")
@@ -318,8 +331,8 @@ struct SelectionViewTests {
         #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         #expect(Self.be32(png, 16) == 2 * MK2PixelFrame.width + 1)
         #expect(Self.be32(png, 20) == MK2PixelFrame.height)
-        #expect(list.countPixels(in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
-        #expect(grid.countPixels(in: MK2PixelRect(x: 248, y: 236, width: 104, height: 34), matching: 0xffe0) > 200)
+        #expect(countBrightPixels(list, in: MK2PixelRect(x: 8, y: 236, width: 104, height: 34)) > 200)
+        #expect(countBrightPixels(grid, in: MK2PixelRect(x: 248, y: 236, width: 104, height: 34)) > 200)
     }
 
     private static func be32(_ data: Data, _ offset: Int) -> Int {

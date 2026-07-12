@@ -19,6 +19,16 @@ enum DemoCategory: Int, CaseIterable, Sendable {
         }
     }
 
+    /// Compact value for the category filter cell.
+    var filterValue: String {
+        switch self {
+            case .calibration: "Calibration"
+            case .lookAndFeel: "Look & Feel"
+            case .catalogue: "Kit"
+            case .diagnostics: "Diagnostics"
+        }
+    }
+
     var badge: String {
         switch self {
             case .calibration: "CAL"

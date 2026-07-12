@@ -53,7 +53,7 @@ public enum MK2HIG {
     public enum Chrome {
         public static let background: UInt16 = 0x0841
         // Raised-band bevel for header and footer. Deliberately neutral graphite —
-        // matching the dialog-surface tone — so the yellow accent and the colorful
+        // matching the dialog-surface tone — so the light-blue accent and the colorful
         // content carry the identity instead of competing with a tinted chrome. The
         // lit top edge sits well above the fill but below the dim text grey; the
         // bottom edge drops into true black shadow.
@@ -62,16 +62,16 @@ public enum MK2HIG {
         public static let headerBottomLine: UInt16 = 0x0000 // true black shadow
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
-        public static let accent: UInt16 = 0xffe0
+        public static let accent: UInt16 = 0x7dbf // light blue (123, 182, 255)
         // Shift-layer treatment: labels that only apply while SHIFT is held render
         // in this amber, the classic shifted-function idiom — deliberately not the
-        // yellow accent (call to action) and not plain text (base layer). Judged on
+        // accent (call to action) and not plain text (base layer). Judged on
         // PNG so far; tune on the OLED.
         public static let shiftAccent: UInt16 = 0xfc00   // (255, 129, 0) amber
         public static let border: UInt16 = 0x4208
         public static let footerFill: UInt16 = 0x1083
         // Chrome progress gradient: deep blue running into a luminous cyan tip.
-        // Deliberately not the yellow accent — progress is ambient state, not a call
+        // Deliberately not the accent — progress is ambient state, not a call
         // to action, and the cool ramp reads calmer against the graphite bands.
         public static let progressFillStart: UInt16 = 0x1294 // (16, 81, 160)
         public static let progressFillEnd: UInt16 = 0x465f   // (64, 201, 248)

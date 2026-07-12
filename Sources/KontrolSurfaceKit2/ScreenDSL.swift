@@ -857,7 +857,7 @@ public struct MK2BrowserDetailElement: MK2ScreenElement {
             _ = try? renderer.drawText(title, into: &frame, x: textX, y: topY, style: MK2HIG.titleTextStyle(color: MK2HIG.Chrome.text), maxWidth: textWidth)
             _ = try? renderer.drawWrappedText(detail, into: &frame, x: textX, y: topY + 38, style: MK2HIG.bodyTextStyle(color: MK2HIG.Chrome.dim), maxWidth: textWidth, maxLines: 2, lineSpacing: 2)
             if let metadata {
-                _ = try? renderer.drawText(metadata, into: &frame, x: textX, y: topY + 78, style: MK2HIG.bodyTextStyle(color: accentColor), maxWidth: textWidth)
+                _ = try? renderer.drawText(metadata, into: &frame, x: textX, y: topY + 90, style: MK2HIG.bodyTextStyle(color: accentColor), maxWidth: textWidth)
             }
         } else {
             BitmapLabel(title, font: .gridBold, color: MK2HIG.Chrome.text)
@@ -866,7 +866,7 @@ public struct MK2BrowserDetailElement: MK2ScreenElement {
                 .draw(into: &frame, x: textX, y: topY + 34, clip: MK2PixelRect(x: textX, y: topY + 34, width: textWidth, height: SurfaceFont.grid.cellHeight))
             if let metadata {
                 BitmapLabel(metadata, font: .grid, color: accentColor)
-                    .draw(into: &frame, x: textX, y: topY + 66, clip: MK2PixelRect(x: textX, y: topY + 66, width: textWidth, height: SurfaceFont.grid.cellHeight))
+                    .draw(into: &frame, x: textX, y: topY + 74, clip: MK2PixelRect(x: textX, y: topY + 74, width: textWidth, height: SurfaceFont.grid.cellHeight))
             }
         }
     }

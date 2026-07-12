@@ -221,7 +221,7 @@ public struct MK2SelectionViewColors: Sendable, Equatable {
         text: UInt16 = 0xffff,
         dim: UInt16 = 0x8410,
         muted: UInt16 = 0x4a69,
-        accent: UInt16 = 0xffe0,
+        accent: UInt16 = MK2HIG.Chrome.accent,
         selectionFill: UInt16 = 0x2126,
         border: UInt16 = 0x4208,
         filterFill: UInt16 = 0x1083,
@@ -594,11 +594,14 @@ private enum MK2SelectionDrawing {
 }
 
 private extension MK2SelectionFilter {
+    /// The visual slot under the physical encoder: E1–E4 drive left-screen
+    /// slots, E5–E8 right-screen slots — the cell must sit above the encoder
+    /// that turns it regardless of which display hosts the view.
     func encoderSlot(fallback: Int) -> Int {
-        guard (5...8).contains(encoder) else {
+        guard (1...8).contains(encoder) else {
             return fallback.clamped(to: 0...3)
         }
-        return encoder - 5
+        return (encoder - 1) % 4
     }
 }
 

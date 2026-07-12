@@ -825,7 +825,7 @@ private actor WidgetLab {
 
     // MARK: - Demo browser
 
-    private static let demoBrowserCategoryValues = ["All"] + DemoCategory.allCases.map(\.title)
+    private static let demoBrowserCategoryValues = ["All"] + DemoCategory.allCases.map(\.filterValue)
 
     private func visibleBrowserDemos() -> [Unit] {
         guard demoBrowserCategoryIndex > 0,
@@ -877,15 +877,15 @@ private actor WidgetLab {
         return fullScreenResult {
             MK2SelectionListElement(
                 title: "WIDGET LAB",
-                subtitle: "4-D opens · E8 filters",
+                subtitle: "4-D opens · E4 filters",
                 items: items,
                 selectedIndex: demoBrowserNavigation.selectedIndex,
                 filters: [
                     MK2SelectionFilter(
                         label: "CATEGORY",
                         value: Self.demoBrowserCategoryValues[demoBrowserCategoryIndex].uppercased(),
-                        encoder: 8,
-                        isFocused: demoBrowserNavigation.focusedFilterEncoder == 8
+                        encoder: 4,
+                        isFocused: demoBrowserNavigation.focusedFilterEncoder == 4
                     ),
                 ],
                 rowHeight: 44,
@@ -905,7 +905,7 @@ private actor WidgetLab {
             )
             MK2SelectionFilterEncoderElement([
                 MK2SelectionFilterEncoderBinding(
-                    encoder: 8,
+                    encoder: 4,
                     value: demoBrowserCategoryIndex,
                     bounds: 0...(Self.demoBrowserCategoryValues.count - 1),
                     wraps: true,
@@ -925,7 +925,7 @@ private actor WidgetLab {
             return regularScreenResult(header: .title(title: "Widget Lab", subtitle: "Demo Browser")) {
                 MK2EmptyStateElement(
                     title: "No demos in this category",
-                    detail: "Turn E8 to widen the filter"
+                    detail: "Turn E4 to widen the filter"
                 )
             }
         }
@@ -937,7 +937,8 @@ private actor WidgetLab {
             MK2BrowserDetailElement(
                 title: descriptor.title,
                 detail: descriptor.detail,
-                metadata: "\(descriptor.category.title) · open \(descriptor.id)"
+                metadata: "\(descriptor.category.title) · open \(descriptor.id)",
+                y: 48
             )
         }
     }
@@ -987,7 +988,7 @@ private actor WidgetLab {
     }
 
     private func setDemoBrowserFilterFocus(_ touched: Bool) async {
-        demoBrowserNavigation.touchFilter(encoder: 8, touched: touched)
+        demoBrowserNavigation.touchFilter(encoder: 4, touched: touched)
         await render()
     }
 
@@ -4572,7 +4573,7 @@ private enum Palette {
     static let page: UInt16 = 0x0841       // near-black blue
     static let text: UInt16 = 0xffff
     static let dim: UInt16 = 0x8410        // mid grey
-    static let accent: UInt16 = 0xffe0     // yellow
+    static let accent: UInt16 = 0x7dbf     // light blue, mirrors MK2HIG.Chrome.accent
     static let border: UInt16 = 0x4208     // faint frame
     static let blue: UInt16 = 0x7dbf
     static let green: UInt16 = 0x464f
