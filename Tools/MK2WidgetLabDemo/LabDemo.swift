@@ -93,8 +93,14 @@ protocol LabDemo: AnyObject, Sendable {
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2
     /// The harness sets up the named variant before capturing; "" is the default.
     func prepareSnapshot(variant: String)
+    /// Demo-local REPL commands, listed in help while the demo is open.
+    func replCommands() -> [ReplCommand]
+    /// Handle a REPL line; return false to fall through to the shell's error.
+    func handleRepl(verb: String, rest: String, _ context: LabContext) -> Bool
 }
 
 extension LabDemo {
     func prepareSnapshot(variant: String) {}
+    func replCommands() -> [ReplCommand] { [] }
+    func handleRepl(verb: String, rest: String, _ context: LabContext) -> Bool { false }
 }

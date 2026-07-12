@@ -61,12 +61,6 @@ struct MK2WidgetLabDemo {
 
 /// The single source of truth for the REPL: drives help output, Tab completion, and the
 /// documented argument shapes. Keep it in sync with `WidgetLab.command`.
-struct ReplCommand {
-    let name: String
-    let arg: String
-    let summary: String
-    let values: [String] // completion candidates for the first argument (empty = free/none)
-}
 
 let ledGroupNames = ["all", "palette", "rgb", "mono", "buttons", "strip", "jog", "functions", "transport"]
 let ledCompletionValues = ledGroupNames
@@ -77,24 +71,16 @@ let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted(
 
 let replCommands: [ReplCommand] = [
     ReplCommand(name: "list", arg: "", summary: "list demos and their ids", values: []),
-    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id } + ["encoder-feel", "panorama", "chrome-slots", "forms"]),
+    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id } + ["encoder-feel", "panorama", "chrome-slots", "forms", "type-specimen", "icon-browser", "dialog-card"]),
     ReplCommand(name: "exit", arg: "", summary: "leave the demo, back to the browser", values: []),
     ReplCommand(name: "browsemode", arg: "", summary: "browser unit: cycle list/grid/filter mode", values: []),
-    ReplCommand(name: "fontdemo", arg: "surface|typography|icons|dialog|next", summary: "font lab: switch sub-demo", values: ["surface", "typography", "icons", "dialog", "next"]),
-    ReplCommand(name: "iconmode", arg: "list|grid|filterlist|filtergrid|next", summary: "font icon lab: switch list/grid/filter mode", values: ["list", "grid", "filterlist", "filtergrid", "next"]),
-    ReplCommand(name: "text", arg: "<string>", summary: "font lab: sample text", values: []),
-    ReplCommand(name: "face", arg: "grid|label|readout", summary: "focus face", values: ["grid", "label", "readout"]),
-    ReplCommand(name: "weight", arg: "regular|bold", summary: "focus weight", values: ["regular", "bold"]),
-    ReplCommand(name: "bold", arg: "on|off", summary: "focus bold toggle", values: ["on", "off"]),
-    ReplCommand(name: "scale", arg: "<n>", summary: "focus integer pixel scale", values: []),
-    ReplCommand(name: "fg", arg: "<rrggbb|name>", summary: "foreground colour", values: namedColors.keys.sorted()),
-    ReplCommand(name: "bg", arg: "<rrggbb|name|none>", summary: "focus highlight background", values: namedColors.keys.sorted() + ["none"]),
-    ReplCommand(name: "sample", arg: "<0-3>", summary: "font lab: FreeType sample preset", values: ["0", "1", "2", "3"]),
-    ReplCommand(name: "body", arg: "<12-22>", summary: "font lab: body pixel size", values: []),
-    ReplCommand(name: "title", arg: "<18-32>", summary: "font lab: title pixel size", values: []),
-    ReplCommand(name: "icon", arg: "<0-6|name>", summary: "font lab: icon preset", values: []),
-    ReplCommand(name: "iconsize", arg: "<32-72>", summary: "font lab: icon pixel size", values: []),
-    ReplCommand(name: "touch", arg: "<e5-e8|5-8> on|off", summary: "font lab: emulate encoder touch", values: ["e5", "e6", "e7", "e8"]),
+    ReplCommand(name: "text", arg: "<string>", summary: "type-specimen: sample text", values: []),
+    ReplCommand(name: "sample", arg: "<0-3>", summary: "type-specimen: dialog mock preset", values: ["0", "1", "2", "3"]),
+    ReplCommand(name: "body", arg: "<12-22>", summary: "type-specimen: body pixel size", values: []),
+    ReplCommand(name: "title", arg: "<18-32>", summary: "type-specimen: title pixel size", values: []),
+    ReplCommand(name: "icon", arg: "<index|name>", summary: "icon-browser: select icon", values: []),
+    ReplCommand(name: "iconsize", arg: "<20-88>", summary: "icon-browser: preview size", values: []),
+    ReplCommand(name: "iconmode", arg: "list|grid|filterlist|filtergrid|next", summary: "icon-browser: list/grid mode", values: ["list", "grid", "filterlist", "filtergrid", "next"]),
     ReplCommand(name: "selmode", arg: "", summary: "selection unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
@@ -136,11 +122,10 @@ func printReplHelp() {
 }
 
 private enum Unit: Int, CaseIterable, Sendable {
-    case font, chrome, meter, list, pattern, waveform, keys
+    case chrome, meter, list, pattern, waveform, keys
 
     var title: String {
         switch self {
-            case .font: "FONT LAB"
             case .chrome: "BROWSER LAB"
             case .meter: "METER LAB"
             case .list: "SELECTION LAB"
@@ -152,7 +137,6 @@ private enum Unit: Int, CaseIterable, Sendable {
 
     var short: String {
         switch self {
-            case .font: "FONT"
             case .chrome: "BROW"
             case .meter: "METR"
             case .list: "SEL"
@@ -163,7 +147,7 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 
     var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .font || self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform }
+    var implemented: Bool { self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform }
 
     /// Phase-1 wrapper descriptors: each legacy unit is one browsable demo;
     /// later phases split them into real per-file demos (see the rework plan).
@@ -171,14 +155,6 @@ private enum Unit: Int, CaseIterable, Sendable {
     /// it in a later phase.
     var descriptor: DemoDescriptor {
         switch self {
-            case .font:
-                DemoDescriptor(
-                    id: "font-lab",
-                    title: "Font Lab",
-                    category: .lookAndFeel,
-                    summary: "Type, icons and dialog card",
-                    detail: "SurfaceFont and FreeType specimens, the Phosphor icon browser and the action dialog card. INSTANCE cycles the sub-demos; encoders drive sizes and colours."
-                )
             case .chrome:
                 DemoDescriptor(
                     id: "browser-lab",
@@ -243,85 +219,6 @@ private enum Unit: Int, CaseIterable, Sendable {
     }
 }
 
-private enum FontSubDemo: Int, CaseIterable, Sendable {
-    case surfaceFont
-    case typography
-    case icons
-    case actionDialog
-
-    var title: String {
-        switch self {
-            case .surfaceFont: "SURFACE FONT"
-            case .typography: "TYPOGRAPHY"
-            case .icons: "ICON BROWSER"
-            case .actionDialog: "ACTION DIALOG"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-            case .surfaceFont: "SURF"
-            case .typography: "TYPO"
-            case .icons: "ICON"
-            case .actionDialog: "DLG"
-        }
-    }
-
-    var next: FontSubDemo {
-        Self.allCases[(rawValue + 1) % Self.allCases.count]
-    }
-}
-
-private enum IconSelectionMode: Int, CaseIterable, Sendable {
-    case plainList
-    case plainGrid
-    case filteredList
-    case filteredGrid
-
-    var title: String {
-        switch self {
-            case .plainList: "ICON LIST"
-            case .plainGrid: "ICON GRID"
-            case .filteredList: "FILTERED LIST"
-            case .filteredGrid: "FILTERED GRID"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-            case .plainList: "LIST"
-            case .plainGrid: "GRID"
-            case .filteredList: "A-Z LIST"
-            case .filteredGrid: "A-Z GRID"
-        }
-    }
-
-    var hasFilter: Bool {
-        switch self {
-            case .filteredList, .filteredGrid: true
-            case .plainList, .plainGrid: false
-        }
-    }
-
-    var isGrid: Bool {
-        switch self {
-            case .plainGrid, .filteredGrid: true
-            case .plainList, .filteredList: false
-        }
-    }
-
-    var next: IconSelectionMode {
-        Self.allCases[(rawValue + 1) % Self.allCases.count]
-    }
-}
-
-private struct ActionCandidate: Sendable {
-    let iconName: String
-    let title: String
-    let body: String
-    let action: String
-}
-
 private enum WaveformLabVariant: Int, CaseIterable, Sendable {
     case pluck, sparse, quiet, empty
 
@@ -352,9 +249,7 @@ private actor WidgetLab {
     private let surface: MK2Surface2
     private let metronome = DemoMetronome()
     private let freeTypeRenderer: FreeTypeTextRenderer?
-    private let iconSource: String
-    private let icons: [PhosphorIcon]
-    private var unit: Unit = .font
+    private var unit: Unit = .pattern
     /// Browser/demo navigation (rework 2026-07-12): the browser owns the
     /// surface until a demo is opened; an open demo owns everything except
     /// the reserved SCENE exit.
@@ -379,6 +274,9 @@ private actor WidgetLab {
     private let modernDemos: [any LabDemo] = [
         EncoderFeelDemo(),
         PanoramaDemo(),
+        TypeSpecimenDemo(),
+        IconBrowserDemo(),
+        DialogCardDemo(),
         ChromeSlotsDemo(),
         FormsDemo(),
     ]
@@ -390,31 +288,11 @@ private actor WidgetLab {
     }()
     private var activeDemo: DemoRef?
 
-    // Font lab focus: the single combination we render prominently while iterating
-    // toward a locked-in choice.
-    private var fontSubDemo: FontSubDemo = .surfaceFont
-    private var focusRole: SurfaceFont.Role = .grid
-    private var focusWeight: SurfaceFont.Weight = .regular
-    private var focusScale = 2
-    private var focusFG: UInt16 = 0xffff
-    private var focusBG: UInt16?
     private var browserMode: BrowserDemoMode = .plainList
     private var browserNavigation = MK2SelectionNavigation()
     private var browserAreaIndex = 0
     private var browserSourceIndex = 0
     private var browserConfirmation = "Noch nichts geöffnet"
-    private var sampleText = "Paulinche 0123 ÄÖÜ"
-    private var fontSampleIndex = 0
-    private var bodyPixelSize = MK2HIG.Typography.bodyPixelSize
-    private var titlePixelSize = MK2HIG.Typography.titlePixelSize
-    private var iconSampleIndex = 1
-    private var iconPixelSize = MK2HIG.Typography.actionDialogIconPixelSize
-    private var fontFocusedEncoder: Int?
-    private var iconIndex: Int
-    private var iconSelectionMode: IconSelectionMode = .plainList
-    private var iconFilterNavigation = MK2SelectionNavigation()
-    private var iconSizeIndex = 7
-    private var actionIndex = 0
     private var selectionMode: SelectionDemoMode = .plainList
     private var selectionNavigation = MK2SelectionNavigation()
     private var selectionTypeIndex = 0
@@ -452,15 +330,6 @@ private actor WidgetLab {
     private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
     private static let soloColor = KKRGB(red: 0x00, green: 0x7f, blue: 0xff)
     private static let muteColor = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
-    private static let textFamilyID = MK2HIG.Fonts.textFamilyID
-    private static let bodySize = MK2HIG.Typography.bodyPixelSize
-    private static let titleSize = MK2HIG.Typography.titlePixelSize
-    private static let iconPageStep = 7
-    private static let iconGridCellSize = MK2SelectionCellSize(width: 58, height: 58)
-    private static let actionDialogIconSize = MK2HIG.Typography.actionDialogIconPixelSize
-    private static let iconStyleLabel = "Regular"
-    private static let iconLetterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
-    private static let iconSizes = [20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 88]
     private static let demoInstruments = [
         DemoInstrument(number: "01", name: "Kick Resin"),
         DemoInstrument(number: "02", name: "Snare Alloy"),
@@ -480,54 +349,10 @@ private actor WidgetLab {
         DemoInstrument(number: "10", name: "Sub Pure"),
     ]
     private static let instrumentIndexBounds = 0...(demoInstruments.count - 1)
-    private static let fontSamples = [
-        FontLabSample(
-            label: "Dialog",
-            title: "Pattern löschen?",
-            body: "Wollen Sie das aktuelle Pattern wirklich löschen?",
-            detail: "4D bestätigt, jede andere Hardware-Taste bricht ab."
-        ),
-        FontLabSample(
-            label: "Browser",
-            title: "Instrument Browser",
-            body: "Kick Resin, Snare Alloy, Hat Needle, Bass Rubber",
-            detail: "Längere Listentexte bleiben ruhig und gut lesbar."
-        ),
-        FontLabSample(
-            label: "Settings",
-            title: "MIDI Routing",
-            body: "Channel 3 empfängt live und schreibt Steps in Pattern 03.",
-            detail: "Body Regular, Titel Medium, Icons Phosphor."
-        ),
-        FontLabSample(
-            label: "German",
-            title: "Globale Einstellungen",
-            body: "Größen, Dicken und Umlaute prüfen: ÄÖÜ äöü ß.",
-            detail: "Zahlen und Einheiten: 120 BPM, 16 Steps, 80 %."
-        ),
-    ]
-    private static let fontIconSamples = [
-        FontLabIconSample(name: "Info", glyph: "\u{e2ce}", color: Palette.blue),
-        FontLabIconSample(name: "Warn", glyph: "\u{e4e0}", color: Palette.accent),
-        FontLabIconSample(name: "Error", glyph: "\u{e4f8}", color: Palette.orange),
-        FontLabIconSample(name: "Question", glyph: "\u{e3e8}", color: Palette.question),
-        FontLabIconSample(name: "Save", glyph: "\u{e248}", color: Palette.green),
-        FontLabIconSample(name: "Sliders", glyph: "\u{e432}", color: Palette.solo),
-        FontLabIconSample(name: "Trash", glyph: "\u{e4a6}", color: Palette.mute),
-    ]
-    private static let actionCandidates = [
-        ActionCandidate(iconName: "info", title: "Load Instrument?", body: "Replace the current sound and keep pattern data.", action: "LOAD"),
-        ActionCandidate(iconName: "warning", title: "Clear Pattern?", body: "This removes all notes in the selected pattern.", action: "CLEAR"),
-        ActionCandidate(iconName: "floppy-disk", title: "Save Snapshot", body: "Write the current display pair as a PNG reference.", action: "SAVE"),
-        ActionCandidate(iconName: "sign-out", title: "Leave Browser?", body: "Return to the tracker without changing selection.", action: "LEAVE"),
-    ]
+
     init(surface: MK2Surface2) {
         self.surface = surface
         self.freeTypeRenderer = try? FreeTypeTextRenderer()
-        let iconCatalog = (try? PhosphorIconCatalog.load()) ?? (source: "Phosphor catalog unavailable", icons: [])
-        self.iconSource = iconCatalog.source
-        self.icons = iconCatalog.icons
-        self.iconIndex = iconCatalog.icons.firstIndex { $0.name == "info" } ?? 0
         self.patternRows = WidgetLab.demoPatternRows()
     }
 
@@ -579,6 +404,11 @@ private actor WidgetLab {
         }
     }
 
+    private func activeModernDemo() -> (any LabDemo)? {
+        guard mode == .demo, case let .modern(demo) = activeDemo else { return nil }
+        return demo
+    }
+
     private func modernDemoScene(_ demo: any LabDemo) -> MK2SurfaceScene2 {
         var scene = demo.buildScene(labContext())
         // The one control a demo never owns: SCENE always exits to the browser.
@@ -593,26 +423,7 @@ private actor WidgetLab {
 
     private func demoScene() -> MK2SurfaceScene2 {
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
-        if unit == .font {
-            lamps[.instance] = Self.availableLamp(Self.actionWhite)
-            if fontSubDemo == .icons || fontSubDemo == .actionDialog {
-                lamps[.pageLeft] = Self.availableLamp(Self.actionWhite)
-                lamps[.pageRight] = Self.availableLamp(Self.actionWhite)
-                lamps[.presetDown] = Self.availableLamp(Self.actionWhite)
-                lamps[.presetUp] = Self.availableLamp(Self.actionWhite)
-            }
-            if fontSubDemo == .icons {
-                let visible = visibleIcons()
-                MK2SelectionNavigation(selectedIndex: selectedVisibleIconIndex(in: visible))
-                    .applyJogLamps(
-                        to: &lamps,
-                        itemCount: visible.count,
-                        layout: iconJogLayout,
-                        availableLamp: Self.availableLamp(Self.actionWhite),
-                        wraps: true
-                    )
-            }
-        } else if unit == .chrome {
+        if unit == .chrome {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
         } else if unit == .list {
             lamps[.instance] = Self.availableLamp(Self.actionWhite)
@@ -656,40 +467,7 @@ private actor WidgetLab {
                 Task { await self?.moveFocusedChannel(1) }
             }
         }
-        if unit == .font {
-            bindings.onPress(.instance) { [weak self] in
-                Task { await self?.cycleFontSubDemo() }
-            }
-            if fontSubDemo == .surfaceFont {
-                for binding in fontLabEncoderBindings() {
-                    binding.apply(bindings: &bindings)
-                }
-            } else if fontSubDemo == .icons || fontSubDemo == .actionDialog {
-                bindings.onPress(.pageLeft) { [weak self] in Task { await self?.moveIcon(-1) } }
-                bindings.onPress(.pageRight) { [weak self] in Task { await self?.moveIcon(1) } }
-                MK2ButtonRangeSelection(
-                    value: iconSizeIndex,
-                    bounds: 0...(Self.iconSizes.count - 1),
-                    previousButton: .presetDown,
-                    nextButton: .presetUp,
-                    availableLamp: Self.availableLamp(Self.actionWhite)
-                ) { [weak self] index in
-                    Task { await self?.setIconSizeIndex(index) }
-                }
-                .apply(lamps: &lamps, bindings: &bindings)
-                if fontSubDemo == .icons {
-                    bindings.jogScroll = { [weak self] delta, _ in
-                        Task { await self?.moveIcon(delta) }
-                    }
-                    bindings.jog = { [weak self] direction in
-                        Task { await self?.jogIconList(direction) }
-                    }
-                    for binding in iconFilterEncoderBindings() {
-                        binding.apply(bindings: &bindings)
-                    }
-                }
-            }
-        } else if unit == .chrome {
+        if unit == .chrome {
             bindings.onPress(.instance) { [weak self] in
                 Task { await self?.cycleBrowserMode() }
             }
@@ -998,9 +776,6 @@ private actor WidgetLab {
 
     private func screenResults() -> (MK2ScreenBuildResult, MK2ScreenBuildResult) {
         switch unit {
-            case .font:
-                let frames = fontFrames()
-                return (screenResult(frame: frames.0), screenResult(frame: frames.1))
             case .chrome:
                 return (browserDetailResult(), browserPickerResult())
             case .meter:
@@ -1052,207 +827,6 @@ private actor WidgetLab {
     }
 
     // MARK: - Font lab
-
-    private func fontFrames() -> (MK2PixelFrame, MK2PixelFrame) {
-        switch fontSubDemo {
-            case .surfaceFont:
-                return (fontCatalogFrame(), fontFocusFrame())
-            case .typography:
-                return (typographySpecimenFrame(), typographyContextFrame())
-            case .icons:
-                return (iconBrowserFrame(), iconListFrame())
-            case .actionDialog:
-                return (actionDialogFrame(), actionDialogControlsFrame())
-        }
-    }
-
-    // Left screen: every face rendered at native scale so relative sizes/weights are
-    // directly comparable against the same sample string.
-    private func fontCatalogFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("FONT LAB - FREETYPE + BITMAP", font: .label, color: Palette.accent)
-            .draw(into: &frame, x: 8, y: 8)
-
-        drawFreeTypeTitle("Globaler Dialogtitel", into: &frame, renderer: freeTypeRenderer, x: 8, y: 32, size: 24, color: Palette.text, maxWidth: 448)
-        drawFreeTypeBody("Body Regular 16 px: Listen, Dialoge, Browser, Settings.", into: &frame, renderer: freeTypeRenderer, x: 8, y: 70, size: 16, color: Palette.dim, maxWidth: 448)
-        drawFreeTypeBody("Tracker und Grid bleiben bitmap-scharf.", into: &frame, renderer: freeTypeRenderer, x: 8, y: 94, size: 16, color: Palette.empty, maxWidth: 448)
-
-        let icons = Array(Self.fontIconSamples.prefix(4))
-        for (index, icon) in icons.enumerated() {
-            let x = 28 + index * 110
-            drawFreeTypeIcon(icon.glyph, into: &frame, renderer: freeTypeRenderer, x: x, y: 122, size: 40, color: icon.color)
-            BitmapLabel(icon.name.uppercased(), font: .label, color: Palette.dim)
-                .draw(into: &frame, x: x - 10, y: 174, clip: MK2PixelRect(x: x - 10, y: 174, width: 92, height: 14))
-        }
-
-        frame.hline(y: 198, x: 8, width: 456, color: Palette.border)
-
-        let faces: [(String, SurfaceFont)] = [
-            ("BITMAP GRID", .grid), ("GRID BOLD", .gridBold), ("LABEL", .label),
-        ]
-        var y = 212
-        for (name, font) in faces {
-            BitmapLabel(name, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y + 1)
-            BitmapLabel(sampleText, font: font, color: Palette.text)
-                .draw(into: &frame, x: 112, y: y, clip: MK2PixelRect(x: 112, y: y, width: 352, height: font.cellHeight))
-            y += font.cellHeight + 8
-        }
-        return frame
-    }
-
-    private var selectedIcon: PhosphorIcon? {
-        guard icons.indices.contains(iconIndex) else { return nil }
-        return icons[iconIndex]
-    }
-
-    private var currentIconSize: Int {
-        Self.iconSizes[max(0, min(Self.iconSizes.count - 1, iconSizeIndex))]
-    }
-
-    private func typographySpecimenFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "INSTANCE: \(fontSubDemo.next.shortTitle)")
-        drawFreeTypeTitle("Browser Selection", into: &frame, renderer: freeTypeRenderer, x: 18, y: 56, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody("Body Regular 16 px. Ruhiger Text für längere MK2-OLED-Flächen.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 91, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeTitle("Settings", into: &frame, renderer: freeTypeRenderer, x: 18, y: 126, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        let settingsLines = drawFreeTypeBody("Listen, Dialoge, Browser-Panes und Preferences teilen einen gemeinsamen Rhythmus.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 160, size: Self.bodySize, color: Palette.dim, maxWidth: 432, maxLines: 2)
-        let ligatureY = 160 + settingsLines * freeTypeLineAdvance(size: Self.bodySize) + 8
-        BitmapLabel("PROPORTIONAL LIGATURE TEST", font: .label, color: Palette.empty).draw(into: &frame, x: 18, y: ligatureY)
-        drawFreeTypeTitle("office affine efficient", into: &frame, renderer: freeTypeRenderer, x: 18, y: ligatureY + 16, size: 20, color: Palette.text, maxWidth: 432)
-        BitmapLabel("BITMAP GRID 0123456789 ffi", font: .grid, color: Palette.accent).draw(into: &frame, x: 18, y: 252)
-        return frame
-    }
-
-    private func typographyContextFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        drawBitmapHeader(into: &frame, title: "COMBINATIONS", subtitle: "title 24 medium + body 16 regular")
-        drawTypographyRow(into: &frame, y: 54, title: "Piano Noir", body: "Felt grand with quiet release samples", focused: true)
-        drawTypographyRow(into: &frame, y: 114, title: "Tape Strings", body: "Warm ensemble, filtered attack", focused: false)
-        drawTypographyRow(into: &frame, y: 174, title: "System", body: "Display brightness, browser defaults", focused: false)
-        drawFreeTypeBody("INSTANCE wechselt: Font, Typo, Icons, Dialog.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
-        return frame
-    }
-
-    private func iconBrowserFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        guard let icon = selectedIcon else {
-            drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "catalog missing")
-            drawFreeTypeBody("PhosphorIcons.pro.json wurde nicht geladen.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 62, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
-            return frame
-        }
-        let visible = visibleIcons()
-        let visibleIndex = selectedVisibleIconIndex(in: visible)
-        drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "\(visibleIndex + 1)/\(max(1, visible.count)) \(iconSelectionMode.title)")
-        drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: 240, y: 72, size: currentIconSize, color: Palette.text)
-        drawFreeTypeTitle(icon.label, into: &frame, renderer: freeTypeRenderer, x: 18, y: 158, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody(icon.name, into: &frame, renderer: freeTypeRenderer, x: 18, y: 194, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, currentIconSize, Self.iconStyleLabel), into: &frame, renderer: freeTypeRenderer, x: 18, y: 222, size: Self.bodySize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("INSTANCE demo  4D/Page icons  E5 A-Z filter", into: &frame, renderer: freeTypeRenderer, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
-        return frame
-    }
-
-    private func iconListFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        let visible = visibleIcons()
-        let items = visible.map { entry in
-            MK2SelectionItem(
-                title: entry.icon.name,
-                detail: entry.icon.label,
-                badge: Self.iconStyleLabel,
-                iconGlyph: entry.icon.glyph
-            )
-        }
-        let selected = selectedVisibleIconIndex(in: visible)
-        let filters = iconSelectionMode.hasFilter ? iconFilters() : []
-        let colors = MK2SelectionViewColors(
-            background: Palette.page,
-            text: Palette.text,
-            dim: Palette.dim,
-            muted: Palette.empty,
-            accent: Palette.accent,
-            selectionFill: Palette.selectionFill,
-            border: Palette.border,
-            filterFill: Palette.filterFill,
-            filterValue: Palette.text
-        )
-        if iconSelectionMode.isGrid {
-            MK2SelectionGrid(
-                title: iconSelectionMode.shortTitle,
-                subtitle: "\(visible.count) icons, \(Self.iconStyleLabel)",
-                items: items,
-                selectedIndex: selected,
-                cellSize: Self.iconGridCellSize,
-                filters: filters,
-                colors: colors,
-                cellContent: .iconOnly(iconSize: 30)
-            ).draw(into: &frame, renderer: freeTypeRenderer)
-        } else {
-            MK2SelectionList(
-                title: iconSelectionMode.shortTitle,
-                subtitle: "\(visible.count) icons, \(Self.iconStyleLabel)",
-                items: items,
-                selectedIndex: selected,
-                filters: filters,
-                rowHeight: iconSelectionMode.hasFilter ? 44 : 30,
-                colors: colors
-            ).draw(into: &frame, renderer: freeTypeRenderer)
-        }
-        return frame
-    }
-
-    private func actionDialogFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        let candidate = Self.actionCandidates[actionIndex]
-        let icon = selectedIcon
-        drawBitmapHeader(into: &frame, title: fontSubDemo.title, subtitle: "Phosphor Regular, icon 48 px")
-        let dialog = MK2PixelRect(x: 46, y: 56, width: 388, height: 172)
-        frame.fill(dialog, Palette.dialogSurface)
-        frame.stroke(dialog, Palette.border)
-        if let icon {
-            drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: 240, y: 77, size: Self.actionDialogIconSize, color: Palette.accent)
-        }
-        drawFreeTypeTitle(candidate.title, into: &frame, renderer: freeTypeRenderer, x: 74, y: 133, size: Self.titleSize, color: Palette.text, maxWidth: 332)
-        drawFreeTypeBody(candidate.body, into: &frame, renderer: freeTypeRenderer, x: 74, y: 171, size: Self.bodySize, color: Palette.dim, maxWidth: 332)
-        drawFreeTypeBody("[\(candidate.action)]        CANCEL", into: &frame, renderer: freeTypeRenderer, x: 142, y: 204, size: Self.bodySize, color: Palette.text, maxWidth: 240)
-        drawFreeTypeBody("Page Left/Right browsen Icons. Preset ändert Größe.", into: &frame, renderer: freeTypeRenderer, x: 18, y: 246, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
-        return frame
-    }
-
-    private func actionDialogControlsFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        drawBitmapHeader(into: &frame, title: "DIALOG TEST", subtitle: "global action style")
-        guard let icon = selectedIcon else {
-            drawFreeTypeBody(iconSource, into: &frame, renderer: freeTypeRenderer, x: 18, y: 58, size: Self.bodySize, color: Palette.orange, maxWidth: 432)
-            return frame
-        }
-        drawFreeTypeTitle("Current Icon", into: &frame, renderer: freeTypeRenderer, x: 18, y: 58, size: Self.titleSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody(icon.name, into: &frame, renderer: freeTypeRenderer, x: 18, y: 94, size: Self.bodySize, color: Palette.dim, maxWidth: 300)
-        drawFreeTypeBody(String(format: "Phosphor  U+%04X  action 48 px", icon.codepoint), into: &frame, renderer: freeTypeRenderer, x: 18, y: 122, size: Self.bodySize, color: Palette.dim, maxWidth: 420)
-        var x = 18
-        for size in [24, 32, 42, 56, 72] {
-            let item = MK2PixelRect(x: x - 3, y: 158, width: 58, height: 74)
-            if size == currentIconSize { frame.stroke(item, Palette.accent) }
-            drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: freeTypeRenderer, centerX: x + 25, y: 164, size: size, color: Palette.text)
-            drawFreeTypeBody("\(size)", into: &frame, renderer: freeTypeRenderer, x: x + 9, y: 216, size: 14, color: size == currentIconSize ? Palette.text : Palette.empty, maxWidth: 46)
-            x += 84
-        }
-        drawFreeTypeBody(iconSource, into: &frame, renderer: freeTypeRenderer, x: 18, y: 248, size: Self.bodySize, color: Palette.empty, maxWidth: 432)
-        return frame
-    }
-
-    private func drawTypographyRow(into frame: inout MK2PixelFrame, y: Int, title: String, body: String, focused: Bool) {
-        if focused {
-            frame.fill(MK2PixelRect(x: 12, y: y - 6, width: 456, height: 54), Palette.selectionFill)
-        }
-        drawFreeTypeTitle(title, into: &frame, renderer: freeTypeRenderer, x: 22, y: y, size: Self.titleSize, color: focused ? Palette.text : Palette.dim, maxWidth: 420)
-        drawFreeTypeBody(body, into: &frame, renderer: freeTypeRenderer, x: 22, y: y + 31, size: Self.bodySize, color: focused ? Palette.dim : Palette.empty, maxWidth: 420)
-    }
-
-    private func drawBitmapHeader(into frame: inout MK2PixelFrame, title: String, subtitle: String) {
-        frame.fill(MK2PixelRect(x: 0, y: 0, width: MK2PixelFrame.width, height: 38), 0x0000)
-        BitmapLabel(title, font: .gridBold, color: Palette.accent).draw(into: &frame, x: 8, y: 8)
-        BitmapLabel(subtitle.uppercased(), font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: 25)
-    }
 
     // MARK: - Browser lab
 
@@ -1769,16 +1343,6 @@ private actor WidgetLab {
     private func turnMainEncoder(_ delta: Int) async {
         guard delta != 0 else { return }
         switch unit {
-            case .font:
-                switch fontSubDemo {
-                    case .surfaceFont:
-                        setFontSampleIndex(fontSampleIndex + delta)
-                        await render()
-                    case .icons, .actionDialog:
-                        await moveIcon(delta)
-                    case .typography:
-                        return
-                }
             case .chrome:
                 await moveBrowserSelection(delta)
             case .list:
@@ -1792,257 +1356,6 @@ private actor WidgetLab {
                 await render()
             default:
                 return
-        }
-    }
-
-    private func fontLabEncoderBindings() -> [MK2EncoderDiscreteValue] {
-        let icon = Self.fontIconSamples[iconSampleIndex]
-        return [
-            MK2EncoderDiscreteValue(
-                encoder: 5,
-                value: bodyPixelSize,
-                bounds: 12...22,
-                wraps: false,
-                display: fontLabValueDisplay(label: "BODY", value: "\(bodyPixelSize)", encoder: 5, color: Palette.text),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setFontFocusedEncoder(5, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setBodyPixelSize(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 6,
-                value: titlePixelSize,
-                bounds: 18...32,
-                wraps: false,
-                display: fontLabValueDisplay(label: "TITLE", value: "\(titlePixelSize)", encoder: 6, color: Palette.text),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setFontFocusedEncoder(6, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setTitlePixelSize(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 7,
-                value: iconSampleIndex,
-                bounds: 0...(Self.fontIconSamples.count - 1),
-                display: fontLabValueDisplay(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, color: icon.color),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setFontFocusedEncoder(7, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setIconSampleIndex(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 8,
-                value: iconPixelSize,
-                bounds: 32...72,
-                step: 2,
-                wraps: false,
-                display: fontLabValueDisplay(label: "SIZE", value: "\(iconPixelSize)", encoder: 8, color: icon.color),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setFontFocusedEncoder(8, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setIconPixelSize(value) }
-                }
-            ),
-        ]
-    }
-
-    private func fontLabValueDisplay(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
-        MK2EncoderDiscreteValueDisplay(
-            label: label,
-            value: value,
-            rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
-            isFocused: fontFocusedEncoder == encoder,
-            valueFont: .readoutBold,
-            cornerRadius: 7,
-            colors: labEditCellColors(value: color)
-        )
-    }
-
-    private func setFontFocusedEncoder(_ encoder: Int, touched: Bool) async {
-        if touched {
-            fontFocusedEncoder = encoder
-        } else if fontFocusedEncoder == encoder {
-            fontFocusedEncoder = nil
-        }
-        await render()
-    }
-
-    private func setFontSampleIndex(_ value: Int) {
-        fontSampleIndex = value.wrapped(to: 0...(Self.fontSamples.count - 1))
-        sampleText = Self.fontSamples[fontSampleIndex].title
-    }
-
-    private func setBodyPixelSize(_ value: Int) async {
-        bodyPixelSize = max(12, min(22, value))
-        await render()
-    }
-
-    private func setTitlePixelSize(_ value: Int) async {
-        titlePixelSize = max(18, min(32, value))
-        await render()
-    }
-
-    private func setIconSampleIndex(_ value: Int) async {
-        iconSampleIndex = value.wrapped(to: 0...(Self.fontIconSamples.count - 1))
-        await render()
-    }
-
-    private func setIconPixelSize(_ value: Int) async {
-        iconPixelSize = max(32, min(72, value))
-        await render()
-    }
-
-    private func cycleFontSubDemo() async {
-        guard unit == .font else { return }
-        fontSubDemo = fontSubDemo.next
-        if fontSubDemo != .surfaceFont {
-            fontFocusedEncoder = nil
-        }
-        await render()
-    }
-
-    private func cycleIconSelectionMode() async {
-        guard unit == .font, fontSubDemo == .icons else { return }
-        iconSelectionMode = iconSelectionMode.next
-        if !iconSelectionMode.hasFilter {
-            iconFilterNavigation.setFilterFocus(encoder: nil)
-        }
-        clampIconToVisibleSelection()
-        await render()
-    }
-
-    private func moveIcon(_ delta: Int) async {
-        guard unit == .font, (fontSubDemo == .icons || fontSubDemo == .actionDialog) else { return }
-        let visible = fontSubDemo == .icons ? visibleIcons() : allIconEntries()
-        guard !visible.isEmpty else { return }
-        let current = selectedVisibleIconIndex(in: visible)
-        let next = (current + delta).wrapped(to: 0...(visible.count - 1))
-        iconIndex = visible[next].globalIndex
-        await render()
-    }
-
-    private func jogIconList(_ direction: String) async {
-        guard unit == .font, fontSubDemo == .icons else { return }
-        if let delta = MK2SelectionLayout.jogDelta(for: direction, layout: iconJogLayout) {
-            await moveIcon(delta)
-        }
-    }
-
-    private var iconJogLayout: MK2SelectionJogLayout {
-        iconSelectionMode.isGrid
-            ? .grid(cellSize: Self.iconGridCellSize)
-            : .list(step: Self.iconPageStep)
-    }
-
-    private func setIconSizeIndex(_ index: Int) async {
-        guard unit == .font, (fontSubDemo == .icons || fontSubDemo == .actionDialog) else { return }
-        iconSizeIndex = max(0, min(Self.iconSizes.count - 1, index))
-        await render()
-    }
-
-    private func iconFilterEncoderBindings() -> [MK2EncoderDiscreteValue] {
-        guard unit == .font, fontSubDemo == .icons else { return [] }
-        var bindings = [
-            MK2EncoderDiscreteValue(
-                encoder: 8,
-                value: iconSelectionMode.rawValue,
-                bounds: 0...(IconSelectionMode.allCases.count - 1),
-                onChange: { [weak self] value in
-                    Task { await self?.setIconSelectionMode(value) }
-                }
-            )
-        ]
-        if iconSelectionMode.hasFilter {
-            bindings.append(
-                MK2EncoderDiscreteValue(
-                    encoder: 5,
-                    value: iconFilterNavigation.selectedIndex,
-                    bounds: 0...(Self.iconLetterFilters.count - 1),
-                    wraps: true,
-                    onTouch: { [weak self] touched in
-                        Task { await self?.setIconFilterFocus(encoder: 5, touched: touched) }
-                    },
-                    onChange: { [weak self] value in
-                        Task { await self?.setIconLetterFilter(value) }
-                    }
-                )
-            )
-        }
-        return bindings
-    }
-
-    private func setIconSelectionMode(_ value: Int) async {
-        guard unit == .font, fontSubDemo == .icons,
-              let next = IconSelectionMode(rawValue: value.wrapped(to: 0...(IconSelectionMode.allCases.count - 1))) else { return }
-        iconSelectionMode = next
-        if !iconSelectionMode.hasFilter {
-            iconFilterNavigation.setFilterFocus(encoder: nil)
-        }
-        clampIconToVisibleSelection()
-        await render()
-    }
-
-    private func setIconLetterFilter(_ value: Int) async {
-        guard unit == .font, fontSubDemo == .icons, iconSelectionMode.hasFilter else { return }
-        iconFilterNavigation.setFilterFocus(encoder: 5)
-        iconFilterNavigation.select(value, itemCount: Self.iconLetterFilters.count)
-        clampIconToVisibleSelection()
-        await render()
-    }
-
-    private func setIconFilterFocus(encoder: Int, touched: Bool) async {
-        guard unit == .font, fontSubDemo == .icons, iconSelectionMode.hasFilter else { return }
-        iconFilterNavigation.touchFilter(encoder: encoder, touched: touched)
-        await render()
-    }
-
-    private func allIconEntries() -> [(globalIndex: Int, icon: PhosphorIcon)] {
-        icons.enumerated().map { (globalIndex: $0.offset, icon: $0.element) }
-    }
-
-    private func visibleIcons() -> [(globalIndex: Int, icon: PhosphorIcon)] {
-        let indexed = allIconEntries()
-        guard iconSelectionMode.hasFilter else { return indexed }
-        let letter = Self.iconLetterFilters[iconFilterNavigation.selectedIndex]
-        guard letter != "ALL" else { return indexed }
-        return indexed.filter { $0.icon.name.uppercased().hasPrefix(letter) }
-    }
-
-    private func selectedVisibleIconIndex(in visible: [(globalIndex: Int, icon: PhosphorIcon)]) -> Int {
-        visible.firstIndex { $0.globalIndex == iconIndex } ?? 0
-    }
-
-    private func iconFilters() -> [MK2SelectionFilter] {
-        [
-            MK2SelectionFilter(
-                label: "LETTER",
-                value: Self.iconLetterFilters[iconFilterNavigation.selectedIndex],
-                encoder: 5,
-                isActive: iconFilterNavigation.selectedIndex != 0,
-                isFocused: iconFilterNavigation.focusedFilterEncoder == 5
-            ),
-            MK2SelectionFilter(
-                label: "MODE",
-                value: iconSelectionMode.shortTitle,
-                encoder: 8,
-                isActive: true,
-                isFocused: false
-            ),
-        ]
-    }
-
-    private func clampIconToVisibleSelection() {
-        let visible = visibleIcons()
-        guard !visible.isEmpty else { return }
-        if !visible.contains(where: { $0.globalIndex == iconIndex }) {
-            iconIndex = visible[0].globalIndex
         }
     }
 
@@ -2570,38 +1883,6 @@ private actor WidgetLab {
 
     // Right screen: the focused combination big, over an optional background swatch, with
     // a settings readout — this is the surface we judge a candidate on.
-    private func fontFocusFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        let sample = Self.fontSamples[fontSampleIndex]
-        let icon = Self.fontIconSamples[iconSampleIndex]
-
-        BitmapLabel("MAIN SAMPLE  E5 BODY  E6 TITLE  E7 ICON  E8 SIZE", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 8, y: 8)
-        BitmapLabel("\(sample.label.uppercased())  \(icon.name.uppercased())", font: .label, color: Palette.accent)
-            .draw(into: &frame, x: 8, y: 25, clip: MK2PixelRect(x: 8, y: 25, width: 456, height: 14))
-
-        let dialog = MK2PixelRect(x: 8, y: 48, width: 456, height: 150)
-        let dialogRadius = 8
-        frame.fillRounded(dialog, radius: dialogRadius, icon.color, antialiased: true)
-        frame.fillRounded(
-            MK2PixelRect(x: dialog.x + 1, y: dialog.y + 1, width: dialog.width - 2, height: dialog.height - 2),
-            radius: dialogRadius - 1,
-            Palette.dialogSurface,
-            antialiased: true
-        )
-        drawFreeTypeIcon(icon.glyph, into: &frame, renderer: freeTypeRenderer, x: 28, y: 70, size: iconPixelSize, color: icon.color)
-        drawFreeTypeTitle(sample.title, into: &frame, renderer: freeTypeRenderer, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
-        let bodyLines = drawFreeTypeBody(sample.body, into: &frame, renderer: freeTypeRenderer, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336, maxLines: 2)
-        let detailSize = max(12, min(18, bodyPixelSize - 1))
-        let detailY = 104 + bodyLines * freeTypeLineAdvance(size: bodyPixelSize) + 2
-        drawFreeTypeBody(sample.detail, into: &frame, renderer: freeTypeRenderer, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
-
-        for binding in fontLabEncoderBindings() {
-            binding.drawDisplay(into: &frame)
-        }
-        return frame
-    }
-
     // MARK: - Waveform lab
 
     /// A decaying pluck with a loopable sustain tail — enough dynamics that the
@@ -2841,93 +2122,11 @@ private actor WidgetLab {
                 await showBrowser()
                 print("→ browser")
 
-            case "text":
-                sampleText = rest.isEmpty ? " " : rest
-                await render()
-
-            case "face":
-                guard let role = Self.role(rest) else { print("? face grid|label|readout"); return }
-                focusRole = role
-                await render()
-
-            case "weight":
-                focusWeight = rest.lowercased() == "bold" ? .bold : .regular
-                await render()
-
-            case "bold":
-                focusWeight = ["off", "0", "false", "no"].contains(rest.lowercased()) ? .regular : .bold
-                await render()
-
-            case "scale":
-                guard let value = Int(rest), value > 0 else { print("? scale <n>"); return }
-                focusScale = value
-                await render()
-
-            case "fg":
-                guard let color = Self.color565(rest) else { print("? fg <rrggbb|name>"); return }
-                focusFG = color
-                await render()
-
-            case "bg":
-                if rest.lowercased() == "none" { focusBG = nil; await render(); return }
-                guard let color = Self.color565(rest) else { print("? bg <rrggbb|name|none>"); return }
-                focusBG = color
-                await render()
-
-            case "sample":
-                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      Self.fontSamples.indices.contains(value) else { print("? sample <0-\(Self.fontSamples.count - 1)>"); return }
-                setFontSampleIndex(value)
-                await render()
-
-            case "body":
-                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      (12...22).contains(value) else { print("? body <12-22>"); return }
-                await setBodyPixelSize(value)
-
-            case "title":
-                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      (18...32).contains(value) else { print("? title <18-32>"); return }
-                await setTitlePixelSize(value)
-
-            case "icon":
-                guard let value = Self.fontIconIndex(rest) else { print("? icon <0-\(Self.fontIconSamples.count - 1)|name>"); return }
-                await setIconSampleIndex(value)
-
-            case "iconsize":
-                guard let value = Int(rest.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      (32...72).contains(value) else { print("? iconsize <32-72>"); return }
-                await setIconPixelSize(value)
-
-            case "touch":
-                guard let event = Self.encoderTouchEvent(rest), (5...8).contains(event.encoder) else {
-                    print("? touch <e5-e8|5-8> on|off"); return
-                }
-                await setFontFocusedEncoder(event.encoder, touched: event.touched)
+            case _ where activeModernDemo()?.handleRepl(verb: verb, rest: rest, labContext()) == true:
+                break
 
             case "browsemode":
                 await cycleBrowserMode()
-
-            case "fontdemo":
-                let trimmed = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if trimmed.isEmpty || trimmed == "next" {
-                    await cycleFontSubDemo()
-                } else if let demo = Self.fontSubDemo(trimmed) {
-                    fontSubDemo = demo
-                    await render()
-                } else {
-                    print("? fontdemo surface|typography|icons|dialog|next")
-                }
-
-            case "iconmode":
-                let trimmed = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if trimmed.isEmpty || trimmed == "next" {
-                    await cycleIconSelectionMode()
-                } else if let mode = Self.iconSelectionMode(trimmed) {
-                    await setIconSelectionMode(mode.rawValue)
-                } else {
-                    print("? iconmode list|grid|filterlist|filtergrid|next")
-                }
 
             case "selmode":
                 await cycleSelectionMode()
@@ -3035,7 +2234,7 @@ private actor WidgetLab {
             case "help", "?":
                 printReplHelp()
 
-            case "quit", "exit", "q":
+            case "quit", "q":
                 print("bye"); exit(0)
 
             default:
@@ -3069,19 +2268,6 @@ private actor WidgetLab {
             unit = candidate
             activeDemo = .legacy(candidate)
             switch candidate {
-                case .font:
-                    for subDemo in FontSubDemo.allCases {
-                        fontSubDemo = subDemo
-                        if subDemo == .icons {
-                            for mode in IconSelectionMode.allCases {
-                                iconSelectionMode = mode
-                                clampIconToVisibleSelection()
-                                await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(subDemo.shortTitle.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
-                            }
-                        } else {
-                            await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(subDemo.shortTitle.lowercased()).png")
-                        }
-                    }
                 case .chrome:
                     for mode in BrowserDemoMode.allCases {
                         browserMode = mode
@@ -3256,64 +2442,11 @@ private actor WidgetLab {
 
     // MARK: - Parsing helpers
 
-    private var roleName: String {
-        switch focusRole {
-            case .grid: "GRID"
-            case .label: "LABEL"
-            case .readout: "READOUT"
-        }
-    }
-
-    private var weightName: String { focusWeight == .bold ? "BOLD" : "REG" }
-
     private func hex(_ value: UInt16) -> String { String(format: "%04X", value) }
 
-    private static func role(_ text: String) -> SurfaceFont.Role? {
-        switch text.lowercased() {
-            case "grid": .grid
-            case "label": .label
-            case "readout": .readout
-            default: nil
-        }
-    }
 
-    private static func fontIconIndex(_ text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let index = Int(trimmed), fontIconSamples.indices.contains(index) {
-            return index
-        }
-        return fontIconSamples.firstIndex { $0.name.lowercased() == trimmed }
-    }
 
-    private static func fontSubDemo(_ text: String) -> FontSubDemo? {
-        switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "surface", "surfacefont", "font", "surf":
-                return .surfaceFont
-            case "typography", "typo":
-                return .typography
-            case "icons", "icon":
-                return .icons
-            case "dialog", "action", "actiondialog":
-                return .actionDialog
-            default:
-                return nil
-        }
-    }
 
-    private static func iconSelectionMode(_ text: String) -> IconSelectionMode? {
-        switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "list", "plainlist":
-                return .plainList
-            case "grid", "plaingrid":
-                return .plainGrid
-            case "filterlist", "filteredlist", "azlist", "a-zlist":
-                return .filteredList
-            case "filtergrid", "filteredgrid", "azgrid", "a-zgrid":
-                return .filteredGrid
-            default:
-                return nil
-        }
-    }
 
     private static func rowValue(_ text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3371,12 +2504,6 @@ private actor WidgetLab {
     private func handleJogPush(_ direction: String) async {
         let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch unit {
-            case .font:
-                if fontSubDemo == .icons {
-                    await jogIconList(normalized)
-                } else {
-                    print("? push is available in font icon/browser selection units")
-                }
             case .chrome:
                 await handleBrowserJog(normalized)
             case .list:
@@ -3386,24 +2513,6 @@ private actor WidgetLab {
         }
     }
 
-    private static func encoderTouchEvent(_ text: String) -> (encoder: Int, touched: Bool)? {
-        let parts = text
-            .split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map { String($0).lowercased() }
-        guard parts.count == 2 else { return nil }
-
-        let encoderText = parts[0].hasPrefix("e") ? String(parts[0].dropFirst()) : parts[0]
-        guard let encoder = Int(encoderText) else { return nil }
-
-        switch parts[1] {
-            case "on", "1", "true", "yes", "down":
-                return (encoder, true)
-            case "off", "0", "false", "no", "up":
-                return (encoder, false)
-            default:
-                return nil
-        }
-    }
 
     private static func demoPatternRows() -> [TrackerDemoRow] {
         var rows = emptyPatternRows()
@@ -3481,15 +2590,6 @@ private actor WidgetLab {
     }
 
     // Accepts RRGGBB hex or a small set of names, returns wire-order-agnostic RGB565.
-    private static func color565(_ text: String) -> UInt16? {
-        if let hit = namedColors[text.lowercased()] { return hit }
-        let hex = text.hasPrefix("#") ? String(text.dropFirst()) : text
-        guard hex.count == 6, let rgb = UInt32(hex, radix: 16) else { return nil }
-        let r = UInt16((rgb >> 16) & 0xff) >> 3
-        let g = UInt16((rgb >> 8) & 0xff) >> 2
-        let b = UInt16(rgb & 0xff) >> 3
-        return (r << 11) | (g << 5) | b
-    }
 
     private static func guideTargets(_ text: String) -> [Int]? {
         let key = ledKey(text)
@@ -3670,11 +2770,6 @@ private final class DemoMetronome {
     }
 }
 
-let namedColors: [String: UInt16] = [
-    "white": 0xffff, "black": 0x0000, "red": 0xf800, "green": 0x07e0,
-    "blue": 0x001f, "yellow": 0xffe0, "cyan": 0x07ff, "magenta": 0xf81f,
-    "orange": 0xfc00, "grey": 0x8410, "gray": 0x8410, "dim": 0x4208,
-]
 
 let namedLEDColors: [String: KKRGB] = [
     "white": KKRGB(red: 0xff, green: 0xff, blue: 0xff),
@@ -3691,18 +2786,6 @@ let namedLEDColors: [String: KKRGB] = [
     "dim": KKRGB(red: 0x40, green: 0x40, blue: 0x40),
 ]
 
-private struct FontLabSample: Sendable {
-    var label: String
-    var title: String
-    var body: String
-    var detail: String
-}
-
-private struct FontLabIconSample: Sendable {
-    var name: String
-    var glyph: String
-    var color: UInt16
-}
 
 private struct TrackerDemoRow: Sendable {
     var cells: [TrackerDemoCell]

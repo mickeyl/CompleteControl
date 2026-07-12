@@ -200,3 +200,10 @@ func drawFreeTypeIconCentered(
     }
 }
 
+
+struct ReplCommand {
+    let name: String
+    let arg: String
+    let summary: String
+    let values: [String] // completion candidates for the first argument (empty = free/none)
+}
