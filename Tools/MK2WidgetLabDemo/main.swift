@@ -1432,9 +1432,9 @@ private actor WidgetLab {
             let displayValue = domain == 2 ? (value == 1 ? "ON" : "OFF") : "\(value + 1)/\(domain)"
             let countsPerStep = MK2EncoderDiscreteValue.automaticCountsPerStep(for: bounds)
             let acceleration = MK2EncoderDiscreteValue.sweepAcceleration(for: bounds, countsPerStep: countsPerStep)
-            let accelerationSuffix = acceleration > 1 ? " · \(Int(acceleration.rounded()))X" : ""
+            let accelerationSuffix = acceleration > 1.5 ? "·\(Int(acceleration.rounded()))X" : ""
             return MK2ParameterPageSlot(
-                label: "\(domain) VAL · \(countsPerStep)C\(accelerationSuffix)",
+                label: "\(domain)V·\(countsPerStep)C\(accelerationSuffix)",
                 value: displayValue,
                 encoderValue: MK2EncoderDiscreteValue(
                     encoder: index + 1,

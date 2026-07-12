@@ -107,11 +107,11 @@ struct EncoderDiscreteValueTests {
 
     @Test("Automatic counts-per-step targets a constant sweep, clamped on both ends")
     func automaticCountsPerStep() {
-        // Three-way mode: 200/2 = 100, clamped to the per-step maximum.
+        // Three-way mode: clamped to the per-step maximum.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...2) == MK2EncoderDiscreteValue.maximumCountsPerStep)
         // Mid-size domain: full sweep ≈ targetSweepCounts.
-        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...20) == 10)
-        // Large domains keep the slow-turn precision floor — sweeping them
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...15) == 40)
+        // Large domains keep the slow-turn targeting floor — sweeping them
         // is the acceleration's job.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...8191) == MK2EncoderDiscreteValue.minimumCountsPerStep)
     }
@@ -188,11 +188,11 @@ struct EncoderDiscreteValueTests {
         // The binding captures value 4096 (production re-presents after each
         // change), so every emission is relative to it.
         let second: UInt64 = 1_000_000_000
-        // A slow nudge — two reports of 2 counts, a second apart — moves
-        // exactly one value, even on an 8192-value domain (4 counts/step).
-        bindings.encoder[2]?(2, 0, second)
+        // A slow nudge — two reports of 12 counts, a second apart — moves
+        // exactly one value, even on an 8192-value domain (24 counts/step).
+        bindings.encoder[2]?(12, 0, second)
         #expect(box.values.isEmpty)
-        bindings.encoder[2]?(2, 0, 2 * second)
+        bindings.encoder[2]?(12, 0, 2 * second)
         #expect(box.values == [4097])
 
         // A fast flick — 30 counts within 10 ms (3000 counts/s) — hits the

@@ -136,19 +136,20 @@ final class MK2EncoderDetents: @unchecked Sendable {
 /// `maximumCountsPerStep`), overridable via `countsPerStep`.
 public struct MK2EncoderDiscreteValue: Sendable {
     public static let wrapMinimumValueCount = 8
-    /// Rotation for a full domain sweep the automatic derivation aims for.
-    /// Tuned on hardware; discrete selections want a much shorter throw than
-    /// the ~900-count continuous sweep.
-    public static let targetSweepCounts = 200
+    /// Rotation for a slow full domain sweep the automatic derivation aims
+    /// for. Only governs the mid-size range between the two clamps; large
+    /// domains ride the precision floor and are swept by acceleration.
+    public static let targetSweepCounts = 600
     /// Upper bound of the automatic derivation, so tiny domains stay
     /// reachable without excessive cranking. Bench-tuned 2026-07-12:
     /// 90 felt slightly heavy on on/off and three-way domains.
     public static let maximumCountsPerStep = 60
-    /// Lower bound of the automatic derivation: the slow-turn precision
-    /// floor. A deliberate nudge must move exactly one value even on a
-    /// multi-thousand-value domain — sweeping those is the acceleration's
-    /// job, never the raw mapping's.
-    public static let minimumCountsPerStep = 4
+    /// Lower bound of the automatic derivation: the slow-turn targeting
+    /// floor. Bench-tuned 2026-07-12: at 4 counts mid-size domains were too
+    /// nervous to land on a specific value; a deliberate nudge now takes a
+    /// clear rotation on every domain, and sweeping is the acceleration's
+    /// job alone.
+    public static let minimumCountsPerStep = 24
     /// Accelerated counts a fast full-domain sweep should take; sets the
     /// per-value acceleration ceiling via `sweepAcceleration(for:countsPerStep:)`.
     public static let fastSweepCounts = 600
