@@ -11,7 +11,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
         title: "Header & Ruler Forms",
         category: .lookAndFeel,
         summary: "The sanctioned header and separator set",
-        detail: "Left: the four header forms (chrome bands, full-screen status and title slots). Right: the separator forms R1-R4; vertical rulers stay a pattern-grid detail."
+        detail: "Left: the four header forms (chrome bands, full-screen status and title slots). Right: the separator forms R1-R4 plus the T1 tag pill; vertical rulers stay a pattern-grid detail."
     )
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
@@ -117,7 +117,14 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
                 }
                 BitmapLabel("CHANNEL 1", font: .label, color: Palette.dim).draw(into: &frame, x: 48, y: y + 8)
                 BitmapLabel("CHANNEL 2", font: .label, color: Palette.dim).draw(into: &frame, x: 168, y: y + 8)
+
+                BitmapLabel("T1 TAG PILL — SUBTLE GRADIENT, ANTIALIASED, SELF-SIZING", font: .label, color: Palette.dim)
+                    .draw(into: &frame, x: 8, y: 214)
             }
+            MK2TagElement("SAMPLE", x: 8, y: 230, minWidth: 96)
+            MK2TagElement("WAVETABLE", x: 116, y: 230)
+            MK2TagElement("MUTED", x: 232, y: 230, colors: MK2TagColors(text: Palette.mute))
+            MK2TagElement("OK", x: 314, y: 230, colors: MK2TagColors(text: Palette.green))
         }.build(renderer: context.renderer)
     }
 }

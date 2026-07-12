@@ -163,8 +163,24 @@ public enum MK2PaulincheInstrumentRenderer {
                     onShiftPress: softKeyPress(shiftSoftKeys, offset: 4, handler: actions.onShiftSoftKey)
                 )
             }
+            MK2TagElement(
+                scene.kind.label,
+                x: 8,
+                y: 28,
+                minWidth: 96,
+                colors: MK2TagColors(text: MK2HIG.Chrome.accent),
+                relativeToContent: false
+            )
+            MK2ContentText(
+                String(format: "SLOT %02d", scene.instrumentIndex + 1),
+                x: 118,
+                y: 33,
+                maxWidth: 140,
+                role: .custom(weight: .medium, pixelSize: 12),
+                color: Support.Palette.dim,
+                relativeToContent: false
+            )
             MK2RenderBlock { frame, _ in
-                drawKindTag(scene, into: &frame, renderer: renderer)
                 for (index, line) in scene.infoLines.prefix(6).enumerated() {
                     Support.drawText(line.uppercased(), into: &frame, x: 8, y: 60 + index * 22, style: Support.monoBodyStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 464)
                 }
@@ -177,19 +193,6 @@ public enum MK2PaulincheInstrumentRenderer {
             )
             encoderBindings(range: 4..<8, actions: actions)
         }.build(renderer: renderer)
-    }
-
-    private static func drawKindTag(
-        _ scene: MK2PaulincheInstrumentScene,
-        into frame: inout MK2PixelFrame,
-        renderer: FreeTypeTextRenderer?
-    ) {
-        typealias Support = MK2PaulincheRendererSupport
-        let tagRect = MK2PixelRect(x: 8, y: 28, width: 96, height: 24)
-        frame.fillRounded(tagRect, radius: 5, Support.Palette.panelFill, antialiased: true)
-        frame.stroke(tagRect, MK2HIG.Chrome.border)
-        Support.drawText(scene.kind.label, into: &frame, x: tagRect.x + 10, y: tagRect.y + 5, style: Support.captionStyle(color: MK2HIG.Chrome.accent), renderer: renderer, maxWidth: tagRect.width - 20)
-        Support.drawText(String(format: "SLOT %02d", scene.instrumentIndex + 1), into: &frame, x: tagRect.maxX + 14, y: tagRect.y + 5, style: Support.captionStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 140)
     }
 
     // MARK: - Shared pieces

@@ -220,8 +220,12 @@ Mini-Widget `MK2TagElement`): deckt den `drawKindTag`-Pill im
 Instrument-Renderer ab (SAMPLE/WAVETABLE).
 *(Verwandt, 2026-07-12 geliefert: die ValueCell-Familie trägt jetzt
 semantische Label-Icons — `iconGlyph`/`iconPosition`,
-`MK2HIG.IconGlyph`, Regel im CLAUDE.md. Der Tag/Chip selbst steht noch
-aus.)*
+`MK2HIG.IconGlyph`, Regel im CLAUDE.md.)*
+**Erledigt 2026-07-12:** `MK2Tag`/`MK2TagElement` — Pillen-Optik
+(Radius = halbe Höhe), subtiler lit-from-above-Gradient auf Ring und
+Fläche (gedithert, antialiased), self-sizing mit `minWidth`. Realisiert
+im Forms-Demo (T1-Reihe) und im Instrument-Renderer (`drawKindTag`
+entfällt, SLOT-Text ist `MK2ContentText`).
 ![B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand](images/dsl-review/instrument-kindtag.png)
 *B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand*
 
