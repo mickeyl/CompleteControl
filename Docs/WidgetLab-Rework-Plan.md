@@ -184,8 +184,12 @@ Shell-Kommandos + `LabDemo.replCommands()`, der Snapshot-Harness erzeugt
 deklariert. Neu am Protokoll: `demoWillClose()` — Timer/Playback stoppen
 beim Verlassen der Demo. Modal-Texte des Trackers sind auf Englisch.
 
-**Noch offen:** Phase 6 (main.swift → Entry + LabShell + DemoBrowser
-aufteilen, Doku-Updates: CLAUDE.md-Produktzeile, Backlog).
+**Phase 6 geliefert:** main.swift ist reiner Entry (60 Zeilen), der
+Shell-Actor heißt `LabShell` (LabShell.swift: Mode, Render, SCENE-Exit,
+REPL-Dispatch, LED/Guide-Overrides, Snapshot-Harness), der Browser lebt
+als `extension LabShell` in DemoBrowser.swift. CLAUDE.md-Produktzeile
+aktualisiert. Damit ist der Rework abgeschlossen; dieser Plan ist
+Historie.
 
 1. **Gerüst:** `LabShell`/`LabDemo`/`DemoBrowser` + SCENE-Exit + Registry.
    Alle acht Alt-Units zunächst als je **eine Wrapper-Demo** registriert

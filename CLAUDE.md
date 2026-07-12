@@ -22,7 +22,7 @@ change as the implementation. Keep `README.md` user-facing and
 | `PaulincheSurfaceKit` | Paulinche-specific Kit2 renderers |
 | `ccd` | Privileged hardware/simulator daemon |
 | `MK2SurfaceDemo` | Compact hardware feature demo |
-| `MK2WidgetLabDemo` | Kit2 widget lab, snapshots, and LED/light-guide REPL |
+| `MK2WidgetLabDemo` | Kit2 demo browser (Calibration, Look & Feel, Kit Catalogue, Diagnostics): per-file `LabDemo`s, snapshot harness, LED/light-guide REPL |
 | `KontrolSimulator` | S61 MK2 panel and simulator-daemon host |
 | `MK2USBSpy` | Direct descriptor/input diagnostic |
 
