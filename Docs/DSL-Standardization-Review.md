@@ -1,6 +1,8 @@
 # DSL-Standardisierungs-Review: Custom-Renderer-Inventar und Kandidaten
 
-Stand 2026-07-11. Analysebasis: Kit2-Widget-Katalog (`Sources/KontrolSurfaceKit2`),
+Stand 2026-07-11, Status-Marker aktualisiert 2026-07-12 (nach
+WidgetLab-Rework und Value-Cell-Icons).
+Analysebasis: Kit2-Widget-Katalog (`Sources/KontrolSurfaceKit2`),
 MK2WidgetLabDemo (`Tools/MK2WidgetLabDemo`), Paulinche-Renderer
 (`Sources/PaulincheSurfaceKit`) sowie `Paulinche/BACKLOG.md`
 (Sektion „Kit2-DSL-Review").
@@ -68,6 +70,12 @@ künftige SCENE/Arranger-Szene startet frisch und DSL-first.)*
 Textstil-Fabriken, `MK2PixelFrame`-Extensions `hline`/`dottedVLine` (:189).
 
 ### 2.2 WidgetLab (`Tools/MK2WidgetLabDemo`)
+
+*(Historischer Stand vor dem WidgetLab-Rework 2026-07-12,
+`Docs/WidgetLab-Rework-Plan.md`: die Units A–H sind heute per-File-Demos
+hinter einem Demo-Browser. Die Font-Lab-Spezimenbank lebt als Type
+Specimen/Icon Browser/Dialog Card weiter, das Pattern-Lab als
+`TrackerPatternDemo` — die C1-Duplikation besteht dort unverändert.)*
 
 - **Pur-DSL-Vorzeigeeinheiten:** Browser-Lab (B), Meter-Lab (C),
   Selection-Lab (D) — saubere Referenzen.
@@ -183,18 +191,29 @@ kommen.
   gehaltener SHIFT-Ebene sind Touch-Overlays unterdrückt (die
   Shift-Slots zeigen andere Werte).
 - *Bewusst nicht:* eigene Touch-Farbe, Release-Linger (erst bei
-  nachgewiesenem Flackern), Double-Touch-Semantik (separates Thema).
+  nachgewiesenem Flackern), Double-Touch-Semantik (separates Thema;
+  inzwischen ebenfalls geliefert: `defaultValue`-Reset via Double-Touch).
 - *Migration:* Instrument-Editor erhält das Highlight per Default
   gratis; Pattern-Editor behält `isFocused` und verdrahtet `selectField`
   über den bestehenden `encoderTouch`-Pfad; Browser-Filter ziehen auf
   `.latched` um; `SurfaceUIState.touchedEncoderIndex` (nie konsumiert)
   entfällt ersatzlos.
 
+**Umgesetzt 2026-07-11/12:** `MK2EncoderSelectionBehavior`
+(`.none`/`.momentary`/`.latched`), vorbereitete Touch-Overlays in
+`MK2ScreenBuildResult`, Runtime-Blit in `MK2Surface2`; Paulinche-Editoren
+und Browser-Filter migriert, `SurfaceUIState.touchedEncoderIndex` entfernt.
+Auf Hardware getestet (flackerfrei).
+
 > Kommentar:
 
 **B2 — `ValueCell`-Familie um Tag/Chip-Erscheinung ergänzen** (oder
 Mini-Widget `MK2TagElement`): deckt den `drawKindTag`-Pill im
 Instrument-Renderer ab (SAMPLE/WAVETABLE).
+*(Verwandt, 2026-07-12 geliefert: die ValueCell-Familie trägt jetzt
+semantische Label-Icons — `iconGlyph`/`iconPosition`,
+`MK2HIG.IconGlyph`, Regel im CLAUDE.md. Der Tag/Chip selbst steht noch
+aus.)*
 ![B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand](images/dsl-review/instrument-kindtag.png)
 *B2: Der „SAMPLE"-Pill (drawKindTag) — rounded fill + stroke von Hand*
 
@@ -243,6 +262,9 @@ dupliziert — einmalig konsolidieren.
 **D2 —** Hartcodierte deutsche Strings in `ModalDialog`
 („4D: Auswahl und Bestätigung", „AKTIONEN") und `SelectionView`
 („Keine Einträge") — spätestens bei einer Kit-Öffnung ein Thema.
+**Erledigt 2026-07-12** (im Zuge des „alles auf Englisch"-Beschlusses):
+ModalDialog spricht „4-D: select and confirm"/„ACTIONS", SelectionView
+„No entries"; auch die Tracker-Demo-Modaltexte sind englisch.
 > Kommentar:
 
 ## 4. Verzahnung mit dem Backlog-Review
@@ -261,9 +283,10 @@ Reihenfolge:
    Backlog, damit die nicht als dritter Custom-Renderer startet.
 4. **C1** als eigener Schritt — größter Brocken, beseitigt die größte
    Duplikation.
-5. Parallel die offenen Backlog-Punkte: per-Ebene-Lampen (lügende
-   UNDO-Lampe), `isHardwareShiftPressed`-Abbau, `ControlLampName`-Enum
-   und typisierte Bindings — die Analyse liefert dafür die vollständige
+5. Parallel die offenen Backlog-Punkte: ~~per-Ebene-Lampen (lügende
+   UNDO-Lampe)~~ und ~~`isHardwareShiftPressed`-Abbau~~ (beide erledigt
+   2026-07-11); offen bleibt das `ControlLampName`-Enum mit typisierten
+   Bindings — die Analyse liefert dafür die vollständige
    Lampen-/Binding-Landkarte.
 
 ## Anhang: Verworfene Ideen
