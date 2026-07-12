@@ -123,6 +123,14 @@ Interaction and rendering rules:
   `MK2EncoderDiscreteValue.defaultValue` for value slots (silent when already
   at default); the raw `MK2EncoderBindingElement.onDoubleTouch` hook is for
   actions beyond a reset — never bind double-touch to something destructive;
+- value-cell labels name the *parameter or unit*, never the encoder — the
+  physical encoder above the cell is identified by position. An optional
+  Phosphor label-line icon (`MK2ValueCell.iconGlyph`, curated glyphs in
+  `MK2HIG.IconGlyph`) carries the parameter semantics; it renders in its own
+  tint (`MK2ValueCellColors.icon`, defaults to a lightened label color),
+  never in the label color. Choose one icon position (leading/trailing) per
+  screen — never mix. Paulinche parameters carry a semantic
+  `SurfaceParameterIcon`; the adapter maps it to the glyph;
 - gradients must render dithered (`MK2OrderedDither`, or the gradient tile
   cache via `fillRoundedVerticalGradient`) — per-row/column RGB565 lerps band
   visibly on the OLEDs;

@@ -149,7 +149,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
                 ],
                 side: .right
             )
-            MK2AnyScreenElement { frame, _, _ in
+            MK2AnyScreenElement { frame, elementContext, _ in
                 MK2StatusLine(y: 30, items: [
                     MK2StatusLineItem("WAVEFORM", x: 8, color: Palette.blue),
                     MK2StatusLineItem(variant.shortTitle, x: 140, color: Palette.text, font: .gridBold),
@@ -161,7 +161,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
                     y += SurfaceFont.grid.cellHeight + 6
                 }
                 for value in values {
-                    value.drawDisplay(into: &frame)
+                    value.drawDisplay(into: &frame, renderer: elementContext.renderer)
                 }
             }
         }.build(renderer: context.renderer)
@@ -184,7 +184,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
         return [
             MK2EncoderDiscreteValue(
                 encoder: 5, value: loopEnabled ? 1 : 0, bounds: 0...1,
-                display: display(label: "LOOP", value: loopEnabled ? "ON" : "OFF", encoder: 5, color: loopColor),
+                display: display(label: "LOOP", icon: MK2HIG.IconGlyph.loop, value: loopEnabled ? "ON" : "OFF", encoder: 5, color: loopColor),
                 onTouch: touch(5),
                 onChange: { [weak self] value in
                     context.update { self?.loopEnabled = value == 1 }
@@ -192,7 +192,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 6, value: loopStartPercent, bounds: 0...loopEndPercent,
-                display: display(label: "LP ST", value: "\(loopStartPercent)%", encoder: 6, color: loopColor),
+                display: display(label: "LP ST", icon: MK2HIG.IconGlyph.arrowLineRight, value: "\(loopStartPercent)%", encoder: 6, color: loopColor),
                 onTouch: touch(6),
                 onChange: { [weak self] value in
                     context.update {
@@ -203,7 +203,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 7, value: loopEndPercent, bounds: loopStartPercent...100,
-                display: display(label: "LP END", value: "\(loopEndPercent)%", encoder: 7, color: loopColor),
+                display: display(label: "LP END", icon: MK2HIG.IconGlyph.arrowLineLeft, value: "\(loopEndPercent)%", encoder: 7, color: loopColor),
                 onTouch: touch(7),
                 onChange: { [weak self] value in
                     context.update {
@@ -214,7 +214,7 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 8, value: markersEnabled ? 1 : 0, bounds: 0...1,
-                display: display(label: "MARKS", value: markersEnabled ? "ON" : "OFF", encoder: 8, color: markersEnabled ? Palette.text : Palette.dim),
+                display: display(label: "MARKS", icon: MK2HIG.IconGlyph.flag, value: markersEnabled ? "ON" : "OFF", encoder: 8, color: markersEnabled ? Palette.text : Palette.dim),
                 onTouch: touch(8),
                 onChange: { [weak self] value in
                     context.update { self?.markersEnabled = value == 1 }
@@ -223,9 +223,10 @@ final class WaveformDemo: LabDemo, @unchecked Sendable {
         ]
     }
 
-    private func display(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
+    private func display(label: String, icon: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
         MK2EncoderDiscreteValueDisplay(
             label: label,
+            iconGlyph: icon,
             value: value,
             rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
             isFocused: focusedEncoder == encoder,

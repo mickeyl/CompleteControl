@@ -230,6 +230,7 @@ public enum MK2PaulincheInstrumentRenderer {
             let parameter = parameters[index]
             return MK2ParameterPageSlot(
                 label: parameter.label,
+                iconGlyph: parameter.iconGlyph,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
                 // Encoders are bound separately (velocity-scaled app-side

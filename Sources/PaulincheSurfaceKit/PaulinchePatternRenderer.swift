@@ -42,11 +42,15 @@ public struct MK2PaulinchePatternChannel: Sendable, Equatable {
 
 public struct MK2PaulinchePatternParameter: Sendable, Equatable {
     public var label: String
+    /// Optional Phosphor glyph rendered on the label line (see
+    /// `MK2ValueCell.iconGlyph`); the app chooses it by parameter semantics.
+    public var iconGlyph: String?
     public var value: String
     public var isFocused: Bool
 
-    public init(label: String, value: String, isFocused: Bool = false) {
+    public init(label: String, iconGlyph: String? = nil, value: String, isFocused: Bool = false) {
         self.label = label
+        self.iconGlyph = iconGlyph
         self.value = value
         self.isFocused = isFocused
     }
@@ -335,6 +339,7 @@ public enum MK2PaulinchePatternRenderer {
         parameters.prefix(4).enumerated().map { index, parameter in
             MK2ParameterPageSlot(
                 label: parameter.label,
+                iconGlyph: parameter.iconGlyph,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
                 colors: editCellColors(value: editValueColor(at: index)),

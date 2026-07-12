@@ -132,13 +132,13 @@ struct PaulincheInstrumentRendererTests {
             loopRegion: 0.17...0.94,
             markers: [0.05],
             parameters: [
-                MK2PaulinchePatternParameter(label: "LOOP ST", value: "1440", isFocused: true),
-                MK2PaulinchePatternParameter(label: "LOOP END", value: "7900"),
-                MK2PaulinchePatternParameter(label: "START", value: "420"),
+                MK2PaulinchePatternParameter(label: "LOOP ST", iconGlyph: MK2HIG.IconGlyph.loop, value: "1440", isFocused: true),
+                MK2PaulinchePatternParameter(label: "LOOP END", iconGlyph: MK2HIG.IconGlyph.loop, value: "7900"),
+                MK2PaulinchePatternParameter(label: "START", iconGlyph: MK2HIG.IconGlyph.arrowLineRight, value: "420"),
                 empty,
-                MK2PaulinchePatternParameter(label: "LEVEL", value: "80%"),
-                MK2PaulinchePatternParameter(label: "FINE", value: "0ct"),
-                MK2PaulinchePatternParameter(label: "ROOT", value: "C-4"),
+                MK2PaulinchePatternParameter(label: "LEVEL", iconGlyph: MK2HIG.IconGlyph.speakerHigh, value: "80%"),
+                MK2PaulinchePatternParameter(label: "FINE", iconGlyph: MK2HIG.IconGlyph.waveSine, value: "0ct"),
+                MK2PaulinchePatternParameter(label: "ROOT", iconGlyph: MK2HIG.IconGlyph.anchor, value: "C-4"),
                 empty,
             ]
         )

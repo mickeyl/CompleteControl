@@ -126,31 +126,8 @@
   `MK2EncoderDetents`) instead of `static let`s. Current bench-approved
   values: sweep 480, max 42, min 24, fast sweep 600, rates 150/1200 c/s.
 
-- Encoder-value label rules (2026-07-12 decision):
-  - **Never put the encoder name in the label.** The physical encoder sits
-    directly above the value cell — the name is redundant by protocol. A slot
-    labelled `VOL` under the volume encoder is noise; the label should
-    describe the *parameter* or *unit*, not the control. Audit all existing
-    `MK2ParameterPageSlot`/`MK2EncoderDiscreteValueDisplay` labels and strip
-    encoder-name echoes.
-  - **Allow a Phosphor icon in the label**, optionally leading or trailing.
-    The icon gets its own color, at least lighter than and/or accent vs the
-    label text — never the same `MK2ValueCellColors.label` color. Extend
-    `MK2ValueCell` with an optional `iconGlyph: String?`, `iconColor: UInt16`,
-    and `iconPosition: .leading / .trailing`; thread the same fields through
-    `MK2ParameterPageSlot` and `MK2EncoderDiscreteValueDisplay`. The icon
-    renders via `MK2HIG.iconStyle` at label-line height, and the text label
-    shifts inward by the icon width + gap. `MK2ValueCellColors` gains an
-    optional `icon: UInt16?` (defaults to `MK2HIG.Chrome.accent` or a
-    lightened label when nil).
-  - **Equip every encoder-using screen with fitting icons.** Per screen,
-    choose leading or trailing — but never mix within one screen. Affected
-    screens: `MK2PaulincheInstrumentRenderer` (instrument editor),
-    `MK2PaulinchePatternRenderer` (pattern editor), and the WidgetLab demos
-    that bind encoders (`TrackerPatternDemo`, `LightGuideDemo`,
-    `WaveformDemo`, `TypeSpecimenDemo`, `ChromeSlotsDemo`,
-    `EncoderFeelDemo`, `ModalDialogDemo`, `IconBrowserDemo`,
-    `PanoramaDemo`). Icon choice follows the parameter semantics (e.g. a
-    volume/level icon for level encoders, a waveform icon for shape, a
-    filter icon for cutoff). The demo rigs that exist purely to exercise
-    encoder *mechanics* (EncoderFeel, ChromeSlots) may use neutral icons.
+- Selection *filter* cells (`MK2SelectionFilter`, e.g. the icon browser's
+  LETTER/MODE encoders) do not carry label-line icons yet; if filter-heavy
+  screens want the same icon language, extend them the way
+  `MK2ValueCell.iconGlyph` works (the label-rule itself is delivered and
+  documented in CLAUDE.md).

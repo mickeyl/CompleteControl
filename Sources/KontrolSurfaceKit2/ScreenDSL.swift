@@ -568,7 +568,7 @@ public struct MK2ValueCellElement: MK2ScreenElement {
                 height: cell.rect.height
             )
         }
-        cell.draw(into: &frame)
+        cell.draw(into: &frame, renderer: context.renderer)
     }
 }
 
@@ -581,7 +581,7 @@ public struct MK2EncoderFooterElement: MK2ScreenElement {
 
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
         for display in displays {
-            display.draw(into: &frame)
+            display.draw(into: &frame, renderer: context.renderer)
         }
     }
 }
@@ -598,7 +598,7 @@ public struct MK2EncoderDiscreteValueElement: MK2ScreenElement {
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
         value.apply(bindings: &result.bindings)
         if drawsDisplay {
-            value.drawDisplay(into: &frame)
+            value.drawDisplay(into: &frame, renderer: context.renderer)
         }
     }
 }
@@ -616,7 +616,7 @@ public struct MK2EncoderDiscreteValuesElement: MK2ScreenElement {
         for value in values {
             value.apply(bindings: &result.bindings)
             if drawsDisplays {
-                value.drawDisplay(into: &frame)
+                value.drawDisplay(into: &frame, renderer: context.renderer)
             }
         }
     }

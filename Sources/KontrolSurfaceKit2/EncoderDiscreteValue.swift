@@ -3,6 +3,8 @@ import Foundation
 /// Standard value-cell presentation for an encoder-bound discrete value.
 public struct MK2EncoderDiscreteValueDisplay: Sendable {
     public var label: String
+    public var iconGlyph: String?
+    public var iconPosition: MK2ValueCell.IconPosition
     public var value: String
     public var rect: MK2PixelRect
     public var isFocused: Bool
@@ -13,6 +15,8 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
 
     public init(
         label: String,
+        iconGlyph: String? = nil,
+        iconPosition: MK2ValueCell.IconPosition = .leading,
         value: String,
         rect: MK2PixelRect,
         isFocused: Bool = false,
@@ -22,6 +26,8 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
         colors: MK2ValueCellColors
     ) {
         self.label = label
+        self.iconGlyph = iconGlyph
+        self.iconPosition = iconPosition
         self.value = value
         self.rect = rect
         self.isFocused = isFocused
@@ -32,8 +38,14 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
     }
 
     public func draw(into frame: inout MK2PixelFrame) {
+        draw(into: &frame, renderer: nil)
+    }
+
+    public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer?) {
         MK2ValueCell(
             label: label,
+            iconGlyph: iconGlyph,
+            iconPosition: iconPosition,
             value: value,
             rect: rect,
             isFocused: isFocused,
@@ -41,7 +53,7 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
             labelFont: labelFont,
             cornerRadius: cornerRadius,
             colors: colors
-        ).draw(into: &frame)
+        ).draw(into: &frame, renderer: renderer)
     }
 }
 
@@ -246,8 +258,8 @@ public struct MK2EncoderDiscreteValue: Sendable {
         }
     }
 
-    public func drawDisplay(into frame: inout MK2PixelFrame) {
-        display?.draw(into: &frame)
+    public func drawDisplay(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
+        display?.draw(into: &frame, renderer: renderer)
     }
 }
 

@@ -2,6 +2,10 @@ import Foundation
 
 public struct MK2ParameterPageSlot: Sendable {
     public var label: String
+    /// Optional Phosphor icon on the label line; see `MK2ValueCell`. Choose
+    /// one `iconPosition` per screen — never mix within one page.
+    public var iconGlyph: String?
+    public var iconPosition: MK2ValueCell.IconPosition
     public var value: String
     public var isFocused: Bool
     public var encoderValue: MK2EncoderDiscreteValue?
@@ -17,6 +21,8 @@ public struct MK2ParameterPageSlot: Sendable {
 
     public init(
         label: String,
+        iconGlyph: String? = nil,
+        iconPosition: MK2ValueCell.IconPosition = .leading,
         value: String,
         isFocused: Bool = false,
         encoderValue: MK2EncoderDiscreteValue? = nil,
@@ -25,6 +31,8 @@ public struct MK2ParameterPageSlot: Sendable {
         selectionEncoder: Int? = nil
     ) {
         self.label = label
+        self.iconGlyph = iconGlyph
+        self.iconPosition = iconPosition
         self.value = value
         self.isFocused = isFocused
         self.encoderValue = encoderValue
@@ -82,7 +90,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         let area = resolvedRect(contentRect: contentRect)
         guard !activeSlots.isEmpty, !area.isEmpty else { return }
 
-        drawSlots(activeSlots, in: area, into: &frame, isShiftPass: context.isShiftPass, result: &result)
+        drawSlots(activeSlots, in: area, into: &frame, renderer: context.renderer, isShiftPass: context.isShiftPass, result: &result)
         drawPageIndicatorIfNeeded(in: area, into: &frame)
     }
 
@@ -116,6 +124,7 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
         _ slots: [MK2ParameterPageSlot],
         in area: MK2PixelRect,
         into frame: inout MK2PixelFrame,
+        renderer: FreeTypeTextRenderer?,
         isShiftPass: Bool,
         result: inout MK2ScreenBuildResult
     ) {
@@ -148,6 +157,8 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
             let valueRect = MK2PixelRect(x: x, y: valueY, width: cellWidth, height: valueHeight)
             let cell = MK2ValueCell(
                 label: slot.label.uppercased(),
+                iconGlyph: slot.iconGlyph,
+                iconPosition: slot.iconPosition,
                 value: slot.value,
                 rect: valueRect,
                 isFocused: slot.isFocused,
@@ -165,14 +176,14 @@ public struct MK2ParameterPageElement: MK2ScreenElement {
                let encoder = slot.encoderValue?.encoder ?? slot.selectionEncoder {
                 var focusedCell = cell
                 focusedCell.isFocused = true
-                focusedCell.draw(into: &frame)
+                focusedCell.draw(into: &frame, renderer: renderer)
                 result.touchOverlays[encoder] = MK2EncoderTouchOverlay(
                     rect: valueRect,
                     pixels: frame.pixels(in: valueRect),
                     behavior: slot.selection
                 )
             }
-            cell.draw(into: &frame)
+            cell.draw(into: &frame, renderer: renderer)
         }
     }
 

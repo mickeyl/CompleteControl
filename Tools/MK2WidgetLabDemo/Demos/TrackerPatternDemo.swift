@@ -356,6 +356,7 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         TrackerEditField.allCases.map { field in
             MK2ParameterPageSlot(
                 label: field.label,
+                iconGlyph: field.iconGlyph,
                 value: editDisplayValue(for: field, cell: cell),
                 isFocused: focusedEditField == field,
                 encoderValue: MK2EncoderDiscreteValue(
@@ -383,6 +384,7 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
             guard field == .note else {
                 return MK2ParameterPageSlot(
                     label: field.label,
+                    iconGlyph: field.iconGlyph,
                     value: editDisplayValue(for: field, cell: cell),
                     isFocused: focusedEditField == field,
                     colors: labEditCellColors(value: field.valueColor)
@@ -392,6 +394,7 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
             colors.label = MK2HIG.Chrome.shiftAccent
             return MK2ParameterPageSlot(
                 label: "OCTAVE",
+                iconGlyph: MK2HIG.IconGlyph.arrowsDownUp,
                 value: editDisplayValue(for: .note, cell: cell),
                 isFocused: focusedEditField == .note,
                 encoderValue: MK2EncoderDiscreteValue(
@@ -872,6 +875,15 @@ private enum TrackerEditField: CaseIterable, Sendable {
             case .instrument: "INST"
             case .volume: "VOL"
             case .effect: "FX"
+        }
+    }
+
+    var iconGlyph: String {
+        switch self {
+            case .note: MK2HIG.IconGlyph.musicNote
+            case .instrument: MK2HIG.IconGlyph.pianoKeys
+            case .volume: MK2HIG.IconGlyph.speakerHigh
+            case .effect: MK2HIG.IconGlyph.lightning
         }
     }
 

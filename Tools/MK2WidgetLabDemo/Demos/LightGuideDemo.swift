@@ -244,7 +244,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 value: pattern.rawValue,
                 bounds: 0...(GuidePattern.allCases.count - 1),
                 defaultValue: GuidePattern.octaves.rawValue,
-                display: encoderDisplay(label: "PATTERN", value: pattern.title, encoder: 5),
+                display: encoderDisplay(label: "PATTERN", icon: MK2HIG.IconGlyph.squaresFour, value: pattern.title, encoder: 5),
                 onTouch: touch(5, context),
                 onChange: { [weak self] value in
                     context.update {
@@ -257,7 +257,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 value: colorIndex,
                 bounds: 0...(Self.colors.count - 1),
                 wraps: true,
-                display: encoderDisplay(label: "COLOUR", value: Self.colors[colorIndex].name, encoder: 6),
+                display: encoderDisplay(label: "COLOUR", icon: MK2HIG.IconGlyph.palette, value: Self.colors[colorIndex].name, encoder: 6),
                 onTouch: touch(6, context),
                 onChange: { [weak self] value in
                     context.update {
@@ -270,7 +270,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 value: spanIndex,
                 bounds: 0...(Self.spans.count - 1),
                 defaultValue: 1,
-                display: encoderDisplay(label: "SPAN", value: "\(span)", encoder: 7),
+                display: encoderDisplay(label: "SPAN", icon: MK2HIG.IconGlyph.ruler, value: "\(span)", encoder: 7),
                 onTouch: touch(7, context),
                 onChange: { [weak self] value in
                     context.update {
@@ -284,7 +284,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 encoder: 8,
                 value: mirrorLEDs ? 1 : 0,
                 bounds: 0...1,
-                display: encoderDisplay(label: "LEDS", value: mirrorLEDs ? "ON" : "OFF", encoder: 8),
+                display: encoderDisplay(label: "LEDS", icon: MK2HIG.IconGlyph.lightbulb, value: mirrorLEDs ? "ON" : "OFF", encoder: 8),
                 onTouch: touch(8, context),
                 onChange: { [weak self] value in
                     context.update { self?.mirrorLEDs = value == 1 }
@@ -306,9 +306,10 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         }
     }
 
-    private func encoderDisplay(label: String, value: String, encoder: Int) -> MK2EncoderDiscreteValueDisplay {
+    private func encoderDisplay(label: String, icon: String, value: String, encoder: Int) -> MK2EncoderDiscreteValueDisplay {
         MK2EncoderDiscreteValueDisplay(
             label: label,
+            iconGlyph: icon,
             value: value,
             rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
             isFocused: focusedEncoder == encoder,

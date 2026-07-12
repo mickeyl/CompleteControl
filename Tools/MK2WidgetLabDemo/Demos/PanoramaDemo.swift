@@ -173,13 +173,14 @@ final class PanoramaDemo: LabDemo, @unchecked Sendable {
     }
 
     private func encoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let entries: [(label: String, value: String, encoder: Int, slot: Int)] = [
-            ("GAP", "\(gapColumns)", 7, 2),
-            ("BRIGHT", "\(brightnessPercent)%", 8, 3),
+        let entries: [(label: String, icon: String, value: String, encoder: Int, slot: Int)] = [
+            ("GAP", MK2HIG.IconGlyph.arrowsOutLineHorizontal, "\(gapColumns)", 7, 2),
+            ("BRIGHT", MK2HIG.IconGlyph.sun, "\(brightnessPercent)%", 8, 3),
         ]
         return entries.map { entry in
             MK2EncoderDiscreteValueDisplay(
                 label: entry.label,
+                iconGlyph: entry.icon,
                 value: entry.value,
                 rect: MK2ScreenLayout.encoderSlotRect(entry.slot),
                 isFocused: focusedEncoder == entry.encoder,

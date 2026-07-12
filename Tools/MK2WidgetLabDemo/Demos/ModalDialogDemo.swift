@@ -103,7 +103,7 @@ final class ModalDialogDemo: LabDemo, @unchecked Sendable {
             value: severityIndex,
             bounds: 0...(MK2ModalDialogSeverity.allCases.count - 1),
             defaultValue: 1,
-            display: encoderDisplay(label: "SEVERITY", value: Self.severityName(severity).uppercased(), encoder: 5),
+            display: encoderDisplay(label: "SEVERITY", icon: MK2HIG.IconGlyph.warning, value: Self.severityName(severity).uppercased(), encoder: 5),
             onTouch: touch(5, context),
             onChange: { [weak self] value in
                 context.update {
@@ -117,7 +117,7 @@ final class ModalDialogDemo: LabDemo, @unchecked Sendable {
             value: actionCount,
             bounds: 1...3,
             defaultValue: 2,
-            display: encoderDisplay(label: "ACTIONS", value: "\(actionCount)", encoder: 6),
+            display: encoderDisplay(label: "ACTIONS", icon: MK2HIG.IconGlyph.listBullets, value: "\(actionCount)", encoder: 6),
             onTouch: touch(6, context),
             onChange: { [weak self] value in
                 context.update { self?.actionCount = max(1, min(3, value)) }
@@ -171,9 +171,10 @@ final class ModalDialogDemo: LabDemo, @unchecked Sendable {
         }
     }
 
-    private func encoderDisplay(label: String, value: String, encoder: Int) -> MK2EncoderDiscreteValueDisplay {
+    private func encoderDisplay(label: String, icon: String, value: String, encoder: Int) -> MK2EncoderDiscreteValueDisplay {
         MK2EncoderDiscreteValueDisplay(
             label: label,
+            iconGlyph: icon,
             value: value,
             rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
             isFocused: focusedEncoder == encoder,

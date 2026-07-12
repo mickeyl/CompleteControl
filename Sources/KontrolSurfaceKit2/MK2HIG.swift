@@ -25,6 +25,39 @@ public enum MK2HIG {
         public static let rasterMode: FreeTypeRasterMode = .grayscaleHinted
     }
 
+    /// Curated Phosphor Regular glyphs for value-cell label icons
+    /// (`MK2ValueCell.iconGlyph`). The names mirror the Phosphor catalog;
+    /// pick by parameter semantics, one icon position per screen.
+    public enum IconGlyph {
+        public static let anchor = "\u{e514}"                    // anchor
+        public static let arrowLineLeft = "\u{e062}"             // arrow-line-left
+        public static let arrowLineRight = "\u{e064}"            // arrow-line-right
+        public static let arrowsDownUp = "\u{e098}"              // arrows-down-up
+        public static let arrowsOutLineHorizontal = "\u{e534}"   // arrows-out-line-horizontal
+        public static let flag = "\u{e244}"                      // flag
+        public static let gauge = "\u{e628}"                     // gauge
+        public static let layout = "\u{e6d6}"                    // layout
+        public static let lightbulb = "\u{e2dc}"                 // lightbulb
+        public static let lightning = "\u{e2de}"                 // lightning
+        public static let listBullets = "\u{e2f2}"               // list-bullets
+        public static let loop = "\u{e3f6}"                      // repeat
+        public static let magnifyingGlass = "\u{e30c}"           // magnifying-glass
+        public static let musicNote = "\u{e33c}"                 // music-note
+        public static let palette = "\u{e6c8}"                   // palette
+        public static let percent = "\u{e3b6}"                   // percent
+        public static let pianoKeys = "\u{e9c8}"                 // piano-keys
+        public static let resize = "\u{ed6e}"                    // resize
+        public static let ruler = "\u{e6b8}"                     // ruler
+        public static let speakerHigh = "\u{e44a}"               // speaker-high
+        public static let squaresFour = "\u{e464}"               // squares-four
+        public static let sticker = "\u{e5ac}"                   // sticker
+        public static let sun = "\u{e472}"                       // sun
+        public static let textAa = "\u{e6ee}"                    // text-aa
+        public static let textT = "\u{e48a}"                     // text-t
+        public static let warning = "\u{e4e0}"                   // warning
+        public static let waveSine = "\u{ea9a}"                  // wave-sine
+    }
+
     public enum Typography {
         public static let bodyPixelSize = 16
         public static let captionPixelSize = 15

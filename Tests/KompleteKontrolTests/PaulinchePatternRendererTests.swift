@@ -156,10 +156,10 @@ struct PaulinchePatternRendererTests {
                 MK2PaulinchePatternChannel(label: "CHANNEL 4", isSoloed: true),
             ],
             parameters: [
-                MK2PaulinchePatternParameter(label: "NOTE", value: "A-3"),
-                MK2PaulinchePatternParameter(label: "INST", value: "04", isFocused: true),
-                MK2PaulinchePatternParameter(label: "VOL", value: "50"),
-                MK2PaulinchePatternParameter(label: "FX", value: "F06"),
+                MK2PaulinchePatternParameter(label: "NOTE", iconGlyph: MK2HIG.IconGlyph.musicNote, value: "A-3"),
+                MK2PaulinchePatternParameter(label: "INST", iconGlyph: MK2HIG.IconGlyph.pianoKeys, value: "04", isFocused: true),
+                MK2PaulinchePatternParameter(label: "VOL", iconGlyph: MK2HIG.IconGlyph.speakerHigh, value: "50"),
+                MK2PaulinchePatternParameter(label: "FX", iconGlyph: MK2HIG.IconGlyph.lightning, value: "F06"),
             ],
             softKeys: [
                 MK2PaulincheSoftKey(label: "Clear", commandID: "clearCell"),

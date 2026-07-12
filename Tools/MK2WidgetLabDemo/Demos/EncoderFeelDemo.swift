@@ -41,6 +41,7 @@ final class EncoderFeelDemo: LabDemo, @unchecked Sendable {
             let accelerationSuffix = acceleration > 1.5 ? "·\(Int(acceleration.rounded()))X" : ""
             return MK2ParameterPageSlot(
                 label: "\(domain)V·\(countsPerStep)C\(accelerationSuffix)",
+                iconGlyph: MK2HIG.IconGlyph.gauge,
                 value: displayValue,
                 encoderValue: MK2EncoderDiscreteValue(
                     encoder: index + 1,

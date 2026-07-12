@@ -184,14 +184,14 @@ final class ChromeSlotsDemo: LabDemo, @unchecked Sendable {
                 MK2StatusLineItem(combo.title, x: 170, color: Palette.text, font: .gridBold),
             ])
         ) {
-            MK2AnyScreenElement { frame, _, _ in
+            MK2AnyScreenElement { frame, elementContext, _ in
                 var y = 44
                 for (text, color) in summary {
                     BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
                     y += SurfaceFont.grid.cellHeight + 6
                 }
                 for value in values {
-                    value.drawDisplay(into: &frame)
+                    value.drawDisplay(into: &frame, renderer: elementContext.renderer)
                 }
             }
         }.build(renderer: context.renderer)
@@ -236,15 +236,16 @@ final class ChromeSlotsDemo: LabDemo, @unchecked Sendable {
     }
 
     private func encoderDisplays() -> [MK2EncoderDiscreteValueDisplay] {
-        let entries: [(label: String, value: String, encoder: Int)] = [
-            ("PROG", progressLabel(), 5),
-            ("VALUE", "\(progressPercent)%", 6),
-            ("CAPT", "\(captionSize)", 7),
-            ("FOOT", "\(footnoteSize)", 8),
+        let entries: [(label: String, icon: String, value: String, encoder: Int)] = [
+            ("PROG", MK2HIG.IconGlyph.gauge, progressLabel(), 5),
+            ("VALUE", MK2HIG.IconGlyph.percent, "\(progressPercent)%", 6),
+            ("CAPT", MK2HIG.IconGlyph.textAa, "\(captionSize)", 7),
+            ("FOOT", MK2HIG.IconGlyph.textT, "\(footnoteSize)", 8),
         ]
         return entries.enumerated().map { index, entry in
             MK2EncoderDiscreteValueDisplay(
                 label: entry.label,
+                iconGlyph: entry.icon,
                 value: entry.value,
                 rect: MK2ScreenLayout.encoderSlotRect(index),
                 isFocused: focusedEncoder == entry.encoder,

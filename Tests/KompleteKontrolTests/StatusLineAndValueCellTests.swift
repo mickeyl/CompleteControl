@@ -82,6 +82,66 @@ struct StatusLineAndValueCellTests {
         #expect(hasBlendedCornerPixel)
     }
 
+    @Test("Leading label icon renders in its own tint and shifts the label inward")
+    func valueCellLeadingIconShiftsLabel() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let colors = MK2ValueCellColors(
+            label: 0x8410,
+            value: 0x07e0,
+            border: 0x4208,
+            icon: 0x07ff
+        )
+        let rect = MK2PixelRect(x: 20, y: 40, width: 100, height: 30)
+
+        var plain = MK2PixelFrame()
+        MK2ValueCell(label: "VOL", value: "40", rect: rect, colors: colors)
+            .draw(into: &plain, renderer: renderer)
+
+        var iconed = MK2PixelFrame()
+        MK2ValueCell(label: "VOL", iconGlyph: MK2HIG.IconGlyph.speakerHigh, value: "40", rect: rect, colors: colors)
+            .draw(into: &iconed, renderer: renderer)
+
+        let labelLine = MK2PixelRect(x: rect.x, y: rect.y - SurfaceFont.label.cellHeight - MK2ValueCell.labelGap - 2, width: rect.width, height: SurfaceFont.label.cellHeight + 4)
+        // The icon tint appears on the label line, and only with an icon set.
+        func hasIconTint(_ frame: MK2PixelFrame) -> Bool {
+            for y in labelLine.y..<labelLine.maxY {
+                for x in labelLine.x..<labelLine.maxX where frame[x, y] == colors.icon {
+                    return true
+                }
+            }
+            return false
+        }
+        #expect(hasIconTint(iconed))
+        #expect(!hasIconTint(plain))
+        // The label moved inward: the plain cell has label pixels at the cell
+        // edge where the iconed cell now shows the icon instead.
+        #expect(plain[rect.x, labelLine.y + 4] != iconed[rect.x, labelLine.y + 4] || plain[rect.x + 1, labelLine.y + 4] != iconed[rect.x + 1, labelLine.y + 4])
+    }
+
+    @Test("Trailing icon right-aligns to the cell edge and keeps the label in place")
+    func valueCellTrailingIconKeepsLabel() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let colors = MK2ValueCellColors(label: 0x8410, value: 0x07e0, border: 0x4208, icon: 0x07ff)
+        let rect = MK2PixelRect(x: 20, y: 40, width: 100, height: 30)
+
+        var frame = MK2PixelFrame()
+        MK2ValueCell(label: "VOL", iconGlyph: MK2HIG.IconGlyph.speakerHigh, iconPosition: .trailing, value: "40", rect: rect, colors: colors)
+            .draw(into: &frame, renderer: renderer)
+
+        let labelLineY = rect.y - SurfaceFont.label.cellHeight - MK2ValueCell.labelGap
+        var iconTintX: Int?
+        for y in (labelLineY - 2)..<rect.y {
+            for x in rect.x..<rect.maxX where frame[x, y] == colors.icon {
+                iconTintX = max(iconTintX ?? 0, x)
+            }
+        }
+        let tintX = try #require(iconTintX)
+        // Right-aligned: tinted pixels reach the trailing half of the cell.
+        #expect(tintX > rect.x + rect.width / 2)
+        // The label still starts at the cell edge.
+        #expect(hasNonBlackPixel(in: frame, rect: MK2PixelRect(x: rect.x, y: labelLineY, width: 20, height: SurfaceFont.label.cellHeight)))
+    }
+
     @Test("Render settings can disable rounded corner antialiasing globally")
     func valueCellRoundedCornersRespectGlobalAntialiasingSwitch() {
         UserDefaults.standard.set(false, forKey: MK2RenderSettings.antialiasingEnabledDefaultsKey)

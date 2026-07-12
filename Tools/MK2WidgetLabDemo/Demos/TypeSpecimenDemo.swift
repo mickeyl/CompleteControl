@@ -213,7 +213,7 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
         drawFreeTypeBody(sample.detail, into: &frame, renderer: renderer, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
 
         for binding in encoderValues(nil) {
-            binding.drawDisplay(into: &frame)
+            binding.drawDisplay(into: &frame, renderer: renderer)
         }
         return frame
     }
@@ -277,7 +277,7 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
         return [
             MK2EncoderDiscreteValue(
                 encoder: 5, value: bodyPixelSize, bounds: Self.bodyBounds,
-                display: display(label: "BODY", value: "\(bodyPixelSize)", encoder: 5, color: Palette.text),
+                display: display(label: "BODY", icon: MK2HIG.IconGlyph.textAa, value: "\(bodyPixelSize)", encoder: 5, color: Palette.text),
                 onTouch: touch(5),
                 onChange: { [weak self] value in
                     context?.update { self?.bodyPixelSize = max(Self.bodyBounds.lowerBound, min(Self.bodyBounds.upperBound, value)) }
@@ -285,7 +285,7 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 6, value: titlePixelSize, bounds: Self.titleBounds,
-                display: display(label: "TITLE", value: "\(titlePixelSize)", encoder: 6, color: Palette.text),
+                display: display(label: "TITLE", icon: MK2HIG.IconGlyph.textT, value: "\(titlePixelSize)", encoder: 6, color: Palette.text),
                 onTouch: touch(6),
                 onChange: { [weak self] value in
                     context?.update { self?.titlePixelSize = max(Self.titleBounds.lowerBound, min(Self.titleBounds.upperBound, value)) }
@@ -293,7 +293,7 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 7, value: iconSampleIndex, bounds: 0...(Self.iconSamples.count - 1),
-                display: display(label: "ICON", value: "\(iconSampleIndex + 1)", encoder: 7, color: icon.color),
+                display: display(label: "ICON", icon: MK2HIG.IconGlyph.sticker, value: "\(iconSampleIndex + 1)", encoder: 7, color: icon.color),
                 onTouch: touch(7),
                 onChange: { [weak self] value in
                     context?.update {
@@ -303,7 +303,7 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
             ),
             MK2EncoderDiscreteValue(
                 encoder: 8, value: iconPixelSize, bounds: Self.iconSizeBounds, step: 2,
-                display: display(label: "SIZE", value: "\(iconPixelSize)", encoder: 8, color: icon.color),
+                display: display(label: "SIZE", icon: MK2HIG.IconGlyph.resize, value: "\(iconPixelSize)", encoder: 8, color: icon.color),
                 onTouch: touch(8),
                 onChange: { [weak self] value in
                     context?.update { self?.iconPixelSize = max(Self.iconSizeBounds.lowerBound, min(Self.iconSizeBounds.upperBound, value)) }
@@ -312,9 +312,10 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
         ]
     }
 
-    private func display(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
+    private func display(label: String, icon: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
         MK2EncoderDiscreteValueDisplay(
             label: label,
+            iconGlyph: icon,
             value: value,
             rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
             isFocused: focusedEncoder == encoder,
