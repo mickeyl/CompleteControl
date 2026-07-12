@@ -276,7 +276,7 @@ public struct MK2SelectionList: Sendable {
             .draw(into: &frame, renderer: renderer)
         let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
         guard !items.isEmpty else {
-            MK2SelectionDrawing.drawEmpty("Keine Einträge", into: &frame, rect: content, colors: colors)
+            MK2SelectionDrawing.drawEmpty("No entries", into: &frame, rect: content, colors: colors)
             MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
             return
         }
@@ -382,7 +382,7 @@ public struct MK2SelectionGrid: Sendable {
             .draw(into: &frame, renderer: renderer)
         let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
         guard !items.isEmpty else {
-            MK2SelectionDrawing.drawEmpty("Keine Einträge", into: &frame, rect: content, colors: colors)
+            MK2SelectionDrawing.drawEmpty("No entries", into: &frame, rect: content, colors: colors)
             MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
             return
         }

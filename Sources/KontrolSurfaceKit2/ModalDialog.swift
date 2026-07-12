@@ -204,14 +204,14 @@ public struct MK2ModalDialog: Sendable {
             remainingLines -= drawn
         }
 
-        drawBody("4D: Auswahl und Bestätigung", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
+        drawBody("4-D: select and confirm", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
     }
 
     private func rightFrame(renderer: FreeTypeTextRenderer?) -> MK2PixelFrame {
         var frame = MK2PixelFrame(fill: colors.background)
         let tone = colors.accent(for: severity)
-        drawTitle("AKTIONEN", renderer: renderer, into: &frame, x: 24, y: 12, color: tone, maxWidth: 432)
+        drawTitle("ACTIONS", renderer: renderer, into: &frame, x: 24, y: 12, color: tone, maxWidth: 432)
 
         for (index, action) in actions.enumerated() {
             let rect = MK2PixelRect(x: 24, y: 62 + index * 74, width: 432, height: 62)
