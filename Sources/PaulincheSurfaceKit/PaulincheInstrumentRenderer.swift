@@ -60,17 +60,22 @@ public struct MK2PaulincheInstrumentActions: Sendable {
     public var onShiftSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)?
     public var onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)?
     public var onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)?
+    /// The "back to default" gesture; which reset an encoder means is the
+    /// client's decision.
+    public var onEncoderDoubleTouch: (@Sendable (_ encoder: Int) -> Void)?
 
     public init(
         onSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
         onShiftSoftKey: (@Sendable (_ index: Int, _ softKey: MK2PaulincheSoftKey) -> Void)? = nil,
         onEncoderTouch: (@Sendable (_ encoder: Int, _ touched: Bool) -> Void)? = nil,
-        onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)? = nil
+        onEncoderChange: (@Sendable (_ encoder: Int, _ delta: Int) -> Void)? = nil,
+        onEncoderDoubleTouch: (@Sendable (_ encoder: Int) -> Void)? = nil
     ) {
         self.onSoftKey = onSoftKey
         self.onShiftSoftKey = onShiftSoftKey
         self.onEncoderTouch = onEncoderTouch
         self.onEncoderChange = onEncoderChange
+        self.onEncoderDoubleTouch = onEncoderDoubleTouch
     }
 }
 
@@ -244,6 +249,9 @@ public enum MK2PaulincheInstrumentRenderer {
                 encoder,
                 onTouch: { touched in
                     actions.onEncoderTouch?(encoder, touched)
+                },
+                onDoubleTouch: actions.onEncoderDoubleTouch.map { handler in
+                    { @Sendable in handler(encoder) }
                 },
                 onChange: { delta, _, _ in
                     actions.onEncoderChange?(encoder, delta)
