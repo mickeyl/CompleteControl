@@ -175,9 +175,17 @@ Unterwegs gefixt: 4-D-Center-Confirm decodiert jetzt das Click-Bit
 hätte auf Hardware bestätigt. main.swift: 4338 → 1953 Zeilen; nur noch
 der Tracker läuft als Legacy-Wrapper.
 
-**Noch offen:** Phase 5 (Tracker Pattern als echte Demo, Modal Dialog
-eigenständig, Light Guide & LEDs für Diagnostics) und Phase 6 (Abriss:
-Unit-Enum weg, main.swift → Entry + LabShell, Doku-Updates).
+**Phase 5 geliefert:** Tracker Pattern, Modal Dialog und Light Guide &
+LEDs als eigenständige Demos (Diagnostics ist damit besetzt). Das
+Unit-Enum und alle Tracker-Helfer sind dabei bereits aus main.swift
+gefallen (1953 → 758 Zeilen); die REPL-Tabelle speist sich aus
+Shell-Kommandos + `LabDemo.replCommands()`, der Snapshot-Harness erzeugt
+`-shift`-Varianten automatisch, sobald eine Demo einen Shift-Layer
+deklariert. Neu am Protokoll: `demoWillClose()` — Timer/Playback stoppen
+beim Verlassen der Demo. Modal-Texte des Trackers sind auf Englisch.
+
+**Noch offen:** Phase 6 (main.swift → Entry + LabShell + DemoBrowser
+aufteilen, Doku-Updates: CLAUDE.md-Produktzeile, Backlog).
 
 1. **Gerüst:** `LabShell`/`LabDemo`/`DemoBrowser` + SCENE-Exit + Registry.
    Alle acht Alt-Units zunächst als je **eine Wrapper-Demo** registriert
