@@ -63,18 +63,12 @@
   edit-field encoder bindings through `MK2ParameterPageElement`. Selection filter encoders
   now use `MK2SelectionFilterEncoderElement`, so focus-touch and value changes are a
   reusable screen-owned pattern.
-- Done: Shift is a scene-owned modifier layer (`Docs/Shift-Layer-Plan.md`). Scenes carry
-  an optional `MK2SurfaceScene2.ShiftLayer` (frames, lamps, key colors, bindings with
-  base fallback); the DSL builds it in a second pass when a screen declares shift content
-  via `MK2ShiftBranch`, `MK2FunctionKeyBarElement` `shiftSlots`/`onShiftPress`, or
-  `MK2ParameterPageElement.shiftSlots`. Realized in the WidgetLab pattern lab (CLR
-  PAT/REVERSE shift function keys, NOTE→OCTAVE shift encoder cell, automatic shift lamp)
-  and in `MK2PaulincheInstrumentRenderer` via `shiftSoftKeys`/`onShiftSoftKey`.
-  Deferred follow-ups: review `MK2HIG.Chrome.shiftAccent` (amber) and the dim/bright
-  shift-lamp intensities on the OLED/hardware; other held-button layers and a latching
-  shift would be `MK2Surface2`-local extensions of the same layer model; MIDI routing
-  deliberately stays base-only under shift; multi-band display diffing only if the
-  near-full-band blit on shift flips ever shows as a cost.
+- Shift follow-ups (the scene-owned modifier layer itself is delivered,
+  `Docs/Shift-Layer-Plan.md`): review `MK2HIG.Chrome.shiftAccent` (amber) and the
+  dim/bright shift-lamp intensities on the OLED/hardware; other held-button layers
+  and a latching shift would be `MK2Surface2`-local extensions of the same layer
+  model; MIDI routing deliberately stays base-only under shift; multi-band display
+  diffing only if the near-full-band blit on shift flips ever shows as a cost.
 - Add a WidgetLab realization plus snapshot coverage for each formal screen/component class
   before Paulinche starts consuming them.
 - Prepare the Paulinche boundary as a small semantic `SurfaceProjection`: Paulinche emits
@@ -85,24 +79,6 @@
   the first adapter pass can map concrete Paulinche scene shapes instead of inventing
   screen-local glue. The Paulinche-shaped DSL now lives in the separate
   `PaulincheSurfaceKit` module on top of generic `KontrolSurfaceKit2`.
-
-- Done: FreeType font rendering is available through `KontrolSurfaceKit2` and
-  `MK2WidgetLabDemo` Unit A for large, well-hinted typography. The production text choice is
-  IBM Plex Sans Condensed Regular 16 px for body and Medium 24 px for titles, rendered
-  with `grayscaleHinted`. Icon work uses Font Awesome 7 Pro Light, with 48 px icons for
-  action dialogs. The bitmap-font rendering path remains separate for tracker/grid sharpness.
-
-- Experiment (branch `freetype`): the whole `SurfaceFont`/`BitmapLabel`/`drawText` path
-  now lowers to FreeType + JetBrains Mono (Regular + Bold), reproducing the retired
-  Tamzen atlas metrics exactly so no layout moves. See `FreeTypeTextRenderer.drawMonospaced`.
-
-- Done: FreeType text now renders through cached **glyph runs** in `FreeTypeTextRenderer`.
-  Proportional `drawText`/wrapped text is shaped by HarfBuzz first, so standard ligatures
-  and positioning apply outside tracker/grid text. Fixed-pitch `drawMonospaced`/`SurfaceFont`
-  remains unshaped and advances one fixed cell per scalar. The cache stores alpha masks and
-  metrics for reusable glyphs plus complete text runs, keyed by family, weight, pixel size,
-  raster mode, layout, and text. Drawing a repeated run is now a bitmap alpha-blend with no
-  HarfBuzz shaping and no FreeType load/render call.
 
 - Still open: keep tuning cache granularity for shaped runs, whole words, or the fixed set
   of tracker cells (e.g. the 256 hex cells, note names).
@@ -120,7 +96,8 @@
   awareness, no reuse) and re-invents layout constants inline. Known offenders to
   audit: the WidgetLab unit screens (status rows, ad-hoc labels, separator lines,
   pattern overview strip), the Paulinche renderers' title/tag/info-line drawing, and
-  the song scenes' `drawSoftKeyStrip` (already tracked below). Candidates for
+  the song scenes' `drawSoftKeyStrip` (now deleted; future arranger scene starts
+  DSL-first). Candidates for
   promotion: a titled status row, an icon+label tag chip, a plain separator rule,
   and a key/value info-line stack.
 
@@ -136,10 +113,6 @@
   `encoderSlotWidth`. Introduce a dedicated encoder-row container element that owns the
   canonical rect and spacing/padding itself, so individual pages cannot drift.
 
-- Done (2026-07-11, by removal): the Paulinche song renderer and its ad-hoc
-  `drawSoftKeyStrip` are deleted — the scene was non-standard on several levels
-  and no client reached it. A future SCENE/arranger scene starts DSL-first.
-
 - Encoder-feel constants should be live-tunable in the widget lab before the
   next tuning round: the ENCODER FEEL rig (scene lab) shows the derived
   counts-per-step and acceleration ceilings, but changing
@@ -152,3 +125,32 @@
   `MK2EncoderFeel` struct threaded through `MK2EncoderDiscreteValue` and
   `MK2EncoderDetents`) instead of `static let`s. Current bench-approved
   values: sweep 480, max 42, min 24, fast sweep 600, rates 150/1200 c/s.
+
+- Encoder-value label rules (2026-07-12 decision):
+  - **Never put the encoder name in the label.** The physical encoder sits
+    directly above the value cell — the name is redundant by protocol. A slot
+    labelled `VOL` under the volume encoder is noise; the label should
+    describe the *parameter* or *unit*, not the control. Audit all existing
+    `MK2ParameterPageSlot`/`MK2EncoderDiscreteValueDisplay` labels and strip
+    encoder-name echoes.
+  - **Allow a Phosphor icon in the label**, optionally leading or trailing.
+    The icon gets its own color, at least lighter than and/or accent vs the
+    label text — never the same `MK2ValueCellColors.label` color. Extend
+    `MK2ValueCell` with an optional `iconGlyph: String?`, `iconColor: UInt16`,
+    and `iconPosition: .leading / .trailing`; thread the same fields through
+    `MK2ParameterPageSlot` and `MK2EncoderDiscreteValueDisplay`. The icon
+    renders via `MK2HIG.iconStyle` at label-line height, and the text label
+    shifts inward by the icon width + gap. `MK2ValueCellColors` gains an
+    optional `icon: UInt16?` (defaults to `MK2HIG.Chrome.accent` or a
+    lightened label when nil).
+  - **Equip every encoder-using screen with fitting icons.** Per screen,
+    choose leading or trailing — but never mix within one screen. Affected
+    screens: `MK2PaulincheInstrumentRenderer` (instrument editor),
+    `MK2PaulinchePatternRenderer` (pattern editor), and the WidgetLab demos
+    that bind encoders (`TrackerPatternDemo`, `LightGuideDemo`,
+    `WaveformDemo`, `TypeSpecimenDemo`, `ChromeSlotsDemo`,
+    `EncoderFeelDemo`, `ModalDialogDemo`, `IconBrowserDemo`,
+    `PanoramaDemo`). Icon choice follows the parameter semantics (e.g. a
+    volume/level icon for level encoders, a waveform icon for shape, a
+    filter icon for cutoff). The demo rigs that exist purely to exercise
+    encoder *mechanics* (EncoderFeel, ChromeSlots) may use neutral icons.
