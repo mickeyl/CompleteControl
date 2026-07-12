@@ -21,6 +21,18 @@
 
 ## KontrolSurfaceKit2
 
+- Prototype implemented: Paulinche can optionally use the F1-F4 RGB lamps as
+  four channel VU meters while playing a song or pattern. Existing quantized
+  realtime telemetry feeds a removable `MK2Surface2` lamp overlay, independent
+  of scene/display rendering and the audio thread; disabling it restores the
+  scene-owned F-key lamps. It uses normal full 80-byte `0x80` state reports,
+  latest-wins coalescing, and writes only when a quantized colour changes. Still
+  to assess on hardware: visual response, palette thresholds/release feel, and
+  input/display latency plus daemon/USB traffic during dense playback. As a
+  separate experiment, test whether a shortened `0x80` prefix report preserves
+  omitted LEDs, but do not depend on partial reports unless that firmware
+  behaviour is repeatable across the supported S49/S61/S88 MK2 models.
+
 - Value-cell deboss tuning after hardware review: the four gradient factors live in
   `MK2ValueCell.draw` — border ring `0.45` (top shadow rim) → `1.8` (lit bottom edge),
   fill `0.7` → `1.2`. Judged on PNG only so far; adjust on the OLED if the imprint

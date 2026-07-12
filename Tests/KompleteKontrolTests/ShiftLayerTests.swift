@@ -194,6 +194,22 @@ struct ShiftLayerTests {
         #expect(lamps[.shift] == .amber)
     }
 
+    @Test("Lamp overlay replaces dynamic lamps and clears back to the scene")
+    func lampOverlayRestoresSceneLamps() async {
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(lamps: [.function1: .white, .play: .green]))
+
+        await surface.presentLampOverlay([.function1: .red])
+        var lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.function1] == .red)
+        #expect(lamps[.play] == .green)
+
+        await surface.presentLampOverlay([:])
+        lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.function1] == .white)
+        #expect(lamps[.play] == .green)
+    }
+
     @Test("Layer lamps and key colors merge over the base while held")
     func layerLampsAndKeyColorsMerge() async {
         let red = KKRGB(red: 0xff, green: 0x00, blue: 0x00)

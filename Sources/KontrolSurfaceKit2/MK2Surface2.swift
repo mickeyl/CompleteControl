@@ -56,6 +56,9 @@ public actor MK2Surface2 {
     private var running = false
     private var lastTick = DispatchTime.now().uptimeNanoseconds
     private var lampPhase: [KKMK2ButtonLED: Double] = [:]
+    /// Dynamic lamps that change independently of the rendered scene, such as
+    /// realtime meters. Empty restores the scene-owned lamp state immediately.
+    private var lampOverlay: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
     private var lastKeyColors: [KKRGB] = []
     private var controlClient: KompleteKontrolDaemonBinaryClient?
@@ -139,12 +142,19 @@ public actor MK2Surface2 {
         touchedEncoders = []
         latchedEncoder = nil
         scene = MK2SurfaceScene2()
+        lampOverlay = [:]
         displayReconciler.reset()
         publish(.stopped)
     }
 
     public func present(_ next: MK2SurfaceScene2) {
         scene = next
+    }
+
+    /// Updates high-frequency lamp feedback without rebuilding display frames or
+    /// replacing scene bindings. Overlay lamps win over base and shift-layer lamps.
+    public func presentLampOverlay(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
+        lampOverlay = lamps
     }
 
     public func present(_ screen: MK2DoubleScreenDSL) {
@@ -437,6 +447,7 @@ public actor MK2Surface2 {
         if scene.shift != nil, scene.lamps[.shift] == nil, scene.shift?.lamps[.shift] == nil {
             lamps[.shift] = pressedButtons.contains(.shift) ? Self.shiftHeldLamp : Self.shiftAvailableLamp
         }
+        lamps.merge(lampOverlay) { _, overlay in overlay }
         return lamps
     }
 
