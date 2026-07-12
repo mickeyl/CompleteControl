@@ -412,9 +412,10 @@ private actor WidgetLab {
     private var sceneCaptionSize = MK2HIG.Typography.captionPixelSize
     private var sceneFootnoteSize = MK2HIG.Typography.footnotePixelSize
     private var sceneFocusedEncoder: Int?
-    /// Encoder-feel playground: one value per encoder, domain sizes doubling
-    /// from on/off to 256, all starting at their midpoint.
-    private static let granularityDomains = [2, 4, 8, 16, 32, 64, 128, 256]
+    /// Encoder-feel playground: one value per encoder, small domains doubling
+    /// on the left screen, large ones growing 8× on the right — the sweep
+    /// acceleration only shows on genuinely big ranges. Midpoint start.
+    private static let granularityDomains = [2, 4, 8, 16, 32, 256, 1024, 8192]
     private var granularityValues = WidgetLab.granularityDomains.map { $0 / 2 }
     private var sceneSplashGap = 53
     private var cachedSplashArtwork: MK2PixelImage?
@@ -1423,7 +1424,7 @@ private actor WidgetLab {
     /// to the midpoint.
     private func granularityResult(range: Range<Int>) -> MK2ScreenBuildResult {
         let title = range.lowerBound == 0 ? "ENCODER FEEL" : "ADAPTIVE THROW"
-        let hint = range.lowerBound == 0 ? "DOMAENE VERDOPPELT SICH PRO ENCODER" : "2*TIPPEN = RESET AUF MITTE"
+        let hint = range.lowerBound == 0 ? "2*TIPPEN = RESET AUF MITTE" : "SCHNELL DREHEN = 3X/5X BESCHLEUNIGT"
         let slots = range.map { index -> MK2ParameterPageSlot in
             let domain = Self.granularityDomains[index]
             let bounds = 0...(domain - 1)

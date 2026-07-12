@@ -161,6 +161,40 @@ struct EncoderDiscreteValueTests {
         MK2EncoderDetents.shared.reset()
     }
 
+    @Test("Fast successive reports accelerate the counts")
+    func fastReportsAccelerate() {
+        MK2EncoderDetents.shared.reset()
+        let box = EncoderBox()
+        var bindings = MK2InputBindings2()
+
+        MK2EncoderDiscreteValue(
+            encoder: 2,
+            value: 0,
+            bounds: 0...8191,
+            countsPerStep: 1,
+            onChange: { box.change($0) }
+        ).apply(bindings: &bindings)
+
+        // The binding captures value 0 (the app re-presents after each
+        // change in production), so every emission is relative to 0 — which
+        // exposes the acceleration factor directly.
+        let second: UInt64 = 1_000_000_000
+        // Slow pair (1 s apart): unscaled.
+        bindings.encoder[2]?(4, 0, second)
+        bindings.encoder[2]?(4, 0, 2 * second)
+        #expect(box.values == [4, 4])
+        // 20 ms after the last report: 5×.
+        bindings.encoder[2]?(4, 0, 2 * second + 20_000_000)
+        #expect(box.values == [4, 4, 20])
+        // 60 ms later: 3×.
+        bindings.encoder[2]?(4, 0, 2 * second + 80_000_000)
+        #expect(box.values == [4, 4, 20, 12])
+        // Without a timestamp (tests, synthetic events): unscaled.
+        bindings.encoder[2]?(4, 0, 0)
+        #expect(box.values == [4, 4, 20, 12, 4])
+        MK2EncoderDetents.shared.reset()
+    }
+
     @Test("Display projection draws the standard value cell")
     func displayDrawsValueCell() {
         let colors = MK2ValueCellColors(

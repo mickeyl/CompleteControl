@@ -50,25 +50,44 @@ public struct MK2EncoderDiscreteValueDisplay: Sendable {
 /// rebuilt on every projection), hence a process-wide store keyed by encoder.
 /// The remainder is transient sub-step rotation; direction flips decay it
 /// naturally through signed accumulation.
+///
+/// Fast turns accelerate the incoming counts with the same timing rule as
+/// `MK2EncoderScaler` (3× under 90 ms, 5× under 35 ms between reports) —
+/// large domains are unsweepable otherwise. Timing uses the daemon-side
+/// reception timestamps; without one (0) counts stay unscaled.
 final class MK2EncoderDetents: @unchecked Sendable {
     static let shared = MK2EncoderDetents()
     private let lock = NSLock()
     private var remainders: [Int: Int] = [:]
+    private var lastTurnNanos: [Int: UInt64] = [:]
 
-    func steps(encoder: Int, delta: Int, countsPerStep: Int) -> Int {
-        guard countsPerStep > 1 else { return delta }
+    func steps(encoder: Int, delta: Int, countsPerStep: Int, timestampNanos: UInt64 = 0) -> Int {
         lock.lock()
         defer { lock.unlock() }
-        let accumulated = (remainders[encoder] ?? 0) + delta
+        let accelerated = delta * accelerationFactorLocked(encoder: encoder, timestampNanos: timestampNanos)
+        guard countsPerStep > 1 else { return accelerated }
+        let accumulated = (remainders[encoder] ?? 0) + accelerated
         let steps = accumulated / countsPerStep
         remainders[encoder] = accumulated % countsPerStep
         return steps
+    }
+
+    private func accelerationFactorLocked(encoder: Int, timestampNanos: UInt64) -> Int {
+        guard timestampNanos != 0 else { return 1 }
+        let previous = lastTurnNanos[encoder] ?? 0
+        lastTurnNanos[encoder] = timestampNanos
+        guard previous != 0, timestampNanos > previous else { return 1 }
+        let elapsed = Double(timestampNanos &- previous) / 1_000_000_000.0
+        if elapsed < 0.035 { return 5 }
+        if elapsed < 0.090 { return 3 }
+        return 1
     }
 
     func reset() {
         lock.lock()
         defer { lock.unlock() }
         remainders.removeAll()
+        lastTurnNanos.removeAll()
     }
 }
 
@@ -93,8 +112,9 @@ public struct MK2EncoderDiscreteValue: Sendable {
     /// the ~900-count continuous sweep.
     public static let targetSweepCounts = 200
     /// Upper bound of the automatic derivation, so tiny domains stay
-    /// reachable without excessive cranking.
-    public static let maximumCountsPerStep = 90
+    /// reachable without excessive cranking. Bench-tuned 2026-07-12:
+    /// 90 felt slightly heavy on on/off and three-way domains.
+    public static let maximumCountsPerStep = 60
 
     public static func automaticCountsPerStep(for bounds: ClosedRange<Int>) -> Int {
         let transitions = max(1, bounds.count - 1)
@@ -158,8 +178,8 @@ public struct MK2EncoderDiscreteValue: Sendable {
         bindings.encoderTouch[encoder] = { touched in
             onTouch(touched)
         }
-        bindings.encoder[encoder] = { [countsPerStep = resolvedCountsPerStep] delta, _, _ in
-            let steps = MK2EncoderDetents.shared.steps(encoder: encoder, delta: delta, countsPerStep: countsPerStep)
+        bindings.encoder[encoder] = { [countsPerStep = resolvedCountsPerStep] delta, _, timestampNanos in
+            let steps = MK2EncoderDetents.shared.steps(encoder: encoder, delta: delta, countsPerStep: countsPerStep, timestampNanos: timestampNanos)
             guard steps != 0 else { return }
             let next = value(after: steps)
             if next != value {
