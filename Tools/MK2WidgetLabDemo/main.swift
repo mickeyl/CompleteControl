@@ -1506,7 +1506,7 @@ private actor WidgetLab {
                 frame.blit(statusBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
                 y += 36
 
-                caption("H3 STATUSLINE + HLINE — FULLSCREEN BITMAP (PATTERN-GRID, LAB-UNITS)")
+                caption("H3 STATUSLINE + HLINE — FIXED-PITCH JETBRAINS MONO (PATTERN-GRID, LAB-UNITS)")
                 MK2StatusLine(y: y + 4, items: [
                     MK2StatusLineItem("PAT 00", x: 8, color: Palette.blue),
                     MK2StatusLineItem("ROW 1F", x: 120, color: Palette.text, font: .gridBold),
@@ -1515,7 +1515,7 @@ private actor WidgetLab {
                 frame.hline(y: y + 24, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
                 y += 32
 
-                caption("H4 FREETYPE FREIFORM — FULLSCREEN (INSTRUMENT-EDITOR TITEL)")
+                caption("H4 PROPORTIONAL FREIFORM — HARFBUZZ-SHAPED (INSTRUMENT-EDITOR TITEL)")
                 if let renderer {
                     try? renderer.drawText(
                         "PULSE LEAD", into: &frame, x: 8, y: y + 2,
