@@ -132,6 +132,14 @@ direkter FreeType-Aufrufe über `Support.drawText`.
 **A5 — `hline`/`dottedVLine` ins Kit heben.** Beide Codebases definieren
 identische private `MK2PixelFrame`-Extensions. Primitiven auf
 `fill`-Niveau — gehören neben `stroke` in `PixelFrame.swift`.
+**Erledigt 2026-07-12:** `hline`/`dottedHLine`/`dottedVLine` sind
+öffentliche `MK2PixelFrame`-Primitiven; die privaten Duplikate in
+WidgetLab und PaulincheSurfaceKit sind entfernt. Obendrauf beschlossen
+und gebaut: `MK2SeparatorElement` (R1–R4: Border-Linie, Akzent-Linie,
+gepunktet, Band-Kante — vertikale Ruler bleiben PatternGrid-intern) und
+der `header:`-Slot am FullScreen-DSL-Root (`.status` fixed-pitch,
+`.title` proportional, `.none` für Spezialfälle).
+
 > Kommentar:
 
 ### B. Bestehende Widgets neu parametrieren
