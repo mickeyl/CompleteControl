@@ -124,6 +124,12 @@
   promotion: a titled status row, an icon+label tag chip, a plain separator rule,
   and a key/value info-line stack.
 
+- Migrate the Paulinche renderers onto the standardized forms (2026-07-12
+  decision): instrument-editor title → FullScreen `header: .title` (resolves
+  DSL-review A4), pattern-grid status line → `header: .status` (A3), and the
+  scattered `hline` info separators → `MK2SeparatorElement`. Precondition
+  noted 2026-07-12: a larger widget-lab rework is planned first.
+
 - Encoder-slot geometry is duplicated by convention, not enforced: every page passes
   its own footer rect (now `x: 8, width: 464`) into `MK2ParameterPageElement`, and only
   discipline keeps four-column pages aligned with `MK2ScreenLayout.encoderSlotXs`/
