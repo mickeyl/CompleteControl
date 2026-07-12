@@ -1424,15 +1424,17 @@ private actor WidgetLab {
     /// to the midpoint.
     private func granularityResult(range: Range<Int>) -> MK2ScreenBuildResult {
         let title = range.lowerBound == 0 ? "ENCODER FEEL" : "ADAPTIVE THROW"
-        let hint = range.lowerBound == 0 ? "2*TIPPEN = RESET AUF MITTE" : "SCHNELL DREHEN = 3X/5X BESCHLEUNIGT"
+        let hint = range.lowerBound == 0 ? "2*TIPPEN = RESET AUF MITTE" : "SCHNELL DREHEN BESCHLEUNIGT BIS X-FAKTOR"
         let slots = range.map { index -> MK2ParameterPageSlot in
             let domain = Self.granularityDomains[index]
             let bounds = 0...(domain - 1)
             let value = granularityValues[index]
             let displayValue = domain == 2 ? (value == 1 ? "ON" : "OFF") : "\(value + 1)/\(domain)"
             let countsPerStep = MK2EncoderDiscreteValue.automaticCountsPerStep(for: bounds)
+            let acceleration = MK2EncoderDiscreteValue.sweepAcceleration(for: bounds, countsPerStep: countsPerStep)
+            let accelerationSuffix = acceleration > 1 ? " · \(Int(acceleration.rounded()))X" : ""
             return MK2ParameterPageSlot(
-                label: "\(domain) VAL · \(countsPerStep)C",
+                label: "\(domain) VAL · \(countsPerStep)C\(accelerationSuffix)",
                 value: displayValue,
                 encoderValue: MK2EncoderDiscreteValue(
                     encoder: index + 1,

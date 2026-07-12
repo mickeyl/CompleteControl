@@ -105,14 +105,25 @@ struct EncoderDiscreteValueTests {
         #expect(value.defaultValue == 64)
     }
 
-    @Test("Automatic counts-per-step targets a constant sweep, clamped for tiny domains")
+    @Test("Automatic counts-per-step targets a constant sweep, clamped on both ends")
     func automaticCountsPerStep() {
         // Three-way mode: 200/2 = 100, clamped to the per-step maximum.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...2) == MK2EncoderDiscreteValue.maximumCountsPerStep)
         // Mid-size domain: full sweep ≈ targetSweepCounts.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...20) == 10)
-        // Large domains stay near raw counts.
-        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...200) == 1)
+        // Large domains keep the slow-turn precision floor — sweeping them
+        // is the acceleration's job.
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...8191) == MK2EncoderDiscreteValue.minimumCountsPerStep)
+    }
+
+    @Test("Acceleration ceiling scales with the domain, never below 1")
+    func sweepAccelerationScaling() {
+        // Small domains sweep unscaled.
+        #expect(MK2EncoderDiscreteValue.sweepAcceleration(for: 0...2, countsPerStep: 60) == 1)
+        #expect(MK2EncoderDiscreteValue.sweepAcceleration(for: 0...31, countsPerStep: 6) == 1)
+        // Huge domains get exactly the ceiling a fast sweep needs.
+        let huge = MK2EncoderDiscreteValue.sweepAcceleration(for: 0...8191, countsPerStep: 4)
+        #expect(huge > 50 && huge < 60)
     }
 
     @Test("Sub-step rotation accumulates across reports before a value change")
@@ -161,37 +172,43 @@ struct EncoderDiscreteValueTests {
         MK2EncoderDetents.shared.reset()
     }
 
-    @Test("Fast successive reports accelerate the counts")
-    func fastReportsAccelerate() {
+    @Test("Slow turns stay single-step precise, fast turns sweep large domains")
+    func rateBasedAcceleration() {
         MK2EncoderDetents.shared.reset()
         let box = EncoderBox()
         var bindings = MK2InputBindings2()
 
         MK2EncoderDiscreteValue(
             encoder: 2,
-            value: 0,
+            value: 4096,
             bounds: 0...8191,
-            countsPerStep: 1,
             onChange: { box.change($0) }
         ).apply(bindings: &bindings)
 
-        // The binding captures value 0 (the app re-presents after each
-        // change in production), so every emission is relative to 0 — which
-        // exposes the acceleration factor directly.
+        // The binding captures value 4096 (production re-presents after each
+        // change), so every emission is relative to it.
         let second: UInt64 = 1_000_000_000
-        // Slow pair (1 s apart): unscaled.
-        bindings.encoder[2]?(4, 0, second)
-        bindings.encoder[2]?(4, 0, 2 * second)
-        #expect(box.values == [4, 4])
-        // 20 ms after the last report: 5×.
-        bindings.encoder[2]?(4, 0, 2 * second + 20_000_000)
-        #expect(box.values == [4, 4, 20])
-        // 60 ms later: 3×.
-        bindings.encoder[2]?(4, 0, 2 * second + 80_000_000)
-        #expect(box.values == [4, 4, 20, 12])
-        // Without a timestamp (tests, synthetic events): unscaled.
-        bindings.encoder[2]?(4, 0, 0)
-        #expect(box.values == [4, 4, 20, 12, 4])
+        // A slow nudge — two reports of 2 counts, a second apart — moves
+        // exactly one value, even on an 8192-value domain (4 counts/step).
+        bindings.encoder[2]?(2, 0, second)
+        #expect(box.values.isEmpty)
+        bindings.encoder[2]?(2, 0, 2 * second)
+        #expect(box.values == [4097])
+
+        // A fast flick — 30 counts within 10 ms (3000 counts/s) — hits the
+        // domain-scaled ceiling and covers hundreds of values in one report.
+        bindings.encoder[2]?(30, 0, 2 * second + 10_000_000)
+        let sweep = box.values.last! - 4096
+        #expect(sweep > 300)
+
+        // Reports whose *rate* is slow stay unscaled even when they follow
+        // quickly: the factor tracks rotation speed, not report cadence.
+        MK2EncoderDetents.shared.reset()
+        let emissions = box.values.count
+        bindings.encoder[2]?(1, 0, 2 * second + 60_000_000)
+        bindings.encoder[2]?(1, 0, 2 * second + 110_000_000)
+        #expect(box.values.count == emissions)
+
         MK2EncoderDetents.shared.reset()
     }
 
