@@ -114,6 +114,11 @@ Interaction and rendering rules:
 - encoder-bound discrete values never wrap on tiny domains (on/off, few
   modes); `MK2EncoderDiscreteValue` enforces the clamp below
   `wrapMinimumValueCount`;
+- discrete values scale their throw to the domain: counts-per-step derives
+  from the domain size (`targetSweepCounts` full sweep, clamped to
+  `maximumCountsPerStep`), so a three-way mode is not swept in two raw
+  counts; override per value via `countsPerStep` — never re-derive raw
+  1:1 count mapping in a client;
 - encoder double-touch is the "back to default" gesture: declare
   `MK2EncoderDiscreteValue.defaultValue` for value slots (silent when already
   at default); the raw `MK2EncoderBindingElement.onDoubleTouch` hook is for

@@ -6,6 +6,9 @@ public struct MK2SelectionFilterEncoderBinding: Sendable {
     public var bounds: ClosedRange<Int>
     public var step: Int
     public var wraps: Bool
+    /// Raw encoder counts per value step; `nil` derives it from the domain
+    /// size (see `MK2EncoderDiscreteValue.automaticCountsPerStep(for:)`).
+    public var countsPerStep: Int?
 
     private let onFocus: @Sendable (_ encoder: Int, _ touched: Bool) -> Void
     private let onChange: @Sendable (_ value: Int) -> Void
@@ -16,6 +19,7 @@ public struct MK2SelectionFilterEncoderBinding: Sendable {
         bounds: ClosedRange<Int>,
         step: Int = 1,
         wraps: Bool = true,
+        countsPerStep: Int? = nil,
         onFocus: @escaping @Sendable (_ encoder: Int, _ touched: Bool) -> Void = { _, _ in },
         onChange: @escaping @Sendable (_ value: Int) -> Void
     ) {
@@ -24,6 +28,7 @@ public struct MK2SelectionFilterEncoderBinding: Sendable {
         self.bounds = bounds
         self.step = max(1, step)
         self.wraps = wraps
+        self.countsPerStep = countsPerStep
         self.onFocus = onFocus
         self.onChange = onChange
     }
@@ -35,6 +40,7 @@ public struct MK2SelectionFilterEncoderBinding: Sendable {
             bounds: bounds,
             step: step,
             wraps: wraps,
+            countsPerStep: countsPerStep,
             onTouch: { touched in
                 onFocus(encoder, touched)
             },

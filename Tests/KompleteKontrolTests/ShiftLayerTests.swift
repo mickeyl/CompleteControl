@@ -412,14 +412,14 @@ struct ShiftAwareElementTests {
                     MK2ParameterPageSlot(
                         label: "TUNE",
                         value: "+0 ST",
-                        encoderValue: MK2EncoderDiscreteValue(encoder: 1, value: 0, bounds: -12...12) { _ in
+                        encoderValue: MK2EncoderDiscreteValue(encoder: 1, value: 0, bounds: -12...12, countsPerStep: 1) { _ in
                             box.baseEncoderDelta += 1
                         }
                     ),
                     MK2ParameterPageSlot(
                         label: "VOLUME",
                         value: "80 %",
-                        encoderValue: MK2EncoderDiscreteValue(encoder: 2, value: 80, bounds: 0...100) { _ in
+                        encoderValue: MK2EncoderDiscreteValue(encoder: 2, value: 80, bounds: 0...100, countsPerStep: 1) { _ in
                             box.baseJogDelta += 1
                         }
                     ),
@@ -428,7 +428,7 @@ struct ShiftAwareElementTests {
                     MK2ParameterPageSlot(
                         label: "FINE",
                         value: "+0 CT",
-                        encoderValue: MK2EncoderDiscreteValue(encoder: 1, value: 0, bounds: -100...100) { _ in
+                        encoderValue: MK2EncoderDiscreteValue(encoder: 1, value: 0, bounds: -100...100, countsPerStep: 1) { _ in
                             box.shiftEncoderDelta += 1
                         }
                     ),

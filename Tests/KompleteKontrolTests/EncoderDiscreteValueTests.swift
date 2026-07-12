@@ -45,6 +45,7 @@ struct EncoderDiscreteValueTests {
             encoder: 6,
             value: 10,
             bounds: 0...64,
+            countsPerStep: 1,
             onTouch: { box.touch($0) },
             onChange: { box.change($0) }
         ).apply(bindings: &bindings)
@@ -102,6 +103,62 @@ struct EncoderDiscreteValueTests {
             onChange: { _ in }
         )
         #expect(value.defaultValue == 64)
+    }
+
+    @Test("Automatic counts-per-step targets a constant sweep, clamped for tiny domains")
+    func automaticCountsPerStep() {
+        // Three-way mode: 200/2 = 100, clamped to the per-step maximum.
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...2) == MK2EncoderDiscreteValue.maximumCountsPerStep)
+        // Mid-size domain: full sweep ≈ targetSweepCounts.
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...20) == 10)
+        // Large domains stay near raw counts.
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...200) == 1)
+    }
+
+    @Test("Sub-step rotation accumulates across reports before a value change")
+    func detentAccumulation() {
+        MK2EncoderDetents.shared.reset()
+        let box = EncoderBox()
+        var bindings = MK2InputBindings2()
+
+        MK2EncoderDiscreteValue(
+            encoder: 3,
+            value: 1,
+            bounds: 0...2,
+            countsPerStep: 10,
+            onChange: { box.change($0) }
+        ).apply(bindings: &bindings)
+
+        bindings.encoder[3]?(6, 0, 0)
+        #expect(box.values.isEmpty)
+        bindings.encoder[3]?(4, 0, 0)
+        #expect(box.values == [2])
+
+        // Direction flip decays the remainder through signed accumulation.
+        bindings.encoder[3]?(-6, 0, 0)
+        #expect(box.values == [2])
+        bindings.encoder[3]?(-4, 0, 0)
+        #expect(box.values == [2, 0])
+        MK2EncoderDetents.shared.reset()
+    }
+
+    @Test("Fast turns deliver multiple steps from one report")
+    func fastTurnsSkipSteps() {
+        MK2EncoderDetents.shared.reset()
+        let box = EncoderBox()
+        var bindings = MK2InputBindings2()
+
+        MK2EncoderDiscreteValue(
+            encoder: 3,
+            value: 0,
+            bounds: 0...10,
+            countsPerStep: 5,
+            onChange: { box.change($0) }
+        ).apply(bindings: &bindings)
+
+        bindings.encoder[3]?(23, 0, 0)
+        #expect(box.values == [4])
+        MK2EncoderDetents.shared.reset()
     }
 
     @Test("Display projection draws the standard value cell")

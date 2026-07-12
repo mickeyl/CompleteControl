@@ -157,6 +157,7 @@ struct ScreenDSLTests {
                     value: 2,
                     bounds: 0...4,
                     wraps: true,
+                    countsPerStep: 1,
                     onTouch: { touched in
                         box.touched = touched
                     },
@@ -169,6 +170,7 @@ struct ScreenDSLTests {
                     value: 1,
                     bounds: 0...4,
                     wraps: false,
+                    countsPerStep: 1,
                     onChange: { value in
                         box.secondValue = value
                     }
@@ -194,6 +196,7 @@ struct ScreenDSLTests {
                     encoder: 5,
                     value: 1,
                     bounds: 0...3,
+                    countsPerStep: 1,
                     onFocus: { encoder, touched in
                         box.secondValue = touched ? encoder : -encoder
                     },
@@ -240,6 +243,7 @@ struct ScreenDSLTests {
                             encoder: 1,
                             value: 3,
                             bounds: 0...7,
+                            countsPerStep: 1,
                             onTouch: { touched in
                                 box.touched = touched
                             },
