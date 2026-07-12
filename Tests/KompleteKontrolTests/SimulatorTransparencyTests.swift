@@ -86,13 +86,19 @@ struct MK2InputReportBuilderTests {
         }
     }
 
-    @Test("4-D neutral touch after a push round-trips as jog center")
-    func fourDNeutralCenter() {
+    @Test("4-D push release does not confirm; click release does")
+    func fourDCenterSemantics() {
         var before = MK2InputReportBuilder()
         before.setFourD(.pushLeft)
         var after = before
         after.setFourD(.touched)
-        #expect(decode(before, after) == [.jogCenter])
+        #expect(decode(before, after) == [])
+
+        var clicked = MK2InputReportBuilder()
+        clicked.setFourD(.click)
+        var released = clicked
+        released.setFourD(.touched)
+        #expect(decode(clicked, released) == [.jogCenter])
     }
 
     @Test("Report id and length are stable so the decoder's diff always applies")

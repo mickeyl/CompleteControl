@@ -53,8 +53,13 @@ struct MK2FourDDecodeTests {
     func pushes() {
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x24)) == [.jog(direction: "up")])
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x0c)) == [.jog(direction: "press")])
-        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [.jogCenter])
+        // Center-confirm is the click bit being released; a directional push
+        // release must NOT confirm (it would fire on every navigation step).
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [])
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x0c), current: report(byte6: 0x04)) == [.jogCenter])
+        // A click released together with the cap (simulator keyboard press)
+        // still confirms.
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x0c), current: report(byte6: 0x00)) == [.jogTouch(touched: false), .jogCenter])
     }
 }
 

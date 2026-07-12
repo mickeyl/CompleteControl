@@ -476,7 +476,11 @@ public enum KKMK2InputReportDecoder {
             if wasTouched != isTouched {
                 events.append(.jogTouch(touched: isTouched))
             }
-            if current[6] == 0x04 && (previous[6] & 0xf8) != 0 {
+            // Center-confirm is the *click bit* being released — regardless of
+            // whether the finger stays on the cap (hardware) or leaves it in
+            // the same report (simulator keyboard press). Directional pushes
+            // live in 0x10…0x80 and never carry the click bit.
+            if (previous[6] & 0x08) != 0 && (current[6] & 0x08) == 0 {
                 events.append(.jogCenter)
             }
             if let direction = jogStates[current[6]] {
