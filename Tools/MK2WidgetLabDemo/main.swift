@@ -71,9 +71,8 @@ let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted(
 
 let replCommands: [ReplCommand] = [
     ReplCommand(name: "list", arg: "", summary: "list demos and their ids", values: []),
-    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id } + ["encoder-feel", "panorama", "chrome-slots", "forms", "type-specimen", "icon-browser", "dialog-card"]),
+    ReplCommand(name: "open", arg: "<id>", summary: "open a demo", values: Unit.registry.map { $0.descriptor.id } + ["encoder-feel", "panorama", "chrome-slots", "forms", "type-specimen", "icon-browser", "dialog-card", "selection-browser", "meter", "waveform"]),
     ReplCommand(name: "exit", arg: "", summary: "leave the demo, back to the browser", values: []),
-    ReplCommand(name: "browsemode", arg: "", summary: "browser unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "text", arg: "<string>", summary: "type-specimen: sample text", values: []),
     ReplCommand(name: "sample", arg: "<0-3>", summary: "type-specimen: dialog mock preset", values: ["0", "1", "2", "3"]),
     ReplCommand(name: "body", arg: "<12-22>", summary: "type-specimen: body pixel size", values: []),
@@ -81,7 +80,6 @@ let replCommands: [ReplCommand] = [
     ReplCommand(name: "icon", arg: "<index|name>", summary: "icon-browser: select icon", values: []),
     ReplCommand(name: "iconsize", arg: "<20-88>", summary: "icon-browser: preview size", values: []),
     ReplCommand(name: "iconmode", arg: "list|grid|filterlist|filtergrid|next", summary: "icon-browser: list/grid mode", values: ["list", "grid", "filterlist", "filtergrid", "next"]),
-    ReplCommand(name: "selmode", arg: "", summary: "selection unit: cycle list/grid/filter mode", values: []),
     ReplCommand(name: "play", arg: "", summary: "tracker unit: start playback", values: []),
     ReplCommand(name: "stop", arg: "", summary: "tracker unit: stop playback", values: []),
     ReplCommand(name: "clear", arg: "", summary: "tracker unit: clear selected row", values: []),
@@ -122,127 +120,24 @@ func printReplHelp() {
 }
 
 private enum Unit: Int, CaseIterable, Sendable {
-    case chrome, meter, list, pattern, waveform, keys
+    case pattern
 
-    var title: String {
-        switch self {
-            case .chrome: "BROWSER LAB"
-            case .meter: "METER LAB"
-            case .list: "SELECTION LAB"
-            case .pattern: "PATTERN LAB"
-            case .waveform: "WAVEFORM LAB"
-            case .keys: "KEYS LAB"
-        }
-    }
-
-    var short: String {
-        switch self {
-            case .chrome: "BROW"
-            case .meter: "METR"
-            case .list: "SEL"
-            case .pattern: "PATT"
-            case .waveform: "WAVE"
-            case .keys: "KEYS"
-        }
-    }
-
-    var letter: String { String(UnicodeScalar(UInt8(97 + rawValue))) }
-    var implemented: Bool { self == .chrome || self == .meter || self == .list || self == .pattern || self == .waveform }
 
     /// Phase-1 wrapper descriptors: each legacy unit is one browsable demo;
     /// later phases split them into real per-file demos (see the rework plan).
     /// The KEYS placeholder is gone — a Diagnostics light-guide demo replaces
     /// it in a later phase.
     var descriptor: DemoDescriptor {
-        switch self {
-            case .chrome:
-                DemoDescriptor(
-                    id: "browser-lab",
-                    title: "Browser Lab",
-                    category: .catalogue,
-                    summary: "Detail pane and picker screens",
-                    detail: "Regular-screen browser detail next to the selection picker. INSTANCE cycles list, grid and filter modes; 4-D navigates, filter encoders narrow the set."
-                )
-            case .meter:
-                DemoDescriptor(
-                    id: "meter",
-                    title: "Meter",
-                    category: .catalogue,
-                    summary: "Multi-channel level meters",
-                    detail: "Horizontal and vertical meter elements with peak markers and warning and danger zones, driven by a simulated programme."
-                )
-            case .list:
-                DemoDescriptor(
-                    id: "selection-lab",
-                    title: "Selection Lab",
-                    category: .catalogue,
-                    summary: "Selection list and grid",
-                    detail: "The selection list and grid elements with filters. INSTANCE cycles plain and filtered modes; 4-D navigates and confirms."
-                )
-            case .pattern:
-                DemoDescriptor(
-                    id: "tracker-pattern",
-                    title: "Tracker Pattern",
-                    category: .catalogue,
-                    summary: "Pattern grid, transport, shift layer",
-                    detail: "The hand-built tracker grid with playhead, transport and channel toggles, the parameter page with shift slots, and the clear-pattern modal via SHIFT+CLEAR."
-                )
-            case .waveform:
-                DemoDescriptor(
-                    id: "waveform",
-                    title: "Waveform",
-                    category: .catalogue,
-                    summary: "Waveform display variants",
-                    detail: "The waveform element with region, markers and playhead across four material variants. INSTANCE cycles them; encoders move the loop."
-                )
-            case .keys:
-                DemoDescriptor(
-                    id: "keys",
-                    title: "Keys",
-                    category: .diagnostics,
-                    summary: "(unbuilt placeholder)",
-                    detail: "Placeholder — replaced by the Light Guide & LEDs demo in a later rework phase."
-                )
-        }
+        DemoDescriptor(
+            id: "tracker-pattern",
+            title: "Tracker Pattern",
+            category: .catalogue,
+            summary: "Pattern grid, transport, shift layer",
+            detail: "The hand-built tracker grid with playhead, transport and channel toggles, the parameter page with shift slots, and the clear-pattern modal via SHIFT+CLEAR."
+        )
     }
 
-    /// Browser order: grouped by category, calibration-adjacent rigs first.
-    static let registry: [Unit] = {
-        let visible = allCases.filter { $0.implemented }
-        return DemoCategory.allCases.flatMap { category in
-            visible.filter { $0.descriptor.category == category }
-        }
-    }()
-
-    var functionLED: KKMK2ButtonLED {
-        KKMK2ButtonLED(rawValue: KKMK2ButtonLED.function1.rawValue + rawValue)!
-    }
-}
-
-private enum WaveformLabVariant: Int, CaseIterable, Sendable {
-    case pluck, sparse, quiet, empty
-
-    var title: String {
-        switch self {
-            case .pluck: "PLUCK, 2048 BINS"
-            case .sparse: "SPARSE, 24 BINS"
-            case .quiet: "QUIET SOURCE, GAIN 3.5X"
-            case .empty: "EMPTY ENVELOPE"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-            case .pluck: "PLUCK"
-            case .sparse: "SPARSE"
-            case .quiet: "QUIET"
-            case .empty: "EMPTY"
-        }
-    }
-
-    var next: WaveformLabVariant {
-        Self.allCases[(rawValue + 1) % Self.allCases.count]
-    }
+    static let registry: [Unit] = [.pattern]
 }
 
 private actor WidgetLab {
@@ -279,6 +174,9 @@ private actor WidgetLab {
         DialogCardDemo(),
         ChromeSlotsDemo(),
         FormsDemo(),
+        SelectionBrowserDemo(),
+        MeterDemo(),
+        WaveformDemo(),
     ]
     private lazy var demoRegistry: [DemoRef] = {
         let entries = Unit.registry.map { DemoRef.legacy($0) } + modernDemos.map { DemoRef.modern($0) }
@@ -288,18 +186,6 @@ private actor WidgetLab {
     }()
     private var activeDemo: DemoRef?
 
-    private var browserMode: BrowserDemoMode = .plainList
-    private var browserNavigation = MK2SelectionNavigation()
-    private var browserAreaIndex = 0
-    private var browserSourceIndex = 0
-    private var browserConfirmation = "Noch nichts geöffnet"
-    private var selectionMode: SelectionDemoMode = .plainList
-    private var selectionNavigation = MK2SelectionNavigation()
-    private var selectionTypeIndex = 0
-    private var selectionToneIndex = 0
-    private var selectionBankIndex = 0
-    private var selectionCellSizeIndex = 1
-    private var selectionConfirmation = "Noch nichts bestätigt"
     private var isPlaying = false
     private var recordArmed = false
     private var metronomeEnabled = false
@@ -314,13 +200,6 @@ private actor WidgetLab {
     private var mutedChannels: Set<Int> = []
     private var soloedChannels: Set<Int> = []
     private var focusedEditField: TrackerEditField = .note
-    private var waveformVariant: WaveformLabVariant = .pluck
-    private var waveformLoopEnabled = true
-    private var waveformLoopStartPercent = 42
-    private var waveformLoopEndPercent = 88
-    private var waveformMarkersEnabled = true
-    private var waveformPlayheadPercent = 55
-    private var waveformFocusedEncoder: Int?
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
     private static let availableIntensity: UInt8 = 0x01
@@ -423,13 +302,7 @@ private actor WidgetLab {
 
     private func demoScene() -> MK2SurfaceScene2 {
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
-        if unit == .chrome {
-            lamps[.instance] = Self.availableLamp(Self.actionWhite)
-        } else if unit == .list {
-            lamps[.instance] = Self.availableLamp(Self.actionWhite)
-        } else if unit == .waveform {
-            lamps[.instance] = Self.availableLamp(Self.actionWhite)
-        } else if unit == .pattern {
+        if unit == .pattern {
             lamps[.play] = isPlaying ? Self.activeLamp(Self.actionGreen) : Self.availableLamp(Self.actionGreen)
             lamps[.stop] = isPlaying ? Self.availableLamp(Self.actionRed) : Self.activeLamp(Self.actionRed)
             lamps[.record] = recordArmed ? Self.activeLamp(Self.actionRed) : Self.availableLamp(Self.actionRed)
@@ -467,22 +340,7 @@ private actor WidgetLab {
                 Task { await self?.moveFocusedChannel(1) }
             }
         }
-        if unit == .chrome {
-            bindings.onPress(.instance) { [weak self] in
-                Task { await self?.cycleBrowserMode() }
-            }
-        } else if unit == .list {
-            bindings.onPress(.instance) { [weak self] in
-                Task { await self?.cycleSelectionMode() }
-            }
-        } else if unit == .waveform {
-            bindings.onPress(.instance) { [weak self] in
-                Task { await self?.cycleWaveformVariant() }
-            }
-            for value in waveformEncoderValues() {
-                value.apply(bindings: &bindings)
-            }
-        } else if unit == .pattern {
+        if unit == .pattern {
             MK2ButtonToggle(
                 button: .metro,
                 isOn: metronomeEnabled,
@@ -775,20 +633,7 @@ private actor WidgetLab {
     }
 
     private func screenResults() -> (MK2ScreenBuildResult, MK2ScreenBuildResult) {
-        switch unit {
-            case .chrome:
-                return (browserDetailResult(), browserPickerResult())
-            case .meter:
-                return (meterOverviewResult(), meterDetailResult())
-            case .list:
-                return (selectionStatusResult(), selectionPickerResult())
-            case .pattern:
-                return (screenResult(frame: trackerGridFrame()), trackerDetailResult())
-            case .waveform:
-                return (screenResult(frame: waveformLoopFrame()), waveformControlResult())
-            default:
-                return (screenResult(frame: comingSoonFrame()), screenResult(frame: placeholderRightFrame()))
-        }
+        (screenResult(frame: trackerGridFrame()), trackerDetailResult())
     }
 
     private func screenResult(frame: MK2PixelFrame, kind: MK2ScreenKind = .fullScreen) -> MK2ScreenBuildResult {
@@ -827,270 +672,6 @@ private actor WidgetLab {
     }
 
     // MARK: - Font lab
-
-    // MARK: - Browser lab
-
-    private func browserDetailFrame() -> MK2PixelFrame {
-        browserDetailResult().screen.frame
-    }
-
-    private func browserDetailResult() -> MK2ScreenBuildResult {
-        let items = filteredBrowserItems()
-        let selected = selectedBrowserItem()
-
-        return regularScreenResult(
-            header: .title(title: "Browser Lab", subtitle: browserMode.shortTitle),
-            footer: .hint(browserConfirmation)
-        ) {
-            MK2ContentText(browserMode.title, x: 8, y: 0, role: .title)
-            MK2ContentText(
-                "INSTANCE schaltet List/Grid/Filter. 4D wählt, 4D-Press öffnet.",
-                x: 8,
-                y: 40,
-                maxWidth: 432,
-                color: Palette.dim,
-                maxLines: 2,
-                lineSpacing: 2
-            )
-            MK2ContentText("Treffer: \(items.count) / \(BrowserLabFixtures.items.count)", x: 8, y: 80, maxWidth: 432)
-
-            if let selected {
-                MK2BrowserDetailElement(
-                    title: selected.title,
-                    detail: selected.detail,
-                    metadata: "\(selected.area) · \(selected.source) · \(selected.status)",
-                    iconGlyph: selected.icon,
-                    y: 112,
-                    iconColor: Palette.accent,
-                    accentColor: Palette.blue
-                )
-            } else {
-                MK2EmptyStateElement(title: "Keine Einträge", detail: "Für diese Filter gibt es keine Browser-Treffer.")
-            }
-        }
-    }
-
-    private func browserPickerFrame() -> MK2PixelFrame {
-        browserPickerResult().screen.frame
-    }
-
-    private func browserPickerResult() -> MK2ScreenBuildResult {
-        let items = filteredBrowserItems().map(\.selectionItem)
-        let filters = browserMode.hasFilters ? browserFilters() : []
-        let colors = MK2SelectionViewColors(
-            background: Palette.page,
-            text: Palette.text,
-            dim: Palette.dim,
-            muted: Palette.empty,
-            accent: Palette.accent,
-            selectionFill: Palette.selectionFill,
-            border: Palette.border,
-            filterFill: Palette.filterFill
-        )
-        let subtitle = browserMode.hasFilters ? "4D select, E5/E6 filter" : "4D select, INSTANCE mode"
-        return fullScreenResult {
-            if browserMode.isGrid {
-                MK2SelectionGridElement(
-                    title: browserMode.shortTitle,
-                    subtitle: subtitle,
-                    items: items,
-                    selectedIndex: browserNavigation.selectedIndex,
-                    cellSize: BrowserLabFixtures.gridCellSizes[0],
-                    filters: filters,
-                    colors: colors
-                )
-            } else {
-                MK2SelectionListElement(
-                    title: browserMode.shortTitle,
-                    subtitle: subtitle,
-                    items: items,
-                    selectedIndex: browserNavigation.selectedIndex,
-                    filters: filters,
-                    rowHeight: browserMode.hasFilters ? 44 : 36,
-                    colors: colors
-                )
-            }
-            MK2SelectionInputElement(
-                navigation: browserNavigation,
-                itemCount: items.count,
-                layout: browserJogLayout,
-                availableLamp: Self.availableLamp(Self.actionWhite),
-                onMove: { [weak self] delta in
-                    Task { await self?.moveBrowserSelection(delta) }
-                },
-                onConfirm: { [weak self] in
-                    Task { await self?.confirmBrowserSelection() }
-                }
-            )
-            MK2SelectionFilterEncoderElement(browserFilterEncoderBindings())
-        }
-    }
-
-    // MARK: - Selection lab
-
-    private func selectionStatusFrame() -> MK2PixelFrame {
-        selectionStatusResult().screen.frame
-    }
-
-    private func selectionStatusResult() -> MK2ScreenBuildResult {
-        let items = filteredSelectionItems()
-        let selected = selectedSelectionItem()
-        let selectedTitle = selected?.title
-
-        return regularScreenResult(
-            header: .title(title: "Selection Lab", subtitle: selectionMode.shortTitle),
-            footer: .hint(selectionConfirmation)
-        ) {
-            MK2ContentText(selectionMode.title, x: 8, y: 0, role: .title)
-            MK2ContentText(
-                "INSTANCE schaltet Plain List, Plain Grid, Filtered List und Filtered Grid.",
-                x: 8,
-                y: 40,
-                maxWidth: 432,
-                color: Palette.dim,
-                maxLines: 2,
-                lineSpacing: 2
-            )
-            MK2ContentText(
-                "4D dreht durch die Auswahl, 4D-Press bestätigt.",
-                x: 8,
-                y: 88,
-                maxWidth: 432,
-                color: Palette.dim
-            )
-            MK2ContentText(
-                "Treffer: \(items.count) / \(SelectionLabFixtures.items.count)",
-                x: 8,
-                y: 126,
-                maxWidth: 432
-            )
-            if let selectedTitle {
-                MK2ContentText("Aktuell: \(selectedTitle)", x: 8, y: 154, maxWidth: 432, color: Palette.blue)
-            }
-        }
-    }
-
-    private func selectionPickerFrame() -> MK2PixelFrame {
-        selectionPickerResult().screen.frame
-    }
-
-    private func selectionPickerResult() -> MK2ScreenBuildResult {
-        let items = filteredSelectionItems().map(\.selectionItem)
-        let filters = selectionMode.hasFilters ? selectionFilters() : []
-        let subtitle = selectionMode.hasFilters ? "4D select, E5-E7 filter" : "4D select, INSTANCE mode"
-        let colors = MK2SelectionViewColors(
-            background: Palette.page,
-            text: Palette.text,
-            dim: Palette.dim,
-            muted: Palette.empty,
-            accent: Palette.accent,
-            selectionFill: Palette.selectionFill,
-            border: Palette.border,
-            filterFill: Palette.filterFill
-        )
-
-        return fullScreenResult {
-            if selectionMode.isGrid {
-                MK2SelectionGridElement(
-                    title: selectionMode.shortTitle,
-                    subtitle: subtitle,
-                    items: items,
-                    selectedIndex: selectionNavigation.selectedIndex,
-                    cellSize: SelectionLabFixtures.cellSizes[selectionCellSizeIndex],
-                    filters: filters,
-                    colors: colors
-                )
-            } else {
-                MK2SelectionListElement(
-                    title: selectionMode.shortTitle,
-                    subtitle: subtitle,
-                    items: items,
-                    selectedIndex: selectionNavigation.selectedIndex,
-                    filters: filters,
-                    rowHeight: selectionMode.hasFilters ? 44 : 30,
-                    colors: colors
-                )
-            }
-            MK2SelectionInputElement(
-                navigation: selectionNavigation,
-                itemCount: items.count,
-                layout: selectionJogLayout,
-                availableLamp: Self.availableLamp(Self.actionWhite),
-                onMove: { [weak self] delta in
-                    Task { await self?.moveSelection(delta) }
-                },
-                onConfirm: { [weak self] in
-                    Task { await self?.confirmSelection() }
-                }
-            )
-            MK2SelectionFilterEncoderElement(selectionFilterEncoderBindings())
-        }
-    }
-
-    // MARK: - Meter lab
-
-    private func meterOverviewResult() -> MK2ScreenBuildResult {
-        regularScreenResult(
-            header: .title(title: "Meter Lab", subtitle: "levels + peak"),
-            footer: .hint("Ballistik bleibt Produktzustand."),
-            progress: MK2ScreenProgressBar(placement: .top, progress: Double(playheadRow) / 63.0)
-        ) {
-            MK2ContentText("Meter Elements", x: 8, y: 0, role: .title)
-            MK2ContentText(
-                "Mehrkanal-Pegel, Peak-Marker und Warnfarben laufen als normale Screen-DSL-Elemente.",
-                x: 8,
-                y: 40,
-                maxWidth: 432,
-                color: Palette.dim,
-                maxLines: 2,
-                lineSpacing: 2
-            )
-            MK2MeterElement(
-                channels: [
-                    MK2MeterChannel(label: "L", level: demoMeterLevel(0), peak: demoMeterPeak(0)),
-                    MK2MeterChannel(label: "R", level: demoMeterLevel(1), peak: demoMeterPeak(1)),
-                ],
-                rect: MK2PixelRect(x: 8, y: 112, width: 420, height: 34),
-                fill: Palette.green,
-                dangerFill: Palette.mute
-            )
-            MK2ContentText("Stereo horizontal, Labels links, Peak als heller Marker.", x: 8, y: 164, maxWidth: 432, color: Palette.empty)
-        }
-    }
-
-    private func meterDetailResult() -> MK2ScreenBuildResult {
-        regularScreenResult(header: .title(title: "Channel Meters", subtitle: "4ch tracker")) {
-            MK2MeterElement(
-                channels: (0..<4).map { channel in
-                    MK2MeterChannel(level: demoMeterLevel(channel), peak: demoMeterPeak(channel))
-                },
-                rect: MK2PixelRect(x: 40, y: 16, width: 168, height: 166),
-                orientation: .vertical,
-                channelGap: 12,
-                fill: Palette.green,
-                dangerFill: Palette.mute
-            )
-            MK2MeterElement(
-                channels: (0..<4).map { channel in
-                    MK2MeterChannel(label: "CH\(channel + 1)", level: demoMeterLevel(channel, phaseOffset: 5), peak: demoMeterPeak(channel, phaseOffset: 5))
-                },
-                rect: MK2PixelRect(x: 238, y: 22, width: 210, height: 122),
-                fill: Palette.blue,
-                dangerFill: Palette.mute
-            )
-            MK2ContentText("vertical + compact horizontal", x: 238, y: 162, maxWidth: 220, color: Palette.empty)
-        }
-    }
-
-    private func demoMeterLevel(_ channel: Int, phaseOffset: Int = 0) -> Double {
-        let phase = Double((playheadRow + channel * 7 + phaseOffset).floorMod(32)) / 31.0
-        let wave = 0.5 + 0.5 * sin(phase * Double.pi * 2.0)
-        return min(0.98, 0.12 + wave * (0.58 + Double(channel) * 0.06))
-    }
-
-    private func demoMeterPeak(_ channel: Int, phaseOffset: Int = 0) -> Double {
-        min(1.0, demoMeterLevel(channel, phaseOffset: phaseOffset) + 0.14 + Double(channel) * 0.02)
-    }
 
     // MARK: - Scene lab
 
@@ -1343,311 +924,11 @@ private actor WidgetLab {
     private func turnMainEncoder(_ delta: Int) async {
         guard delta != 0 else { return }
         switch unit {
-            case .chrome:
-                await moveBrowserSelection(delta)
-            case .list:
-                await moveSelection(delta)
             case .pattern:
                 guard !isPlaying else { return }
                 playheadRow = max(0, min(patternRows.count - 1, playheadRow + delta))
                 await render()
-            case .waveform:
-                waveformPlayheadPercent = max(0, min(100, waveformPlayheadPercent + delta))
-                await render()
-            default:
-                return
         }
-    }
-
-    private func cycleBrowserMode() async {
-        guard unit == .chrome else { return }
-        browserMode = browserMode.next
-        if !browserMode.hasFilters {
-            browserNavigation.setFilterFocus(encoder: nil)
-        }
-        clampBrowserSelection()
-        await render()
-    }
-
-    private func handleBrowserJog(_ direction: String) async {
-        guard unit == .chrome else { return }
-        if direction == "press" {
-            await confirmBrowserSelection()
-            return
-        }
-        if browserNavigation.move(jogDirection: direction, itemCount: filteredBrowserItems().count, layout: browserJogLayout) {
-            await render()
-        }
-    }
-
-    private func moveBrowserSelection(_ delta: Int) async {
-        guard unit == .chrome, delta != 0 else { return }
-        if browserNavigation.move(by: delta, itemCount: filteredBrowserItems().count) {
-            await render()
-        }
-    }
-
-    private func confirmBrowserSelection() async {
-        guard unit == .chrome, let selected = selectedBrowserItem() else { return }
-        browserConfirmation = "Geöffnet: \(selected.title)"
-        await render()
-    }
-
-    private func browserFilterEncoderBindings() -> [MK2SelectionFilterEncoderBinding] {
-        guard browserMode.hasFilters else { return [] }
-        return [
-            MK2SelectionFilterEncoderBinding(
-                encoder: 5,
-                value: browserAreaIndex,
-                bounds: 0...(BrowserLabFixtures.areas.count - 1),
-                wraps: true,
-                onFocus: { [weak self] _, touched in
-                    Task { await self?.setBrowserFilterFocus(encoder: 5, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setBrowserArea(value) }
-                }
-            ),
-            MK2SelectionFilterEncoderBinding(
-                encoder: 6,
-                value: browserSourceIndex,
-                bounds: 0...(BrowserLabFixtures.sources.count - 1),
-                wraps: true,
-                onFocus: { [weak self] _, touched in
-                    Task { await self?.setBrowserFilterFocus(encoder: 6, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setBrowserSource(value) }
-                }
-            ),
-        ]
-    }
-
-    private func setBrowserArea(_ value: Int) async {
-        guard unit == .chrome else { return }
-        browserNavigation.setFilterFocus(encoder: 5)
-        browserAreaIndex = value.wrapped(to: 0...(BrowserLabFixtures.areas.count - 1))
-        clampBrowserSelection()
-        await render()
-    }
-
-    private func setBrowserSource(_ value: Int) async {
-        guard unit == .chrome else { return }
-        browserNavigation.setFilterFocus(encoder: 6)
-        browserSourceIndex = value.wrapped(to: 0...(BrowserLabFixtures.sources.count - 1))
-        clampBrowserSelection()
-        await render()
-    }
-
-    private func setBrowserFilterFocus(encoder: Int, touched: Bool) async {
-        guard unit == .chrome, browserMode.hasFilters else { return }
-        browserNavigation.touchFilter(encoder: encoder, touched: touched)
-        await render()
-    }
-
-    private func selectedBrowserItem() -> BrowserDemoItem? {
-        let items = filteredBrowserItems()
-        guard let index = browserNavigation.clampedSelectedIndex(itemCount: items.count) else { return nil }
-        return items[index]
-    }
-
-    private var browserJogLayout: MK2SelectionJogLayout {
-        browserMode.isGrid
-            ? .grid(cellSize: BrowserLabFixtures.gridCellSizes[0])
-            : .list()
-    }
-
-    private func filteredBrowserItems() -> [BrowserDemoItem] {
-        guard browserMode.hasFilters else { return BrowserLabFixtures.items }
-        let area = BrowserLabFixtures.areas[browserAreaIndex]
-        let source = BrowserLabFixtures.sources[browserSourceIndex]
-        return BrowserLabFixtures.items.filter { item in
-            (area == "All" || item.area == area)
-                && (source == "All" || item.source == source)
-        }
-    }
-
-    private func browserFilters() -> [MK2SelectionFilter] {
-        [
-            MK2SelectionFilter(label: "AREA", value: BrowserLabFixtures.areas[browserAreaIndex], encoder: 5, isActive: browserAreaIndex != 0, isFocused: browserNavigation.focusedFilterEncoder == 5),
-            MK2SelectionFilter(label: "SRC", value: BrowserLabFixtures.sources[browserSourceIndex], encoder: 6, isActive: browserSourceIndex != 0, isFocused: browserNavigation.focusedFilterEncoder == 6),
-        ]
-    }
-
-    private func clampBrowserSelection() {
-        browserNavigation.clamp(itemCount: filteredBrowserItems().count)
-    }
-
-    private func cycleSelectionMode() async {
-        guard unit == .list else { return }
-        selectionMode = selectionMode.next
-        if !selectionMode.hasFilters {
-            selectionNavigation.setFilterFocus(encoder: nil)
-        }
-        clampSelectionIndex()
-        await render()
-    }
-
-    private func handleSelectionJog(_ direction: String) async {
-        guard unit == .list else { return }
-        if direction == "press" {
-            await confirmSelection()
-            return
-        }
-        if selectionNavigation.move(jogDirection: direction, itemCount: filteredSelectionItems().count, layout: selectionJogLayout) {
-            await render()
-        }
-    }
-
-    private func moveSelection(_ delta: Int) async {
-        guard unit == .list, delta != 0 else { return }
-        if selectionNavigation.move(by: delta, itemCount: filteredSelectionItems().count) {
-            await render()
-        }
-    }
-
-    private func confirmSelection() async {
-        guard unit == .list, let selected = selectedSelectionItem() else { return }
-        selectionConfirmation = "Bestätigt: \(selected.title)"
-        await render()
-    }
-
-    private func selectionFilterEncoderBindings() -> [MK2SelectionFilterEncoderBinding] {
-        guard selectionMode.hasFilters else { return [] }
-        var bindings = [
-            MK2SelectionFilterEncoderBinding(
-                encoder: 5,
-                value: selectionTypeIndex,
-                bounds: 0...(SelectionLabFixtures.types.count - 1),
-                wraps: true,
-                onFocus: { [weak self] _, touched in
-                    Task { await self?.setSelectionFilterFocus(encoder: 5, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSelectionType(value) }
-                }
-            ),
-            MK2SelectionFilterEncoderBinding(
-                encoder: 6,
-                value: selectionToneIndex,
-                bounds: 0...(SelectionLabFixtures.tones.count - 1),
-                wraps: true,
-                onFocus: { [weak self] _, touched in
-                    Task { await self?.setSelectionFilterFocus(encoder: 6, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSelectionTone(value) }
-                }
-            ),
-            MK2SelectionFilterEncoderBinding(
-                encoder: 7,
-                value: selectionBankIndex,
-                bounds: 0...(SelectionLabFixtures.banks.count - 1),
-                wraps: true,
-                onFocus: { [weak self] _, touched in
-                    Task { await self?.setSelectionFilterFocus(encoder: 7, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setSelectionBank(value) }
-                }
-            )
-        ]
-        if selectionMode.isGrid {
-            bindings.append(
-                MK2SelectionFilterEncoderBinding(
-                    encoder: 8,
-                    value: selectionCellSizeIndex,
-                    bounds: 0...(SelectionLabFixtures.cellSizes.count - 1),
-                    wraps: true,
-                    onFocus: { [weak self] _, touched in
-                        Task { await self?.setSelectionFilterFocus(encoder: 8, touched: touched) }
-                    },
-                    onChange: { [weak self] value in
-                        Task { await self?.setSelectionCellSize(value) }
-                    }
-                )
-            )
-        }
-        return bindings
-    }
-
-    private func setSelectionType(_ value: Int) async {
-        guard unit == .list else { return }
-        selectionNavigation.setFilterFocus(encoder: 5)
-        selectionTypeIndex = value.wrapped(to: 0...(SelectionLabFixtures.types.count - 1))
-        clampSelectionIndex()
-        await render()
-    }
-
-    private func setSelectionTone(_ value: Int) async {
-        guard unit == .list else { return }
-        selectionNavigation.setFilterFocus(encoder: 6)
-        selectionToneIndex = value.wrapped(to: 0...(SelectionLabFixtures.tones.count - 1))
-        clampSelectionIndex()
-        await render()
-    }
-
-    private func setSelectionBank(_ value: Int) async {
-        guard unit == .list else { return }
-        selectionNavigation.setFilterFocus(encoder: 7)
-        selectionBankIndex = value.wrapped(to: 0...(SelectionLabFixtures.banks.count - 1))
-        clampSelectionIndex()
-        await render()
-    }
-
-    private func setSelectionCellSize(_ value: Int) async {
-        guard unit == .list else { return }
-        selectionNavigation.setFilterFocus(encoder: 8)
-        selectionCellSizeIndex = value.wrapped(to: 0...(SelectionLabFixtures.cellSizes.count - 1))
-        clampSelectionIndex()
-        await render()
-    }
-
-    private func setSelectionFilterFocus(encoder: Int, touched: Bool) async {
-        guard unit == .list, selectionMode.hasFilters else { return }
-        selectionNavigation.touchFilter(encoder: encoder, touched: touched)
-        await render()
-    }
-
-    private func selectedSelectionItem() -> SelectionDemoItem? {
-        let items = filteredSelectionItems()
-        guard let index = selectionNavigation.clampedSelectedIndex(itemCount: items.count) else { return nil }
-        return items[index]
-    }
-
-    private var selectionJogLayout: MK2SelectionJogLayout {
-        selectionMode.isGrid
-            ? .grid(cellSize: SelectionLabFixtures.cellSizes[selectionCellSizeIndex])
-            : .list()
-    }
-
-    private func filteredSelectionItems() -> [SelectionDemoItem] {
-        guard selectionMode.hasFilters else { return SelectionLabFixtures.items }
-        let type = SelectionLabFixtures.types[selectionTypeIndex]
-        let tone = SelectionLabFixtures.tones[selectionToneIndex]
-        let bank = SelectionLabFixtures.banks[selectionBankIndex]
-        return SelectionLabFixtures.items.filter { item in
-            (type == "All" || item.category == type)
-                && (tone == "All" || item.tone == tone)
-                && (bank == "All" || item.bank == bank)
-        }
-    }
-
-    private func selectionFilters() -> [MK2SelectionFilter] {
-        var filters = [
-            MK2SelectionFilter(label: "TYPE", value: SelectionLabFixtures.types[selectionTypeIndex], encoder: 5, isActive: selectionTypeIndex != 0, isFocused: selectionNavigation.focusedFilterEncoder == 5),
-            MK2SelectionFilter(label: "TONE", value: SelectionLabFixtures.tones[selectionToneIndex], encoder: 6, isActive: selectionToneIndex != 0, isFocused: selectionNavigation.focusedFilterEncoder == 6),
-            MK2SelectionFilter(label: "BANK", value: SelectionLabFixtures.banks[selectionBankIndex], encoder: 7, isActive: selectionBankIndex != 0, isFocused: selectionNavigation.focusedFilterEncoder == 7),
-        ]
-        if selectionMode.isGrid {
-            let size = SelectionLabFixtures.cellSizes[selectionCellSizeIndex]
-            filters.append(MK2SelectionFilter(label: "CELL", value: "\(size.width)x\(size.height)", encoder: 8, isActive: true, isFocused: selectionNavigation.focusedFilterEncoder == 8))
-        }
-        return filters
-    }
-
-    private func clampSelectionIndex() {
-        selectionNavigation.clamp(itemCount: filteredSelectionItems().count)
     }
 
     private func moveFocusedChannel(_ delta: Int) async {
@@ -1883,215 +1164,6 @@ private actor WidgetLab {
 
     // Right screen: the focused combination big, over an optional background swatch, with
     // a settings readout — this is the surface we judge a candidate on.
-    // MARK: - Waveform lab
-
-    /// A decaying pluck with a loopable sustain tail — enough dynamics that the
-    /// min/max merge, the region dimming and the display gain are all visible.
-    private static func waveformDemoEnvelope(bins: Int, quiet: Bool = false) -> MK2WaveformEnvelope {
-        var minima = [Float](repeating: 0, count: bins)
-        var maxima = [Float](repeating: 0, count: bins)
-        for bin in 0..<bins {
-            let t = Double(bin) / Double(bins)
-            let decay = exp(-3.2 * t)
-            let carrier = sin(t * 197.0) * 0.6 + sin(t * 41.0) * 0.4
-            let noise = sin(t * 1_211.0) * 0.35 * exp(-9.0 * t)
-            let amplitude = (abs(carrier) * decay + abs(noise)) * (quiet ? 0.18 : 0.95)
-            maxima[bin] = Float(amplitude)
-            minima[bin] = Float(-amplitude * (0.7 + 0.3 * sin(t * 63.0)))
-        }
-        return MK2WaveformEnvelope(minima: minima, maxima: maxima, gain: quiet ? 3.5 : 1)
-    }
-
-    private static let waveformStartMarker = 0.08
-    private static let waveformEndMarker = 0.95
-
-    private func waveformLabEnvelope() -> MK2WaveformEnvelope {
-        switch waveformVariant {
-            case .pluck: Self.waveformDemoEnvelope(bins: 2_048)
-            case .sparse: Self.waveformDemoEnvelope(bins: 24)
-            case .quiet: Self.waveformDemoEnvelope(bins: 2_048, quiet: true)
-            case .empty: MK2WaveformEnvelope(minima: [], maxima: [])
-        }
-    }
-
-    private func waveformLoopFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("WAVEFORM DISPLAY", font: .readout, color: Palette.text).draw(into: &frame, x: 16, y: 12)
-        BitmapLabel(waveformVariant.title, font: .label, color: Palette.dim).draw(into: &frame, x: 16, y: 44)
-        MK2WaveformDisplay(
-            envelope: waveformLabEnvelope(),
-            rect: MK2PixelRect(x: 8, y: 64, width: 464, height: 200),
-            region: waveformLoopEnabled
-                ? Double(waveformLoopStartPercent) / 100...Double(waveformLoopEndPercent) / 100
-                : nil,
-            markers: waveformMarkersEnabled ? [Self.waveformStartMarker, Self.waveformEndMarker] : [],
-            playhead: Double(waveformPlayheadPercent) / 100
-        ).draw(into: &frame)
-        return frame
-    }
-
-    private func waveformControlResult() -> MK2ScreenBuildResult {
-        let values = waveformEncoderValues()
-        let variant = waveformVariant
-        let summary: [(String, UInt16)] = [
-            ("SOURCE   \(variant.title)", Palette.text),
-            ("LOOP     \(waveformLoopEnabled ? "\(waveformLoopStartPercent)% - \(waveformLoopEndPercent)%" : "OFF")", Palette.text),
-            ("MARKERS  \(waveformMarkersEnabled ? "START + END" : "OFF")", Palette.text),
-            ("PLAYHEAD \(waveformPlayheadPercent)% VIA 4D ENCODER", Palette.blue),
-            ("INSTANCE CYCLES THE SOURCE", Palette.dim),
-            ("F-BAR IS DUMMY, F5-F8 STILL SWITCH UNITS", Palette.dim),
-        ]
-        return MK2FullScreenDSL(background: Palette.page) {
-            // Look-and-feel probe only: no onPress, so F5–F8 keep switching units.
-            MK2FunctionKeyBarElement(
-                slots: [
-                    MK2FunctionKeySlot("Zoom"),
-                    MK2FunctionKeySlot("Snap"),
-                    MK2FunctionKeySlot("Norm", isEnabled: false),
-                    MK2FunctionKeySlot("Trim"),
-                ],
-                side: .right
-            )
-            MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 30, items: [
-                    MK2StatusLineItem("WAVEFORM LAB", x: 8, color: Palette.blue),
-                    MK2StatusLineItem(variant.shortTitle, x: 140, color: Palette.text, font: .gridBold),
-                ]).draw(into: &frame)
-                frame.hline(y: 54, x: 0, width: 480, color: Palette.border)
-                var y = 66
-                for (text, color) in summary {
-                    BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
-                    y += SurfaceFont.grid.cellHeight + 6
-                }
-                for value in values {
-                    value.drawDisplay(into: &frame)
-                }
-            }
-        }.build(renderer: freeTypeRenderer)
-    }
-
-    private func waveformEncoderValues() -> [MK2EncoderDiscreteValue] {
-        let loopColor = waveformLoopEnabled ? Palette.text : Palette.dim
-        return [
-            MK2EncoderDiscreteValue(
-                encoder: 5,
-                value: waveformLoopEnabled ? 1 : 0,
-                bounds: 0...1,
-                display: waveformValueDisplay(label: "LOOP", value: waveformLoopEnabled ? "ON" : "OFF", encoder: 5, color: loopColor),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setWaveformFocusedEncoder(5, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setWaveformLoopEnabled(value == 1) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 6,
-                value: waveformLoopStartPercent,
-                bounds: 0...waveformLoopEndPercent,
-                display: waveformValueDisplay(label: "LP ST", value: "\(waveformLoopStartPercent)%", encoder: 6, color: loopColor),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setWaveformFocusedEncoder(6, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setWaveformLoopStart(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 7,
-                value: waveformLoopEndPercent,
-                bounds: waveformLoopStartPercent...100,
-                display: waveformValueDisplay(label: "LP END", value: "\(waveformLoopEndPercent)%", encoder: 7, color: loopColor),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setWaveformFocusedEncoder(7, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setWaveformLoopEnd(value) }
-                }
-            ),
-            MK2EncoderDiscreteValue(
-                encoder: 8,
-                value: waveformMarkersEnabled ? 1 : 0,
-                bounds: 0...1,
-                display: waveformValueDisplay(label: "MARKS", value: waveformMarkersEnabled ? "ON" : "OFF", encoder: 8, color: waveformMarkersEnabled ? Palette.text : Palette.dim),
-                onTouch: { [weak self] touched in
-                    Task { await self?.setWaveformFocusedEncoder(8, touched: touched) }
-                },
-                onChange: { [weak self] value in
-                    Task { await self?.setWaveformMarkersEnabled(value == 1) }
-                }
-            ),
-        ]
-    }
-
-    private func waveformValueDisplay(label: String, value: String, encoder: Int, color: UInt16) -> MK2EncoderDiscreteValueDisplay {
-        MK2EncoderDiscreteValueDisplay(
-            label: label,
-            value: value,
-            rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
-            isFocused: waveformFocusedEncoder == encoder,
-            valueFont: .readoutBold,
-            cornerRadius: 7,
-            colors: labEditCellColors(value: color)
-        )
-    }
-
-    private func cycleWaveformVariant() async {
-        guard unit == .waveform else { return }
-        waveformVariant = waveformVariant.next
-        await render()
-    }
-
-    private func setWaveformFocusedEncoder(_ encoder: Int, touched: Bool) async {
-        if touched {
-            waveformFocusedEncoder = encoder
-        } else if waveformFocusedEncoder == encoder {
-            waveformFocusedEncoder = nil
-        }
-        await render()
-    }
-
-    private func setWaveformLoopEnabled(_ enabled: Bool) async {
-        waveformLoopEnabled = enabled
-        await render()
-    }
-
-    private func setWaveformLoopStart(_ value: Int) async {
-        waveformLoopStartPercent = max(0, min(waveformLoopEndPercent, value))
-        await render()
-    }
-
-    private func setWaveformLoopEnd(_ value: Int) async {
-        waveformLoopEndPercent = max(waveformLoopStartPercent, min(100, value))
-        await render()
-    }
-
-    private func setWaveformMarkersEnabled(_ enabled: Bool) async {
-        waveformMarkersEnabled = enabled
-        await render()
-    }
-
-    // MARK: - Placeholder units
-
-    private func comingSoonFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel(unit.title, font: .readout, color: Palette.text).draw(into: &frame, x: 16, y: 40)
-        BitmapLabel("UNIT \(unit.letter.uppercased()) — NOT BUILT YET", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 16, y: 80)
-        BitmapLabel("BUILD ITS WIDGETS INTO KIT2 FIRST", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 16, y: 100)
-        return frame
-    }
-
-    private func placeholderRightFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("A FONT   B CHRM   C METR   D SEL", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 8, y: 40)
-        BitmapLabel("E PATT   F WAVE   G KEYS   H SCEN", font: .label, color: Palette.dim)
-            .draw(into: &frame, x: 8, y: 60)
-        return frame
-    }
-
     // MARK: - REPL
 
     func command(_ line: String) async {
@@ -2124,12 +1196,6 @@ private actor WidgetLab {
 
             case _ where activeModernDemo()?.handleRepl(verb: verb, rest: rest, labContext()) == true:
                 break
-
-            case "browsemode":
-                await cycleBrowserMode()
-
-            case "selmode":
-                await cycleSelectionMode()
 
             case "play":
                 await play()
@@ -2267,31 +1333,8 @@ private actor WidgetLab {
         for candidate in Unit.registry {
             unit = candidate
             activeDemo = .legacy(candidate)
-            switch candidate {
-                case .chrome:
-                    for mode in BrowserDemoMode.allCases {
-                        browserMode = mode
-                        clampBrowserSelection()
-                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
-                    }
-                case .list:
-                    for mode in SelectionDemoMode.allCases {
-                        selectionMode = mode
-                        clampSelectionIndex()
-                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(mode.shortTitle)).png")
-                    }
-                case .waveform:
-                    for variant in WaveformLabVariant.allCases {
-                        waveformVariant = variant
-                        await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-\(Self.snapshotSlug(variant.shortTitle)).png")
-                    }
-                    waveformVariant = .pluck
-                case .pattern:
-                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
-                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased())-shift.png", layer: .shift)
-                default:
-                    await snapshot(to: directory + "/widgetlab-\(candidate.short.lowercased()).png")
-            }
+            await snapshot(to: directory + "/widgetlab-\(candidate.descriptor.id).png")
+            await snapshot(to: directory + "/widgetlab-\(candidate.descriptor.id)-shift.png", layer: .shift)
         }
     }
 
@@ -2315,7 +1358,7 @@ private actor WidgetLab {
             }
         }
         let frames = displays.map { $0 ?? MK2PixelFrame() }
-        let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-\(unit.short.lowercased()).png"
+        let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-snapshot.png"
         do {
             let written = try PixelSnapshot.write(frames, to: target)
             print("snapshot → \(written)")
@@ -2503,14 +1546,7 @@ private actor WidgetLab {
 
     private func handleJogPush(_ direction: String) async {
         let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch unit {
-            case .chrome:
-                await handleBrowserJog(normalized)
-            case .list:
-                await handleSelectionJog(normalized)
-            default:
-                print("? push is available in browser/selection units")
-        }
+        print("? push emulation was removed — 4-D center-confirm now decodes correctly")
     }
 
 
