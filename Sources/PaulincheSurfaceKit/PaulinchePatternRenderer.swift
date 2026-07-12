@@ -173,25 +173,20 @@ public enum MK2PaulinchePatternRenderer {
         _ scene: MK2PaulinchePatternScene,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
-        MK2FullScreenDSL(background: MK2PaulincheRendererSupport.Palette.background) {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        return MK2FullScreenDSL(background: Palette.background) {
+            MK2StatusLineElement(y: 8, items: [
+                MK2StatusLineItem(String(format: "PAT %02d", scene.patternIndex), x: 8, color: Palette.blue),
+                MK2StatusLineItem("ROW \(hex2(scene.selectedRowIndex))", x: 110, color: Palette.text, font: .gridBold),
+                MK2StatusLineItem(scene.isPlaying ? "PLAY" : "STOP", x: 222, color: scene.isPlaying ? Palette.green : Palette.orange, font: .gridBold),
+                MK2StatusLineItem(scene.subtitle, x: 310, color: Palette.dim, maxWidth: 150),
+            ], relativeToContent: false)
             MK2RenderBlock { frame, _ in
-                drawGridStatusLine(scene, into: &frame)
                 drawChannelHeaders(scene, into: &frame)
                 drawPatternGrid(scene, into: &frame)
                 drawPatternOverview(scene, into: &frame, x: 466, y: 62, height: 200)
             }
         }.build(renderer: renderer)
-    }
-
-    private static func drawGridStatusLine(_ scene: MK2PaulinchePatternScene, into frame: inout MK2PixelFrame) {
-        typealias Palette = MK2PaulincheRendererSupport.Palette
-        BitmapLabel(String(format: "PAT %02d", scene.patternIndex), font: .grid, color: Palette.blue)
-            .draw(into: &frame, x: 8, y: 8)
-        BitmapLabel("ROW \(hex2(scene.selectedRowIndex))", font: .gridBold, color: Palette.text).draw(into: &frame, x: 110, y: 8)
-        BitmapLabel(scene.isPlaying ? "PLAY" : "STOP", font: .gridBold, color: scene.isPlaying ? Palette.green : Palette.orange)
-            .draw(into: &frame, x: 222, y: 8)
-        BitmapLabel(scene.subtitle, font: .grid, color: Palette.dim)
-            .draw(into: &frame, x: 310, y: 8, clip: MK2PixelRect(x: 310, y: 8, width: 150, height: SurfaceFont.grid.cellHeight))
     }
 
     private static func drawChannelHeaders(_ scene: MK2PaulinchePatternScene, into frame: inout MK2PixelFrame) {
@@ -319,12 +314,10 @@ public enum MK2PaulinchePatternRenderer {
         let instrumentLabel = scene.instrumentLabel
 
         return MK2FullScreenDSL(background: Palette.background) {
-            MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 8, items: statusItems).draw(into: &frame)
-                BitmapLabel(instrumentLabel, font: .grid, color: Palette.instrument)
-                    .draw(into: &frame, x: 158, y: 8, clip: MK2PixelRect(x: 158, y: 8, width: 314, height: SurfaceFont.grid.cellHeight))
-                frame.hline(y: 55, x: 0, width: MK2PixelFrame.width, color: Palette.border)
-            }
+            MK2StatusLineElement(y: 8, items: statusItems + [
+                MK2StatusLineItem(instrumentLabel, x: 158, color: Palette.instrument, maxWidth: 314),
+            ], relativeToContent: false)
+            MK2SeparatorElement(y: 55, style: .line(Palette.border), relativeToContent: false)
             MK2ParameterPageElement(
                 slots: parameterSlots(scene.parameters),
                 rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),

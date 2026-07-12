@@ -116,9 +116,9 @@ public enum MK2PaulincheInstrumentRenderer {
     ) -> MK2ScreenBuildResult {
         typealias Support = MK2PaulincheRendererSupport
         return MK2FullScreenDSL(background: Support.Palette.background) {
+            MK2ContentText(scene.title.uppercased(), x: 8, y: 6, maxWidth: 330, role: .custom(weight: .bold, pixelSize: 15), color: Support.Palette.blue, relativeToContent: false)
+            MK2ContentText(scene.subtitle.uppercased(), x: 344, y: 8, maxWidth: 128, role: .custom(weight: .medium, pixelSize: 12), color: Support.Palette.dim, relativeToContent: false)
             MK2RenderBlock { frame, _ in
-                Support.drawText(scene.title.uppercased(), into: &frame, x: 8, y: 6, style: Support.textStyle(weight: .bold, pixelSize: 15, color: Support.Palette.blue), renderer: renderer, maxWidth: 330)
-                Support.drawText(scene.subtitle.uppercased(), into: &frame, x: 344, y: 8, style: Support.captionStyle(color: Support.Palette.dim), renderer: renderer, maxWidth: 128)
                 MK2WaveformDisplay(
                     envelope: scene.waveform,
                     rect: waveformRect,

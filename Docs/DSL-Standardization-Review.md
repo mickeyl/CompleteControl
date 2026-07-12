@@ -125,6 +125,11 @@ Shift-Ebene ausweichen.
 **A3 — Pattern-Renderer `drawGridStatusLine` → `MK2StatusLineElement`.**
 Feste x-Positionen mit Einzeltexten ist exakt dessen Modell; der rechte
 Screen nutzt `MK2StatusLine` bereits.
+**Erledigt 2026-07-12:** Grid-Statuszeile ist ein `MK2StatusLineElement`
+(neue Parametrierung: `MK2StatusLineItem.maxWidth` clippt Freitext-Items);
+der rechte Edit-Screen verlor dabei auch seinen Escape-Hatch — Statuszeile
++ Instrument-Label als Element, Trennlinie als `MK2SeparatorElement`.
+Pixel-identisch per Snapshot-Vergleich.
 ![A3: Die handgebaute Statuszeile des Pattern-Grids (PAT/ROW/PLAY/Position)](images/dsl-review/pattern-gridstatusline.png)
 *A3: Die handgebaute Statuszeile des Pattern-Grids (PAT/ROW/PLAY/Position)*
 
@@ -132,6 +137,9 @@ Screen nutzt `MK2StatusLine` bereits.
 
 **A4 — Instrument-Renderer Title/Subtitle → `MK2ContentText`** statt
 direkter FreeType-Aufrufe über `Support.drawText`.
+**Erledigt 2026-07-12:** Title/Subtitle sind `MK2ContentText` mit
+`.custom(weight:pixelSize:)`-Rolle (gleicher `MK2HIG.textStyle`-Pfad,
+pixel-identisch per Snapshot-Vergleich).
 ![A4: Title/Subtitle des Instrument-Editors („PULSE LEAD" / „EDIT 04 SAMPLE") — direkte FreeType-Aufrufe](images/dsl-review/instrument-title.png)
 *A4: Title/Subtitle des Instrument-Editors („PULSE LEAD" / „EDIT 04 SAMPLE") — direkte FreeType-Aufrufe*
 

@@ -5,17 +5,22 @@ public struct MK2StatusLineItem: Sendable {
     public var x: Int
     public var color: UInt16
     public var font: SurfaceFont
+    /// Clips the item to this width — for trailing free-text items
+    /// (subtitles, instrument names) that must not run into a neighbour.
+    public var maxWidth: Int?
 
     public init(
         _ text: String,
         x: Int,
         color: UInt16,
-        font: SurfaceFont = .grid
+        font: SurfaceFont = .grid,
+        maxWidth: Int? = nil
     ) {
         self.text = text
         self.x = x
         self.color = color
         self.font = font
+        self.maxWidth = maxWidth
     }
 }
 
@@ -31,8 +36,12 @@ public struct MK2StatusLine: Sendable {
 
     public func draw(into frame: inout MK2PixelFrame) {
         for item in items {
-            BitmapLabel(item.text, font: item.font, color: item.color)
-                .draw(into: &frame, x: item.x, y: y)
+            let label = BitmapLabel(item.text, font: item.font, color: item.color)
+            if let maxWidth = item.maxWidth {
+                label.draw(into: &frame, x: item.x, y: y, clip: MK2PixelRect(x: item.x, y: y, width: maxWidth, height: item.font.cellHeight))
+            } else {
+                label.draw(into: &frame, x: item.x, y: y)
+            }
         }
     }
 }
