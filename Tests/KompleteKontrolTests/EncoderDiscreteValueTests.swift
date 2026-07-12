@@ -1,7 +1,10 @@
 import Testing
 @testable import KontrolSurfaceKit2
 
-@Suite("Encoder discrete value")
+// Serialized: the detent/acceleration tests exercise the process-wide
+// MK2EncoderDetents.shared store (two of them on the same encoder index) —
+// parallel execution races their reset() calls against each other.
+@Suite("Encoder discrete value", .serialized)
 struct EncoderDiscreteValueTests {
     @Test("Non-wrapping values clamp at both bounds")
     func clampsWithoutWrapAround() {
