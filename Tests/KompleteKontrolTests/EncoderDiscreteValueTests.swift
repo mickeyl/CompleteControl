@@ -110,7 +110,7 @@ struct EncoderDiscreteValueTests {
         // Three-way mode: clamped to the per-step maximum.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...2) == MK2EncoderDiscreteValue.maximumCountsPerStep)
         // Mid-size domain: full sweep ≈ targetSweepCounts.
-        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...15) == 40)
+        #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...15) == 32)
         // Large domains keep the slow-turn targeting floor — sweeping them
         // is the acceleration's job.
         #expect(MK2EncoderDiscreteValue.automaticCountsPerStep(for: 0...8191) == MK2EncoderDiscreteValue.minimumCountsPerStep)

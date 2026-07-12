@@ -139,11 +139,11 @@ public struct MK2EncoderDiscreteValue: Sendable {
     /// Rotation for a slow full domain sweep the automatic derivation aims
     /// for. Only governs the mid-size range between the two clamps; large
     /// domains ride the precision floor and are swept by acceleration.
-    public static let targetSweepCounts = 600
+    public static let targetSweepCounts = 480
     /// Upper bound of the automatic derivation, so tiny domains stay
-    /// reachable without excessive cranking. Bench-tuned 2026-07-12:
-    /// 90 felt slightly heavy on on/off and three-way domains.
-    public static let maximumCountsPerStep = 60
+    /// reachable without excessive cranking. Bench-tuned 2026-07-12 in three
+    /// rounds: 90 clearly heavy, 60 slightly sluggish, split the difference.
+    public static let maximumCountsPerStep = 42
     /// Lower bound of the automatic derivation: the slow-turn targeting
     /// floor. Bench-tuned 2026-07-12: at 4 counts mid-size domains were too
     /// nervous to land on a specific value; a deliberate nudge now takes a
