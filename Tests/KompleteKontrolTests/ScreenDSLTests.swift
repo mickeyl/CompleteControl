@@ -215,6 +215,49 @@ struct ScreenDSLTests {
         #expect(box.lastValue == 2)
     }
 
+    @Test("Separator element draws the sanctioned rule forms")
+    func separatorForms() {
+        let result = MK2FullScreenDSL {
+            MK2SeparatorElement(y: 10, relativeToContent: false)
+            MK2SeparatorElement(y: 20, style: .accent, relativeToContent: false)
+            MK2SeparatorElement(y: 30, style: .dotted, relativeToContent: false)
+            MK2SeparatorElement(y: 40, style: .bandEdge, relativeToContent: false)
+        }.build()
+
+        let frame = result.screen.frame
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 10, width: 480, height: 1), matching: MK2HIG.Chrome.border) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 20, width: 480, height: 1), matching: MK2HIG.Chrome.accent) == 480)
+        // Dotted: every second pixel lit.
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 30, width: 480, height: 1), matching: MK2HIG.Chrome.dim) == 240)
+        // Band edge: bevel over shadow.
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 40, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 41, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
+    }
+
+    @Test("Full-screen header slot renders the status and title forms")
+    func fullScreenHeaderSlot() {
+        let status = MK2FullScreenDSL(header: .status([
+            MK2StatusLineItem("PAT 00", x: 8, color: 0x07ff),
+        ])) {}.build()
+        // Status items above a border rule at y 30.
+        #expect(status.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 30, width: 480, height: 1), matching: MK2HIG.Chrome.border) == 480)
+        // Antialiased glyph pixels blend toward the item color, so count
+        // anything the text lit rather than exact color matches.
+        #expect(status.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 8, width: 100, height: 16), notMatching: MK2HIG.Chrome.background) > 20)
+
+        let renderer = try? FreeTypeTextRenderer()
+        let title = MK2FullScreenDSL(header: .title("Pulse Lead", caption: "Edit 04 Sample", color: 0x07ff)) {}
+            .build(renderer: renderer)
+        // Proportional title leading, caption trailing; no rule.
+        #expect(title.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 4, width: 200, height: 20), matching: 0x07ff) > 40)
+        #expect(title.screen.frame.countPixels(in: MK2PixelRect(x: 340, y: 6, width: 132, height: 16), matching: MK2HIG.Chrome.dim) > 20)
+        #expect(title.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 30, width: 480, height: 1), matching: MK2HIG.Chrome.border) == 0)
+
+        // .none keeps the frame untouched for special cases.
+        let bare = MK2FullScreenDSL(header: .none) {}.build()
+        #expect(bare.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 40), notMatching: MK2HIG.Chrome.background) == 0)
+    }
+
     @Test("Page indicator and tab bar draw compact navigation chrome")
     func pageIndicatorAndTabBarDraw() {
         let result = MK2RegularScreenDSL(header: .title(title: "Pages")) {

@@ -167,15 +167,72 @@ public struct MK2RegularScreenDSL: Sendable {
     }
 }
 
+/// The sanctioned full-screen header forms (decision 2026-07-12). Two
+/// typographic registers of the same FreeType pipeline: `.status` is the
+/// fixed-pitch instrument-panel register (JetBrains Mono cells at fixed x
+/// positions, rule below), `.title` the proportional product register
+/// (HarfBuzz-shaped leading title, trailing caption). `.none` stays legal
+/// for special cases (splash, hero, raw specimen screens).
+public enum MK2FullScreenHeader: Sendable {
+    case none
+    /// Fixed-pitch status items at y 8, with a border rule at y 30.
+    case status([MK2StatusLineItem])
+    /// Proportional leading title (15 px, bold) with an optional trailing
+    /// caption, no rule — the form the instrument editor established.
+    case title(String, caption: String?, color: UInt16)
+
+    var elements: [any MK2ScreenElement] {
+        switch self {
+            case .none:
+                return []
+            case let .status(items):
+                return [
+                    MK2AnyScreenElement { frame, _, _ in
+                        MK2StatusLine(y: 8, items: items).draw(into: &frame)
+                    },
+                    MK2SeparatorElement(y: 30, relativeToContent: false),
+                ]
+            case let .title(text, caption, color):
+                var elements: [any MK2ScreenElement] = [
+                    MK2ContentText(
+                        text.uppercased(),
+                        x: 8,
+                        y: 6,
+                        maxWidth: 330,
+                        role: .custom(weight: MK2HIG.Fonts.titleWeight, pixelSize: 15),
+                        color: color,
+                        relativeToContent: false
+                    ),
+                ]
+                if let caption {
+                    elements.append(MK2ContentText(
+                        caption.uppercased(),
+                        x: 200,
+                        y: 8,
+                        maxWidth: MK2PixelFrame.width - 208,
+                        role: .caption,
+                        color: MK2HIG.Chrome.dim,
+                        alignment: .trailing,
+                        relativeToContent: false
+                    ))
+                }
+                return elements
+        }
+    }
+}
+
 public struct MK2FullScreenDSL: Sendable {
     public var background: UInt16
+    public var header: MK2FullScreenHeader
     public var elements: [any MK2ScreenElement]
 
     public init(
         background: UInt16 = MK2HIG.Chrome.background,
+        header: MK2FullScreenHeader = .none,
         @MK2ScreenBuilder content: () -> [any MK2ScreenElement]
     ) {
         self.background = background
+        self.header = header
         self.elements = content()
     }
 
@@ -194,6 +251,9 @@ public struct MK2FullScreenDSL: Sendable {
         var frame = MK2PixelFrame(fill: background)
         var result = MK2ScreenBuildResult(screen: .fullScreen(frame))
         let context = MK2ScreenContext(renderer: renderer, modifiers: modifiers)
+        for element in header.elements {
+            element.apply(to: &frame, context: context, result: &result)
+        }
         for element in elements {
             element.apply(to: &frame, context: context, result: &result)
         }

@@ -102,17 +102,3 @@ enum MK2PaulincheRendererSupport {
     }
 
 }
-
-extension MK2PixelFrame {
-    mutating func hline(y: Int, x: Int, width: Int, color: UInt16) {
-        fill(MK2PixelRect(x: x, y: y, width: width, height: 1), color)
-    }
-
-    mutating func dottedVLine(x: Int, y: Int, height: Int, color: UInt16) {
-        var offset = 0
-        while offset < height {
-            fill(MK2PixelRect(x: x, y: y + offset, width: 1, height: 1), color)
-            offset += 2
-        }
-    }
-}

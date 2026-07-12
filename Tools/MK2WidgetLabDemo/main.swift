@@ -1451,14 +1451,13 @@ private actor WidgetLab {
                 )
             )
         }
-        return MK2FullScreenDSL(background: Palette.page) {
-            MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 8, items: [
-                    MK2StatusLineItem(title, x: 8, color: Palette.blue),
-                    MK2StatusLineItem(hint, x: 150, color: Palette.dim),
-                ]).draw(into: &frame)
-                frame.hline(y: 32, x: 0, width: 480, color: Palette.border)
-            }
+        return MK2FullScreenDSL(
+            background: Palette.page,
+            header: .status([
+                MK2StatusLineItem(title, x: 8, color: Palette.blue),
+                MK2StatusLineItem(hint, x: 150, color: Palette.dim),
+            ])
+        ) {
             MK2ParameterPageElement(slots: slots)
         }.build(renderer: freeTypeRenderer)
     }
@@ -1485,14 +1484,16 @@ private actor WidgetLab {
         ])) {}.build(renderer: freeTypeRenderer).screen.frame
 
         let renderer = freeTypeRenderer
-        return MK2FullScreenDSL(background: Palette.page) {
+        return MK2FullScreenDSL(
+            background: Palette.page,
+            header: .status([
+                MK2StatusLineItem("HEADER-FORMEN", x: 8, color: Palette.blue),
+                MK2StatusLineItem("H1-H4 · STANDARDISIERT", x: 170, color: Palette.dim),
+            ])
+        ) {
             MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 6, items: [
-                    MK2StatusLineItem("HEADER-FORMEN", x: 8, color: Palette.blue),
-                    MK2StatusLineItem("H1-H4 · HERKUNFT IM LABEL", x: 170, color: Palette.dim),
-                ]).draw(into: &frame)
 
-                var y = 26
+                var y = 38
                 func caption(_ text: String) {
                     BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
                     y += SurfaceFont.label.cellHeight + 2
@@ -1506,7 +1507,7 @@ private actor WidgetLab {
                 frame.blit(statusBand.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 30)), into: MK2PixelRect(x: 0, y: y, width: 480, height: 30))
                 y += 36
 
-                caption("H3 STATUSLINE + HLINE — FIXED-PITCH JETBRAINS MONO (PATTERN-GRID, LAB-UNITS)")
+                caption("H3 FULLSCREEN HEADER .STATUS — FIXED-PITCH, JETZT header:-SLOT")
                 MK2StatusLine(y: y + 4, items: [
                     MK2StatusLineItem("PAT 00", x: 8, color: Palette.blue),
                     MK2StatusLineItem("ROW 1F", x: 120, color: Palette.text, font: .gridBold),
@@ -1515,7 +1516,7 @@ private actor WidgetLab {
                 frame.hline(y: y + 24, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
                 y += 32
 
-                caption("H4 PROPORTIONAL FREIFORM — HARFBUZZ-SHAPED (INSTRUMENT-EDITOR TITEL)")
+                caption("H4 FULLSCREEN HEADER .TITLE — PROPORTIONAL, JETZT header:-SLOT")
                 if let renderer {
                     try? renderer.drawText(
                         "PULSE LEAD", into: &frame, x: 8, y: y + 2,
@@ -1535,41 +1536,35 @@ private actor WidgetLab {
     /// Right screen: the separator/ruler forms in use plus the one obvious
     /// missing candidate (dotted horizontal), each labeled with its origin.
     private func formsRulersResult() -> MK2ScreenBuildResult {
-        let footerBand = MK2RegularScreenDSL(header: .none, footer: .hint("GRADIENT-BAND MIT BEVEL + SCHATTEN")) {}
-            .build(renderer: freeTypeRenderer).screen.frame
-
-        return MK2FullScreenDSL(background: Palette.page) {
+        return MK2FullScreenDSL(
+            background: Palette.page,
+            header: .status([
+                MK2StatusLineItem("RULER-FORMEN", x: 8, color: Palette.blue),
+                MK2StatusLineItem("R1-R4 · VERTIKAL: PATTERNGRID", x: 170, color: Palette.dim),
+            ])
+        ) {
             MK2AnyScreenElement { frame, _, _ in
-                MK2StatusLine(y: 6, items: [
-                    MK2StatusLineItem("RULER-FORMEN", x: 8, color: Palette.blue),
-                    MK2StatusLineItem("R1-R4 + VERTIKAL", x: 170, color: Palette.dim),
-                ]).draw(into: &frame)
-
-                var y = 26
+                var y = 38
                 func caption(_ text: String) {
                     BitmapLabel(text, font: .label, color: Palette.dim).draw(into: &frame, x: 8, y: y)
                     y += SurfaceFont.label.cellHeight + 2
                 }
 
-                caption("R1 HLINE 1PX BORDER — PATTERN-GRID Y=55, LAB-UNITS Y=32, INFO-TRENNER")
+                caption("R1 SEPARATOR .LINE (BORDER) — JETZT MK2SEPARATORELEMENT")
                 frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.border)
                 y += 14
 
-                caption("R2 HLINE 1PX AKZENT — HERVORGEHOBENE TRENNUNG (BISHER AD HOC)")
+                caption("R2 SEPARATOR .ACCENT — HERVORGEHOBENE TRENNUNG")
                 frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.accent)
                 y += 14
 
-                caption("R3 CHROME-BAND-KANTE — HEADER/FOOTER-RAND (BEVEL + SCHATTEN)")
-                let footerRect = MK2PixelRect(x: 0, y: MK2PixelFrame.height - 24, width: 480, height: 24)
-                frame.blit(footerBand.pixels(in: footerRect), into: MK2PixelRect(x: 0, y: y + 2, width: 480, height: 24))
-                y += 32
+                caption("R3 SEPARATOR .BANDEDGE — BEVEL + SCHATTEN, 2PX")
+                frame.hline(y: y + 3, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.headerTopLine)
+                frame.hline(y: y + 4, x: 0, width: MK2PixelFrame.width, color: MK2HIG.Chrome.headerBottomLine)
+                y += 16
 
-                caption("R4 GEPUNKTET HORIZONTAL — EXISTIERT NICHT (KANDIDAT)")
-                var dotX = 0
-                while dotX < MK2PixelFrame.width {
-                    frame.fill(MK2PixelRect(x: dotX, y: y + 3, width: 1, height: 1), MK2HIG.Chrome.dim)
-                    dotX += 2
-                }
+                caption("R4 SEPARATOR .DOTTED — JETZT STANDARDFORM")
+                frame.dottedHLine(y: y + 3, color: MK2HIG.Chrome.dim)
                 y += 14
 
                 caption("V1 GEPUNKTET VERTIKAL — KANAL-RULER (PATTERN-GRID, TRACKER-LAB)")
@@ -4330,20 +4325,6 @@ private enum Palette {
     static let dialogSurface: UInt16 = 0x18e3
     static let selectionFill: UInt16 = 0x2126
     static let filterFill: UInt16 = 0x1083
-}
-
-private extension MK2PixelFrame {
-    mutating func hline(y: Int, x: Int, width: Int, color: UInt16) {
-        fill(MK2PixelRect(x: x, y: y, width: width, height: 1), color)
-    }
-
-    mutating func dottedVLine(x: Int, y: Int, height: Int, color: UInt16) {
-        var offset = 0
-        while offset < height {
-            fill(MK2PixelRect(x: x, y: y + offset, width: 1, height: 1), color)
-            offset += 2
-        }
-    }
 }
 
 private extension Int {
