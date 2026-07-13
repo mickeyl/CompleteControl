@@ -257,6 +257,26 @@ struct SelectionViewTests {
         )
     }
 
+    @Test("Fitted rows never clip and center the remainder")
+    func fittedRowsFloorAndCenter() {
+        // 166 px content, 54 px cells → three whole rows (not two, not a clipped
+        // fourth), remainder split top/bottom.
+        let content = MK2PixelRect(x: 8, y: 37, width: 464, height: 166)
+        let fit = MK2SelectionLayout.fittedRows(cellHeight: 54, in: content)
+        #expect(fit.rows == 3)
+        // The three rows fit inside the content with no clipping…
+        #expect(fit.originY + fit.rows * 54 <= content.maxY)
+        // …and the block is centered: equal-ish margins top and bottom.
+        let topMargin = fit.originY - content.y
+        let bottomMargin = content.maxY - (fit.originY + fit.rows * 54)
+        #expect(abs(topMargin - bottomMargin) <= 1)
+
+        // Exact fit leaves no margin and never rounds up into a clipped row.
+        let exact = MK2SelectionLayout.fittedRows(cellHeight: 50, in: MK2PixelRect(x: 0, y: 0, width: 100, height: 150))
+        #expect(exact.rows == 3)
+        #expect(exact.originY == 0)
+    }
+
     @Test("Grid derives visible cells from cell size")
     func gridDerivesLayoutFromCellSize() {
         var frame = MK2PixelFrame()
@@ -289,18 +309,35 @@ struct SelectionViewTests {
             )
         }
 
+        let cellSize = MK2SelectionCellSize(width: 58, height: 58)
         MK2SelectionGrid(
             title: "ICONS",
             items: items,
             selectedIndex: 31,
-            cellSize: MK2SelectionCellSize(width: 58, height: 58),
+            cellSize: cellSize,
             colors: colors,
             cellContent: .iconOnly(iconSize: 30)
         ).draw(into: &frame)
 
-        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 214, width: 52, height: 52), matching: colors.selectionFill) > 200)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 430, y: 264, width: 26, height: 1), matching: colors.selectionFill) > 0)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 417, y: 250, width: 52, height: 14), matching: colors.muted) == 0)
+        // Derive the selected cell from the tiling invariant instead of hard
+        // pixels, so layout-constant changes don't silently break the test.
+        let content = MK2SelectionLayout.contentRect(hasFilters: false)
+        let (rows, originY) = MK2SelectionLayout.fittedRows(cellHeight: cellSize.height, in: content)
+        let cols = MK2SelectionGrid.columnCount(for: cellSize, contentWidth: content.width)
+        let totalRows = (items.count - 1) / cols + 1
+        let selectedRow = 31 / cols
+        let firstRow = min(max(0, totalRows - rows), (selectedRow / rows) * rows)
+        let cellX = content.x + (31 % cols) * cellSize.width + 3
+        let cellY = originY + (selectedRow - firstRow) * cellSize.height + 3
+
+        // The selected cell carries the rounded selection fill…
+        #expect(frame.countPixels(in: MK2PixelRect(x: cellX, y: cellY, width: 52, height: 52), matching: colors.selectionFill) > 200)
+        // …the block is centered, so nothing is drawn in the bottom margin (no
+        // clipped last row)…
+        let blockBottom = originY + rows * cellSize.height
+        #expect(frame.countPixels(in: MK2PixelRect(x: content.x, y: blockBottom, width: content.width, height: max(1, content.maxY - blockBottom)), matching: colors.selectionFill) == 0)
+        // …and icon-only cells draw no muted badge text.
+        #expect(frame.countPixels(in: MK2PixelRect(x: cellX, y: cellY + 36, width: 52, height: 14), matching: colors.muted) == 0)
     }
 
     @Test("Optional columns render a tabular list with headers and alignment")

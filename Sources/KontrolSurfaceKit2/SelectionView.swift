@@ -221,6 +221,19 @@ public enum MK2SelectionLayout {
         max(1, contentWidth / cellSize.width)
     }
 
+    /// The fixed-cell tiling invariant for grids: fit as many whole rows of
+    /// `cellHeight` as the content allows (floor — a partial last row is never
+    /// drawn clipped) and center the block, so the unavoidable remainder is a
+    /// symmetric top/bottom margin instead of a dead strip. Any tiled element
+    /// that lays out fixed-height cells should route through here rather than
+    /// re-deriving `height / cell` (and never `ceil`, which clips).
+    public static func fittedRows(cellHeight: Int, in content: MK2PixelRect) -> (rows: Int, originY: Int) {
+        let stride = max(1, cellHeight)
+        let rows = max(1, content.height / stride)
+        let originY = content.y + max(0, (content.height - rows * stride) / 2)
+        return (rows, originY)
+    }
+
     public static func gridRowStep(for cellSize: MK2SelectionCellSize, contentWidth: Int = contentWidth) -> Int {
         gridColumnCount(for: cellSize, contentWidth: contentWidth)
     }
@@ -508,7 +521,7 @@ public struct MK2SelectionGrid: Sendable {
         }
 
         let columns = Self.columnCount(for: cellSize, contentWidth: content.width)
-        let rows = visibleRowCount(in: content)
+        let (rows, originY) = MK2SelectionLayout.fittedRows(cellHeight: cellSize.height, in: content)
         let selected = selectedIndex.clamped(to: 0...(items.count - 1))
         let selectedRow = selected / columns
         let firstRow = firstVisibleRow(selectedRow: selectedRow, visibleRows: rows, itemCount: items.count, columns: columns)
@@ -521,7 +534,7 @@ public struct MK2SelectionGrid: Sendable {
             let row = local / columns
             let rect = MK2PixelRect(
                 x: content.x + column * cellSize.width + 3,
-                y: content.y + row * cellSize.height + 3,
+                y: originY + row * cellSize.height + 3,
                 width: cellSize.width - 6,
                 height: cellSize.height - 6
             )
@@ -581,13 +594,6 @@ public struct MK2SelectionGrid: Sendable {
         if let badge = item.badge, rect.height >= 44 {
             MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: rect.x + 8, y: rect.maxY - 22, color: selected ? colors.dim : colors.muted, maxWidth: max(0, rect.width - 16))
         }
-    }
-
-    private func visibleRowCount(in content: MK2PixelRect) -> Int {
-        if filters.isEmpty, case .iconOnly = cellContent {
-            return max(1, (content.height + cellSize.height - 1) / cellSize.height)
-        }
-        return max(1, content.height / cellSize.height)
     }
 
     private func firstVisibleRow(selectedRow: Int, visibleRows: Int, itemCount: Int, columns: Int) -> Int {
