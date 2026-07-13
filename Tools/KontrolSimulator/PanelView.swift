@@ -934,6 +934,10 @@ final class PanelView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if event.modifierFlags.contains(.command) {
+            super.scrollWheel(with: event)
+            return
+        }
         if event.hasPreciseScrollingDeltas, enclosingScrollViewCanScroll {
             super.scrollWheel(with: event)
             return

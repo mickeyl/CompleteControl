@@ -934,6 +934,14 @@ private final class SimulatorScrollView: NSScrollView {
         onViewportChanged?()
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) {
+            zoomWithScrollWheel(event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if onKeyDown?(event) == true { return }
         super.keyDown(with: event)
@@ -947,6 +955,20 @@ private final class SimulatorScrollView: NSScrollView {
     override func flagsChanged(with event: NSEvent) {
         if onFlagsChanged?(event) == true { return }
         super.flagsChanged(with: event)
+    }
+
+    private func zoomWithScrollWheel(_ event: NSEvent) {
+        let raw = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+        guard raw != 0 else { return }
+        let normalized = event.hasPreciseScrollingDeltas ? raw / 14 : raw / 3
+        let factor = pow(1.08, normalized)
+        let next = max(minMagnification, min(maxMagnification, magnification * factor))
+        guard abs(next - magnification) > 0.0001 else { return }
+        let center = documentView?.convert(event.locationInWindow, from: nil)
+            ?? NSPoint(x: documentVisibleRect.midX, y: documentVisibleRect.midY)
+        setMagnification(next, centeredAt: center)
+        onMagnificationChanged?()
+        onViewportChanged?()
     }
 }
 
