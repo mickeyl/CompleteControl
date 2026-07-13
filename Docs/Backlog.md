@@ -205,3 +205,12 @@
   not magic constants. Precondition: bench-approve the values first via the
   meter demo's E5-E8 calibration rig (RELEASE / PK HOLD / PK FALL / RATE) so the
   Kit ships tuned constants, not guessed ones.
+
+- Meter bar styles (2026-07-13): try and support several fill styles for
+  `MK2MeterElement`, selectable per use — plain solid, simple gradient (along
+  the fill), bi-gradient (two-tone), pseudo-3D (debossed like the value wells,
+  since a meter track is semantically a well). Candidates to consider too:
+  gradient-by-zone (green→warning→danger along the scale rather than a hard
+  threshold flip), and a segmented / LED-ladder style (discrete blocks like
+  classic hardware VU). Judge on the OLED. The ballistics calibration rig
+  (meter demo, E5-E8) is the place to preview them live.
