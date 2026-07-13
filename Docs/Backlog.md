@@ -93,19 +93,23 @@
 - Grow the DSL's first-class element vocabulary; there is still too much hand-drawn
   content hiding in `MK2RenderBlock`/`MK2AnyScreenElement` escape hatches. Every such
   closure bypasses the element contract (no build-result participation, no shift-pass
-  awareness, no reuse) and re-invents layout constants inline. Known offenders to
-  audit: the WidgetLab unit screens (status rows, ad-hoc labels, separator lines,
-  pattern overview strip), the Paulinche renderers' title/tag/info-line drawing, and
-  the song scenes' `drawSoftKeyStrip` (now deleted; future arranger scene starts
-  DSL-first). Candidates for
-  promotion: a titled status row, an icon+label tag chip, a plain separator rule,
-  and a key/value info-line stack.
+  awareness, no reuse) and re-invents layout constants inline. Delivered so far
+  (DSL review 2026-07-12/13): the tag chip (`MK2Tag`/`MK2TagElement`, B2), the
+  separator rule (`MK2SeparatorElement`, A5), the status row (`MK2StatusLineElement`
+  with `maxWidth`, A3), and tabular selection lists (`MK2SelectionColumn`, B3). The
+  Paulinche instrument/pattern renderers now consume all four instead of drawing them
+  by hand. Remaining hand-drawn offenders: the tracker pattern grid + minimap (still
+  duplicated WidgetLab ↔ Paulinche — DSL-review C1) and a key/value info-line stack
+  (Paulinche instrument `infoLines`, still `MK2RenderBlock`).
 
-- Migrate the Paulinche renderers onto the standardized forms (2026-07-12
-  decision): instrument-editor title → FullScreen `header: .title` (resolves
-  DSL-review A4), pattern-grid status line → `header: .status` (A3), and the
-  scattered `hline` info separators → `MK2SeparatorElement`. Precondition
-  noted 2026-07-12: a larger widget-lab rework is planned first.
+- Done 2026-07-13: the Paulinche renderers are migrated onto the standardized
+  forms. Instrument-editor title/subtitle → `MK2ContentText` (DSL-review A4),
+  pattern-grid status line + right-screen status → `MK2StatusLineElement` with
+  the new `MK2StatusLineItem.maxWidth` clip (A3), the info separator →
+  `MK2SeparatorElement`, and the kind pill → `MK2Tag` (B2). All three renderer
+  snapshots (`paulinche-pattern`, `paulinche-instrument`, `-shift`) are
+  pixel-identical before/after. Remaining migration target: the pattern grid +
+  minimap themselves (DSL-review C1).
 
 - Encoder-slot geometry is duplicated by convention, not enforced: every page passes
   its own footer rect (now `x: 8, width: 464`) into `MK2ParameterPageElement`, and only

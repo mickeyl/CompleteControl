@@ -1,7 +1,10 @@
 # DSL-Standardisierungs-Review: Custom-Renderer-Inventar und Kandidaten
 
-Stand 2026-07-11, Status-Marker aktualisiert 2026-07-12 (nach
-WidgetLab-Rework und Value-Cell-Icons).
+Stand 2026-07-11, Status-Marker aktualisiert 2026-07-13. Umgesetzt sind
+inzwischen A3, A4, A5, B1, B2, B3 und D2 (sowie backlog-seitig die
+per-Ebene-Lampen, der `isHardwareShiftPressed`-Abbau und das
+`ControlLampName`-Enum); **offen bleiben nur C1 und D1** (C2 war ein
+Nicht-Handlungspunkt). Details je Punkt unten.
 Analysebasis: Kit2-Widget-Katalog (`Sources/KontrolSurfaceKit2`),
 MK2WidgetLabDemo (`Tools/MK2WidgetLabDemo`), Paulinche-Renderer
 (`Sources/PaulincheSurfaceKit`) sowie `Paulinche/BACKLOG.md`
@@ -289,23 +292,28 @@ ModalDialog spricht „4-D: select and confirm"/„ACTIONS", SelectionView
 
 Die Backlog-These („Bindings und Lamp-States sind nicht genug
 formalisiert") wird gestützt, aber das Display-Inventar zeigt: Die
-Widget-Seite ist weiter als die Binding/Lampen-Seite. Empfohlene
-Reihenfolge:
+Widget-Seite war weiter als die Binding/Lampen-Seite. Ursprünglich
+empfohlene Reihenfolge, mit Ist-Stand 2026-07-13:
 
-1. **A1–A5** — risikolos, baut Support-Code ab.
-2. **B1** (Touch-Highlight in die DSL) — löst den dreifach
-   halb-verdrahteten Roundtrip, passt zum gelieferten Shift-Muster
-   („Runtime-lokal, ohne App-Roundtrip").
-3. **B2/B3** opportunistisch, wenn die jeweilige Szene angefasst wird;
-   B3 idealerweise *vor* der SCENE/Arranger-Hardware-Szene aus dem
-   Backlog, damit die nicht als dritter Custom-Renderer startet.
-4. **C1** als eigener Schritt — größter Brocken, beseitigt die größte
-   Duplikation.
-5. Parallel die offenen Backlog-Punkte: ~~per-Ebene-Lampen (lügende
-   UNDO-Lampe)~~ und ~~`isHardwareShiftPressed`-Abbau~~ (beide erledigt
-   2026-07-11); offen bleibt das `ControlLampName`-Enum mit typisierten
-   Bindings — die Analyse liefert dafür die vollständige
-   Lampen-/Binding-Landkarte.
+1. ~~**A1–A5**~~ — erledigt (A1/A2 durch Song-Entfernung gegenstandslos,
+   A3/A4/A5 gebaut).
+2. ~~**B1**~~ (Touch-Highlight in die DSL) — erledigt und auf Hardware
+   bestätigt; passt zum gelieferten Shift-Muster („Runtime-lokal, ohne
+   App-Roundtrip").
+3. ~~**B2/B3**~~ — erledigt; B3 (`MK2SelectionColumn`) liegt damit *vor*
+   der SCENE/Arranger-Hardware-Szene, die also nicht als dritter
+   Custom-Renderer startet.
+4. **C1** — **offen**, als eigener Schritt: größter Brocken, beseitigt
+   die größte Duplikation (Tracker-Grid + Minimap doppelt in WidgetLab
+   und Paulinche).
+5. Backlog-Punkte parallel: ~~per-Ebene-Lampen (lügende UNDO-Lampe)~~,
+   ~~`isHardwareShiftPressed`-Abbau~~ und ~~`ControlLampName`-Enum~~ —
+   alle erledigt (Paulinche `fead69b`). Die Button-*Event*-Namen des
+   `ControlInputRouter` bleiben bewusst Strings (user-konfigurierbares
+   Mapping).
+
+**Damit offen aus diesem Review: nur noch C1 (neues Grid-/Minimap-Widget)
+und D1 (Kit-interne Helfer-Konsolidierung).**
 
 ## Anhang: Verworfene Ideen
 
