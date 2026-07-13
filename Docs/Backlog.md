@@ -134,9 +134,10 @@
   as value cells. `MK2SelectionFilter.iconGlyph` reuses `MK2ValueCell.iconGlyph`,
   the filter label dropped its `E<n>` encoder-name prefix (HIG: the cell sits
   above its physical encoder), and the demo browser's CATEGORY filter leads
-  with a funnel glyph. Remaining filter cells (icon browser LETTER/MODE,
-  selection AREA/SRC) intentionally stay icon-less — no distinct glyph
-  suggests itself for a pair of generic filters on one screen.
+  with a funnel glyph; the icon browser's LETTER filter leads with an "Aa"
+  glyph and MODE with a grid/list glyph that tracks the mode. Remaining
+  filter cells (selection demo AREA/SRC) intentionally stay icon-less — no
+  distinct glyph suggests itself for a pair of generic filters on one screen.
 
 - Scene preview thumbnails (idea 2026-07-13): render the next scene as a
   downscaled pixmap and show it as a thumbnail — first use is the demo

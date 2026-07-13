@@ -45,7 +45,9 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
 
     private static let letterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
     private static let sizes = [20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 88]
-    private static let gridCellSize = MK2SelectionCellSize(width: 58, height: 58)
+    // 54 px cells fit three rows into the 166 px filtered content band (58 px
+    // only fit two, leaving a dead row of air above the filters).
+    private static let gridCellSize = MK2SelectionCellSize(width: 54, height: 54)
     private static let pageStep = 7
     private static let styleLabel = "Regular"
 
@@ -344,14 +346,16 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
                 value: Self.letterFilters[filterNavigation.selectedIndex],
                 encoder: 5,
                 isActive: filterNavigation.selectedIndex != 0,
-                isFocused: filterNavigation.focusedFilterEncoder == 5
+                isFocused: filterNavigation.focusedFilterEncoder == 5,
+                iconGlyph: MK2HIG.IconGlyph.textAa
             ),
             MK2SelectionFilter(
                 label: "MODE",
                 value: mode.shortTitle,
                 encoder: 8,
                 isActive: true,
-                isFocused: false
+                isFocused: false,
+                iconGlyph: mode.isGrid ? MK2HIG.IconGlyph.squaresFour : MK2HIG.IconGlyph.listBullets
             ),
         ]
     }
