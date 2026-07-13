@@ -196,21 +196,27 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
         BitmapLabel("\(sample.label.uppercased())  \(icon.name.uppercased())", font: .label, color: Palette.accent)
             .draw(into: &frame, x: 8, y: 25, clip: MK2PixelRect(x: 8, y: 25, width: 456, height: 14))
 
-        let dialog = MK2PixelRect(x: 8, y: 48, width: 456, height: 150)
-        let dialogRadius = 8
-        frame.fillRounded(dialog, radius: dialogRadius, icon.color, antialiased: true)
-        frame.fillRounded(
-            MK2PixelRect(x: dialog.x + 1, y: dialog.y + 1, width: dialog.width - 2, height: dialog.height - 2),
-            radius: dialogRadius - 1,
-            Palette.dialogSurface,
-            antialiased: true
-        )
-        drawFreeTypeIcon(icon.glyph, into: &frame, renderer: renderer, x: 28, y: 70, size: iconPixelSize, color: icon.color)
-        drawFreeTypeTitle(sample.title, into: &frame, renderer: renderer, x: 112, y: 64, size: titlePixelSize, color: icon.color, maxWidth: 336)
-        let bodyLines = drawFreeTypeBody(sample.body, into: &frame, renderer: renderer, x: 112, y: 104, size: bodyPixelSize, color: Palette.text, maxWidth: 336, maxLines: 2)
-        let detailSize = max(12, min(18, bodyPixelSize - 1))
-        let detailY = 104 + bodyLines * freeTypeLineAdvance(size: bodyPixelSize) + 2
-        drawFreeTypeBody(sample.detail, into: &frame, renderer: renderer, x: 112, y: detailY, size: detailSize, color: Palette.dim, maxWidth: 336, maxLines: 2)
+        // The one-screen dialog card is a Kit element now (MK2DialogCard); the
+        // demo drives its icon, title, body and icon/title sizes to judge the look.
+        MK2DialogCard(
+            rect: MK2PixelRect(x: 8, y: 48, width: 456, height: 150),
+            iconGlyph: icon.glyph,
+            iconColor: icon.color,
+            iconSize: iconPixelSize,
+            iconPlacement: .leading,
+            title: sample.title,
+            body: sample.body,
+            footnote: sample.detail,
+            titlePixelSize: titlePixelSize,
+            bodyPixelSize: bodyPixelSize,
+            colors: MK2DialogCardColors(
+                surface: Palette.dialogSurface,
+                border: icon.color,
+                title: icon.color,
+                body: Palette.text,
+                footnote: Palette.dim
+            )
+        ).draw(into: &frame, renderer: renderer)
 
         for binding in encoderValues(nil) {
             binding.drawDisplay(into: &frame, renderer: renderer)

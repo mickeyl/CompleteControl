@@ -96,15 +96,24 @@ final class DialogCardDemo: LabDemo, @unchecked Sendable {
         var frame = MK2PixelFrame(fill: Palette.page)
         let candidate = Self.candidates[candidateIndex]
         drawHeader(into: &frame, title: "DIALOG CARD", subtitle: "Phosphor Regular, icon 48 px")
-        let dialog = MK2PixelRect(x: 46, y: 56, width: 388, height: 172)
-        frame.fill(dialog, Palette.dialogSurface)
-        frame.stroke(dialog, Palette.border)
-        if let icon = selectedIcon {
-            drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: renderer, centerX: 240, y: 77, size: Self.dialogIconSize, color: Palette.accent)
-        }
-        drawFreeTypeTitle(candidate.title, into: &frame, renderer: renderer, x: 74, y: 133, size: MK2HIG.Typography.titlePixelSize, color: Palette.text, maxWidth: 332)
-        drawFreeTypeBody(candidate.body, into: &frame, renderer: renderer, x: 74, y: 171, size: MK2HIG.Typography.bodyPixelSize, color: Palette.dim, maxWidth: 332)
-        drawFreeTypeBody("[\(candidate.action)]        CANCEL", into: &frame, renderer: renderer, x: 142, y: 204, size: MK2HIG.Typography.bodyPixelSize, color: Palette.text, maxWidth: 240)
+        // Icon-on-top variant of the same Kit dialog card as the type-specimen demo.
+        MK2DialogCard(
+            rect: MK2PixelRect(x: 46, y: 56, width: 388, height: 172),
+            iconGlyph: selectedIcon?.glyph,
+            iconColor: Palette.accent,
+            iconSize: Self.dialogIconSize,
+            iconPlacement: .top,
+            title: candidate.title,
+            body: candidate.body,
+            footnote: "[\(candidate.action)]        CANCEL",
+            colors: MK2DialogCardColors(
+                surface: Palette.dialogSurface,
+                border: Palette.border,
+                title: Palette.text,
+                body: Palette.dim,
+                footnote: Palette.text
+            )
+        ).draw(into: &frame, renderer: renderer)
         drawFreeTypeBody("PAGE browses icons. PRESET steps the size. INSTANCE cycles content.", into: &frame, renderer: renderer, x: 18, y: 246, size: MK2HIG.Typography.bodyPixelSize, color: Palette.empty, maxWidth: 432)
         return frame
     }
