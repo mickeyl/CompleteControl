@@ -32,6 +32,20 @@ struct ScreenLayoutTests {
         #expect(compact.footerRect?.height == 24)
     }
 
+    @Test("Chrome text uses independently calibrated optical offsets")
+    func chromeTextOpticalOffsets() {
+        let typography = MK2ScreenChromeTypography()
+        let layout = MK2ScreenLayout.regular(
+            header: .title(title: "T"),
+            footer: .hint("hint"),
+            typography: typography
+        )
+
+        #expect(MK2RegularScreenChrome.titleHeaderTextY(for: typography) == 5)
+        #expect(MK2RegularScreenChrome.statusHeaderTextY(for: typography) == 8)
+        #expect(MK2RegularScreenChrome.footerTextY(in: layout.footerRect!, typography: typography) == 250)
+    }
+
     @Test("Progress bar hugs the header bottom or the top edge")
     func progressBarTopPlacement() {
         let withHeader = MK2ScreenLayout.regular(header: .title(title: "T"), progress: .top)

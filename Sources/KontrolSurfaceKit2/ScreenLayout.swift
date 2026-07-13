@@ -278,6 +278,11 @@ public struct MK2ScreenChromeTypography: Sendable, Equatable {
 public struct MK2RegularScreenChrome: Sendable {
     public static let captionPixelSize = MK2HIG.Typography.captionPixelSize
     public static let bodyPixelSize = MK2HIG.Typography.bodyPixelSize
+    /// IBM Plex and fixed-pitch JetBrains Mono expose different top-of-em
+    /// whitespace. Keep their hardware-calibrated origins independent.
+    static let titleHeaderTextOpticalOffset = -3
+    static let statusHeaderTextOpticalOffset = 0
+    static let footerTextOpticalOffset = -3
 
     public var header: MK2ScreenHeader
     public var footer: MK2ScreenFooter
@@ -311,13 +316,11 @@ public struct MK2RegularScreenChrome: Sendable {
     }
 
     public func drawHeader(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
-        // Visually centered in the single-line band: the geometric center minus 2 px,
-        // because the em box carries more dead space below the caps than above.
-        let lineY = (typography.captionPixelSize + 2) / 2 - 2
         switch header {
             case .none:
                 return
             case let .title(title, subtitle, subtitleAlignment):
+                let lineY = Self.titleHeaderTextY(for: typography)
                 drawHeaderBackdrop(into: &frame)
                 drawCaption(title, into: &frame, renderer: renderer, x: 8, y: lineY, color: colors.accent, maxWidth: 220)
                 guard let subtitle else { return }
@@ -329,7 +332,7 @@ public struct MK2RegularScreenChrome: Sendable {
                 }
             case let .status(items):
                 drawHeaderBackdrop(into: &frame)
-                MK2StatusLine(y: lineY, items: items).draw(into: &frame)
+                MK2StatusLine(y: Self.statusHeaderTextY(for: typography), items: items).draw(into: &frame)
         }
     }
 
@@ -345,11 +348,23 @@ public struct MK2RegularScreenChrome: Sendable {
                 return
             case let .hint(text):
                 drawChromeBand(footerRect, into: &frame)
-                let textY = footerRect.y + max(1, (footerRect.height - typography.footnotePixelSize) / 2 - 2)
+                let textY = Self.footerTextY(in: footerRect, typography: typography)
                 drawFootnote(text, into: &frame, renderer: renderer, x: 18, y: textY, color: colors.dim, maxWidth: 444)
             case .encoderArea, .filters:
                 drawChromeBand(footerRect, into: &frame)
         }
+    }
+
+    static func titleHeaderTextY(for typography: MK2ScreenChromeTypography) -> Int {
+        (typography.captionPixelSize + 2) / 2 + titleHeaderTextOpticalOffset
+    }
+
+    static func statusHeaderTextY(for typography: MK2ScreenChromeTypography) -> Int {
+        (typography.captionPixelSize + 2) / 2 + statusHeaderTextOpticalOffset
+    }
+
+    static func footerTextY(in rect: MK2PixelRect, typography: MK2ScreenChromeTypography) -> Int {
+        rect.y + max(1, (rect.height - typography.footnotePixelSize) / 2 + footerTextOpticalOffset)
     }
 
     // Shared raised-band look for header and footer: a bright bevel on the top edge,
