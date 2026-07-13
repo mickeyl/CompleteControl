@@ -25,9 +25,18 @@ public enum MK2HIG {
         public static let rasterMode: FreeTypeRasterMode = .grayscaleHinted
     }
 
-    /// Curated Phosphor Regular glyphs for value-cell label icons
-    /// (`MK2ValueCell.iconGlyph`). The names mirror the Phosphor catalog;
-    /// pick by parameter semantics, one icon position per screen.
+    /// Curated Phosphor Regular glyphs for label-line icons
+    /// (`MK2ValueCell.iconGlyph`, `MK2SelectionFilter.iconGlyph`). The names
+    /// mirror the Phosphor catalog; pick by parameter semantics, one icon
+    /// position per screen.
+    ///
+    /// This is a hand-picked subset, grown on demand: the full Phosphor
+    /// Regular palette (≈1530 glyphs) lives in
+    /// `Tools/MK2WidgetLabDemo/PhosphorIcons.regular.json`. When a screen
+    /// needs a glyph that is not here yet, look up its codepoint there and add
+    /// a `case` below — never scatter raw `\u{…}` escapes through the demos or
+    /// renderers. (The Icon Browser demo renders the whole JSON palette, so it
+    /// doubles as the picker.)
     public enum IconGlyph {
         public static let anchor = "\u{e514}"                    // anchor
         public static let arrowLineLeft = "\u{e062}"             // arrow-line-left
@@ -35,6 +44,7 @@ public enum MK2HIG {
         public static let arrowsDownUp = "\u{e098}"              // arrows-down-up
         public static let arrowsOutLineHorizontal = "\u{e534}"   // arrows-out-line-horizontal
         public static let flag = "\u{e244}"                      // flag
+        public static let funnel = "\u{e266}"                    // funnel
         public static let gauge = "\u{e628}"                     // gauge
         public static let layout = "\u{e6d6}"                    // layout
         public static let lightbulb = "\u{e2dc}"                 // lightbulb

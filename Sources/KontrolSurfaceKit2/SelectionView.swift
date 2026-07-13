@@ -68,13 +68,18 @@ public struct MK2SelectionFilter: Sendable, Equatable {
     public var encoder: Int
     public var isActive: Bool
     public var isFocused: Bool
+    /// Optional leading label-line icon (see `MK2ValueCell.iconGlyph`). The
+    /// filter cell sits above its physical encoder, so the label names the
+    /// *filter*, never the encoder — the icon carries the filter's meaning.
+    public var iconGlyph: String?
 
-    public init(label: String, value: String, encoder: Int, isActive: Bool = true, isFocused: Bool = false) {
+    public init(label: String, value: String, encoder: Int, isActive: Bool = true, isFocused: Bool = false, iconGlyph: String? = nil) {
         self.label = label
         self.value = value
         self.encoder = encoder
         self.isActive = isActive
         self.isFocused = isFocused
+        self.iconGlyph = iconGlyph
     }
 }
 
@@ -334,7 +339,7 @@ public struct MK2SelectionList: Sendable {
         }
         guard !items.isEmpty else {
             MK2SelectionDrawing.drawEmpty("No entries", into: &frame, rect: content, colors: colors)
-            MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
+            MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors, renderer: renderer)
             return
         }
 
@@ -350,7 +355,7 @@ public struct MK2SelectionList: Sendable {
             let y = content.y + (visible - first) * rowStride
             drawRow(items[visible], index: visible, selected: visible == selected, y: y, into: &frame, renderer: renderer)
         }
-        MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
+        MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors, renderer: renderer)
     }
 
     private func drawRow(
@@ -498,7 +503,7 @@ public struct MK2SelectionGrid: Sendable {
         let content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
         guard !items.isEmpty else {
             MK2SelectionDrawing.drawEmpty("No entries", into: &frame, rect: content, colors: colors)
-            MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
+            MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors, renderer: renderer)
             return
         }
 
@@ -522,7 +527,7 @@ public struct MK2SelectionGrid: Sendable {
             )
             drawCell(items[index], selected: index == selected, rect: rect, into: &frame, renderer: renderer)
         }
-        MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors)
+        MK2SelectionDrawing.drawFilters(filters, into: &frame, colors: colors, renderer: renderer)
     }
 
     private func drawCell(
@@ -622,7 +627,7 @@ private enum MK2SelectionDrawing {
             .draw(into: &frame, x: rect.x + 12, y: rect.y + 32, clip: rect)
     }
 
-    static func drawFilters(_ filters: [MK2SelectionFilter], into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors) {
+    static func drawFilters(_ filters: [MK2SelectionFilter], into frame: inout MK2PixelFrame, colors: MK2SelectionViewColors, renderer: FreeTypeTextRenderer?) {
         guard !filters.isEmpty else { return }
         let slotWidth = MK2PixelFrame.width / 4
         let visibleFilters = Array(filters.prefix(4))
@@ -631,10 +636,12 @@ private enum MK2SelectionDrawing {
             let slot = filter.encoderSlot(fallback: index)
             let x = slot * slotWidth + 8
             // Bottom-flush like every encoder-bound value cell: the filter maps to a
-            // physical encoder below the display.
+            // physical encoder below the display. The label names the filter, not
+            // the encoder (HIG: the cell already sits above its physical control).
             let rect = MK2PixelRect(x: x, y: MK2ScreenLayout.encoderSlotBottom - 34, width: slotWidth - 16, height: 34)
             MK2ValueCell(
-                label: "E\(filter.encoder) \(filter.label)",
+                label: filter.label,
+                iconGlyph: filter.iconGlyph,
                 value: filter.value,
                 rect: rect,
                 isFocused: filter.isFocused,
@@ -647,9 +654,11 @@ private enum MK2SelectionDrawing {
                     fill: colors.background,
                     focusedValue: colors.background,
                     focusedFill: colors.accent,
-                    focusedBorder: colors.accent
+                    focusedBorder: colors.accent,
+                    // Icon tint distinct from the label in both states (HIG).
+                    icon: filter.isActive ? colors.filterValue : colors.accent
                 )
-            ).draw(into: &frame)
+            ).draw(into: &frame, renderer: renderer)
         }
     }
 

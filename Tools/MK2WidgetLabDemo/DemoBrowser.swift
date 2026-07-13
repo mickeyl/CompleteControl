@@ -68,7 +68,8 @@ extension LabShell {
                         label: "CATEGORY",
                         value: Self.demoBrowserCategoryValues[demoBrowserCategoryIndex].uppercased(),
                         encoder: 4,
-                        isFocused: demoBrowserNavigation.focusedFilterEncoder == 4
+                        isFocused: demoBrowserNavigation.focusedFilterEncoder == 4,
+                        iconGlyph: MK2HIG.IconGlyph.funnel
                     ),
                 ],
                 rowHeight: 44,

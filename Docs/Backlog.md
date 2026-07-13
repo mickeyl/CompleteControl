@@ -130,8 +130,10 @@
   `MK2EncoderDetents`) instead of `static let`s. Current bench-approved
   values: sweep 480, max 42, min 24, fast sweep 600, rates 150/1200 c/s.
 
-- Selection *filter* cells (`MK2SelectionFilter`, e.g. the icon browser's
-  LETTER/MODE encoders) do not carry label-line icons yet; if filter-heavy
-  screens want the same icon language, extend them the way
-  `MK2ValueCell.iconGlyph` works (the label-rule itself is delivered and
-  documented in CLAUDE.md).
+- Done 2026-07-13: selection *filter* cells carry the same label-line icons
+  as value cells. `MK2SelectionFilter.iconGlyph` reuses `MK2ValueCell.iconGlyph`,
+  the filter label dropped its `E<n>` encoder-name prefix (HIG: the cell sits
+  above its physical encoder), and the demo browser's CATEGORY filter leads
+  with a funnel glyph. Remaining filter cells (icon browser LETTER/MODE,
+  selection AREA/SRC) intentionally stay icon-less — no distinct glyph
+  suggests itself for a pair of generic filters on one screen.
