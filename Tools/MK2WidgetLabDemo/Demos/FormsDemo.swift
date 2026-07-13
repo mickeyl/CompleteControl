@@ -11,7 +11,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
         title: "Header & Ruler Forms",
         category: .lookAndFeel,
         summary: "The sanctioned header and separator set",
-        detail: "Left: the four header forms (chrome bands, full-screen status and title slots). Right: the separator forms R1-R4 plus the T1 tag pill; vertical rulers stay a pattern-grid detail."
+        detail: "Left: the four header forms plus the chrome-band function bar (F1). Right: the separator forms R1-R4 plus the T1 tag pill; vertical rulers stay a pattern-grid detail."
     )
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
@@ -30,6 +30,19 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
             MK2StatusLineItem("ITEMS", x: 92, color: Palette.dim),
             MK2StatusLineItem("FIXED X POSITIONS", x: 196, color: Palette.text, font: .gridBold),
         ])) {}.build(renderer: renderer).screen.frame
+        let chromeBarHeight = MK2FunctionKeyBarElement.chromeBandHeight
+        let chromeBar = MK2FullScreenDSL(background: Palette.page) {
+            MK2FunctionKeyBarElement(
+                slots: [
+                    MK2FunctionKeySlot("COPY", iconGlyph: MK2HIG.IconGlyph.copy),
+                    MK2FunctionKeySlot("PASTE", iconGlyph: MK2HIG.IconGlyph.clipboard),
+                    MK2FunctionKeySlot("CLEAR", iconGlyph: MK2HIG.IconGlyph.eraser),
+                    MK2FunctionKeySlot("TRIM", iconGlyph: MK2HIG.IconGlyph.crop),
+                ],
+                side: .left,
+                style: .chromeBand
+            )
+        }.build(renderer: renderer).screen.frame
 
         return MK2FullScreenDSL(
             background: Palette.page,
@@ -75,6 +88,10 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
                         maxWidth: 128
                     )
                 }
+                y += 30
+
+                caption("F1 FUNCTION BAR .CHROMEBAND — RAISED CHIPS + ICONS (.PLAIN: TRACKER)")
+                frame.blit(chromeBar.pixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: chromeBarHeight)), into: MK2PixelRect(x: 0, y: y, width: 480, height: chromeBarHeight))
             }
         }.build(renderer: renderer)
     }

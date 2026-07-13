@@ -314,10 +314,10 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
             // swallows the press under shift.
             MK2FunctionKeyBarElement(
                 slots: [
-                    MK2FunctionKeySlot("COPY"),
-                    MK2FunctionKeySlot("PASTE"),
-                    MK2FunctionKeySlot("CLEAR", isEnabled: false),
-                    MK2FunctionKeySlot("TRIM"),
+                    MK2FunctionKeySlot("COPY", iconGlyph: MK2HIG.IconGlyph.copy),
+                    MK2FunctionKeySlot("PASTE", iconGlyph: MK2HIG.IconGlyph.clipboard),
+                    MK2FunctionKeySlot("CLEAR", iconGlyph: MK2HIG.IconGlyph.eraser, isEnabled: false),
+                    MK2FunctionKeySlot("TRIM", iconGlyph: MK2HIG.IconGlyph.crop),
                 ],
                 shiftSlots: [
                     MK2FunctionKeySlot(),

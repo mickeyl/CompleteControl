@@ -43,6 +43,10 @@ public enum MK2HIG {
         public static let arrowLineRight = "\u{e064}"            // arrow-line-right
         public static let arrowsDownUp = "\u{e098}"              // arrows-down-up
         public static let arrowsOutLineHorizontal = "\u{e534}"   // arrows-out-line-horizontal
+        public static let clipboard = "\u{e196}"                 // clipboard (paste)
+        public static let copy = "\u{e1ca}"                      // copy
+        public static let crop = "\u{e1d4}"                      // crop (trim)
+        public static let eraser = "\u{e21e}"                    // eraser (clear)
         public static let flag = "\u{e244}"                      // flag
         public static let funnel = "\u{e266}"                    // funnel
         public static let gauge = "\u{e628}"                     // gauge
