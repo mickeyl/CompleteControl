@@ -13,16 +13,16 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
         title: "Chrome Forms",
         category: .lookAndFeel,
         summary: "Headers, function bars, separators, tag",
-        detail: "Each form rendered in its real position — a header at the top, a function bar top-flush, separators as content rules. INSTANCE cycles the pages: chrome headers, full-screen headers, function bars, separators and the tag pill.",
-        snapshotVariants: ["fullscreen-headers", "function-bars", "separators"]
+        detail: "Matched header/bar pairs first, so a chrome header on the left and its matching function bar on the right read as one strip; then the individual header, separator and tag forms. INSTANCE cycles the pages.",
+        snapshotVariants: ["matched-flat", "chrome-headers", "fullscreen-headers", "separators"]
     )
 
     private enum Page: Int, CaseIterable {
-        case chromeHeaders, fullscreenHeaders, functionBars, separators
+        case matchedRaised, matchedFlat, chromeHeaders, fullscreenHeaders, separators
         var next: Page { Self(rawValue: (rawValue + 1) % Self.allCases.count)! }
     }
 
-    private var page: Page = .chromeHeaders
+    private var page: Page = .matchedRaised
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
         var scene = MK2DoubleScreenDSL(
@@ -38,10 +38,11 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
 
     func prepareSnapshot(variant: String) {
         switch variant {
+            case "matched-flat": page = .matchedFlat
+            case "chrome-headers": page = .chromeHeaders
             case "fullscreen-headers": page = .fullscreenHeaders
-            case "function-bars": page = .functionBars
             case "separators": page = .separators
-            default: page = .chromeHeaders
+            default: page = .matchedRaised
         }
     }
 
@@ -51,20 +52,52 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
 
     private func leftScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         switch page {
+            case .matchedRaised: matchedHeaderRaised(context)
+            case .matchedFlat: matchedHeaderFlat(context)
             case .chromeHeaders: chromeTitleHeader(context)
             case .fullscreenHeaders: fullscreenStatusHeader(context)
-            case .functionBars: functionBar(context, style: .plain, title: "Plain function bar", note: "Flat strip — the pattern-editor default, for a plain content top.")
             case .separators: separators(context)
         }
     }
 
     private func rightScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         switch page {
+            case .matchedRaised: functionBar(context, style: .chromeBand, side: .right, title: "Right · chrome-band bar", note: "Raised chips at chrome-header height — the top edge should run unbroken from the header on the left.")
+            case .matchedFlat: functionBar(context, style: .plain, side: .right, title: "Right · plain bar", note: "Flat strip — pairs with the flat status header on the left.")
             case .chromeHeaders: chromeStatusHeader(context)
             case .fullscreenHeaders: fullscreenTitleHeader(context)
-            case .functionBars: functionBar(context, style: .chromeBand, title: "Chrome-band function bar", note: "Raised chips the height of a chrome header — pairs with a header on the facing display.")
             case .separators: tags(context)
         }
+    }
+
+    // MARK: - Matched pairs (pages 1-2): header left, matching bar right
+
+    private func matchedHeaderRaised(_ context: LabContext) -> MK2ScreenBuildResult {
+        MK2RegularScreenDSL(
+            header: .status([
+                MK2StatusLineItem("BROWSE", x: 8, color: Palette.blue),
+                MK2StatusLineItem("FACTORY", x: 100, color: Palette.dim),
+                MK2StatusLineItem("48 MB", x: 384, color: Palette.dim),
+            ]),
+            footer: .hint("Matched raised · page \(pageIndex)")
+        ) {
+            MK2ContentText("Left · chrome-band header", x: 8, y: 4, role: .title)
+            MK2ContentText("A raised chrome header. Its top edge should line up with the chrome-band function bar on the right — same height, same bevel, one continuous strip across the pair.", x: 8, y: 44, maxWidth: 432, color: Palette.dim, maxLines: 4, lineSpacing: 2)
+        }.build(renderer: context.renderer)
+    }
+
+    private func matchedHeaderFlat(_ context: LabContext) -> MK2ScreenBuildResult {
+        MK2FullScreenDSL(
+            background: Palette.page,
+            header: .status([
+                MK2StatusLineItem("PAT 00", x: 8, color: Palette.blue),
+                MK2StatusLineItem("ROW 1F", x: 120, color: Palette.text, font: .gridBold),
+                MK2StatusLineItem("PLAY", x: 230, color: Palette.green),
+            ])
+        ) {
+            MK2ContentText("Left · flat status header (rule, no band). Pairs with the plain flat function bar on the right — judge whether the two flat top zones sit at a matching height.", x: 8, y: 44, maxWidth: 432, color: Palette.dim, maxLines: 4, lineSpacing: 2)
+            MK2ContentText("Matched flat · page \(pageIndex)", x: 8, y: 250, maxWidth: 432, color: Palette.empty)
+        }.build(renderer: context.renderer)
     }
 
     // MARK: - Chrome headers (page 1)
@@ -121,7 +154,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
 
     // MARK: - Function bars (page 3)
 
-    private func functionBar(_ context: LabContext, style: MK2FunctionKeyBarElement.Style, title: String, note: String) -> MK2ScreenBuildResult {
+    private func functionBar(_ context: LabContext, style: MK2FunctionKeyBarElement.Style, side: MK2FunctionKeyBarElement.Side = .left, title: String, note: String) -> MK2ScreenBuildResult {
         let contentTop = (style == .plain ? MK2FunctionKeyBarElement.plainHeight : MK2FunctionKeyBarElement.chromeBandHeight) + 12
         return MK2FullScreenDSL(background: Palette.page) {
             MK2FunctionKeyBarElement(
@@ -131,7 +164,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
                     MK2FunctionKeySlot("CLEAR", iconGlyph: MK2HIG.IconGlyph.eraser),
                     MK2FunctionKeySlot("TRIM", iconGlyph: MK2HIG.IconGlyph.crop),
                 ],
-                side: .left,
+                side: side,
                 style: style
             )
             MK2AnyScreenElement { frame, elementContext, _ in
