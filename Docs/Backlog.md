@@ -137,3 +137,24 @@
   with a funnel glyph. Remaining filter cells (icon browser LETTER/MODE,
   selection AREA/SRC) intentionally stay icon-less — no distinct glyph
   suggests itself for a pair of generic filters on one screen.
+
+- Scene preview thumbnails (idea 2026-07-13): render the next scene as a
+  downscaled pixmap and show it as a thumbnail — first use is the demo
+  browser's detail pane, but the real target is a reusable
+  `MK2ScenePreviewElement` (frames or a whole `MK2SurfaceScene2` + a mode of
+  OLED A / OLED B / both-side-by-side + a target rect → scaled + drawn, with
+  an optional border and dimmed brightness so it reads as a preview, not the
+  live screen). Feasibility is high: the snapshot harness already builds a
+  demo's scene without presenting it, `MK2PixelImage` already downscales via
+  CoreGraphics `.high` (only its input needs a raw-RGB565 path next to the
+  encoded-`Data` one, ~30 lines), and `MK2ImageElement` already embeds a
+  pixmap with brightness. Two things to design first: (1) thumbnails must be
+  cached — building a scene per 4-D turn would hitch on the heavy demos
+  (Waveform's 2048-bin envelope, Panorama's image gen), so build each once
+  (ideally all on browser open) keyed by demo id, no invalidation needed;
+  (2) previews need a side-effect-free build path — `buildScene` is not pure
+  today (the tracker stores its `context`), so a dedicated `preview()` path
+  next to `prepareSnapshot()` is cleaner than reusing `buildScene`. Beyond
+  the lab, the same element previews what sits behind the Paulinche view
+  selectors (PATTERN / PLUGIN / SCENE) before switching. Text is unreadable
+  at 2x downscale — the thumbnail conveys layout and colour, not glyphs.
