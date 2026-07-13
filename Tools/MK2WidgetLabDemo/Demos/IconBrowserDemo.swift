@@ -5,16 +5,16 @@ import KontrolSurfaceKit2
 /// The Phosphor icon catalog in the selection list/grid elements: the left
 /// screen shows the focused icon at the chosen size, the right screen the
 /// browsable catalog. INSTANCE cycles list/grid and the A-Z filter modes,
-/// 4-D and PAGE browse, PRESET steps the preview size, E5 drives the letter
-/// filter and E8 the mode.
+/// 4-D and PAGE browse, E4 zooms the preview, E5 drives the letter filter
+/// and E8 the mode.
 final class IconBrowserDemo: LabDemo, @unchecked Sendable {
     let descriptor = DemoDescriptor(
         id: "icon-browser",
         title: "Icon Browser",
         category: .lookAndFeel,
         summary: "Phosphor catalog in list and grid",
-        detail: "Browse the icon catalog through the selection elements. 4-D and PAGE move, PRESET steps the preview size, E5 filters by letter, E8 switches list/grid modes.",
-        snapshotVariants: ["grid", "a-z-list", "a-z-grid"]
+        detail: "Browse the icon catalog through the selection elements. 4-D and PAGE move, E4 zooms the preview (12-176 px), E5 filters by letter, E8 switches list/grid modes.",
+        snapshotVariants: ["grid", "a-z-list", "a-z-grid", "zoom-min", "zoom-max"]
     )
 
     private enum Mode: Int, CaseIterable {
@@ -44,7 +44,10 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
     }
 
     private static let letterFilters = ["ALL"] + (65...90).map { String(UnicodeScalar($0)!) }
-    private static let sizes = [20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 88]
+    // Preview zoom on E4: from "barely legible as an encoder label icon" up to
+    // nearly the full left-screen icon area above the encoder row.
+    private static let minPreviewSize = 12
+    private static let maxPreviewSize = 176
     // 54 px cells fit three rows into the 166 px filtered content band (58 px
     // only fit two, leaving a dead row of air above the filters).
     private static let gridCellSize = MK2SelectionCellSize(width: 54, height: 54)
@@ -56,7 +59,8 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
     private var iconIndex: Int
     private var mode: Mode = .plainList
     private var filterNavigation = MK2SelectionNavigation()
-    private var sizeIndex = 7
+    private var previewSize = 56
+    private var focusedEncoder: Int?
 
     init() {
         let catalog = (try? PhosphorIconCatalog.load()) ?? (source: "Phosphor catalog unavailable", icons: [])
@@ -105,16 +109,6 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
                 self.moveIcon(delta)
             }
         }
-        MK2ButtonRangeSelection(
-            value: sizeIndex,
-            bounds: 0...(Self.sizes.count - 1),
-            previousButton: .presetDown,
-            nextButton: .presetUp,
-            availableLamp: .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
-        ) { [weak self] index in
-            context.update { self?.sizeIndex = max(0, min(Self.sizes.count - 1, index)) }
-        }
-        .apply(lamps: &scene.lamps, bindings: &scene.bindings)
         for value in filterEncoderValues(context) {
             value.apply(bindings: &scene.bindings)
         }
@@ -122,10 +116,13 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
     }
 
     func prepareSnapshot(variant: String) {
+        previewSize = 56
         switch variant {
             case "grid": mode = .plainGrid
             case "a-z-list": mode = .filteredList
             case "a-z-grid": mode = .filteredGrid
+            case "zoom-min": mode = .plainList; previewSize = Self.minPreviewSize
+            case "zoom-max": mode = .plainList; previewSize = Self.maxPreviewSize
             default: mode = .plainList
         }
         clampToVisibleSelection()
@@ -134,7 +131,7 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
     func replCommands() -> [ReplCommand] {
         [
             ReplCommand(name: "icon", arg: "<index|name>", summary: "select icon", values: []),
-            ReplCommand(name: "iconsize", arg: "<20-88>", summary: "preview size", values: []),
+            ReplCommand(name: "iconsize", arg: "<12-176>", summary: "preview zoom size (E4)", values: []),
             ReplCommand(name: "iconmode", arg: "list|grid|filterlist|filtergrid|next", summary: "list/grid mode", values: ["list", "grid", "filterlist", "filtergrid", "next"]),
         ]
     }
@@ -154,10 +151,7 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
             case "iconsize":
                 guard let size = Int(rest) else { return false }
                 context.update { [weak self] in
-                    guard let self else { return }
-                    self.sizeIndex = Self.sizes.enumerated().min {
-                        abs($0.element - size) < abs($1.element - size)
-                    }?.offset ?? self.sizeIndex
+                    self?.previewSize = max(Self.minPreviewSize, min(Self.maxPreviewSize, size))
                 }
             case "iconmode":
                 context.update { [weak self] in
@@ -185,10 +179,6 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
 
     private var selectedIcon: PhosphorIcon? {
         icons.indices.contains(iconIndex) ? icons[iconIndex] : nil
-    }
-
-    private var currentSize: Int {
-        Self.sizes[max(0, min(Self.sizes.count - 1, sizeIndex))]
     }
 
     private func cycleMode() {
@@ -229,6 +219,20 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
 
     private func filterEncoderValues(_ context: LabContext) -> [MK2EncoderDiscreteValue] {
         var values = [
+            MK2EncoderDiscreteValue(
+                encoder: 4,
+                value: previewSize,
+                bounds: Self.minPreviewSize...Self.maxPreviewSize,
+                onTouch: { [weak self] touched in
+                    context.update {
+                        guard let self else { return }
+                        if touched { self.focusedEncoder = 4 } else if self.focusedEncoder == 4 { self.focusedEncoder = nil }
+                    }
+                },
+                onChange: { [weak self] value in
+                    context.update { self?.previewSize = max(Self.minPreviewSize, min(Self.maxPreviewSize, value)) }
+                }
+            ),
             MK2EncoderDiscreteValue(
                 encoder: 8,
                 value: mode.rawValue,
@@ -281,13 +285,33 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
         }
         let visible = visibleIcons()
         let visibleIndex = selectedVisibleIndex(in: visible)
-        drawHeader(into: &frame, title: "ICON BROWSER", subtitle: "\(visibleIndex + 1)/\(max(1, visible.count)) \(mode.title)")
-        drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: renderer, centerX: 240, y: 72, size: currentSize, color: Palette.text)
-        drawFreeTypeTitle(icon.label, into: &frame, renderer: renderer, x: 18, y: 158, size: MK2HIG.Typography.titlePixelSize, color: Palette.text, maxWidth: 432)
-        drawFreeTypeBody(icon.name, into: &frame, renderer: renderer, x: 18, y: 194, size: MK2HIG.Typography.bodyPixelSize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody(String(format: "U+%04X  size %d px  %@", icon.codepoint, currentSize, Self.styleLabel), into: &frame, renderer: renderer, x: 18, y: 222, size: MK2HIG.Typography.bodyPixelSize, color: Palette.dim, maxWidth: 432)
-        drawFreeTypeBody("INSTANCE mode  4-D/PAGE icons  E5 A-Z filter", into: &frame, renderer: renderer, x: 18, y: 248, size: MK2HIG.Typography.bodyPixelSize, color: Palette.empty, maxWidth: 432)
+        drawHeader(into: &frame, title: icon.label, subtitle: "\(visibleIndex + 1)/\(max(1, visible.count)) \(mode.title)")
+
+        // The zoomed icon fills the area between the header and the encoder row,
+        // scaled by E4 from label size up to nearly the full band.
+        let iconArea = MK2PixelRect(x: 0, y: 40, width: 480, height: MK2ScreenLayout.encoderSlotRect(0).y - 46)
+        let iconY = iconArea.y + max(0, (iconArea.height - previewSize) / 2)
+        drawFreeTypeIconCentered(icon.glyph, into: &frame, renderer: renderer, centerX: 240, y: iconY, size: previewSize, color: Palette.text)
+
+        // Identity line on the left of the encoder row, E4 SIZE cell on the right.
+        let rowLabelY = MK2ScreenLayout.encoderSlotRect(0).y + 16
+        BitmapLabel(String(format: "%@  U+%04X  %@", icon.name, icon.codepoint, Self.styleLabel), font: .grid, color: Palette.dim)
+            .draw(into: &frame, x: 8, y: rowLabelY, clip: MK2PixelRect(x: 8, y: rowLabelY, width: 320, height: SurfaceFont.grid.cellHeight))
+        sizeEncoderDisplay().draw(into: &frame, renderer: renderer)
         return frame
+    }
+
+    private func sizeEncoderDisplay() -> MK2EncoderDiscreteValueDisplay {
+        MK2EncoderDiscreteValueDisplay(
+            label: "SIZE",
+            iconGlyph: MK2HIG.IconGlyph.resize,
+            value: "\(previewSize) PX",
+            rect: MK2ScreenLayout.encoderSlotRect(3),
+            isFocused: focusedEncoder == 4,
+            valueFont: .readoutBold,
+            cornerRadius: 7,
+            colors: labEditCellColors(value: Palette.text)
+        )
     }
 
     private func listFrame(_ renderer: FreeTypeTextRenderer?) -> MK2PixelFrame {
