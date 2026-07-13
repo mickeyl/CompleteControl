@@ -214,3 +214,19 @@
   threshold flip), and a segmented / LED-ladder style (discrete blocks like
   classic hardware VU). Judge on the OLED. The ballistics calibration rig
   (meter demo, E5-E8) is the place to preview them live.
+
+- Tracker header zone whitespace — decide on hardware (2026-07-13). The
+  pattern grid's top zone carries a fair bit of air: 8 px above the status
+  line, then ~14 px between the status line and the channel headers, so the
+  status line floats. Not a regression — this geometry is unchanged from the
+  original tracker, and the widget-lab `TrackerPatternDemo` and the Paulinche
+  `PaulinchePatternRenderer` are metric-identical here (verified 2026-07-13):
+  status line y8, channel headers y38, M/S toggles y34 (x+69/x+87), grid rule
+  y55, gridTop 60, rowHeight 16, channelXs [48,153,258,363], rulerXs
+  [36,141,246,351,456]. Only the status-line *content* differs (widget lab: 5
+  hand-drawn labels; Paulinche: `MK2StatusLineElement` with 4 items). Open
+  question: tighten the head zone (pull the status line closer to the channel
+  headers and/or trim the top margin) to reveal one or two more grid rows?
+  Must be judged on the real OLED first — the whitespace may read fine there.
+  If we change it, change *both* implementations together so they stay in
+  sync (ideally the same three y's + gridTop).
