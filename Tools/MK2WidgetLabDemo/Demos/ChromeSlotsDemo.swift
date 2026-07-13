@@ -35,11 +35,11 @@ final class ChromeSlotsDemo: LabDemo, @unchecked Sendable {
         var header: MK2ScreenHeader {
             switch self {
                 case .titleOnly, .titleHint, .titleEncoders:
-                    .title(title: "Scene Lab", subtitle: "Chrome Slots")
+                    .title(title: "Chrome Slots", subtitle: "Header + Footer")
                 case .statusFilters:
                     .status([
-                        MK2StatusLineItem("SCENE", x: 8, color: Palette.blue),
-                        MK2StatusLineItem("CHROME", x: 92, color: Palette.dim),
+                        MK2StatusLineItem("CHROME", x: 8, color: Palette.blue),
+                        MK2StatusLineItem("SLOTS", x: 92, color: Palette.dim),
                         MK2StatusLineItem("STATUS HEADER", x: 196, color: Palette.text, font: .gridBold),
                     ])
                 case .bare, .footerOnly:
