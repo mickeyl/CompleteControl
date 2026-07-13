@@ -159,3 +159,34 @@
   the lab, the same element previews what sits behind the Paulinche view
   selectors (PATTERN / PLUGIN / SCENE) before switching. Text is unreadable
   at 2x downscale — the thumbnail conveys layout and colour, not glyphs.
+
+- Enforce content-area size invariants (design direction, 2026-07-13). The
+  header/footer formalization gives every scene the correct (footer-shortened)
+  `contentRect`, but it only *offers* the geometry — it does not *enforce* it.
+  Elements take `contentRect.origin` as their base and then place content with
+  absolute y-offsets, and nothing checks against `contentRect.height`, so an
+  element can draw past `content.maxY` into the footer band (seen: the
+  selection-browser detail pane at `y:112`, whose metadata row at `topY+90`
+  landed in the footer once the footer shortened the content). The geometry
+  *knew*; it just was not *enforced*. Staged direction, cheapest-first:
+  1. Give content elements an `intrinsicMaxHeight` derived from font pixel size
+     × maxLines + chrome constants — all compile-time-known, so an element's
+     vertical extent stops being a guessed number.
+  2. Add a vertical stack container that *computes* child positions from those
+     heights instead of letting each screen hand-place magic y-offsets; for
+     "normal app" screens (not the widget-lab calibration screens) that removes
+     the whole class of guessed offsets. Overflow then reduces to one guard
+     point (stack exceeds content), not a scatter of hard-coded y's.
+  3. Debug/snapshot guard (wanted perspectively, not now): a check that fires
+     when a content element draws below `content.maxY` or above the header —
+     zero release cost, catches the dynamic remainder in the snapshot suite,
+     and would have caught the `y:112` bug at test time.
+  4. Later polish: a `#Screen` Swift macro for real *compile-time* errors on
+     fully static production screens (sum literal y-offsets + font×maxLines
+     heights, emit an `error` diagnostic on overflow). Only worth the macro
+     maintenance once there are enough static production screens to amortize
+     it; it only covers literal positions/heights (dynamic offsets fall back to
+     the runtime guard). Swift limits to keep in mind: no dependent types / no
+     const-generic arithmetic, so the compiler cannot verify `y+h ≤ H` on its
+     own, and fully verified layouts are out of scope — macros are the only
+     compile-time-error path.
