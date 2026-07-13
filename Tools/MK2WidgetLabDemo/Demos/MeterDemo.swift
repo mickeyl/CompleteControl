@@ -2,33 +2,48 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
-/// The multi-channel meter element under live ballistics: touch E1-E4 to punch
-/// a pulse into a channel and watch the level shoot up and decay, with the
-/// peak marker holding and falling slower. The left screen shows the stereo
-/// master (a mix of the four channels), the right the four channels vertical
-/// plus a compact horizontal block. 4-D press pulses all four at once — a
-/// deliberate stress case for smoothness.
+/// The multi-channel meter element under live, tunable ballistics — the
+/// calibration rig for the meter attack/decay before it moves into the Kit.
+/// Touch E1-E4 to punch a pulse into a channel (4-D press pulses all four);
+/// E5-E8 tune the ballistics in time units, so the decay factors derive from
+/// the frame rate rather than being magic constants:
+///   E5 RELEASE  — bar fall time (ms to -20 dB)
+///   E6 PK HOLD  — how long the peak marker holds before it falls (ms)
+///   E7 PK FALL  — peak fall time once the hold expires (ms to -20 dB)
+///   E8 RATE     — render/tick rate (fps)
+/// The left screen shows the stereo master (a mix of the four channels).
 final class MeterDemo: LabDemo, @unchecked Sendable {
     let descriptor = DemoDescriptor(
         id: "meter",
         title: "Meter",
         category: .catalogue,
         summary: "Multi-channel level meters",
-        detail: "Horizontal and vertical meter elements with peak markers and warning and danger zones. Touch E1-E4 to pulse a channel and watch the ballistics decay; 4-D press pulses all four."
+        detail: "Meter elements with peak markers and warning/danger zones under tunable ballistics. Touch E1-E4 to pulse a channel (4-D press all four); E5-E8 calibrate release, peak hold, peak fall and frame rate."
     )
 
-    // Level ballistics per tick: the bar drops fast, the peak marker holds and
-    // falls slowly, so a single pulse reads as a clear attack-and-decay.
-    private static let levelDecay = 0.88
-    private static let peakDecay = 0.985
     private static let silence = 0.003
-    private static let tickMilliseconds = 20
+    /// Decay to a tenth (−20 dB) over the configured time; deriving the factor
+    /// from time + tick keeps the feel rate-independent.
+    private static let decayFloor = 0.1
 
     private var levels = [Double](repeating: 0, count: 4)
     private var peaks = [Double](repeating: 0, count: 4)
+    private var holdTicks = [Int](repeating: 0, count: 4)
     private var pulseSeed = 0
     private var settled = true
     private var animationTask: Task<Void, Never>?
+
+    // Tunable ballistics (E5-E8), in time units.
+    private var releaseMs = 360
+    private var peakHoldMs = 300
+    private var peakFallMs = 1500
+    private var frameRate = 50
+    private var focusedEncoder: Int?
+
+    private var tickMs: Int { max(4, 1000 / max(1, frameRate)) }
+    private var levelDecay: Double { pow(Self.decayFloor, Double(tickMs) / Double(max(1, releaseMs))) }
+    private var peakDecay: Double { pow(Self.decayFloor, Double(tickMs) / Double(max(1, peakFallMs))) }
+    private var holdTickCount: Int { peakHoldMs / max(1, tickMs) }
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
         var scene = MK2DoubleScreenDSL(
@@ -48,8 +63,6 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     }
 
     func prepareSnapshot(variant: String) {
-        // A static frame for the snapshot: live it opens silent and the user
-        // pulses it.
         levels = [0.72, 0.45, 0.93, 0.30]
         peaks = levels.map { min(1.0, $0 + 0.06) }
         settled = true
@@ -68,6 +81,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
                 let impact = self.nextImpact()
                 self.levels[channel] = impact
                 self.peaks[channel] = max(self.peaks[channel], impact)
+                self.holdTicks[channel] = self.holdTickCount
             }
             self.settled = false
         }
@@ -86,7 +100,8 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         guard animationTask == nil else { return }
         animationTask = Task { [weak self] in
             repeat {
-                try? await Task.sleep(for: .milliseconds(Self.tickMilliseconds))
+                let ms = self?.tickMs ?? 20
+                try? await Task.sleep(for: .milliseconds(ms))
                 context.update { self?.stepDecay() }
             } while self?.settled == false && !Task.isCancelled
             self?.animationTask = nil
@@ -94,11 +109,20 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     }
 
     private func stepDecay() {
+        let levelDecay = self.levelDecay
+        let peakDecay = self.peakDecay
         var moving = false
         for index in levels.indices {
-            levels[index] *= Self.levelDecay
+            levels[index] *= levelDecay
             if levels[index] < Self.silence { levels[index] = 0 } else { moving = true }
-            peaks[index] = max(levels[index], peaks[index] * Self.peakDecay)
+
+            if holdTicks[index] > 0 {
+                holdTicks[index] -= 1
+                peaks[index] = max(peaks[index], levels[index])
+                moving = true
+            } else {
+                peaks[index] = max(levels[index], peaks[index] * peakDecay)
+            }
             if peaks[index] < Self.silence { peaks[index] = 0 } else { moving = true }
         }
         settled = !moving
@@ -143,26 +167,65 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     }
 
     private func detailScreen(_ context: LabContext) -> MK2ScreenBuildResult {
-        MK2RegularScreenDSL(header: .title(title: "Channel Meters", subtitle: "4ch tracker")) {
-            MK2MeterElement(
-                channels: (0..<4).map { channel in
-                    MK2MeterChannel(level: levels[channel], peak: peaks[channel])
-                },
-                rect: MK2PixelRect(x: 40, y: 16, width: 168, height: 166),
-                orientation: .vertical,
-                channelGap: 12,
-                fill: Palette.green,
-                dangerFill: Palette.mute
-            )
+        MK2RegularScreenDSL(header: .title(title: "Ballistics", subtitle: "E5-E8 calibrate")) {
             MK2MeterElement(
                 channels: (0..<4).map { channel in
                     MK2MeterChannel(label: "CH\(channel + 1)", level: levels[channel], peak: peaks[channel])
                 },
-                rect: MK2PixelRect(x: 238, y: 22, width: 210, height: 122),
-                fill: Palette.blue,
+                rect: MK2PixelRect(x: 32, y: 40, width: 416, height: 138),
+                orientation: .vertical,
+                channelGap: 16,
+                fill: Palette.green,
                 dangerFill: Palette.mute
             )
-            MK2ContentText("vertical + compact horizontal", x: 238, y: 162, maxWidth: 220, color: Palette.empty)
+            MK2EncoderDiscreteValuesElement(encoderValues(context))
         }.build(renderer: context.renderer)
+    }
+
+    private func encoderValues(_ context: LabContext) -> [MK2EncoderDiscreteValue] {
+        [
+            calibrationValue(encoder: 5, value: releaseMs, bounds: 50...1200, defaultValue: 360, label: "RELEASE", icon: MK2HIG.IconGlyph.waveSine, unit: "MS", context: context) { [weak self] in self?.releaseMs = $0 },
+            calibrationValue(encoder: 6, value: peakHoldMs, bounds: 0...2000, defaultValue: 300, label: "PK HOLD", icon: MK2HIG.IconGlyph.timer, unit: "MS", context: context) { [weak self] in self?.peakHoldMs = $0 },
+            calibrationValue(encoder: 7, value: peakFallMs, bounds: 200...4000, defaultValue: 1500, label: "PK FALL", icon: MK2HIG.IconGlyph.arrowsDownUp, unit: "MS", context: context) { [weak self] in self?.peakFallMs = $0 },
+            calibrationValue(encoder: 8, value: frameRate, bounds: 20...120, defaultValue: 50, label: "RATE", icon: MK2HIG.IconGlyph.gauge, unit: "FPS", context: context) { [weak self] in self?.frameRate = $0 },
+        ]
+    }
+
+    private func calibrationValue(
+        encoder: Int,
+        value: Int,
+        bounds: ClosedRange<Int>,
+        defaultValue: Int,
+        label: String,
+        icon: String,
+        unit: String,
+        context: LabContext,
+        set: @escaping @Sendable (Int) -> Void
+    ) -> MK2EncoderDiscreteValue {
+        MK2EncoderDiscreteValue(
+            encoder: encoder,
+            value: value,
+            bounds: bounds,
+            defaultValue: defaultValue,
+            display: MK2EncoderDiscreteValueDisplay(
+                label: label,
+                iconGlyph: icon,
+                value: "\(value) \(unit)",
+                rect: MK2ScreenLayout.encoderSlotRect(encoder - 5),
+                isFocused: focusedEncoder == encoder,
+                valueFont: .readoutBold,
+                cornerRadius: 7,
+                colors: labEditCellColors(value: Palette.text)
+            ),
+            onTouch: { [weak self] touched in
+                context.update {
+                    guard let self else { return }
+                    if touched { self.focusedEncoder = encoder } else if self.focusedEncoder == encoder { self.focusedEncoder = nil }
+                }
+            },
+            onChange: { value in
+                context.update { set(max(bounds.lowerBound, min(bounds.upperBound, value))) }
+            }
+        )
     }
 }

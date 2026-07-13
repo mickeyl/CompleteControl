@@ -190,3 +190,18 @@
      const-generic arithmetic, so the compiler cannot verify `y+h ≤ H` on its
      own, and fully verified layouts are out of scope — macros are the only
      compile-time-error path.
+
+- Lift the meter ballistics into the Kit as a value object (design direction,
+  2026-07-13). `MK2MeterElement`/`MK2MeterChannel` render a momentary
+  `level`/`peak`; the attack/decay, peak-hold and pulse ballistics live only in
+  `MeterDemo`. Any real client (Paulinche's F-key VU meters, a future meter
+  scene) would otherwise rebuild the decay loop. Lift the *transformation*
+  (`MK2MeterBallistics`: given a momentary value and a time step → smoothed
+  level + held-then-falling peak) into the Kit as pure, testable logic; the
+  *time driver* (timer/loop) stays app-side — same boundary as the panorama
+  render throttle, since a screen element renders statelessly and owns no time.
+  The demo already uses the right parametrization to lift: time units
+  (release/hold/fall in ms) with the decay factors derived from the frame rate,
+  not magic constants. Precondition: bench-approve the values first via the
+  meter demo's E5-E8 calibration rig (RELEASE / PK HOLD / PK FALL / RATE) so the
+  Kit ships tuned constants, not guessed ones.

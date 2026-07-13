@@ -64,6 +64,7 @@ public enum MK2HIG {
         public static let sun = "\u{e472}"                       // sun
         public static let textAa = "\u{e6ee}"                    // text-aa
         public static let textT = "\u{e48a}"                     // text-t
+        public static let timer = "\u{e492}"                     // timer
         public static let warning = "\u{e4e0}"                   // warning
         public static let waveSine = "\u{ea9a}"                  // wave-sine
     }
