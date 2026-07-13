@@ -7,7 +7,7 @@ import KontrolSurfaceKit2
 // PixelSnapshot) — no private drawing helpers, no legacy placeholder font. If a demo
 // needs something the kit can't express yet, that capability goes into the kit first.
 //
-// Navigation (rework 2026-07-12, Docs/WidgetLab-Rework-Plan.md): the top level is a
+// Navigation (rework 2026-07-12): the top level is a
 // filterable demo browser — 4-D selects and opens a demo, which then owns every
 // control except SCENE, the reserved exit back to the browser.
 @main
