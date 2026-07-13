@@ -688,7 +688,7 @@ final class PanelView: NSView {
         }
 
         if code == 0 {
-            return pressed ? NSColor(white: 0.45, alpha: 1) : NSColor(white: 0.18, alpha: 1)
+            return pressed ? NSColor(white: 0.08, alpha: 1) : NSColor.black
         }
         let rgb = KompleteKontrolSSeriesMK2.paletteColor(forCode: code)
         return NSColor(red: CGFloat(rgb.red) / 255, green: CGFloat(rgb.green) / 255, blue: CGFloat(rgb.blue) / 255, alpha: 1)
@@ -708,7 +708,7 @@ final class PanelView: NSView {
                 alpha: 1
             )
         }
-        return code == 0 ? NSColor(white: 0.75, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
+        return code == 0 ? NSColor(white: 0.22, alpha: 1) : NSColor.black.withAlphaComponent(0.8)
     }
 
     private func paletteColor(code: UInt8, offWhite: CGFloat = 0.0, alpha: CGFloat = 1) -> NSColor {
