@@ -153,8 +153,8 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
                 frame.fillRoundedVerticalGradient(
                     band,
                     radius: 0,
-                    top: Self.scaled(MK2HIG.Chrome.headerFill, by: 1.4),
-                    bottom: Self.scaled(MK2HIG.Chrome.headerFill, by: 0.6)
+                    top: MK2HIG.Chrome.headerFill.scaled565(by: 1.4),
+                    bottom: MK2HIG.Chrome.headerFill.scaled565(by: 0.6)
                 )
                 frame.fill(MK2PixelRect(x: 0, y: 0, width: MK2PixelFrame.width, height: 1), MK2HIG.Chrome.headerTopLine)
                 frame.fill(MK2PixelRect(x: 0, y: height - 1, width: MK2PixelFrame.width, height: 1), MK2HIG.Chrome.headerBottomLine)
@@ -172,8 +172,8 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
                 frame.fillRoundedVerticalGradient(
                     chip,
                     radius: 5,
-                    top: Self.scaled(MK2HIG.Chrome.headerFill, by: 1.8),
-                    bottom: Self.scaled(MK2HIG.Chrome.headerFill, by: 0.9),
+                    top: MK2HIG.Chrome.headerFill.scaled565(by: 1.8),
+                    bottom: MK2HIG.Chrome.headerFill.scaled565(by: 0.9),
                     antialiased: true
                 )
                 frame.fill(MK2PixelRect(x: chip.x + 2, y: chip.y, width: chip.width - 4, height: 1), MK2HIG.Chrome.headerTopLine)
@@ -218,10 +218,4 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
         }
     }
 
-    private static func scaled(_ color: UInt16, by factor: Double) -> UInt16 {
-        let r = UInt16(min(31, (Double((color >> 11) & 0x1f) * factor).rounded()))
-        let g = UInt16(min(63, (Double((color >> 5) & 0x3f) * factor).rounded()))
-        let b = UInt16(min(31, (Double(color & 0x1f) * factor).rounded()))
-        return (r << 11) | (g << 5) | b
-    }
 }

@@ -363,9 +363,3 @@ private extension Double {
         Swift.max(0, Swift.min(1, self))
     }
 }
-
-private extension MK2PixelRect {
-    func insetBy(dx: Int, dy: Int) -> MK2PixelRect {
-        MK2PixelRect(x: x + dx, y: y + dy, width: max(0, width - dx * 2), height: max(0, height - dy * 2))
-    }
-}

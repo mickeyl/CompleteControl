@@ -6,7 +6,7 @@ Song-Renderers gegenstandslos), dazu backlog-seitig die per-Ebene-Lampen, der
 `isHardwareShiftPressed`-Abbau und das `ControlLampName`-Enum. Die vollständige
 Analyse und die erledigten Punkte stehen in der git-Historie dieses Dokuments.
 
-**Offen bleibt nur D1.**
+**Alle Punkte abgearbeitet (D1 erledigt 2026-07-13).**
 
 ## C1 — Tracker-Grid + Minimap ins Kit (erledigt 2026-07-13)
 
@@ -29,12 +29,18 @@ korrektere Per-Feld-Variante. Das Datenmodell ist Paulinches Optional-Triade
 ungerade Taktarten auf dem Beat streifen — App-seitige Verdrahtung an die
 Taktart steht im Backlog.
 
-## D1 — Kit-interne Helfer-Konsolidierung
+## D1 — Kit-interne Helfer-Konsolidierung (erledigt 2026-07-13)
 
-`insetBy`, `scale565`/`scaled`, `drawRoundedPanel` und die Wrap-Helper sind
-privat über mehrere Kit-Dateien dupliziert (ScreenDSL, ScreenLayout, ValueCell,
-Meter, ModalDialog, SelectionView, DialogCard, Tag, FunctionKeyBar) — einmalig
-in eine geteilte Stelle konsolidieren.
+Vier byte-identisch duplizierte Helfer leben jetzt einmal in
+`DrawingSupport.swift`: `scaled565(by:)` (Farb-Skalierung, war 4× in
+FunctionKeyBar/ValueCell/Tag/ScreenLayout), `MK2PixelRect.insetBy(dx:dy:)` (2×,
+Meter/ScreenDSL), `Int.wrapped(to:)` (2×, EncoderDiscreteValue/SelectionView) und
+`MK2PixelFrame.drawRoundedPanel(…)` (2×, ModalDialog/SelectionView; das Superset
+mit `borderWidth` + `max(0,…)`-Sicherung). Alle 238 Tests unverändert grün.
+
+Bewusst *nicht* zusammengeführt: die beiden `wrappedBitmapLines` (ModalDialog vs
+ScreenDSL) sind unterschiedliche Algorithmen — pixel-genau via `font.measure`
+gegen zeichen-basiert mit `maxLines` und Hard-Wrap — kein echtes Duplikat.
 
 ## Anhang: Verworfene Ideen
 

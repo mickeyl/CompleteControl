@@ -1141,10 +1141,6 @@ private extension MK2PixelRect {
     var origin: MK2Point {
         MK2Point(x: x, y: y)
     }
-
-    func insetBy(dx: Int, dy: Int) -> MK2PixelRect {
-        MK2PixelRect(x: x + dx, y: y + dy, width: max(0, width - dx * 2), height: max(0, height - dy * 2))
-    }
 }
 
 private func wrappedBitmapLines(_ text: String, font: SurfaceFont, maxWidth: Int, maxLines: Int) -> [String] {

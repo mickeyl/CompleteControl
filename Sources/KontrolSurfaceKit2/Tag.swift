@@ -44,16 +44,16 @@ public struct MK2Tag: Sendable {
         frame.fillRoundedVerticalGradient(
             rect,
             radius: radius,
-            top: Self.scaled(colors.border, by: 1.35),
-            bottom: Self.scaled(colors.border, by: 0.75),
+            top: colors.border.scaled565(by: 1.35),
+            bottom: colors.border.scaled565(by: 0.75),
             antialiased: true
         )
         if rect.width > 2, rect.height > 2 {
             frame.fillRoundedVerticalGradient(
                 MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2),
                 radius: max(0, radius - 1),
-                top: Self.scaled(colors.fill, by: 1.18),
-                bottom: Self.scaled(colors.fill, by: 0.82),
+                top: colors.fill.scaled565(by: 1.18),
+                bottom: colors.fill.scaled565(by: 0.82),
                 antialiased: true
             )
         }
@@ -90,13 +90,6 @@ public struct MK2Tag: Sendable {
         let textWidth = (try? renderer?.measure(text, style: style))
             ?? BitmapLabel(text, font: .label, color: 0xffff).width
         return textWidth + height
-    }
-
-    private static func scaled(_ color: UInt16, by factor: Double) -> UInt16 {
-        let r = UInt16(min(31, (Double((color >> 11) & 0x1f) * factor).rounded()))
-        let g = UInt16(min(63, (Double((color >> 5) & 0x3f) * factor).rounded()))
-        let b = UInt16(min(31, (Double(color & 0x1f) * factor).rounded()))
-        return (r << 11) | (g << 5) | b
     }
 }
 

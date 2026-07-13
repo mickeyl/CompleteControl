@@ -107,16 +107,16 @@ public struct MK2ValueCell: Sendable {
         frame.fillRoundedVerticalGradient(
             rect,
             radius: cornerRadius,
-            top: Self.scaled(border, by: 0.45),
-            bottom: Self.scaled(border, by: 1.8),
+            top: border.scaled565(by: 0.45),
+            bottom: border.scaled565(by: 1.8),
             antialiased: true
         )
         if rect.width > 2, rect.height > 2 {
             frame.fillRoundedVerticalGradient(
                 MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2),
                 radius: max(0, cornerRadius - 1),
-                top: Self.scaled(fill, by: 0.7),
-                bottom: Self.scaled(fill, by: 1.2),
+                top: fill.scaled565(by: 0.7),
+                bottom: fill.scaled565(by: 1.2),
                 antialiased: true
             )
         }
@@ -136,18 +136,11 @@ public struct MK2ValueCell: Sendable {
     private func drawIconIfNeeded(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer?, labelY: Int) -> Int {
         guard let iconGlyph, !iconGlyph.isEmpty, let renderer else { return 0 }
         let pixelSize = labelFont.cellHeight + 3
-        let style = MK2HIG.iconStyle(pixelSize: pixelSize, color: colors.icon ?? Self.scaled(colors.label, by: 1.6))
+        let style = MK2HIG.iconStyle(pixelSize: pixelSize, color: colors.icon ?? colors.label.scaled565(by: 1.6))
         guard let width = try? renderer.measure(iconGlyph, style: style), width > 0 else { return 0 }
         let x = iconPosition == .leading ? rect.x : rect.maxX - width
         let y = labelY - 2
         guard (try? renderer.drawText(iconGlyph, into: &frame, x: x, y: y, style: style, maxWidth: width + pixelSize)) != nil else { return 0 }
         return iconPosition == .leading ? width + Self.iconGap : 0
-    }
-
-    private static func scaled(_ color: UInt16, by factor: Double) -> UInt16 {
-        let r = UInt16(min(31, (Double((color >> 11) & 0x1f) * factor).rounded()))
-        let g = UInt16(min(63, (Double((color >> 5) & 0x3f) * factor).rounded()))
-        let b = UInt16(min(31, (Double(color & 0x1f) * factor).rounded()))
-        return (r << 11) | (g << 5) | b
     }
 }

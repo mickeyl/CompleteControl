@@ -262,13 +262,3 @@ public struct MK2EncoderDiscreteValue: Sendable {
         display?.draw(into: &frame, renderer: renderer)
     }
 }
-
-private extension Int {
-    func wrapped(to bounds: ClosedRange<Int>) -> Int {
-        let count = bounds.upperBound - bounds.lowerBound + 1
-        guard count > 0 else { return bounds.lowerBound }
-        let raw = (self - bounds.lowerBound) % count
-        let offset = raw >= 0 ? raw : raw + count
-        return bounds.lowerBound + offset
-    }
-}

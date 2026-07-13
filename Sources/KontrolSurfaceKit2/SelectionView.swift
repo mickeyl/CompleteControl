@@ -553,12 +553,11 @@ public struct MK2SelectionGrid: Sendable {
         renderer: FreeTypeTextRenderer?
     ) {
         if selected {
-            MK2SelectionDrawing.drawRoundedPanel(
+            frame.drawRoundedPanel(
                 rect,
                 fill: colors.selectionFill,
                 border: colors.accent,
-                radius: 7,
-                into: &frame
+                radius: 7
             )
         }
         if case let .iconOnly(iconSize) = cellContent {
@@ -670,24 +669,6 @@ private enum MK2SelectionDrawing {
         }
     }
 
-    static func drawRoundedPanel(
-        _ rect: MK2PixelRect,
-        fill: UInt16,
-        border: UInt16,
-        radius: Int,
-        into frame: inout MK2PixelFrame
-    ) {
-        frame.fillRounded(rect, radius: radius, border, antialiased: true)
-        let inset = 1
-        let inner = MK2PixelRect(
-            x: rect.x + inset,
-            y: rect.y + inset,
-            width: max(0, rect.width - inset * 2),
-            height: max(0, rect.height - inset * 2)
-        )
-        frame.fillRounded(inner, radius: max(0, radius - inset), fill, antialiased: true)
-    }
-
     static func drawBody(
         _ text: String,
         into frame: inout MK2PixelFrame,
@@ -740,13 +721,5 @@ private extension MK2SelectionFilter {
 private extension Int {
     func clamped(to bounds: ClosedRange<Int>) -> Int {
         Swift.min(bounds.upperBound, Swift.max(bounds.lowerBound, self))
-    }
-
-    func wrapped(to bounds: ClosedRange<Int>) -> Int {
-        let count = bounds.upperBound - bounds.lowerBound + 1
-        guard count > 0 else { return bounds.lowerBound }
-        let raw = (self - bounds.lowerBound) % count
-        let offset = raw >= 0 ? raw : raw + count
-        return bounds.lowerBound + offset
     }
 }

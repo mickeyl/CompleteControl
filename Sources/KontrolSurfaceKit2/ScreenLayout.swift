@@ -377,8 +377,8 @@ public struct MK2RegularScreenChrome: Sendable {
         frame.fillRoundedVerticalGradient(
             rect,
             radius: 0,
-            top: Self.scale565(colors.headerFill, by: 1.4),
-            bottom: Self.scale565(colors.headerFill, by: 0.6)
+            top: colors.headerFill.scaled565(by: 1.4),
+            bottom: colors.headerFill.scaled565(by: 0.6)
         )
         frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), colors.headerTopLine)
         frame.fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), colors.headerRule)
@@ -405,16 +405,6 @@ public struct MK2RegularScreenChrome: Sendable {
                 )
             }
         }
-    }
-
-    private static func scale565(_ color: UInt16, by factor: Double) -> UInt16 {
-        func scaled(_ value: UInt16, max maxValue: Double) -> UInt16 {
-            UInt16(Swift.min(maxValue, (Double(value) * factor).rounded()))
-        }
-        let r = scaled((color >> 11) & 0x1f, max: 31)
-        let g = scaled((color >> 5) & 0x3f, max: 63)
-        let b = scaled(color & 0x1f, max: 31)
-        return (r << 11) | (g << 5) | b
     }
 
     private func drawCaption(

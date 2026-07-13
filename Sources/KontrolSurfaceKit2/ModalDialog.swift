@@ -183,7 +183,7 @@ public struct MK2ModalDialog: Sendable {
         var frame = MK2PixelFrame(fill: colors.background)
         let tone = colors.accent(for: severity)
         let iconRect = MK2PixelRect(x: 16, y: 18, width: 96, height: 96)
-        drawRoundedPanel(iconRect, fill: colors.background, border: tone, radius: 8, into: &frame)
+        frame.drawRoundedPanel(iconRect, fill: colors.background, border: tone, radius: 8)
         drawIcon(renderer: renderer, glyph: iconGlyph ?? severity.iconGlyph, fallback: severity.fallbackText, into: &frame, rect: iconRect, color: tone)
         drawTitle(title, renderer: renderer, into: &frame, x: 136, y: iconRect.y, color: tone, maxWidth: 328)
 
@@ -217,7 +217,7 @@ public struct MK2ModalDialog: Sendable {
             let rect = MK2PixelRect(x: 24, y: 62 + index * 74, width: 432, height: 62)
             let selected = index == selectedIndex
             if selected {
-                drawRoundedPanel(rect, fill: colors.selectionFill, border: tone, radius: 7, into: &frame)
+                frame.drawRoundedPanel(rect, fill: colors.selectionFill, border: tone, radius: 7)
             }
             drawTitle(action.title, renderer: renderer, into: &frame, x: 44, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: 392)
             if let detail = action.detail {
@@ -227,25 +227,6 @@ public struct MK2ModalDialog: Sendable {
 
         drawBody(dismissHint, renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
-    }
-
-    private func drawRoundedPanel(
-        _ rect: MK2PixelRect,
-        fill: UInt16,
-        border: UInt16,
-        radius: Int,
-        borderWidth: Int = 1,
-        into frame: inout MK2PixelFrame
-    ) {
-        frame.fillRounded(rect, radius: radius, border, antialiased: true)
-        let inset = max(1, borderWidth)
-        let inner = MK2PixelRect(
-            x: rect.x + inset,
-            y: rect.y + inset,
-            width: rect.width - inset * 2,
-            height: rect.height - inset * 2
-        )
-        frame.fillRounded(inner, radius: max(0, radius - inset), fill, antialiased: true)
     }
 
     private func drawTitle(
