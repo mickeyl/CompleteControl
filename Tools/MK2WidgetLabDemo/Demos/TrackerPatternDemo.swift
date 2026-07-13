@@ -100,6 +100,20 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         bindings.jogScroll = { [weak self] delta, _ in
             context.update { self?.turnMainEncoder(delta) }
         }
+        // The 4-D encoder's directional push: up/down step the row (like the
+        // rotary), left/right change the focused channel — the same axes as the
+        // dedicated PAGE keys below, so either control works.
+        bindings.jog = { [weak self] direction in
+            context.update {
+                switch direction {
+                    case "up": self?.turnMainEncoder(-1)
+                    case "down": self?.turnMainEncoder(1)
+                    case "left": self?.moveFocusedChannel(-1)
+                    case "right": self?.moveFocusedChannel(1)
+                    default: break
+                }
+            }
+        }
         bindings.onPress(.play) { [weak self] in
             context.update { self?.play() }
         }
