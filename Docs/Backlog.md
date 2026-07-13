@@ -230,3 +230,16 @@
   Must be judged on the real OLED first — the whitespace may read fine there.
   If we change it, change *both* implementations together so they stay in
   sync (ideally the same three y's + gridTop).
+
+- Widget-lab REPL: commit or cut (2026-07-13). The demo's REPL is half a
+  remote — it can `open`/`exit` demos, drive a handful of demo-local verbs and
+  the LED/guide overrides, but it cannot press an arbitrary button or turn an
+  arbitrary encoder, so it is neither a real remote nor a test harness. Decide:
+  either remove it (dead weight), or bore it out into a full one — remote
+  control of every button, encoder turn, encoder touch/double-touch and 4-D
+  gesture — so the lab (and, via the same seam, a real client) can be 100%
+  driven headless. That unlocks UI-testing automation: script a sequence of
+  presses/turns and assert on the resulting frames through the snapshot path.
+  The simulator wire already carries these events, so the missing piece is a
+  REPL/command surface that injects them at the `MK2Surface2` input seam rather
+  than through per-demo verbs.
