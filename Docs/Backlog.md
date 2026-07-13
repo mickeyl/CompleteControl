@@ -21,35 +21,44 @@
 
 ## KontrolSurfaceKit2
 
+- Widget Lab hardware review completed on 2026-07-13. The complete rebuilt demo
+  catalog and its current shared-HIG presentation were exercised on the physical
+  MK2 and accepted as the hardware baseline. This includes chrome typography,
+  selection rows, function-bar availability states, value-cell depth, shift
+  presentation, tracker geometry, meter ballistics/styles with optional peak hold,
+  and the light-guide/LED diagnostics including the physical CLEAR action. Future
+  changes to these surfaces require a fresh hardware review rather than reopening
+  the accepted baseline implicitly.
+
 - Prototype implemented: Paulinche can optionally use the F1-F4 RGB lamps as
   four channel VU meters while playing a song or pattern. Existing quantized
   realtime telemetry feeds a removable `MK2Surface2` lamp overlay, independent
   of scene/display rendering and the audio thread; disabling it restores the
   scene-owned F-key lamps. It uses normal full 80-byte `0x80` state reports,
-  latest-wins coalescing, and writes only when a quantized colour changes. Still
-  to assess on hardware: visual response, palette thresholds/release feel, and
-  input/display latency plus daemon/USB traffic during dense playback. As a
-  separate experiment, test whether a shortened `0x80` prefix report preserves
+  latest-wins coalescing, and writes only when a quantized colour changes. Visual
+  response, release feel, latency, and daemon/USB behaviour during playback were
+  accepted on hardware; keep the feature. As a separate experiment, test whether
+  a shortened `0x80` prefix report preserves
   omitted LEDs, but do not depend on partial reports unless that firmware
   behaviour is repeatable across the supported S49/S61/S88 MK2 models.
 
-- Value-cell deboss tuning after hardware review: the four gradient factors live in
-  `MK2ValueCell.draw` — border ring `0.45` (top shadow rim) → `1.8` (lit bottom edge),
-  fill `0.7` → `1.2`. Judged on PNG only so far; adjust on the OLED if the imprint
-  should read stronger or calmer. Everything built on `MK2ValueCell` follows
-  automatically (parameter pages, encoder footers, selection filter cells).
+- Value-cell deboss tuning accepted on hardware on 2026-07-13: the four gradient
+  factors live in `MK2ValueCell.draw` — border ring `0.45` (top shadow rim) → `1.8`
+  (lit bottom edge), fill `0.7` → `1.2`. Everything built on `MK2ValueCell`
+  follows automatically (parameter pages, encoder footers, selection filter cells).
 - Candidates for extending the pseudo-3D language, deliberately deferred: meter and
   progress *tracks* are semantically wells and could deboss like the value cells;
   soft-key strips and button chips are pressable and should read *raised* (chrome-band
-  bevel direction) or stay flat — do not deboss them. Decide after the value-cell look
-  is signed off on hardware.
+  bevel direction) or stay flat — do not deboss them. The value-cell prerequisite is
+  now signed off; assess these extensions independently before implementation.
 
 - Shift follow-ups (the scene-owned modifier layer itself is delivered,
-  `Docs/Shift-Layer-Plan.md`): review `MK2HIG.Chrome.shiftAccent` (amber) and the
-  dim/bright shift-lamp intensities on the OLED/hardware; other held-button layers
-  and a latching shift would be `MK2Surface2`-local extensions of the same layer
-  model; MIDI routing deliberately stays base-only under shift; multi-band display
-  diffing only if the near-full-band blit on shift flips ever shows as a cost.
+  `Docs/Shift-Layer-Plan.md`): `MK2HIG.Chrome.shiftAccent` (amber) and the dim/bright
+  shift-lamp intensities were accepted on OLED/hardware on 2026-07-13; other
+  held-button layers and a latching shift would be `MK2Surface2`-local extensions
+  of the same layer model; MIDI routing deliberately stays base-only under shift;
+  multi-band display diffing only if the near-full-band blit on shift flips ever
+  shows as a cost.
 - Still open: keep tuning cache granularity for shaped runs, whole words, or the fixed set
   of tracker cells (e.g. the 256 hex cells, note names).
 - Add a dedicated `SurfaceFont`/FreeType benchmark; the current `PixelPipelinePerfTests`
@@ -166,7 +175,7 @@
   SHIFT+INSTANCE toggles the peak marker. `.solid` remains the API default for
   compatibility; products can select the preferred style explicitly.
 
-- Tracker header zone whitespace — decide on hardware (2026-07-13). The
+- Tracker header zone whitespace accepted on hardware (2026-07-13). The
   pattern grid's top zone carries a fair bit of air: 8 px above the status
   line, then ~14 px between the status line and the channel headers, so the
   status line floats. Not a regression — this geometry is unchanged from the
@@ -175,11 +184,10 @@
   status line y8, channel headers y38, M/S toggles y34 (x+69/x+87), grid rule
   y55, gridTop 60, rowHeight 16, channelXs [48,153,258,363], rulerXs
   [36,141,246,351,456]. Only the status-line *content* differs (widget lab: 5
-  hand-drawn labels; Paulinche: `MK2StatusLineElement` with 4 items). Open
-  question: tighten the head zone (pull the status line closer to the channel
-  headers and/or trim the top margin) to reveal one or two more grid rows?
-  Must be judged on the real OLED first — the whitespace may read fine there.
-  If we change it, change *both* implementations together so they stay in
+  hand-drawn labels; Paulinche: `MK2StatusLineElement` with 4 items). The current
+  spacing reads correctly on the real OLED and remains the baseline; do not
+  tighten it merely to expose more grid rows. If it changes later, change
+  *both* implementations together so they stay in
   sync (ideally the same three y's + gridTop).
 
 - Widget-lab REPL: commit or cut (2026-07-13). The demo's REPL is half a

@@ -64,6 +64,10 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 lamps[led] = .on(color, intensity: 0x03)
             }
         }
+        let canClear = pattern != .off || !painted.isEmpty
+        lamps[.clear] = canClear
+            ? .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
+            : .off
         var scene = MK2SurfaceScene2(
             left: mirrorScreen(context).screen.frame,
             right: controlScreen(context).screen.frame,
@@ -85,6 +89,9 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                     self.painted[self.cursor] = self.color
                 }
             }
+        }
+        scene.bindings.onPress(.clear) { [weak self] in
+            context.update { [weak self] in self?.clearAllKeys() }
         }
         for value in encoderValues(context) {
             value.apply(bindings: &scene.bindings)
@@ -128,6 +135,11 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         }
         colors.merge(painted) { _, override in override }
         return colors
+    }
+
+    private func clearAllKeys() {
+        pattern = .off
+        painted.removeAll()
     }
 
     private static func rainbow(_ position: Double) -> KKRGB {
@@ -204,7 +216,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         return MK2FullScreenDSL(background: Palette.page) {
             MK2FunctionKeyBarElement(
                 slots: [
-                    MK2FunctionKeySlot("CLEAR", isEnabled: !painted.isEmpty),
+                    MK2FunctionKeySlot("CLEAR", isEnabled: pattern != .off || !painted.isEmpty),
                     MK2FunctionKeySlot(),
                     MK2FunctionKeySlot(),
                     MK2FunctionKeySlot(),
@@ -212,7 +224,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 side: .right,
                 onPress: { [weak self] slot in
                     guard slot == 0 else { return }
-                    context.update { self?.painted.removeAll() }
+                    context.update { [weak self] in self?.clearAllKeys() }
                 }
             )
             MK2AnyScreenElement { [pattern, colorName = Self.colors[colorIndex].name, mirrorLEDs] frame, _, _ in
@@ -226,7 +238,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 for (text, color) in [
                     ("SCENE KEYCOLORS DRIVE THE 0x81 GUIDE", Palette.dim),
                     ("PAINTED KEYS OVERRIDE THE PATTERN", Palette.dim),
-                    ("F1 CLEARS ALL PAINTED KEYS", Palette.dim),
+                    ("CLEAR TURNS OFF ALL GUIDE KEYS", Palette.dim),
                     ("LEDS \(mirrorLEDs ? "MIRROR THE COLOUR (F1-F8)" : "OFF")", statusColor),
                 ] {
                     BitmapLabel(text, font: .grid, color: color).draw(into: &frame, x: 8, y: y)
