@@ -18,7 +18,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         category: .catalogue,
         summary: "Multi-channel level meters",
         detail: "Meter elements with switchable visual styles under the globally approved ballistics. INSTANCE cycles styles; SHIFT+INSTANCE toggles peak hold. 4-D rotation scrubs a fixed level (ballistics paused); 4-D press resumes. Touch E1-E4 to pulse a channel; E5-E8 retain the calibration rig.",
-        snapshotVariants: ["gradient", "segmented", "protracker", "protracker-no-peak", "protracker-scrub"]
+        snapshotVariants: ["gradient", "segmented", "segmented-gradient", "protracker", "protracker-no-peak", "protracker-scrub"]
     )
 
     // The ballistics transformation now lives in the Kit (`MK2MeterBallistics`);
@@ -90,7 +90,10 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
             settled = true
             return
         }
-        meterStyle = MK2MeterElement.Style(rawValue: variant.replacingOccurrences(of: "-no-peak", with: "")) ?? .solid
+        let styleKey = variant
+            .replacingOccurrences(of: "-no-peak", with: "")
+            .replacingOccurrences(of: "-gradient", with: "Gradient")
+        meterStyle = MK2MeterElement.Style(rawValue: styleKey) ?? .solid
         showsPeak = !variant.hasSuffix("-no-peak")
     }
 

@@ -22,6 +22,7 @@ public struct MK2MeterElement: MK2ScreenElement {
         case solid
         case gradient
         case segmented
+        case segmentedGradient
         case protracker
     }
 
@@ -185,7 +186,9 @@ public struct MK2MeterElement: MK2ScreenElement {
             case .gradient:
                 drawGradient(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
             case .segmented:
-                drawSegments(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
+                drawSegments(in: fillRect, fullRect: fullRect, orientation: orientation, color: { pos, _, _ in zoneColor(at: pos) }, into: &frame)
+            case .segmentedGradient:
+                drawSegments(in: fillRect, fullRect: fullRect, orientation: orientation, color: scaleColor, into: &frame)
             case .protracker:
                 drawProTracker(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
         }
@@ -241,6 +244,7 @@ public struct MK2MeterElement: MK2ScreenElement {
         in fillRect: MK2PixelRect,
         fullRect: MK2PixelRect,
         orientation: Orientation,
+        color: (Double, Int, Int) -> UInt16,
         into frame: inout MK2PixelFrame
     ) {
         let block = 7
@@ -251,7 +255,7 @@ public struct MK2MeterElement: MK2ScreenElement {
                 while x < fillRect.maxX {
                     let width = min(block, fillRect.maxX - x)
                     let position = Double(x + max(0, width - 1) - fullRect.x) / Double(max(1, fullRect.width - 1))
-                    frame.fill(MK2PixelRect(x: x, y: fillRect.y, width: width, height: fillRect.height), zoneColor(at: position))
+                    frame.fill(MK2PixelRect(x: x, y: fillRect.y, width: width, height: fillRect.height), color(position, x, fillRect.y))
                     x += block + gap
                 }
             case .vertical:
@@ -259,7 +263,7 @@ public struct MK2MeterElement: MK2ScreenElement {
                 while bottom > fillRect.y {
                     let top = max(fillRect.y, bottom - block)
                     let position = Double(fullRect.maxY - top) / Double(max(1, fullRect.height))
-                    frame.fill(MK2PixelRect(x: fillRect.x, y: top, width: fillRect.width, height: bottom - top), zoneColor(at: position))
+                    frame.fill(MK2PixelRect(x: fillRect.x, y: top, width: fillRect.width, height: bottom - top), color(position, fillRect.x, top))
                     bottom -= block + gap
                 }
         }
