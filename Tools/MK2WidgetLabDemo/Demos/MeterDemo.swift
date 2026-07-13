@@ -172,7 +172,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
                 channels: (0..<4).map { channel in
                     MK2MeterChannel(label: "CH\(channel + 1)", level: levels[channel], peak: peaks[channel])
                 },
-                rect: MK2PixelRect(x: 32, y: 40, width: 416, height: 138),
+                rect: MK2PixelRect(x: 32, y: 6, width: 416, height: 148),
                 orientation: .vertical,
                 channelGap: 16,
                 fill: Palette.green,
