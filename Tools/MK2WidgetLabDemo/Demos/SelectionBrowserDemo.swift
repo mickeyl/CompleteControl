@@ -89,8 +89,11 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
         let items = filteredItems()
         let selected = selectedItem()
 
+        let subtitle = mode == .orderTable
+            ? mode.shortTitle
+            : "\(mode.shortTitle) · \(items.count)/\(BrowserLabFixtures.items.count)"
         return MK2RegularScreenDSL(
-            header: .title(title: "Selection & Browser", subtitle: mode.shortTitle),
+            header: .title(title: "Selection & Browser", subtitle: subtitle),
             footer: .hint(confirmation)
         ) {
             MK2ContentText(mode.title, x: 8, y: 0, role: .title)
@@ -102,24 +105,22 @@ final class SelectionBrowserDemo: LabDemo, @unchecked Sendable {
                 y: 40,
                 maxWidth: 432,
                 color: Palette.dim,
-                maxLines: 3,
+                // The grid/list branch adds a full detail card below and shares
+                // the footer-shortened content band, so it keeps the blurb to
+                // two lines; the order-table branch has room for three.
+                maxLines: mode == .orderTable ? 3 : 2,
                 lineSpacing: 2
             )
             if mode == .orderTable {
                 MK2ContentText("Entries: \(BrowserLabFixtures.orderRows.count) order positions", x: 8, y: 104, maxWidth: 432)
-            } else {
-                MK2ContentText("Matches: \(items.count) / \(BrowserLabFixtures.items.count)", x: 8, y: 80, maxWidth: 432)
-            }
-
-            if mode == .orderTable {
-                MK2ContentText("Selected: \(selectedTitle() ?? "—")", x: 8, y: 128, maxWidth: 432, color: Palette.text)
+                MK2ContentText("Selected: \(selectedTitle() ?? "—")", x: 8, y: 132, maxWidth: 432, color: Palette.text)
             } else if let selected {
                 MK2BrowserDetailElement(
                     title: selected.title,
                     detail: selected.detail,
                     metadata: "\(selected.area) · \(selected.source) · \(selected.status)",
                     iconGlyph: selected.icon,
-                    y: 112,
+                    y: 84,
                     iconColor: Palette.accent,
                     accentColor: Palette.blue
                 )
