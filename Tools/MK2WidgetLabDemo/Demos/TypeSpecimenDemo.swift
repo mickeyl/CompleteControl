@@ -246,7 +246,10 @@ final class TypeSpecimenDemo: LabDemo, @unchecked Sendable {
 
     private func drawRow(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer?, y: Int, title: String, body: String, focused: Bool) {
         if focused {
-            frame.fill(MK2PixelRect(x: 12, y: y - 6, width: 456, height: 54), Palette.selectionFill)
+            // Same rounded selection fill as the standard list/value cells;
+            // the box wraps the 24 px title cap down to the 16 px body's
+            // descenders instead of clipping them.
+            frame.fillRounded(MK2PixelRect(x: 12, y: y - 3, width: 456, height: 58), radius: 7, Palette.selectionFill, antialiased: true)
         }
         drawFreeTypeTitle(title, into: &frame, renderer: renderer, x: 22, y: y, size: MK2HIG.Typography.titlePixelSize, color: focused ? Palette.text : Palette.dim, maxWidth: 420)
         drawFreeTypeBody(body, into: &frame, renderer: renderer, x: 22, y: y + 31, size: MK2HIG.Typography.bodyPixelSize, color: focused ? Palette.dim : Palette.empty, maxWidth: 420)
