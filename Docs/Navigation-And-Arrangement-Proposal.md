@@ -121,8 +121,11 @@ Done — the arrangement loop works end to end (SCENE → order list → PATTERN
 - **`SurfaceSceneContent.song` + `ControlSurfacePort.songScene`** projecting the arrangement from `song.orders`; adapter maps it to the renderer.
 - **Navigation grammar**: `surfaceMode` app-state, SCENE/PATTERN mode switch, 4-D wheel + E1-E4 rotation → `selectOrder` in the arrangement (E1-E4 touch inert there), arrangement soft keys Insert/Dup/Delete/Move±.
 
+Also done:
+- **PAGE per mode**: row page (±16) in the pattern grid, order page (±8) in the arrangement; `appendPattern`/`duplicate` moved off PAGE to the arrangement soft keys. (Pattern-mode PAGE pages rows, not the proposal's channel page — channel paging is app-state and only matters past four channels, so it stays deferred.)
+
 Deferred (follow-ups):
-- **PAGE reassignment per mode** (channel page ↔ order page); `appendPattern`/`duplicate` currently stay on PAGE globally *and* on the arrangement soft keys.
+- **Channel paging** on PAGE in the pattern grid (needs >4-channel support + app-state wiring).
 - **TRACK button** → instrument/channel view.
 - **SCENE lamp** (needs a `.scene` lamp name + KK button mapping).
 - **Explicit 4-D-center drill-in** (PATTERN button already drills in).
