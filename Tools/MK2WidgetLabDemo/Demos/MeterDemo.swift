@@ -17,8 +17,8 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         title: "Meter",
         category: .catalogue,
         summary: "Multi-channel level meters",
-        detail: "Meter elements with switchable visual styles under the globally approved ballistics. INSTANCE cycles styles; SHIFT+INSTANCE toggles peak hold. Touch E1-E4 to pulse a channel (4-D press all four); E5-E8 retain the calibration rig.",
-        snapshotVariants: ["gradient", "segmented", "protracker", "protracker-no-peak"]
+        detail: "Meter elements with switchable visual styles under the globally approved ballistics. INSTANCE cycles styles; SHIFT+INSTANCE toggles peak hold. 4-D rotation scrubs a fixed level (ballistics paused); 4-D press resumes. Touch E1-E4 to pulse a channel; E5-E8 retain the calibration rig.",
+        snapshotVariants: ["gradient", "segmented", "protracker", "protracker-no-peak", "protracker-scrub"]
     )
 
     // The ballistics transformation now lives in the Kit (`MK2MeterBallistics`);
@@ -35,6 +35,12 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     private var meterStyle: MK2MeterElement.Style = .solid
     private var showsPeak = true
 
+    /// When non-nil, all channels are pinned to this level and ballistics are
+    /// frozen so every meter style can be inspected at a fixed fill height.
+    /// 4-D rotation scrubs the value; 4-D press exits scrub mode.
+    private var scrubLevel: Double?
+    private var scrubPercent: Int = 0
+
     private var tickMs: Int { max(4, 1000 / max(1, frameRate)) }
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
@@ -48,8 +54,18 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
                 self?.pulse([channel], context)
             }
         }
+        scene.bindings.jogScroll = { [weak self] delta, _ in
+            context.update { [weak self] in self?.scrub(delta: delta) }
+        }
         scene.bindings.jogCenter = { [weak self] in
-            self?.pulse(Array(0..<4), context)
+            context.update { [weak self] in
+                guard let self else { return }
+                if self.scrubLevel != nil {
+                    self.exitScrub()
+                } else {
+                    self.pulse(Array(0..<4), context)
+                }
+            }
         }
         scene.lamps[.instance] = .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
         scene.bindings.onPress(.instance, modifiers: .unmodified) { [weak self] in
@@ -63,6 +79,17 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
 
     func prepareSnapshot(variant: String) {
         setFixtureLevels()
+        if variant.hasSuffix("-scrub") {
+            meterStyle = .protracker
+            showsPeak = true
+            scrubPercent = 78
+            scrubLevel = 0.78
+            for index in ballistics.indices {
+                ballistics[index].hold(level: 0.78, peak: 0.78)
+            }
+            settled = true
+            return
+        }
         meterStyle = MK2MeterElement.Style(rawValue: variant.replacingOccurrences(of: "-no-peak", with: "")) ?? .solid
         showsPeak = !variant.hasSuffix("-no-peak")
     }
@@ -78,6 +105,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
             ReplCommand(name: "meterpeak", arg: "on|off|toggle", summary: "show or hide peak markers", values: ["on", "off", "toggle"]),
             ReplCommand(name: "meterpulse", arg: "", summary: "pulse all meter channels", values: []),
             ReplCommand(name: "meterfixture", arg: "", summary: "hold representative meter levels", values: []),
+            ReplCommand(name: "meterscrub", arg: "0-100|off", summary: "pin a fixed level (pause ballistics) or resume", values: ["off", "0", "25", "50", "75", "100"]),
         ]
     }
 
@@ -105,6 +133,24 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
                 pulse(Array(0..<4), context)
             case "meterfixture":
                 context.update { [weak self] in self?.setFixtureLevels() }
+            case "meterscrub":
+                context.update { [weak self] in
+                    guard let self else { return }
+                    let arg = rest.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if arg == "off" || arg == "resume" {
+                        self.exitScrub()
+                    } else if let percent = Int(arg) {
+                        self.scrubPercent = max(0, min(100, percent))
+                        let level = Double(self.scrubPercent) / 100.0
+                        self.scrubLevel = level
+                        self.animationTask?.cancel()
+                        self.animationTask = nil
+                        for index in self.ballistics.indices {
+                            self.ballistics[index].hold(level: level, peak: level)
+                        }
+                        self.settled = true
+                    }
+                }
             default:
                 return false
         }
@@ -180,6 +226,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     private func setFixtureLevels() {
         animationTask?.cancel()
         animationTask = nil
+        scrubLevel = nil
         let fixture = [0.72, 0.45, 0.93, 0.30]
         for (index, level) in fixture.enumerated() {
             ballistics[index].hold(level: level, peak: min(1.0, level + 0.06))
@@ -187,12 +234,53 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         settled = true
     }
 
+    // MARK: - Scrub
+
+    /// 4-D rotation pins all channels to a fixed level and freezes ballistics,
+    /// so every meter style can be inspected at a stable fill height.
+    private func scrub(delta: Int) {
+        animationTask?.cancel()
+        animationTask = nil
+        if scrubLevel == nil {
+            scrubPercent = Int((ballistics.map(\.level).max() ?? 0) * 100)
+        }
+        scrubPercent = max(0, min(100, scrubPercent + delta))
+        let level = Double(scrubPercent) / 100.0
+        scrubLevel = level
+        for index in ballistics.indices {
+            ballistics[index].hold(level: level, peak: level)
+        }
+        settled = true
+    }
+
+    private func exitScrub() {
+        scrubLevel = nil
+        for index in ballistics.indices {
+            ballistics[index].hold(level: 0, peak: 0)
+        }
+        settled = true
+    }
+
     // MARK: - Screens
+
+    private var styleSubtitle: String {
+        if let scrubLevel {
+            return "\(meterStyle.rawValue) · \(Int(scrubLevel * 100))%"
+        }
+        return meterStyle.rawValue
+    }
+
+    private var footerHint: String {
+        if scrubLevel != nil {
+            return "4-D press resume · INSTANCE style · SHIFT+INSTANCE peak \(showsPeak ? "on" : "off")"
+        }
+        return "4-D scrub level · INSTANCE style · SHIFT+INSTANCE peak \(showsPeak ? "on" : "off")"
+    }
 
     private func overviewScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         MK2RegularScreenDSL(
-            header: .title(title: "Meter", subtitle: meterStyle.rawValue),
-            footer: .hint("INSTANCE style · SHIFT+INSTANCE peak \(showsPeak ? "on" : "off")")
+            header: .title(title: "Meter", subtitle: styleSubtitle),
+            footer: .hint(footerHint)
         ) {
             MK2ContentText("Meter Elements", x: 8, y: 0, role: .title)
             MK2ContentText(
@@ -223,7 +311,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     }
 
     private func detailScreen(_ context: LabContext) -> MK2ScreenBuildResult {
-        MK2RegularScreenDSL(header: .title(title: "Ballistics", subtitle: meterStyle.rawValue)) {
+        MK2RegularScreenDSL(header: .title(title: "Ballistics", subtitle: styleSubtitle)) {
             MK2MeterElement(
                 channels: (0..<4).map { channel in
                     MK2MeterChannel(label: "CH\(channel + 1)", level: ballistics[channel].level, peak: ballistics[channel].peak)

@@ -283,15 +283,18 @@ public struct MK2MeterElement: MK2ScreenElement {
         }
     }
 
+    /// Smooth cylindrical tube shading — the 3D "lit pipe" illusion from the
+    /// original ProTracker VU meters. A specular highlight peak near the left
+    /// edge sits over a continuous body falloff toward the right; a narrow rim
+    /// shadow at the very edge gives the rounded cross-section its depth. The
+    /// previous stepped approximation produced visible bands that broke the
+    /// effect on the OLED.
     private func proTrackerCrossFactor(at position: Double) -> Double {
-        switch position {
-            case ..<0.02: 0.75
-            case ..<0.18: 1.18
-            case ..<0.78: 1.00
-            case ..<0.86: 0.85
-            case ..<0.985: 0.79
-            default: 0.60
-        }
+        let t = min(1, max(0, position))
+        let highlight = exp(-pow((t - 0.09) / 0.07, 2.0))
+        let body = pow(1.0 - t, 0.5)
+        let rimShadow = exp(-pow(t / 0.04, 2.0))
+        return 0.50 + 0.45 * body + 0.28 * highlight - 0.35 * rimShadow
     }
 
     private func axisProgress(x: Int, y: Int, in rect: MK2PixelRect, orientation: Orientation) -> Double {
