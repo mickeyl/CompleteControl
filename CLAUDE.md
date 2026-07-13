@@ -98,6 +98,11 @@ Layout rules:
 - left display is typically the dense tracker/pattern view;
 - right display is the focused edit surface;
 - encoder-bound values use the canonical bottom-flush encoder slots;
+- E5–E8 are the bottom-flush value encoders (parameter page cells); E1–E4 are
+  the top-flush channel encoders in the tracker pattern scene — touch selects
+  the channel directly, rotation moves the cursor row (same axis as the 4-D
+  wheel). E1–E4 carry no value cells; they share the top-flush zone with the
+  function-key bar but are encoder-touch/rotation only;
 - function-button actions use `MK2FunctionKeyBarElement`: top-flush under the
   physical F-buttons, slots on the same uniform grid as the encoder cells,
   and the element owns both drawing and the F1–F4/F5–F8 press bindings;

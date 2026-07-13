@@ -162,7 +162,20 @@ public enum MK2PaulinchePatternRenderer {
         actions: MK2PaulinchePatternActions = MK2PaulinchePatternActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2SurfaceScene2 {
-        render(scene, actions: actions, renderer: renderer).scene()
+        var scene = render(scene, actions: actions, renderer: renderer).scene()
+        // E1–E4 are the channel encoders: touch selects the channel directly,
+        // rotation moves the cursor row — the same axis as the 4-D wheel, from
+        // the physical position of each channel column. They carry no value
+        // cells (the bottom-flush E5–E8 slots own that layout).
+        for encoder in 1...4 {
+            scene.bindings.encoder[encoder] = { delta, _, _ in
+                actions.onEncoderChange?(encoder, delta)
+            }
+            scene.bindings.encoderTouch[encoder] = { touched in
+                actions.onEncoderTouch?(encoder, touched)
+            }
+        }
+        return scene
     }
 
     // MARK: - Left screen: pattern grid

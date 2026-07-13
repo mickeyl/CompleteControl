@@ -108,7 +108,40 @@ struct PaulinchePatternRendererTests {
         #expect(changes[0].1 == 2)
         #expect(changes[1].0 == 8)
         #expect(changes[1].1 == -1)
-        #expect(rendered.bindings.encoder[4] == nil)
+    }
+
+    @Test("Channel encoders E1–E4 forward touch and rotation")
+    func channelEncodersForwardTouchAndRotation() {
+        let scene = Self.fixture()
+        let recorder = PatternEncoderActionRecorder()
+        let rendered = MK2PaulinchePatternRenderer.surfaceScene(
+            scene,
+            actions: MK2PaulinchePatternActions(
+                onEncoderTouch: { encoder, touched in
+                    recorder.appendTouch(encoder: encoder, touched: touched)
+                },
+                onEncoderChange: { encoder, delta in
+                    recorder.appendChange(encoder: encoder, delta: delta)
+                }
+            )
+        )
+
+        for encoder in 1...4 {
+            #expect(rendered.bindings.encoder[encoder] != nil)
+            #expect(rendered.bindings.encoderTouch[encoder] != nil)
+        }
+
+        rendered.bindings.encoderTouch[2]?(true)
+        rendered.bindings.encoder[3]?(1, 0, 0)
+
+        let touches = recorder.touchesSnapshot()
+        let changes = recorder.changesSnapshot()
+        #expect(touches.count == 1)
+        #expect(touches[0].0 == 2)
+        #expect(touches[0].1 == true)
+        #expect(changes.count == 1)
+        #expect(changes[0].0 == 3)
+        #expect(changes[0].1 == 1)
     }
 
     @Test("Pattern screens can be captured as a two-screen snapshot")

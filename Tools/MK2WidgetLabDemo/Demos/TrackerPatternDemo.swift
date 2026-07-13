@@ -114,6 +114,18 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
                 }
             }
         }
+        // E1–E4 are the channel encoders: touch selects the channel directly,
+        // rotation moves the cursor row — the same axis as the 4-D wheel.
+        for channel in 0..<4 {
+            let encoder = channel + 1
+            bindings.encoder[encoder] = { [weak self] delta, _, _ in
+                context.update { self?.turnMainEncoder(delta) }
+            }
+            bindings.encoderTouch[encoder] = { [weak self] touched in
+                guard touched else { return }
+                context.update { self?.focusedChannel = channel }
+            }
+        }
         bindings.onPress(.play) { [weak self] in
             context.update { self?.play() }
         }
