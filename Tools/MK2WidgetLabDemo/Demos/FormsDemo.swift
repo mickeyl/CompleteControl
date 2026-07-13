@@ -23,6 +23,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
     }
 
     private var page: Page = .matchedRaised
+    private var functionSlotAvailability = [true, false, true, false]
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
         var scene = MK2DoubleScreenDSL(
@@ -31,7 +32,19 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
         ).scene()
         scene.lamps[.instance] = .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
         scene.bindings.onPress(.instance) { [weak self] in
-            context.update { self?.page = self?.page.next ?? .chromeHeaders }
+            context.update { [weak self] in
+                self?.page = self?.page.next ?? .chromeHeaders
+            }
+        }
+        if page == .matchedRaised || page == .matchedFlat {
+            for (index, button) in [KKMK2ButtonLED.function5, .function6, .function7, .function8].enumerated() {
+                scene.bindings.onPress(button) { [weak self] in
+                    context.update { [weak self] in
+                        guard let self else { return }
+                        self.functionSlotAvailability[index].toggle()
+                    }
+                }
+            }
         }
         return scene
     }
@@ -159,10 +172,10 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
         return MK2FullScreenDSL(background: Palette.page) {
             MK2FunctionKeyBarElement(
                 slots: [
-                    MK2FunctionKeySlot("COPY", iconGlyph: MK2HIG.IconGlyph.copy),
-                    MK2FunctionKeySlot("PASTE", iconGlyph: MK2HIG.IconGlyph.clipboard),
-                    MK2FunctionKeySlot("CLEAR", iconGlyph: MK2HIG.IconGlyph.eraser),
-                    MK2FunctionKeySlot("TRIM", iconGlyph: MK2HIG.IconGlyph.crop),
+                    MK2FunctionKeySlot("COPY", iconGlyph: MK2HIG.IconGlyph.copy, isEnabled: functionSlotAvailability[0]),
+                    MK2FunctionKeySlot("PASTE", iconGlyph: MK2HIG.IconGlyph.clipboard, isEnabled: functionSlotAvailability[1]),
+                    MK2FunctionKeySlot("CLEAR", iconGlyph: MK2HIG.IconGlyph.eraser, isEnabled: functionSlotAvailability[2]),
+                    MK2FunctionKeySlot("TRIM", iconGlyph: MK2HIG.IconGlyph.crop, isEnabled: functionSlotAvailability[3]),
                 ],
                 side: side,
                 style: style
@@ -170,7 +183,7 @@ final class FormsDemo: LabDemo, @unchecked Sendable {
             MK2AnyScreenElement { frame, elementContext, _ in
                 BitmapLabel(title.uppercased(), font: .gridBold, color: Palette.blue).draw(into: &frame, x: 8, y: contentTop)
                 _ = drawFreeTypeBody(note, into: &frame, renderer: elementContext.renderer, x: 8, y: contentTop + 22, size: MK2HIG.Typography.bodyPixelSize, color: Palette.dim, maxWidth: 432, maxLines: 3)
-                BitmapLabel("INSTANCE CYCLES THE FORMS · PAGE \(self.pageIndex)", font: .label, color: Palette.empty).draw(into: &frame, x: 8, y: 250)
+                BitmapLabel("F5-F8 TOGGLE AVAILABILITY · PAGE \(self.pageIndex)", font: .label, color: Palette.empty).draw(into: &frame, x: 8, y: 250)
             }
         }.build(renderer: context.renderer)
     }

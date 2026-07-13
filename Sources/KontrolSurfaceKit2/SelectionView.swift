@@ -406,9 +406,9 @@ public struct MK2SelectionList: Sendable {
             drawColumns(of: item, selected: selected, textX: textX, y: y, into: &frame, renderer: renderer)
             return
         }
-        MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + 3, color: selected ? colors.text : colors.dim, maxWidth: item.badge == nil ? 392 : 322)
+        MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + Self.primaryTextTopInset, color: selected ? colors.text : colors.dim, maxWidth: item.badge == nil ? 392 : 322)
         if let badge = item.badge {
-            MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: 386, y: y + 3, color: selected ? colors.text : colors.muted, maxWidth: 74)
+            MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: 386, y: y + Self.primaryTextTopInset, color: selected ? colors.text : colors.muted, maxWidth: 74)
         }
         if rowHeight >= 44, let detail = item.detail {
             MK2SelectionDrawing.drawBody(detail, into: &frame, renderer: renderer, x: textX, y: y + 24, color: selected ? colors.dim : colors.muted, maxWidth: 392)
@@ -416,6 +416,7 @@ public struct MK2SelectionList: Sendable {
     }
 
     private static let columnHeaderHeight = 18
+    private static let primaryTextTopInset = 6
 
     private func drawColumnHeaders(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer?, contentY: Int) {
         for column in columns {
@@ -454,7 +455,7 @@ public struct MK2SelectionList: Sendable {
                 BitmapLabel(value, font: .grid, color: color)
                     .draw(into: &frame, x: drawX, y: y + 6, clip: MK2PixelRect(x: x, y: y, width: column.width, height: rowHeight))
             } else {
-                MK2SelectionDrawing.drawBody(value, into: &frame, renderer: renderer, x: drawX, y: y + 3, color: color, maxWidth: column.width)
+                MK2SelectionDrawing.drawBody(value, into: &frame, renderer: renderer, x: drawX, y: y + Self.primaryTextTopInset, color: color, maxWidth: column.width)
             }
         }
     }
