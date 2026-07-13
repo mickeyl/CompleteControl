@@ -336,10 +336,89 @@ struct ScreenDSLTests {
             )
         }.build()
 
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 42, width: 80, height: 12), matching: 0x464f) > 20)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 62, width: 180, height: 12), matching: 0xf8c3) > 20)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 42, width: 80, height: 12), matching: MK2HIG.Meter.normal) > 20)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 55, y: 62, width: 180, height: 12), matching: MK2HIG.Meter.danger) > 20)
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 200, y: 42, width: 5, height: 12), matching: MK2HIG.Chrome.text) > 0)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 310, y: 65, width: 24, height: 60), matching: MK2HIG.Chrome.accent) > 20)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 310, y: 65, width: 24, height: 60), matching: MK2HIG.Meter.warning) > 20)
+    }
+
+    @Test("Meter styles render distinctly")
+    func meterStylesRenderDistinctly() {
+        let frames = MK2MeterElement.Style.allCases.map { style in
+            MK2FullScreenDSL {
+                MK2MeterElement(
+                    channels: [MK2MeterChannel(level: 0.96)],
+                    rect: MK2PixelRect(x: 32, y: 40, width: 36, height: 140),
+                    orientation: .vertical,
+                    style: style,
+                    relativeToContent: false
+                )
+            }.build().screen.frame
+        }
+
+        for left in frames.indices {
+            for right in frames.indices where right > left {
+                #expect(frames[left] != frames[right])
+            }
+        }
+    }
+
+    @Test("ProTracker meter uses an asymmetric bevel")
+    func proTrackerMeterUsesAsymmetricBevel() {
+        let rect = MK2PixelRect(x: 20, y: 40, width: 62, height: 142)
+        let frame = MK2FullScreenDSL {
+            MK2MeterElement(
+                channels: [MK2MeterChannel(level: 1)],
+                rect: rect,
+                orientation: .vertical,
+                style: .protracker,
+                showsPeak: false,
+                relativeToContent: false
+            )
+        }.build().screen.frame
+        let innerX = rect.x + 1
+        let sampleY = rect.y + 44
+        func intensity(at offset: Int) -> Int {
+            let color = frame[innerX + offset, sampleY]
+            return Int((color >> 11) & 0x1f) * 2 + Int((color >> 5) & 0x3f) + Int(color & 0x1f) * 2
+        }
+
+        #expect(intensity(at: 5) > intensity(at: 30))
+        #expect(intensity(at: 30) > intensity(at: 52))
+        #expect(intensity(at: 52) > intensity(at: 59))
+        #expect(intensity(at: 30) > intensity(at: 0))
+    }
+
+    @Test("Peak marker is optional for every meter style")
+    func peakMarkerIsOptionalForEveryStyle() {
+        let peakColor: UInt16 = 0x1234
+        let meterRect = MK2PixelRect(x: 20, y: 40, width: 180, height: 18)
+
+        for style in MK2MeterElement.Style.allCases {
+            func render(showsPeak: Bool) -> MK2PixelFrame {
+                MK2FullScreenDSL {
+                    MK2MeterElement(
+                        channels: [MK2MeterChannel(level: 0.35, peak: 0.82)],
+                        rect: meterRect,
+                        peakColor: peakColor,
+                        style: style,
+                        showsPeak: showsPeak,
+                        relativeToContent: false
+                    )
+                }.build().screen.frame
+            }
+
+            #expect(render(showsPeak: true).countPixels(in: meterRect, matching: peakColor) > 0)
+            #expect(render(showsPeak: false).countPixels(in: meterRect, matching: peakColor) == 0)
+        }
+    }
+
+    @Test("HIG carries the approved meter ballistics")
+    func higCarriesApprovedMeterBallistics() {
+        #expect(MK2HIG.Meter.Ballistics.releaseMilliseconds == 360)
+        #expect(MK2HIG.Meter.Ballistics.peakHoldMilliseconds == 300)
+        #expect(MK2HIG.Meter.Ballistics.peakFallMilliseconds == 1_500)
+        #expect(MK2HIG.Meter.Ballistics.referenceFrameRate == 50)
     }
 
     @Test("Shift is a first-class button modifier")

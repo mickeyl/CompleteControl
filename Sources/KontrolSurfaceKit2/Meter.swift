@@ -13,9 +13,16 @@ public struct MK2MeterChannel: Sendable, Equatable {
 }
 
 public struct MK2MeterElement: MK2ScreenElement {
-    public enum Orientation: Sendable {
+    public enum Orientation: Sendable, Equatable {
         case horizontal
         case vertical
+    }
+
+    public enum Style: String, CaseIterable, Sendable, Equatable {
+        case solid
+        case gradient
+        case segmented
+        case protracker
     }
 
     public var channels: [MK2MeterChannel]
@@ -31,6 +38,8 @@ public struct MK2MeterElement: MK2ScreenElement {
     public var labelColor: UInt16
     public var warningThreshold: Double
     public var dangerThreshold: Double
+    public var style: Style
+    public var showsPeak: Bool
     public var relativeToContent: Bool
 
     public init(
@@ -39,14 +48,16 @@ public struct MK2MeterElement: MK2ScreenElement {
         orientation: Orientation = .horizontal,
         channelGap: Int = 4,
         track: UInt16 = MK2HIG.Chrome.footerFill,
-        fill: UInt16 = 0x464f,
-        warningFill: UInt16 = MK2HIG.Chrome.accent,
-        dangerFill: UInt16 = 0xf8c3,
+        fill: UInt16 = MK2HIG.Meter.normal,
+        warningFill: UInt16 = MK2HIG.Meter.warning,
+        dangerFill: UInt16 = MK2HIG.Meter.danger,
         peakColor: UInt16 = MK2HIG.Chrome.text,
         border: UInt16 = MK2HIG.Chrome.border,
         labelColor: UInt16 = MK2HIG.Chrome.dim,
         warningThreshold: Double = 0.72,
         dangerThreshold: Double = 0.92,
+        style: Style = .solid,
+        showsPeak: Bool = true,
         relativeToContent: Bool = true
     ) {
         self.channels = channels
@@ -62,6 +73,8 @@ public struct MK2MeterElement: MK2ScreenElement {
         self.labelColor = labelColor
         self.warningThreshold = warningThreshold
         self.dangerThreshold = dangerThreshold
+        self.style = style
+        self.showsPeak = showsPeak
         self.relativeToContent = relativeToContent
     }
 
@@ -103,15 +116,20 @@ public struct MK2MeterElement: MK2ScreenElement {
     }
 
     private func drawHorizontalBar(_ channel: MK2MeterChannel, in rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
-        frame.fill(rect, track)
-        frame.stroke(rect, border)
+        frame.fill(rect, trackColor)
+        frame.stroke(rect, borderColor)
         let inner = rect.insetBy(dx: 1, dy: 1)
         let level = channel.level.clamped01()
         let fillWidth = Int((Double(inner.width) * level).rounded())
         if fillWidth > 0 {
-            frame.fill(MK2PixelRect(x: inner.x, y: inner.y, width: min(inner.width, fillWidth), height: inner.height), fillColor(for: level))
+            drawLevel(
+                in: MK2PixelRect(x: inner.x, y: inner.y, width: min(inner.width, fillWidth), height: inner.height),
+                fullRect: inner,
+                orientation: .horizontal,
+                into: &frame
+            )
         }
-        if let peak = channel.peak {
+        if showsPeak, let peak = channel.peak {
             let peakX = inner.x + Int((Double(max(0, inner.width - 1)) * peak.clamped01()).rounded())
             frame.fill(MK2PixelRect(x: peakX, y: inner.y, width: 2, height: inner.height), peakColor)
         }
@@ -128,29 +146,209 @@ public struct MK2MeterElement: MK2ScreenElement {
     }
 
     private func drawVerticalBar(_ channel: MK2MeterChannel, in rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
-        frame.fill(rect, track)
-        frame.stroke(rect, border)
+        frame.fill(rect, trackColor)
+        frame.stroke(rect, borderColor)
         let inner = rect.insetBy(dx: 1, dy: 1)
         let level = channel.level.clamped01()
         let fillHeight = Int((Double(inner.height) * level).rounded())
         if fillHeight > 0 {
-            frame.fill(MK2PixelRect(x: inner.x, y: inner.maxY - fillHeight, width: inner.width, height: min(inner.height, fillHeight)), fillColor(for: level))
+            drawLevel(
+                in: MK2PixelRect(x: inner.x, y: inner.maxY - fillHeight, width: inner.width, height: min(inner.height, fillHeight)),
+                fullRect: inner,
+                orientation: .vertical,
+                into: &frame
+            )
         }
-        if let peak = channel.peak {
+        if showsPeak, let peak = channel.peak {
             let peakY = inner.maxY - 1 - Int((Double(max(0, inner.height - 1)) * peak.clamped01()).rounded())
             frame.fill(MK2PixelRect(x: inner.x, y: peakY, width: inner.width, height: 2), peakColor)
         }
     }
 
-    private func fillColor(for level: Double) -> UInt16 {
-        if level >= dangerThreshold {
-            return dangerFill
+    private var trackColor: UInt16 {
+        style == .protracker ? MK2HIG.Meter.ProTracker.track : track
+    }
+
+    private var borderColor: UInt16 {
+        style == .protracker ? MK2HIG.Meter.ProTracker.border : border
+    }
+
+    private func drawLevel(
+        in fillRect: MK2PixelRect,
+        fullRect: MK2PixelRect,
+        orientation: Orientation,
+        into frame: inout MK2PixelFrame
+    ) {
+        switch style {
+            case .solid:
+                drawZoneBands(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
+            case .gradient:
+                drawGradient(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
+            case .segmented:
+                drawSegments(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
+            case .protracker:
+                drawProTracker(in: fillRect, fullRect: fullRect, orientation: orientation, into: &frame)
         }
-        if level >= warningThreshold {
-            return warningFill
+    }
+
+    private func drawGradient(
+        in rect: MK2PixelRect,
+        fullRect: MK2PixelRect,
+        orientation: Orientation,
+        into frame: inout MK2PixelFrame
+    ) {
+        for y in rect.y..<rect.maxY {
+            for x in rect.x..<rect.maxX {
+                let progress = axisProgress(x: x, y: y, in: fullRect, orientation: orientation)
+                frame[x, y] = scaleColor(at: progress, x: x, y: y)
+            }
         }
+    }
+
+    private func drawZoneBands(
+        in fillRect: MK2PixelRect,
+        fullRect: MK2PixelRect,
+        orientation: Orientation,
+        into frame: inout MK2PixelFrame
+    ) {
+        switch orientation {
+            case .horizontal:
+                let warningX = fullRect.x + Int((Double(fullRect.width) * warningThreshold).rounded())
+                let dangerX = fullRect.x + Int((Double(fullRect.width) * dangerThreshold).rounded())
+                fillHorizontalSpan(from: fillRect.x, to: min(fillRect.maxX, warningX), in: fillRect, color: fill, into: &frame)
+                fillHorizontalSpan(from: max(fillRect.x, warningX), to: min(fillRect.maxX, dangerX), in: fillRect, color: warningFill, into: &frame)
+                fillHorizontalSpan(from: max(fillRect.x, dangerX), to: fillRect.maxX, in: fillRect, color: dangerFill, into: &frame)
+            case .vertical:
+                let warningY = fullRect.maxY - Int((Double(fullRect.height) * warningThreshold).rounded())
+                let dangerY = fullRect.maxY - Int((Double(fullRect.height) * dangerThreshold).rounded())
+                fillVerticalSpan(from: max(fillRect.y, warningY), to: fillRect.maxY, in: fillRect, color: fill, into: &frame)
+                fillVerticalSpan(from: max(fillRect.y, dangerY), to: min(fillRect.maxY, warningY), in: fillRect, color: warningFill, into: &frame)
+                fillVerticalSpan(from: fillRect.y, to: min(fillRect.maxY, dangerY), in: fillRect, color: dangerFill, into: &frame)
+        }
+    }
+
+    private func fillHorizontalSpan(from start: Int, to end: Int, in rect: MK2PixelRect, color: UInt16, into frame: inout MK2PixelFrame) {
+        guard end > start else { return }
+        frame.fill(MK2PixelRect(x: start, y: rect.y, width: end - start, height: rect.height), color)
+    }
+
+    private func fillVerticalSpan(from start: Int, to end: Int, in rect: MK2PixelRect, color: UInt16, into frame: inout MK2PixelFrame) {
+        guard end > start else { return }
+        frame.fill(MK2PixelRect(x: rect.x, y: start, width: rect.width, height: end - start), color)
+    }
+
+    private func drawSegments(
+        in fillRect: MK2PixelRect,
+        fullRect: MK2PixelRect,
+        orientation: Orientation,
+        into frame: inout MK2PixelFrame
+    ) {
+        let block = 7
+        let gap = 2
+        switch orientation {
+            case .horizontal:
+                var x = fullRect.x
+                while x < fillRect.maxX {
+                    let width = min(block, fillRect.maxX - x)
+                    let position = Double(x + max(0, width - 1) - fullRect.x) / Double(max(1, fullRect.width - 1))
+                    frame.fill(MK2PixelRect(x: x, y: fillRect.y, width: width, height: fillRect.height), zoneColor(at: position))
+                    x += block + gap
+                }
+            case .vertical:
+                var bottom = fullRect.maxY
+                while bottom > fillRect.y {
+                    let top = max(fillRect.y, bottom - block)
+                    let position = Double(fullRect.maxY - top) / Double(max(1, fullRect.height))
+                    frame.fill(MK2PixelRect(x: fillRect.x, y: top, width: fillRect.width, height: bottom - top), zoneColor(at: position))
+                    bottom -= block + gap
+                }
+        }
+    }
+
+    private func drawProTracker(
+        in fillRect: MK2PixelRect,
+        fullRect: MK2PixelRect,
+        orientation: Orientation,
+        into frame: inout MK2PixelFrame
+    ) {
+        for y in fillRect.y..<fillRect.maxY {
+            for x in fillRect.x..<fillRect.maxX {
+                let position = axisProgress(x: x, y: y, in: fullRect, orientation: orientation)
+                let crossPosition = orientation == .horizontal
+                    ? Double(y - fullRect.y) / Double(max(1, fullRect.height - 1))
+                    : Double(x - fullRect.x) / Double(max(1, fullRect.width - 1))
+                let color = proTrackerColor(at: position, x: x, y: y)
+                frame[x, y] = MK2OrderedDither.scaled(color, by: proTrackerCrossFactor(at: crossPosition), x: x, y: y)
+            }
+        }
+    }
+
+    private func proTrackerCrossFactor(at position: Double) -> Double {
+        switch position {
+            case ..<0.02: 0.75
+            case ..<0.18: 1.18
+            case ..<0.78: 1.00
+            case ..<0.86: 0.85
+            case ..<0.985: 0.79
+            default: 0.60
+        }
+    }
+
+    private func axisProgress(x: Int, y: Int, in rect: MK2PixelRect, orientation: Orientation) -> Double {
+        switch orientation {
+            case .horizontal:
+                Double(x - rect.x) / Double(max(1, rect.width - 1))
+            case .vertical:
+                Double(rect.maxY - 1 - y) / Double(max(1, rect.height - 1))
+        }
+    }
+
+    private func zoneColor(at position: Double) -> UInt16 {
+        if position >= dangerThreshold { return dangerFill }
+        if position >= warningThreshold { return warningFill }
         return fill
     }
+
+    private func scaleColor(at position: Double, x: Int, y: Int) -> UInt16 {
+        if position <= warningThreshold {
+            return MK2OrderedDither.lerp(
+                fill,
+                warningFill,
+                t: position / max(0.001, warningThreshold),
+                x: x,
+                y: y
+            )
+        }
+        return MK2OrderedDither.lerp(
+            warningFill,
+            dangerFill,
+            t: (position - warningThreshold) / max(0.001, dangerThreshold - warningThreshold),
+            x: x,
+            y: y
+        )
+    }
+
+    private func proTrackerColor(at position: Double, x: Int, y: Int) -> UInt16 {
+        let yellowPosition = MK2HIG.Meter.ProTracker.yellowPosition
+        let redPosition = MK2HIG.Meter.ProTracker.redPosition
+        if position <= yellowPosition {
+            return MK2OrderedDither.lerp(
+                MK2HIG.Meter.normal,
+                MK2HIG.Meter.warning,
+                t: position / max(0.001, yellowPosition),
+                x: x,
+                y: y
+            )
+        }
+        return MK2OrderedDither.lerp(
+            MK2HIG.Meter.warning,
+            MK2HIG.Meter.danger,
+            t: (position - yellowPosition) / max(0.001, redPosition - yellowPosition),
+            x: x,
+            y: y
+        )
+    }
+
 }
 
 private extension Double {

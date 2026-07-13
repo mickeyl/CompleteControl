@@ -138,8 +138,12 @@
      own, and fully verified layouts are out of scope — macros are the only
      compile-time-error path.
 
-- Lift the meter ballistics into the Kit as a value object (design direction,
-  2026-07-13). `MK2MeterElement`/`MK2MeterChannel` render a momentary
+- Meter ballistics were officially approved on hardware on 2026-07-13:
+  release 360 ms to -20 dB, peak hold 300 ms, peak fall 1500 ms to -20 dB,
+  reference rate 50 fps, silence floor 0.003. The semantic defaults now live
+  in `MK2HIG.Meter.Ballistics`; the E5-E8 calibration rig starts from them.
+  Remaining follow-up: lift the ballistics into the Kit as a value object.
+  `MK2MeterElement`/`MK2MeterChannel` render a momentary
   `level`/`peak`; the attack/decay, peak-hold and pulse ballistics live only in
   `MeterDemo`. Any real client (Paulinche's F-key VU meters, a future meter
   scene) would otherwise rebuild the decay loop. Lift the *transformation*
@@ -149,18 +153,18 @@
   render throttle, since a screen element renders statelessly and owns no time.
   The demo already uses the right parametrization to lift: time units
   (release/hold/fall in ms) with the decay factors derived from the frame rate,
-  not magic constants. Precondition: bench-approve the values first via the
-  meter demo's E5-E8 calibration rig (RELEASE / PK HOLD / PK FALL / RATE) so the
-  Kit ships tuned constants, not guessed ones.
+  not magic constants. The bench-approval precondition is now satisfied.
 
-- Meter bar styles (2026-07-13): try and support several fill styles for
-  `MK2MeterElement`, selectable per use — plain solid, simple gradient (along
-  the fill), bi-gradient (two-tone), pseudo-3D (debossed like the value wells,
-  since a meter track is semantically a well). Candidates to consider too:
-  gradient-by-zone (green→warning→danger along the scale rather than a hard
-  threshold flip), and a segmented / LED-ladder style (discrete blocks like
-  classic hardware VU). Judge on the OLED. The ballistics calibration rig
-  (meter demo, E5-E8) is the place to preview them live.
+- Meter bar styles implemented and approved on hardware (2026-07-13):
+  `MK2MeterElement.Style` offers `.solid`, `.gradient`, `.segmented`, and
+  `.protracker`; all four use the global saturated green-yellow-red
+  `MK2HIG.Meter` scale. The ProTracker reminiscence was corrected against a
+  magnified original: black track, continuous scale, narrow bright left bevel,
+  broad main face, and stepped dark right flank. It is the strongest-looking
+  variant in the hardware review. Peak display is orthogonal (`showsPeak`) and
+  works with every style. In the meter demo, INSTANCE cycles styles and
+  SHIFT+INSTANCE toggles the peak marker. `.solid` remains the API default for
+  compatibility; products can select the preferred style explicitly.
 
 - Tracker header zone whitespace — decide on hardware (2026-07-13). The
   pattern grid's top zone carries a fair bit of air: 8 px above the status

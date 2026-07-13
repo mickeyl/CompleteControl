@@ -98,6 +98,31 @@ public enum MK2HIG {
         public static let readoutPixelSize = 16
     }
 
+    public enum Meter {
+        public static let normal: UInt16 = 0x07e0
+        public static let warning: UInt16 = 0xffe0
+        public static let danger: UInt16 = 0xf800
+
+        /// Official hardware-approved meter response, signed off 2026-07-13.
+        /// Times describe the fall to -20 dB so clients can derive a rate-
+        /// independent decay factor from their actual render interval.
+        public enum Ballistics {
+            public static let releaseMilliseconds = 360
+            public static let peakHoldMilliseconds = 300
+            public static let peakFallMilliseconds = 1_500
+            public static let referenceFrameRate = 50
+            public static let decayFloor = 0.1
+            public static let silenceThreshold = 0.003
+        }
+
+        public enum ProTracker {
+            public static let track: UInt16 = 0x0000
+            public static let border: UInt16 = 0x8410
+            public static let yellowPosition = 0.52
+            public static let redPosition = 0.82
+        }
+    }
+
     public enum Chrome {
         public static let background: UInt16 = 0x0841
         // Raised-band bevel for header and footer. Deliberately neutral graphite —
