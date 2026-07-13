@@ -113,7 +113,22 @@ channel page (not channel switch); 4-D ←/→ = channel; E1–E4 = channel band
 new **Arrangement demo** to the widget lab to calibrate the scene before wiring
 the app.
 
-## 5. Order of work
+## Implementation status (2026-07-13)
+
+Done — the arrangement loop works end to end (SCENE → order list → PATTERN drills in → edit → play):
+- **Repeat count** on `OrderEntry`, honoured by both players and the timeline (Paulinche).
+- **`MK2ScenePreviewElement`** (pattern thumbnail) and **`MK2PaulincheArrangementRenderer`** (two-screen arrangement scene reusing the list, minimap, preview and parameter-page elements) — CompleteControl.
+- **`SurfaceSceneContent.song` + `ControlSurfacePort.songScene`** projecting the arrangement from `song.orders`; adapter maps it to the renderer.
+- **Navigation grammar**: `surfaceMode` app-state, SCENE/PATTERN mode switch, 4-D wheel + E1-E4 rotation → `selectOrder` in the arrangement (E1-E4 touch inert there), arrangement soft keys Insert/Dup/Delete/Move±.
+
+Deferred (follow-ups):
+- **PAGE reassignment per mode** (channel page ↔ order page); `appendPattern`/`duplicate` currently stay on PAGE globally *and* on the arrangement soft keys.
+- **TRACK button** → instrument/channel view.
+- **SCENE lamp** (needs a `.scene` lamp name + KK button mapping).
+- **Explicit 4-D-center drill-in** (PATTERN button already drills in).
+- Order-property editing on E5-E8 forwards touch/rotation; binding the *repeat count* edit to a command is still open.
+
+## 5. Order of work (original plan)
 1. **Straighten pattern-scene navigation** (small): reconcile PAGE + 4-D roles
    between demo and app; wire 4-D directional in the app router (it is currently
    unbound there). Give `selectOrder` its home on the 4-D rotary once the
