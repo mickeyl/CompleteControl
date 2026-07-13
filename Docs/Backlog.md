@@ -72,9 +72,12 @@
 - Grow the DSL's first-class element vocabulary; hand-drawn content still hiding in
   `MK2RenderBlock`/`MK2AnyScreenElement` escape hatches bypasses the element contract
   (no build-result participation, no shift-pass awareness, no reuse) and re-invents
-  layout constants inline. Remaining offenders: the tracker pattern grid + minimap
-  (duplicated WidgetLab ↔ Paulinche — DSL-review C1) and the Paulinche instrument
-  `infoLines` key/value stack.
+  layout constants inline. Remaining offender: the Paulinche instrument
+  `infoLines` key/value stack. (Done 2026-07-13: the tracker pattern grid + minimap —
+  DSL-review C1 — are now `MK2PatternGridElement` + `MK2OverviewScrollbarElement` in the
+  Kit, with `MK2PatternGridColors`/`MK2OverviewScrollbarColors` as the single-source
+  hardware palette; WidgetLab `TrackerPatternDemo` and Paulinche `PaulinchePatternRenderer`
+  both consume them, pixel-identical before/after.)
 
 - Encoder-slot geometry is duplicated by convention, not enforced: every page passes
   its own footer rect (now `x: 8, width: 464`) into `MK2ParameterPageElement`, and only
@@ -180,9 +183,19 @@
   [36,141,246,351,456]. Only the status-line *content* differs (widget lab: 5
   hand-drawn labels; Paulinche: `MK2StatusLineElement` with 4 items). The current
   spacing reads correctly on the real OLED and remains the baseline; do not
-  tighten it merely to expose more grid rows. If it changes later, change
-  *both* implementations together so they stay in
-  sync (ideally the same three y's + gridTop).
+  tighten it merely to expose more grid rows. The geometry now lives once, in
+  `MK2PatternGridElement` (both consumers share it, so it cannot drift); a later
+  change edits the element and both follow.
+
+- Beat-stripe verification (2026-07-13): a suspected Paulinche-only "beat cell"
+  highlight turned out to be pixel-identical in both implementations — both
+  striped every 4th row in `rowStripe` 0x1083. Neither derived the interval from
+  the time signature. The shared `MK2PatternGridElement.BeatStripe` is now
+  configurable (`.every(interval, phase:)` / `.none`, default `.every(4)`), and
+  `MK2PaulinchePatternScene.beatInterval` (default 4) plumbs it through.
+  Deferred: the Paulinche app should set `beatInterval` from the song's time
+  signature (4/4 → 4, 3/4 → 3) instead of the constant, so odd meters stripe
+  on the beat.
 
 - Widget-lab REPL: commit or cut (2026-07-13). The demo's REPL is half a
   remote — it can `open`/`exit` demos, drive a handful of demo-local verbs and

@@ -23,7 +23,7 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
     private var recordArmed = false
     private var metronomeEnabled = false
     private var playheadRow = 0
-    private var rowStripeMode = RowStripeMode.every(4)
+    private var beatStripe = MK2PatternGridElement.BeatStripe.every(4)
     private var selectedInstrumentIndex = 0
     private var modalDialog: ActiveModalDialog?
     private var playbackTimer: DispatchSourceTimer?
@@ -158,7 +158,7 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
             context.update { self?.receiveMIDI(event, targetChannel: targetChannel) }
         }
 
-        let leftResult = MK2ScreenBuildResult(screen: MK2Screen(kind: .fullScreen, frame: trackerGridFrame()))
+        let leftResult = trackerGridResult(context)
         let rightResult = trackerDetailResult(context)
         lamps.merge(leftResult.lamps) { _, next in next }
         lamps.merge(rightResult.lamps) { _, next in next }
@@ -213,77 +213,51 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
 
     // MARK: - Left screen: pattern grid
 
-    private func trackerGridFrame() -> MK2PixelFrame {
-        var frame = MK2PixelFrame(fill: Palette.page)
-        BitmapLabel("PATTERN 03", font: .grid, color: Palette.blue).draw(into: &frame, x: 8, y: 8)
-        BitmapLabel("LEN 64", font: .grid, color: Palette.dim).draw(into: &frame, x: 138, y: 8)
-        BitmapLabel("ROW \(hex2(playheadRow))", font: .gridBold, color: Palette.text).draw(into: &frame, x: 232, y: 8)
-        BitmapLabel(isPlaying ? "PLAY" : "STOP", font: .gridBold, color: isPlaying ? Palette.green : Palette.orange).draw(into: &frame, x: 330, y: 8)
-        BitmapLabel("SPD 06", font: .grid, color: Palette.dim).draw(into: &frame, x: 398, y: 8)
-
-        let gridTop = 60
-        let rowHeight = 16
-        let rowIndexX = 8
-        let channelXs = [48, 153, 258, 363]
-        let rulerXs = [36, 141, 246, 351, 456]
-
-        for (index, x) in rulerXs.dropLast().enumerated() {
-            let active = index == focusedChannel
-            BitmapLabel("CHANNEL \(index + 1)", font: .label, color: active ? Palette.blue : Palette.dim)
-                .draw(into: &frame, x: x, y: 38)
-            channelMuteToggle(index, display: channelToggleDisplay("M", kind: .mute, x: x + 69, y: 34))
-                .drawDisplay(into: &frame)
-            channelSoloToggle(index, display: channelToggleDisplay("S", kind: .solo, x: x + 87, y: 34))
-                .drawDisplay(into: &frame)
-        }
-        frame.hline(y: 55, x: 0, width: 480, color: Palette.border)
-
+    private func trackerGridResult(_ context: LabContext) -> MK2ScreenBuildResult {
         let firstRow = visibleFirstRow(center: playheadRow)
-        for visible in 0..<13 {
+        let transportText = isPlaying ? "PLAY" : "STOP"
+        let transportColor = isPlaying ? Palette.green : Palette.orange
+        let rowText = hex2(playheadRow)
+        return MK2FullScreenDSL(background: Palette.page) {
+            MK2RenderBlock { frame, _ in
+                BitmapLabel("PATTERN 03", font: .grid, color: Palette.blue).draw(into: &frame, x: 8, y: 8)
+                BitmapLabel("LEN 64", font: .grid, color: Palette.dim).draw(into: &frame, x: 138, y: 8)
+                BitmapLabel("ROW \(rowText)", font: .gridBold, color: Palette.text).draw(into: &frame, x: 232, y: 8)
+                BitmapLabel(transportText, font: .gridBold, color: transportColor).draw(into: &frame, x: 330, y: 8)
+                BitmapLabel("SPD 06", font: .grid, color: Palette.dim).draw(into: &frame, x: 398, y: 8)
+            }
+            MK2PatternGridElement(
+                rows: trackerGridRows(firstRow: firstRow),
+                channels: trackerGridChannels(),
+                selectedRowIndex: playheadRow,
+                isPlaying: isPlaying,
+                beatStripe: beatStripe
+            )
+            MK2OverviewScrollbarElement(
+                rowCount: patternRows.count,
+                selectedRowIndex: playheadRow,
+                rowActivity: patternRows.map { row in row.cells.contains { !$0.isEmpty } },
+                rect: MK2PixelRect(x: 466, y: 62, width: 5, height: 200)
+            )
+        }.build(renderer: context.renderer)
+    }
+
+    private func trackerGridRows(firstRow: Int) -> [MK2PatternGridElement.Row] {
+        (0..<MK2PatternGridElement.visibleRowCount).map { visible in
             let row = firstRow + visible
-            let y = gridTop + visible * rowHeight
-            let rowRect = MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight)
-            if row == playheadRow {
-                frame.fill(rowRect, isPlaying ? Palette.playheadFill : Palette.cursorFill)
-                frame.fill(MK2PixelRect(x: 36, y: y, width: 5, height: rowHeight), Palette.green)
-            } else if rowStripeMode.matches(row) {
-                frame.fill(MK2PixelRect(x: 0, y: y, width: 480, height: rowHeight), Palette.rowStripe)
-            }
-
-            let rowColor = row == playheadRow ? Palette.text : Palette.dim
-            BitmapLabel(hex2(row), font: .grid, color: rowColor).draw(into: &frame, x: rowIndexX, y: y)
-            for channel in 0..<4 {
-                drawTrackerCell(patternRows[row].cells[channel], channel: channel, into: &frame, x: channelXs[channel], y: y, highlighted: row == playheadRow)
-            }
+            let cells = patternRows[row].cells.map { $0.gridCell }
+            return MK2PatternGridElement.Row(index: row, cells: cells)
         }
-        for x in rulerXs {
-            frame.dottedVLine(x: x, y: 50, height: 218, color: Palette.ruler)
-        }
-
-        drawPatternOverview(into: &frame, x: 466, y: 62, height: 200)
-        return frame
     }
 
-    private func drawTrackerCell(_ cell: TrackerDemoCell, channel: Int, into frame: inout MK2PixelFrame, x: Int, y: Int, highlighted: Bool) {
-        let empty = cell.isEmpty
-        let noteColor = highlighted ? Palette.text : (empty ? Palette.empty : Palette.note)
-        let instColor = highlighted ? Palette.text : (empty ? Palette.empty : Palette.instrument)
-        let fxColor = highlighted ? Palette.text : (cell.effect == "..." ? Palette.empty : Palette.effect)
-        if channel == focusedChannel, !highlighted {
-            frame.fill(MK2PixelRect(x: x - 4, y: y, width: 92, height: 16), Palette.focusedChannelFill)
-        }
-        BitmapLabel(cell.note, font: .grid, color: noteColor).draw(into: &frame, x: x, y: y)
-        BitmapLabel(cell.instrument, font: .grid, color: instColor).draw(into: &frame, x: x + 38, y: y)
-        BitmapLabel(cell.effect, font: .grid, color: fxColor).draw(into: &frame, x: x + 64, y: y)
-    }
-
-    private func drawPatternOverview(into frame: inout MK2PixelFrame, x: Int, y: Int, height: Int) {
-        frame.fill(MK2PixelRect(x: x, y: y, width: 5, height: height), Palette.track)
-        for row in 0..<64 {
-            let markerY = y + Int((Double(row) / 63.0 * Double(height - 1)).rounded())
-            let active = patternRows[row].cells.contains { !$0.isEmpty }
-            let color = row == playheadRow ? Palette.green : (active ? Palette.blue : Palette.ruler)
-            frame.fill(MK2PixelRect(x: x, y: markerY, width: row == playheadRow ? 9 : 5, height: 1), color)
+    private func trackerGridChannels() -> [MK2PatternGridElement.Channel] {
+        (0..<4).map { index in
+            MK2PatternGridElement.Channel(
+                label: "CHANNEL \(index + 1)",
+                isMuted: mutedChannels.contains(index),
+                isSoloed: soloedChannels.contains(index),
+                isFocused: index == focusedChannel
+            )
         }
     }
 
@@ -554,15 +528,6 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         )
     }
 
-    private func channelToggleDisplay(_ label: String, kind: ChannelButtonKind, x: Int, y: Int) -> MK2ButtonToggleDisplay {
-        MK2ButtonToggleDisplay(
-            label: label,
-            rect: MK2PixelRect(x: x, y: y, width: 14, height: 16),
-            font: .label,
-            colors: kind.displayColors
-        )
-    }
-
     private func setSelectedInstrumentIndex(_ index: Int) {
         selectedInstrumentIndex = max(Self.instrumentIndexBounds.lowerBound, min(Self.instrumentIndexBounds.upperBound, index))
     }
@@ -684,10 +649,10 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
                 context.update { [weak self] in self?.setFocusedChannelMute(enabled) }
 
             case "stripe", "stripes", "rowstripe", "rowstripes":
-                guard let mode = Self.rowStripeMode(rest) else {
+                guard let mode = Self.beatStripe(rest) else {
                     print("? stripe off|odd|even|<n>|every <n> [phase]"); return true
                 }
-                context.update { [weak self] in self?.rowStripeMode = mode }
+                context.update { [weak self] in self?.beatStripe = mode }
 
             case "rec", "record":
                 guard let armed = Self.triState(rest, current: recordArmed) else {
@@ -724,14 +689,14 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         return parsed
     }
 
-    private static func rowStripeMode(_ text: String) -> RowStripeMode? {
+    private static func beatStripe(_ text: String) -> MK2PatternGridElement.BeatStripe? {
         let parts = text
             .split(whereSeparator: \.isWhitespace)
             .map { String($0).lowercased() }
         guard let first = parts.first else { return .every(4) }
         switch first {
             case "off", "none", "no":
-                return RowStripeMode.none
+                return MK2PatternGridElement.BeatStripe.none
             case "odd":
                 return .every(2, phase: 1)
             case "even":
@@ -843,6 +808,16 @@ private struct TrackerDemoCell: Sendable {
     var isEmpty: Bool {
         note == "..." && instrument == ".." && volume == ".." && effect == "..."
     }
+
+    /// The grid drops `volume` (it never showed in the grid) and maps the
+    /// sentinel placeholders back to the shared element's per-field optionals.
+    var gridCell: MK2PatternGridElement.Cell {
+        MK2PatternGridElement.Cell(
+            note: note == "..." ? nil : note,
+            instrument: instrument == ".." ? nil : instrument,
+            effect: effect == "..." ? nil : effect
+        )
+    }
 }
 
 private enum TrackerEditField: CaseIterable, Sendable {
@@ -910,58 +885,6 @@ private struct DemoInstrument: Sendable {
 
 private enum ActiveModalDialog: Sendable {
     case clearPattern(selectedIndex: Int)
-}
-
-private enum RowStripeMode: Sendable {
-    case none
-    case every(Int, phase: Int = 0)
-
-    func matches(_ row: Int) -> Bool {
-        switch self {
-            case .none:
-                return false
-            case let .every(interval, phase):
-                guard interval > 0 else { return false }
-                return row.floorMod(interval) == phase.floorMod(interval)
-        }
-    }
-}
-
-private enum ChannelButtonKind {
-    case solo
-    case mute
-
-    var accent: UInt16 {
-        switch self {
-            case .solo: Palette.solo
-            case .mute: Palette.mute
-        }
-    }
-
-    var border: UInt16 {
-        switch self {
-            case .solo: Palette.soloBorder
-            case .mute: Palette.muteBorder
-        }
-    }
-
-    var displayColors: MK2ButtonToggleDisplayColors {
-        MK2ButtonToggleDisplayColors(
-            onFill: accent,
-            onBorder: border,
-            onText: Palette.channelButtonActiveText,
-            offFill: Palette.channelButtonFill,
-            offBorder: Palette.channelButtonBorder,
-            offText: accent
-        )
-    }
-}
-
-private extension Int {
-    func floorMod(_ divisor: Int) -> Int {
-        let remainder = self % divisor
-        return remainder >= 0 ? remainder : remainder + divisor
-    }
 }
 
 // MARK: - Metronome
