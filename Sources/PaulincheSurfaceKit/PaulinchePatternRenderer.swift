@@ -152,7 +152,7 @@ public enum MK2PaulinchePatternRenderer {
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
         MK2DoubleScreenDSL(
-            left: patternGridScreen(scene, renderer: renderer),
+            left: patternGridScreen(scene, actions: actions, renderer: renderer),
             right: editScreen(scene, actions: actions, renderer: renderer)
         )
     }
@@ -162,26 +162,14 @@ public enum MK2PaulinchePatternRenderer {
         actions: MK2PaulinchePatternActions = MK2PaulinchePatternActions(),
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2SurfaceScene2 {
-        var scene = render(scene, actions: actions, renderer: renderer).scene()
-        // E1–E4 are the channel encoders: touch selects the channel directly,
-        // rotation moves the cursor row — the same axis as the 4-D wheel, from
-        // the physical position of each channel column. They carry no value
-        // cells (the bottom-flush E5–E8 slots own that layout).
-        for encoder in 1...4 {
-            scene.bindings.encoder[encoder] = { delta, _, _ in
-                actions.onEncoderChange?(encoder, delta)
-            }
-            scene.bindings.encoderTouch[encoder] = { touched in
-                actions.onEncoderTouch?(encoder, touched)
-            }
-        }
-        return scene
+        render(scene, actions: actions, renderer: renderer).scene()
     }
 
     // MARK: - Left screen: pattern grid
 
     private static func patternGridScreen(
         _ scene: MK2PaulinchePatternScene,
+        actions: MK2PaulinchePatternActions,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
         typealias Palette = MK2PaulincheRendererSupport.Palette
@@ -205,7 +193,23 @@ public enum MK2PaulinchePatternRenderer {
                 rowActivity: scene.rowActivity,
                 rect: MK2PixelRect(x: 466, y: 62, width: 5, height: 200)
             )
+            // E1–E4 are the top-flush channel encoders above the grid: touch
+            // selects the channel directly, rotation moves the cursor row (the
+            // same axis as the 4-D wheel). They carry no value cells — the
+            // bottom-flush E5–E8 slots own that layout. Wired here, inside the
+            // DSL, so `render()` and `surfaceScene()` agree.
+            channelEncoderBindings(actions)
         }.build(renderer: renderer)
+    }
+
+    private static func channelEncoderBindings(_ actions: MK2PaulinchePatternActions) -> [any MK2ScreenElement] {
+        (1...4).map { encoder in
+            MK2EncoderBindingElement(
+                encoder,
+                onTouch: { touched in actions.onEncoderTouch?(encoder, touched) },
+                onChange: { delta, _, _ in actions.onEncoderChange?(encoder, delta) }
+            )
+        }
     }
 
     private static func patternGridRows(_ scene: MK2PaulinchePatternScene) -> [MK2PatternGridElement.Row] {

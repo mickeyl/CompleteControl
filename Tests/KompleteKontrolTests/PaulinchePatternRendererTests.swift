@@ -144,6 +144,19 @@ struct PaulinchePatternRendererTests {
         #expect(changes[0].1 == 1)
     }
 
+    @Test("Channel encoders live in the DSL, so render() and surfaceScene() agree")
+    func channelEncodersLiveInTheDSL() {
+        let scene = Self.fixture()
+        let viaRender = MK2PaulinchePatternRenderer.render(scene).scene()
+        let viaSurface = MK2PaulinchePatternRenderer.surfaceScene(scene)
+        for encoder in 1...4 {
+            #expect(viaRender.bindings.encoder[encoder] != nil)
+            #expect(viaRender.bindings.encoderTouch[encoder] != nil)
+            #expect(viaSurface.bindings.encoder[encoder] != nil)
+            #expect(viaSurface.bindings.encoderTouch[encoder] != nil)
+        }
+    }
+
     @Test("Pattern screens can be captured as a two-screen snapshot")
     func patternSnapshotSmoke() throws {
         var scene = Self.fixture()
