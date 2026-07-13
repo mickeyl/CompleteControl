@@ -240,27 +240,28 @@ public enum MK2SelectionLayout {
 
     public static func jogDelta(for direction: String, layout: MK2SelectionJogLayout) -> Int? {
         let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch normalized {
-            case "left":
-                return -1
-            case "right":
-                return 1
-            case "up":
-                switch layout {
-                    case let .list(step):
-                        return -max(1, step)
-                    case let .grid(cellSize, contentWidth):
-                        return -gridRowStep(for: cellSize, contentWidth: contentWidth)
+        switch layout {
+            case let .list(step):
+                // A linear list moves one row per up/down and one page (step)
+                // per left/right — up/down must never page-jump.
+                let page = max(1, step)
+                switch normalized {
+                    case "up": return -1
+                    case "down": return 1
+                    case "left": return -page
+                    case "right": return page
+                    default: return nil
                 }
-            case "down":
-                switch layout {
-                    case let .list(step):
-                        return max(1, step)
-                    case let .grid(cellSize, contentWidth):
-                        return gridRowStep(for: cellSize, contentWidth: contentWidth)
+            case let .grid(cellSize, contentWidth):
+                // A grid moves one full row per up/down and one cell per left/right.
+                let rowStep = gridRowStep(for: cellSize, contentWidth: contentWidth)
+                switch normalized {
+                    case "up": return -rowStep
+                    case "down": return rowStep
+                    case "left": return -1
+                    case "right": return 1
+                    default: return nil
                 }
-            default:
-                return nil
         }
     }
 }

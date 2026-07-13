@@ -68,6 +68,19 @@ struct SelectionViewTests {
         let movedUp = navigation.move(jogDirection: "up", itemCount: 10, layout: .grid(cellSize: cell))
         #expect(movedUp)
         #expect(navigation.selectedIndex == 3)
+
+        // A linear list moves one row per up/down and one page per left/right —
+        // up/down must never page-jump.
+        #expect(MK2SelectionLayout.jogDelta(for: "up", layout: .list(step: 7)) == -1)
+        #expect(MK2SelectionLayout.jogDelta(for: "down", layout: .list(step: 7)) == 1)
+        #expect(MK2SelectionLayout.jogDelta(for: "left", layout: .list(step: 7)) == -7)
+        #expect(MK2SelectionLayout.jogDelta(for: "right", layout: .list(step: 7)) == 7)
+
+        var list = MK2SelectionNavigation(selectedIndex: 10)
+        _ = list.move(jogDirection: "down", itemCount: 30, layout: .list(step: 7))
+        #expect(list.selectedIndex == 11)
+        _ = list.move(jogDirection: "right", itemCount: 30, layout: .list(step: 7))
+        #expect(list.selectedIndex == 18)
     }
 
     @Test("Navigation exposes 4-D movement availability as jog lamps")
