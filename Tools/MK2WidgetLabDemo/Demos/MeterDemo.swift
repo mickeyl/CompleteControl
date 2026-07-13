@@ -21,26 +21,21 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         snapshotVariants: ["gradient", "segmented", "protracker", "protracker-no-peak"]
     )
 
-    private var levels = [Double](repeating: 0, count: 4)
-    private var peaks = [Double](repeating: 0, count: 4)
-    private var holdTicks = [Int](repeating: 0, count: 4)
+    // The ballistics transformation now lives in the Kit (`MK2MeterBallistics`);
+    // this demo only owns the four channel states and the time driver.
+    private var ballistics = [MK2MeterBallistics](repeating: MK2MeterBallistics(), count: 4)
     private var pulseSeed = 0
     private var settled = true
     private var animationTask: Task<Void, Never>?
 
-    // Tunable around the approved HIG defaults (E5-E8), in time units.
-    private var releaseMs = MK2HIG.Meter.Ballistics.releaseMilliseconds
-    private var peakHoldMs = MK2HIG.Meter.Ballistics.peakHoldMilliseconds
-    private var peakFallMs = MK2HIG.Meter.Ballistics.peakFallMilliseconds
+    // The render/tick rate stays a demo knob (E8): it drives the loop, not the
+    // ballistics, which are rate-independent and take the tick interval directly.
     private var frameRate = MK2HIG.Meter.Ballistics.referenceFrameRate
     private var focusedEncoder: Int?
     private var meterStyle: MK2MeterElement.Style = .solid
     private var showsPeak = true
 
     private var tickMs: Int { max(4, 1000 / max(1, frameRate)) }
-    private var levelDecay: Double { pow(MK2HIG.Meter.Ballistics.decayFloor, Double(tickMs) / Double(max(1, releaseMs))) }
-    private var peakDecay: Double { pow(MK2HIG.Meter.Ballistics.decayFloor, Double(tickMs) / Double(max(1, peakFallMs))) }
-    private var holdTickCount: Int { peakHoldMs / max(1, tickMs) }
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
         var scene = MK2DoubleScreenDSL(
@@ -120,11 +115,8 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
 
     private func pulse(_ channels: [Int], _ context: LabContext) {
         context.update {
-            for channel in channels where self.levels.indices.contains(channel) {
-                let impact = self.nextImpact()
-                self.levels[channel] = impact
-                self.peaks[channel] = max(self.peaks[channel], impact)
-                self.holdTicks[channel] = self.holdTickCount
+            for channel in channels where self.ballistics.indices.contains(channel) {
+                self.ballistics[channel].pulse(self.nextImpact())
             }
             self.settled = false
         }
@@ -152,31 +144,28 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     }
 
     private func stepDecay() {
-        let levelDecay = self.levelDecay
-        let peakDecay = self.peakDecay
+        let tick = tickMs
         var moving = false
-        for index in levels.indices {
-            levels[index] *= levelDecay
-            if levels[index] < MK2HIG.Meter.Ballistics.silenceThreshold { levels[index] = 0 } else { moving = true }
-
-            if holdTicks[index] > 0 {
-                holdTicks[index] -= 1
-                peaks[index] = max(peaks[index], levels[index])
-                moving = true
-            } else {
-                peaks[index] = max(levels[index], peaks[index] * peakDecay)
-            }
-            if peaks[index] < MK2HIG.Meter.Ballistics.silenceThreshold { peaks[index] = 0 } else { moving = true }
+        for index in ballistics.indices where ballistics[index].step(tickMilliseconds: tick) {
+            moving = true
         }
         settled = !moving
     }
 
     private func masterLevel(_ side: Int) -> Double {
-        side == 0 ? max(levels[0], levels[2]) : max(levels[1], levels[3])
+        side == 0 ? max(ballistics[0].level, ballistics[2].level) : max(ballistics[1].level, ballistics[3].level)
     }
 
     private func masterPeak(_ side: Int) -> Double {
-        side == 0 ? max(peaks[0], peaks[2]) : max(peaks[1], peaks[3])
+        side == 0 ? max(ballistics[0].peak, ballistics[2].peak) : max(ballistics[1].peak, ballistics[3].peak)
+    }
+
+    /// Set a ballistics parameter across all four channels (the calibration
+    /// encoders tune them together).
+    private func setBallisticsParameter(_ keyPath: WritableKeyPath<MK2MeterBallistics, Int>, _ value: Int) {
+        for index in ballistics.indices {
+            ballistics[index][keyPath: keyPath] = value
+        }
     }
 
     private func cycleStyle() {
@@ -191,9 +180,10 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
     private func setFixtureLevels() {
         animationTask?.cancel()
         animationTask = nil
-        levels = [0.72, 0.45, 0.93, 0.30]
-        peaks = levels.map { min(1.0, $0 + 0.06) }
-        holdTicks = [Int](repeating: 0, count: levels.count)
+        let fixture = [0.72, 0.45, 0.93, 0.30]
+        for (index, level) in fixture.enumerated() {
+            ballistics[index].hold(level: level, peak: min(1.0, level + 0.06))
+        }
         settled = true
     }
 
@@ -236,7 +226,7 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
         MK2RegularScreenDSL(header: .title(title: "Ballistics", subtitle: meterStyle.rawValue)) {
             MK2MeterElement(
                 channels: (0..<4).map { channel in
-                    MK2MeterChannel(label: "CH\(channel + 1)", level: levels[channel], peak: peaks[channel])
+                    MK2MeterChannel(label: "CH\(channel + 1)", level: ballistics[channel].level, peak: ballistics[channel].peak)
                 },
                 rect: MK2PixelRect(x: 32, y: 6, width: 416, height: 148),
                 orientation: .vertical,
@@ -255,9 +245,9 @@ final class MeterDemo: LabDemo, @unchecked Sendable {
 
     private func encoderValues(_ context: LabContext) -> [MK2EncoderDiscreteValue] {
         [
-            calibrationValue(encoder: 5, value: releaseMs, bounds: 50...1200, defaultValue: MK2HIG.Meter.Ballistics.releaseMilliseconds, label: "RELEASE", icon: MK2HIG.IconGlyph.waveSine, unit: "MS", context: context) { [weak self] in self?.releaseMs = $0 },
-            calibrationValue(encoder: 6, value: peakHoldMs, bounds: 0...2000, defaultValue: MK2HIG.Meter.Ballistics.peakHoldMilliseconds, label: "PK HOLD", icon: MK2HIG.IconGlyph.timer, unit: "MS", context: context) { [weak self] in self?.peakHoldMs = $0 },
-            calibrationValue(encoder: 7, value: peakFallMs, bounds: 200...4000, defaultValue: MK2HIG.Meter.Ballistics.peakFallMilliseconds, label: "PK FALL", icon: MK2HIG.IconGlyph.arrowsDownUp, unit: "MS", context: context) { [weak self] in self?.peakFallMs = $0 },
+            calibrationValue(encoder: 5, value: ballistics[0].releaseMilliseconds, bounds: 50...1200, defaultValue: MK2HIG.Meter.Ballistics.releaseMilliseconds, label: "RELEASE", icon: MK2HIG.IconGlyph.waveSine, unit: "MS", context: context) { [weak self] in self?.setBallisticsParameter(\.releaseMilliseconds, $0) },
+            calibrationValue(encoder: 6, value: ballistics[0].peakHoldMilliseconds, bounds: 0...2000, defaultValue: MK2HIG.Meter.Ballistics.peakHoldMilliseconds, label: "PK HOLD", icon: MK2HIG.IconGlyph.timer, unit: "MS", context: context) { [weak self] in self?.setBallisticsParameter(\.peakHoldMilliseconds, $0) },
+            calibrationValue(encoder: 7, value: ballistics[0].peakFallMilliseconds, bounds: 200...4000, defaultValue: MK2HIG.Meter.Ballistics.peakFallMilliseconds, label: "PK FALL", icon: MK2HIG.IconGlyph.arrowsDownUp, unit: "MS", context: context) { [weak self] in self?.setBallisticsParameter(\.peakFallMilliseconds, $0) },
             calibrationValue(encoder: 8, value: frameRate, bounds: 20...120, defaultValue: MK2HIG.Meter.Ballistics.referenceFrameRate, label: "RATE", icon: MK2HIG.IconGlyph.gauge, unit: "FPS", context: context) { [weak self] in self?.frameRate = $0 },
         ]
     }

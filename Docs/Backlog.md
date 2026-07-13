@@ -147,22 +147,16 @@
      own, and fully verified layouts are out of scope — macros are the only
      compile-time-error path.
 
-- Meter ballistics were officially approved on hardware on 2026-07-13:
-  release 360 ms to -20 dB, peak hold 300 ms, peak fall 1500 ms to -20 dB,
-  reference rate 50 fps, silence floor 0.003. The semantic defaults now live
-  in `MK2HIG.Meter.Ballistics`; the E5-E8 calibration rig starts from them.
-  Remaining follow-up: lift the ballistics into the Kit as a value object.
-  `MK2MeterElement`/`MK2MeterChannel` render a momentary
-  `level`/`peak`; the attack/decay, peak-hold and pulse ballistics live only in
-  `MeterDemo`. Any real client (Paulinche's F-key VU meters, a future meter
-  scene) would otherwise rebuild the decay loop. Lift the *transformation*
-  (`MK2MeterBallistics`: given a momentary value and a time step → smoothed
-  level + held-then-falling peak) into the Kit as pure, testable logic; the
-  *time driver* (timer/loop) stays app-side — same boundary as the panorama
-  render throttle, since a screen element renders statelessly and owns no time.
-  The demo already uses the right parametrization to lift: time units
-  (release/hold/fall in ms) with the decay factors derived from the frame rate,
-  not magic constants. The bench-approval precondition is now satisfied.
+- Meter ballistics approved on hardware 2026-07-13 and lifted into the Kit.
+  Release 360 ms, peak hold 300 ms, peak fall 1500 ms (all to -20 dB),
+  reference rate 50 fps, silence floor 0.003 — the semantic defaults live in
+  `MK2HIG.Meter.Ballistics`. The transformation is now `MK2MeterBallistics`
+  (pure, rate-independent, unit-tested): instant attack, exponential release,
+  hold-then-fall peak, parametrized in time units so the decay derives from the
+  caller's tick interval. Clients own the time driver and call
+  `step(tickMilliseconds:)`; the meter demo drives it, a future Paulinche VU
+  meter / meter scene shares it. `MK2MeterElement`/`MK2MeterChannel` stay
+  stateless (momentary `level`/`peak`).
 
 - Meter bar styles implemented and approved on hardware (2026-07-13):
   `MK2MeterElement.Style` offers `.solid`, `.gradient`, `.segmented`, and
