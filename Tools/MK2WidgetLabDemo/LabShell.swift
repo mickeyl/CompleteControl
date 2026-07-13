@@ -20,7 +20,6 @@ let labDemos: [any LabDemo] = [
     PanoramaDemo(),
     TypeSpecimenDemo(),
     IconBrowserDemo(),
-    DialogCardDemo(),
     ChromeSlotsDemo(),
     FormsDemo(),
     SelectionBrowserDemo(),
