@@ -44,6 +44,17 @@
 
 ## KontrolSurfaceKit2
 
+- Bake the surface-font vertical correction into the metrics (noted 2026-07-14).
+  The bitmap `SurfaceFont`s render top-heavy (grid ascent 12 of cellHeight 16),
+  so text drawn at a naive top inset reads high, and call sites compensate ad hoc
+  with optical offsets (chrome header/footer at -3, the selection list now
+  centres on the row height, value cells centre the glyph). This drifts and gets
+  forgotten (the arrangement order list sat 2 px high until fixed). Structural
+  fix: fold the correction once into the font baseline / `drawText`, so a call
+  site that asks to centre in a rect gets an optically centred result with no
+  manual nudge — then audit and remove the scattered offsets (chrome, value
+  cells, toggles, lists).
+
 - Widget Lab hardware review completed on 2026-07-13. The complete rebuilt demo
   catalog and its current shared-HIG presentation were exercised on the physical
   MK2 and accepted as the hardware baseline. This includes chrome typography,
