@@ -315,6 +315,10 @@ public struct MK2SelectionList: Sendable {
     /// Air between adjacent rows so neighboring cells don't touch; costs a
     /// visible row on tall lists. Pass 0 for the packed look.
     public var rowGap: Int
+    /// Reserve the bottom encoder-footer band even without filters, so the
+    /// client can draw its own footer there (e.g. an encoder parameter page
+    /// under an order list). The list shrinks its content to match.
+    public var reservesFooter: Bool
 
     public init(
         title: String,
@@ -325,6 +329,7 @@ public struct MK2SelectionList: Sendable {
         columns: [MK2SelectionColumn] = [],
         rowHeight: Int = 30,
         rowGap: Int = 6,
+        reservesFooter: Bool = false,
         colors: MK2SelectionViewColors = MK2SelectionViewColors()
     ) {
         self.title = title
@@ -335,13 +340,14 @@ public struct MK2SelectionList: Sendable {
         self.columns = columns
         self.rowHeight = max(24, rowHeight)
         self.rowGap = max(0, rowGap)
+        self.reservesFooter = reservesFooter
         self.colors = colors
     }
 
     public func draw(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
         MK2SelectionDrawing.screenChrome(title: title, subtitle: subtitle, filters: filters, colors: colors)
             .draw(into: &frame, renderer: renderer)
-        var content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty)
+        var content = MK2SelectionLayout.contentRect(hasFilters: !filters.isEmpty || reservesFooter)
         if columns.contains(where: { $0.header != nil }) {
             drawColumnHeaders(into: &frame, renderer: renderer, contentY: content.y)
             content = MK2PixelRect(

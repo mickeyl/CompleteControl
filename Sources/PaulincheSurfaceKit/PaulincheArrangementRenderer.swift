@@ -2,10 +2,11 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
-/// The arrangement (song / "scene") surface: the order list on the left, the
-/// selected order's detail — a downscaled pattern preview and its editable
-/// properties on E5–E8 — on the right. Reuses the Kit's list, scene-preview and
-/// parameter-page elements; the app owns navigation and the order commands.
+/// The arrangement ("song"/scene) surface: the order list plus its order-property
+/// footer (E1–E4, physically under the left screen) on the left, and a read-only
+/// pattern grid of the selected order — rendered like the pattern editor's grid —
+/// on the right. Reuses the Kit's list, pattern-grid, minimap and parameter-page
+/// elements; the app owns navigation and the order commands.
 public struct MK2PaulincheArrangementOrder: Sendable, Equatable {
     public var patternLabel: String
     public var length: Int
@@ -20,19 +21,35 @@ public struct MK2PaulincheArrangementOrder: Sendable, Equatable {
     }
 }
 
+/// The selected order's pattern, projected for the right-screen preview grid.
 public struct MK2PaulincheArrangementPreview: Sendable, Equatable {
+    public var title: String
+    public var rows: [MK2PatternGridElement.Row]
+    public var channels: [MK2PatternGridElement.Channel]
+    public var selectedRowIndex: Int
     public var rowCount: Int
-    public var channelCount: Int
-    public var markers: [MK2ScenePreviewElement.Marker]
+    public var rowActivity: [Bool]
+    public var isPlaying: Bool
     public var beatInterval: Int
-    public var playheadRow: Int?
 
-    public init(rowCount: Int, channelCount: Int, markers: [MK2ScenePreviewElement.Marker], beatInterval: Int = 4, playheadRow: Int? = nil) {
+    public init(
+        title: String = "",
+        rows: [MK2PatternGridElement.Row] = [],
+        channels: [MK2PatternGridElement.Channel] = [],
+        selectedRowIndex: Int = 0,
+        rowCount: Int = 1,
+        rowActivity: [Bool] = [],
+        isPlaying: Bool = false,
+        beatInterval: Int = 4
+    ) {
+        self.title = title
+        self.rows = rows
+        self.channels = channels
+        self.selectedRowIndex = max(0, selectedRowIndex)
         self.rowCount = max(1, rowCount)
-        self.channelCount = max(1, channelCount)
-        self.markers = markers
+        self.rowActivity = rowActivity
+        self.isPlaying = isPlaying
         self.beatInterval = max(1, beatInterval)
-        self.playheadRow = playheadRow
     }
 }
 
@@ -90,8 +107,8 @@ public enum MK2PaulincheArrangementRenderer {
         renderer: FreeTypeTextRenderer? = nil
     ) -> MK2DoubleScreenDSL {
         MK2DoubleScreenDSL(
-            left: orderListScreen(scene, renderer: renderer),
-            right: detailScreen(scene, actions: actions, renderer: renderer)
+            left: orderListScreen(scene, actions: actions, renderer: renderer),
+            right: previewScreen(scene, renderer: renderer)
         )
     }
 
@@ -103,10 +120,11 @@ public enum MK2PaulincheArrangementRenderer {
         render(scene, actions: actions, renderer: renderer).scene()
     }
 
-    // MARK: - Left screen: order list
+    // MARK: - Left screen: order list + order-property footer (E1–E4)
 
     private static func orderListScreen(
         _ scene: MK2PaulincheArrangementScene,
+        actions: MK2PaulincheArrangementActions,
         renderer: FreeTypeTextRenderer?
     ) -> MK2ScreenBuildResult {
         typealias Palette = MK2PaulincheRendererSupport.Palette
@@ -123,10 +141,18 @@ public enum MK2PaulincheArrangementRenderer {
                     MK2SelectionColumn(header: "REP", x: 330, width: 56, alignment: .trailing, color: Palette.orange, fixedPitch: true),
                     MK2SelectionColumn(header: "", x: 400, width: 40, alignment: .trailing, color: Palette.green, fixedPitch: true),
                 ],
-                rowHeight: 28,
-                rowGap: 4,
+                rowHeight: 24,
+                rowGap: 3,
+                reservesFooter: true,
                 colors: selectionColors
             )
+            MK2ParameterPageElement(
+                slots: parameterSlots(scene.parameters),
+                rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
+                columns: 4,
+                relativeToContent: false
+            )
+            orderPropertyBindings(scene.parameters, actions: actions)
         }.build(renderer: renderer)
     }
 
@@ -156,40 +182,6 @@ public enum MK2PaulincheArrangementRenderer {
         )
     }
 
-    // MARK: - Right screen: selected-order detail
-
-    private static func detailScreen(
-        _ scene: MK2PaulincheArrangementScene,
-        actions: MK2PaulincheArrangementActions,
-        renderer: FreeTypeTextRenderer?
-    ) -> MK2ScreenBuildResult {
-        typealias Palette = MK2PaulincheRendererSupport.Palette
-        let preview = scene.preview
-        return MK2FullScreenDSL(background: Palette.background) {
-            MK2StatusLineElement(y: 8, items: [
-                MK2StatusLineItem("ORDER", x: 8, color: Palette.blue),
-                MK2StatusLineItem(String(format: "%02d", scene.selectedOrderIndex), x: 82, color: Palette.text, font: .gridBold),
-                MK2StatusLineItem(scene.isPlaying ? "PLAY" : "STOP", x: 158, color: scene.isPlaying ? Palette.green : Palette.orange, font: .gridBold),
-            ], relativeToContent: false)
-            MK2SeparatorElement(y: 55, style: .line(Palette.border), relativeToContent: false)
-            MK2ScenePreviewElement(
-                rowCount: preview.rowCount,
-                channelCount: preview.channelCount,
-                markers: preview.markers,
-                beatInterval: preview.beatInterval,
-                playheadRow: preview.playheadRow,
-                rect: MK2PixelRect(x: 8, y: 66, width: 464, height: 140)
-            )
-            MK2ParameterPageElement(
-                slots: parameterSlots(scene.parameters),
-                rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
-                columns: 4,
-                relativeToContent: false
-            )
-            editEncoderBindings(scene.parameters, actions: actions)
-        }.build(renderer: renderer)
-    }
-
     private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
         typealias Palette = MK2PaulincheRendererSupport.Palette
         return parameters.prefix(4).enumerated().map { index, parameter in
@@ -207,22 +199,52 @@ public enum MK2PaulincheArrangementRenderer {
                     focusedFill: Palette.editFieldFocusedFill,
                     focusedBorder: Palette.text
                 ),
-                selectionEncoder: index + 5
+                selectionEncoder: index + 1
             )
         }
     }
 
-    private static func editEncoderBindings(
+    private static func orderPropertyBindings(
         _ parameters: [MK2PaulinchePatternParameter],
         actions: MK2PaulincheArrangementActions
     ) -> [any MK2ScreenElement] {
         parameters.prefix(4).enumerated().map { index, _ in
-            let encoder = index + 5
+            let encoder = index + 1
             return MK2EncoderBindingElement(
                 encoder,
                 onTouch: { touched in actions.onEncoderTouch?(encoder, touched) },
                 onChange: { delta, _, _ in actions.onEncoderChange?(encoder, delta) }
             )
         }
+    }
+
+    // MARK: - Right screen: read-only pattern preview of the selected order
+
+    private static func previewScreen(
+        _ scene: MK2PaulincheArrangementScene,
+        renderer: FreeTypeTextRenderer?
+    ) -> MK2ScreenBuildResult {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        let preview = scene.preview
+        return MK2FullScreenDSL(background: Palette.background) {
+            MK2StatusLineElement(y: 8, items: [
+                MK2StatusLineItem("PAT", x: 8, color: Palette.blue),
+                MK2StatusLineItem(preview.title, x: 44, color: Palette.text, maxWidth: 260),
+                MK2StatusLineItem(preview.isPlaying ? "PLAY" : "STOP", x: 330, color: preview.isPlaying ? Palette.green : Palette.orange, font: .gridBold),
+            ], relativeToContent: false)
+            MK2PatternGridElement(
+                rows: preview.rows,
+                channels: preview.channels,
+                selectedRowIndex: preview.selectedRowIndex,
+                isPlaying: preview.isPlaying,
+                beatStripe: .every(preview.beatInterval)
+            )
+            MK2OverviewScrollbarElement(
+                rowCount: preview.rowCount,
+                selectedRowIndex: preview.selectedRowIndex,
+                rowActivity: preview.rowActivity,
+                rect: MK2PixelRect(x: 466, y: 62, width: 5, height: 200)
+            )
+        }.build(renderer: renderer)
     }
 }

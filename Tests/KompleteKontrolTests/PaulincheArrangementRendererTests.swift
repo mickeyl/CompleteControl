@@ -8,23 +8,29 @@ import Testing
 struct PaulincheArrangementRendererTests {
     private static let background: UInt16 = 0x0841
 
-    @Test("Arrangement renders order list left, order detail right")
-    func rendersTwoScreens() {
+    @Test("Left screen carries the order list and the E1–E4 property footer")
+    func leftScreenListAndFooter() {
         let rendered = MK2PaulincheArrangementRenderer.render(Self.fixture())
         #expect(rendered.left.screen.kind == .fullScreen)
-        #expect(rendered.right.screen.kind == .fullScreen)
-
-        // The order list fills the left screen with text above the background.
         let list = rendered.left.screen.frame
-        #expect(list.countPixels(in: MK2PixelRect(x: 0, y: 40, width: 480, height: 200), notMatching: Self.background) > 200)
-
-        // The right screen shows the preview panel and the parameter page.
-        let detail = rendered.right.screen.frame
-        #expect(detail.countPixels(in: MK2PixelRect(x: 8, y: 66, width: 464, height: 140), notMatching: Self.background) > 100)
-        #expect(detail.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: Self.background) > 200)
+        // Order rows above the footer…
+        #expect(list.countPixels(in: MK2PixelRect(x: 0, y: 40, width: 480, height: 160), notMatching: Self.background) > 200)
+        // …and the E1–E4 order-property footer at the bottom-flush encoder band.
+        #expect(list.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: Self.background) > 200)
     }
 
-    @Test("Order-property encoders E5–E8 forward touch and rotation")
+    @Test("Right screen renders the selected order's pattern grid, not a thumbnail")
+    func rightScreenPatternGrid() {
+        let rendered = MK2PaulincheArrangementRenderer.render(Self.fixture())
+        let grid = rendered.right.screen.frame
+        // Channel headers and the grid body carry real content like the pattern editor.
+        #expect(grid.countPixels(in: MK2PixelRect(x: 0, y: 38, width: 480, height: 20), notMatching: Self.background) > 40)
+        #expect(grid.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 200), notMatching: Self.background) > 200)
+        // The minimap occupies the right edge.
+        #expect(grid.countPixels(in: MK2PixelRect(x: 466, y: 62, width: 9, height: 200), notMatching: Self.background) > 100)
+    }
+
+    @Test("Order-property encoders E1–E4 forward touch and rotation")
     func orderPropertyEncodersForward() {
         let recorder = ArrangementEncoderRecorder()
         let rendered = MK2PaulincheArrangementRenderer.surfaceScene(
@@ -34,14 +40,16 @@ struct PaulincheArrangementRendererTests {
                 onEncoderChange: { encoder, delta in recorder.appendChange(encoder, delta) }
             )
         )
-        rendered.bindings.encoderTouch[5]?(true)
-        rendered.bindings.encoder[6]?(3, 0, 0)
+        for encoder in 1...4 {
+            #expect(rendered.bindings.encoder[encoder] != nil)
+            #expect(rendered.bindings.encoderTouch[encoder] != nil)
+        }
+        rendered.bindings.encoderTouch[2]?(true)
+        rendered.bindings.encoder[2]?(3, 0, 0)
 
-        #expect(recorder.touches == [5])
-        #expect(recorder.changes.first?.0 == 6)
+        #expect(recorder.touches == [2])
+        #expect(recorder.changes.first?.0 == 2)
         #expect(recorder.changes.first?.1 == 3)
-        // E1–E4 are the app's navigation axis, not the renderer's — left unbound here.
-        #expect(rendered.bindings.encoder[4] == nil)
     }
 
     @Test("Arrangement screens can be captured as a two-screen snapshot")
@@ -58,7 +66,18 @@ struct PaulincheArrangementRendererTests {
     }
 
     private static func fixture() -> MK2PaulincheArrangementScene {
-        MK2PaulincheArrangementScene(
+        let notes = ["C-4", "D#4", "F-3", "A-3", "G-4"]
+        let rows = (0..<13).map { visible in
+            MK2PatternGridElement.Row(
+                index: visible,
+                cells: (0..<4).map { channel in
+                    visible % 4 == channel % 4
+                        ? MK2PatternGridElement.Cell(note: notes[(visible + channel) % notes.count], instrument: "01")
+                        : MK2PatternGridElement.Cell()
+                }
+            )
+        }
+        return MK2PaulincheArrangementScene(
             title: "ARRANGEMENT",
             subtitle: "PAULINCHE",
             isPlaying: true,
@@ -67,14 +86,16 @@ struct PaulincheArrangementRendererTests {
                 MK2PaulincheArrangementOrder(patternLabel: "00 Intro", length: 64, repeatCount: 1),
                 MK2PaulincheArrangementOrder(patternLabel: "01 Verse", length: 64, repeatCount: 2, isPlaying: true),
                 MK2PaulincheArrangementOrder(patternLabel: "02 Chorus", length: 32, repeatCount: 1),
-                MK2PaulincheArrangementOrder(patternLabel: "00 Intro", length: 64, repeatCount: 1),
             ],
             preview: MK2PaulincheArrangementPreview(
+                title: "01 Verse",
+                rows: rows,
+                channels: (0..<4).map { MK2PatternGridElement.Channel(label: "CH\($0 + 1)") },
+                selectedRowIndex: 4,
                 rowCount: 64,
-                channelCount: 4,
-                markers: (0..<16).map { MK2ScenePreviewElement.Marker(row: $0 * 4, channel: $0 % 4) },
-                beatInterval: 4,
-                playheadRow: 12
+                rowActivity: (0..<64).map { $0 % 4 == 0 },
+                isPlaying: true,
+                beatInterval: 4
             ),
             parameters: [
                 MK2PaulinchePatternParameter(label: "PATTERN", value: "01"),

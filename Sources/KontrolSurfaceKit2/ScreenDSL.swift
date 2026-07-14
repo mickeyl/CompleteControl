@@ -638,6 +638,7 @@ public struct MK2SelectionListElement: MK2ScreenElement {
         columns: [MK2SelectionColumn] = [],
         rowHeight: Int = 36,
         rowGap: Int = 6,
+        reservesFooter: Bool = false,
         colors: MK2SelectionViewColors = MK2SelectionViewColors()
     ) {
         self.list = MK2SelectionList(
@@ -649,6 +650,7 @@ public struct MK2SelectionListElement: MK2ScreenElement {
             columns: columns,
             rowHeight: rowHeight,
             rowGap: rowGap,
+            reservesFooter: reservesFooter,
             colors: colors
         )
     }

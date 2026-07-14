@@ -14,6 +14,15 @@
   in a scripted test instead of on the bench. The simulator wire already carries
   these events, so the missing piece is the REPL/command surface at the input seam.
 
+## Simulator
+
+- Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation
+  arrives as bare wire deltas, so acceleration/detent tuning gives almost no
+  insight there and every judgement waits for hardware. Wanted: surface the
+  derived feel on the simulator panel — e.g. show counts-per-step / acceleration
+  state, or visualise the mapped vs raw delta — so at least gross
+  mis-calibration is catchable without the bench.
+
 ## Daemon / libusb architecture
 
 - Continue revisiting the daemon's libusb architecture for MK2 idle and client operation.
