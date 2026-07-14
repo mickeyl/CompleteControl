@@ -1,5 +1,19 @@
 # CompleteControl Backlog
 
+## Next up
+
+- **Full REPL remote control / headless UI-testing (prioritised 2026-07-14).**
+  Bore the half-remote out into a real one: remote control of every button,
+  encoder turn, encoder touch/double-touch and 4-D gesture, injected at the
+  `MK2Surface2` input seam (not per-demo verbs), so the widget lab *and* a real
+  client (Paulinche via the daemon) can be 100% driven headless. That unlocks
+  UI-testing automation — script a sequence of presses/turns and assert on the
+  resulting frames through the snapshot path. Concrete motivation: the arrangement
+  work (2026-07-14) shipped a SCENE button that lit but emitted no input event
+  (missing from the adapter's bind list); a headless remote would have caught that
+  in a scripted test instead of on the bench. The simulator wire already carries
+  these events, so the missing piece is the REPL/command surface at the input seam.
+
 ## Daemon / libusb architecture
 
 - Continue revisiting the daemon's libusb architecture for MK2 idle and client operation.
@@ -197,15 +211,5 @@
   signature (4/4 → 4, 3/4 → 3) instead of the constant, so odd meters stripe
   on the beat.
 
-- Widget-lab REPL: commit or cut (2026-07-13). The demo's REPL is half a
-  remote — it can `open`/`exit` demos, drive a handful of demo-local verbs and
-  the LED/guide overrides, but it cannot press an arbitrary button or turn an
-  arbitrary encoder, so it is neither a real remote nor a test harness. Decide:
-  either remove it (dead weight), or bore it out into a full one — remote
-  control of every button, encoder turn, encoder touch/double-touch and 4-D
-  gesture — so the lab (and, via the same seam, a real client) can be 100%
-  driven headless. That unlocks UI-testing automation: script a sequence of
-  presses/turns and assert on the resulting frames through the snapshot path.
-  The simulator wire already carries these events, so the missing piece is a
-  REPL/command surface that injects them at the `MK2Surface2` input seam rather
-  than through per-demo verbs.
+- Widget-lab REPL: commit or cut — promoted to **Next up** at the top of this
+  backlog (2026-07-14).
