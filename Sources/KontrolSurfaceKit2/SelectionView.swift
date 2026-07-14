@@ -452,7 +452,9 @@ public struct MK2SelectionList: Sendable {
         // with the proportional (IBM Plex) columns. The two fonts have different
         // ascenders, so a common top `y` would drop the proportional text below
         // the mono digits — they must be aligned on the baseline, not the top.
-        let monoTop = y + max(0, (rowHeight - SurfaceFont.grid.cellHeight) / 2)
+        // +1 optically centres the visibly top-heavy glyphs (ascent 12 vs
+        // descent 4 leaves the ink sitting high in the cell) in the highlight.
+        let monoTop = y + max(0, (rowHeight - SurfaceFont.grid.cellHeight) / 2) + 1
         let baseline = monoTop + SurfaceFont.grid.ascent
         let bodyAscender = renderer.flatMap { try? $0.metrics(style: MK2HIG.bodyTextStyle(color: colors.text)).ascender } ?? SurfaceFont.grid.ascent
         for (index, column) in columns.enumerated() {
