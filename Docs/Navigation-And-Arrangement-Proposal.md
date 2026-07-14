@@ -124,12 +124,15 @@ Done — the arrangement loop works end to end (SCENE → order list → PATTERN
 Also done:
 - **PAGE per mode**: row page (±16) in the pattern grid, order page (±8) in the arrangement; `appendPattern`/`duplicate` moved off PAGE to the arrangement soft keys. (Pattern-mode PAGE pages rows, not the proposal's channel page — channel paging is app-state and only matters past four channels, so it stays deferred.)
 
+Also done:
+- **SCENE/PATTERN mode lamps** as a radio pair (active bright, other dim).
+- **Repeat-count editing** on E6 in the arrangement (`changeOrderRepeatCount`); E5/E7/E8 (pattern/length/position) are inert until wired, and E5-E8 no longer edit hidden cells in song mode.
+
 Deferred (follow-ups):
 - **Channel paging** on PAGE in the pattern grid (needs >4-channel support + app-state wiring).
 - **TRACK button** → instrument/channel view.
-- **SCENE lamp** (needs a `.scene` lamp name + KK button mapping).
 - **Explicit 4-D-center drill-in** (PATTERN button already drills in).
-- Order-property editing on E5-E8 forwards touch/rotation; binding the *repeat count* edit to a command is still open.
+- **PATTERN/LEN/POS editing** on E5/E7/E8 in the arrangement (repeat count on E6 is wired).
 
 ## 5. Order of work (original plan)
 1. **Straighten pattern-scene navigation** (small): reconcile PAGE + 4-D roles
