@@ -42,6 +42,27 @@
   traffic probably remains libusb/IOUSB-level. Avoid mixed backends unless claim conflicts
   and ownership boundaries are understood.
 
+## Display protocol
+
+- Chained display-command segments confirmed on hardware 2026-07-14 (see
+  `Docs/Komplete-Kontrol-Protocol-Guide.md` "Experimental display command
+  verification"). `0x01` (repeat-pair) and non-zero `0x02` (skip) both work,
+  including multiple independent skips and multiple literal/repeat runs
+  chained into a single packet (the REPL's `chain` command,
+  `build_chain_packet` in `Tools/MK2USBSpy/MK2DisplayCommandREPL.c`, verified
+  with three distinct multi-segment bench tests). This removes the open
+  question and makes chaining a cheaper alternative to the AP2 multi-rectangle
+  proposal below: one transfer with inline skips over clean gaps, instead of N
+  transfers each paying header/trailer/syscall overhead. Remaining work is
+  entirely on the reconciler side: `PixelDisplayReconciler2` still only ever
+  emits one contiguous full-width literal block per dirty band — it needs a
+  new encoding pass that detects solid pixel-pair runs (candidates for
+  `repeat`) and clean sub-row gaps within a band (candidates for `skip`) and
+  emits a chained packet instead. `repeat` only pays off for genuinely solid
+  fills, not dithered gradients. Worth prioritizing against the plain AP2
+  multi-rectangle-transfer approach once someone picks this up, since chaining
+  supersedes it rather than complementing it.
+
 ## KontrolSurfaceKit2
 
 - Bake the surface-font vertical correction into the metrics (noted 2026-07-14).

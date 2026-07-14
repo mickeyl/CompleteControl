@@ -13,7 +13,8 @@ enum {
     kDisplayWidth = 480,
     kDisplayHeight = 272,
     kDisplayTimeoutMs = 1000,
-    kMaximumTokens = 8,
+    kMaximumTokens = 24,
+    kMaximumChainSegments = kMaximumTokens - 1,
 };
 
 typedef enum {
@@ -22,6 +23,19 @@ typedef enum {
     DisplayCommandSkipLiteral,
     DisplayCommandSkipRepeatPair,
 } DisplayCommandKind;
+
+typedef enum {
+    ChainSegmentLiteral,
+    ChainSegmentRepeat,
+    ChainSegmentSkip,
+} ChainSegmentKind;
+
+typedef struct {
+    ChainSegmentKind kind;
+    uint32_t pixels;
+    uint16_t firstColor;
+    uint16_t secondColor;
+} ChainSegment;
 
 typedef struct {
     uint8_t *bytes;
@@ -224,9 +238,86 @@ static DisplayPacket build_packet(DisplayCommandKind kind,
     return packet;
 }
 
+static DisplayPacket build_chain_packet(DisplayRect rect, const ChainSegment *segments, int segmentCount) {
+    DisplayPacket packet = {0};
+    uint32_t pixelCount = 0;
+    if (!valid_rect(rect, &pixelCount) || segmentCount <= 0) {
+        return packet;
+    }
+
+    uint64_t totalPixels = 0;
+    size_t payloadBytes = 0;
+    for (int index = 0; index < segmentCount; index++) {
+        uint32_t pixels = segments[index].pixels;
+        if (pixels == 0 || (pixels % 2) != 0) {
+            return packet;
+        }
+        totalPixels += pixels;
+        switch (segments[index].kind) {
+            case ChainSegmentLiteral:
+                payloadBytes += 4 + (size_t)pixels * 2;
+                break;
+            case ChainSegmentRepeat:
+                payloadBytes += 4 + 4;
+                break;
+            case ChainSegmentSkip:
+                payloadBytes += 4;
+                break;
+        }
+    }
+    if (totalPixels > pixelCount) {
+        return packet;
+    }
+
+    packet.capacity = 16 + payloadBytes + 12;
+    packet.bytes = calloc(packet.capacity, 1);
+    if (packet.bytes == NULL) {
+        packet.capacity = 0;
+        return packet;
+    }
+
+    bool success = packet_append_header(&packet, rect);
+    for (int index = 0; success && index < segmentCount; index++) {
+        const ChainSegment *segment = &segments[index];
+        uint32_t pairCount = segment->pixels / 2;
+        switch (segment->kind) {
+            case ChainSegmentLiteral:
+                success = packet_append_token(&packet, 0x00, pairCount);
+                for (uint32_t pair = 0; success && pair < pairCount; pair++) {
+                    success = packet_append_be16(&packet, segment->firstColor)
+                        && packet_append_be16(&packet, segment->secondColor);
+                }
+                break;
+            case ChainSegmentRepeat:
+                success = packet_append_token(&packet, 0x01, pairCount)
+                    && packet_append_be16(&packet, segment->firstColor)
+                    && packet_append_be16(&packet, segment->secondColor);
+                break;
+            case ChainSegmentSkip:
+                success = packet_append_token(&packet, 0x02, pairCount);
+                break;
+        }
+    }
+    success = success && packet_append_footer(&packet);
+    if (!success) {
+        free(packet.bytes);
+        memset(&packet, 0, sizeof(packet));
+    }
+    return packet;
+}
+
 static void free_packet(DisplayPacket *packet) {
     free(packet->bytes);
     memset(packet, 0, sizeof(*packet));
+}
+
+static const char *chain_segment_kind_name(ChainSegmentKind kind) {
+    switch (kind) {
+        case ChainSegmentLiteral: return "literal 0x00";
+        case ChainSegmentRepeat: return "repeat-pair 0x01";
+        case ChainSegmentSkip: return "skip 0x02";
+    }
+    return "unknown";
 }
 
 static const char *command_name(DisplayCommandKind kind) {
@@ -269,6 +360,67 @@ static int send_command(DisplayConnection *connection,
            rect.height,
            command_name(kind),
            skipPixels,
+           packet.length,
+           transferred,
+           elapsedMs,
+           libusb_error_name(status));
+    fflush(stdout);
+
+    if (status == 0 && transferred != (int)packet.length) {
+        fprintf(stderr, "Short display write: expected %zu bytes but transferred %d. Stop testing and reconnect the device.\n",
+                packet.length,
+                transferred);
+        status = LIBUSB_ERROR_IO;
+    }
+    free_packet(&packet);
+    return status;
+}
+
+static int send_chain_command(DisplayConnection *connection,
+                              DisplayRect rect,
+                              const ChainSegment *segments,
+                              int segmentCount) {
+    DisplayPacket packet = build_chain_packet(rect, segments, segmentCount);
+    if (packet.bytes == NULL) {
+        fprintf(stderr,
+                "Couldn't construct the chained packet. Every segment needs a nonzero even pixel "
+                "count and the segments together must not exceed the selected rectangle (%u pixels).\n",
+                (unsigned int)rect.width * rect.height);
+        return LIBUSB_ERROR_INVALID_PARAM;
+    }
+
+    fprintf(stderr, "chain segments (%d):", segmentCount);
+    for (int index = 0; index < segmentCount; index++) {
+        const ChainSegment *segment = &segments[index];
+        if (segment->kind == ChainSegmentSkip) {
+            fprintf(stderr, " %s(pixels=%u)", chain_segment_kind_name(segment->kind), segment->pixels);
+        } else {
+            fprintf(stderr, " %s(pixels=%u,0x%04x,0x%04x)",
+                    chain_segment_kind_name(segment->kind),
+                    segment->pixels,
+                    segment->firstColor,
+                    segment->secondColor);
+        }
+    }
+    fprintf(stderr, "\n");
+
+    int transferred = 0;
+    uint64_t start = now_micros();
+    int status = libusb_bulk_transfer(connection->handle,
+                                      connection->endpoint,
+                                      packet.bytes,
+                                      (int)packet.length,
+                                      &transferred,
+                                      kDisplayTimeoutMs);
+    double elapsedMs = (double)(now_micros() - start) / 1000.0;
+
+    printf("display-write screen=%s rect=%u,%u %ux%u command=chain[%d segments] packet=%zu transferred=%d elapsed=%.3fms status=%s\n",
+           rect.screen == 0 ? "left" : "right",
+           rect.x,
+           rect.y,
+           rect.width,
+           rect.height,
+           segmentCount,
            packet.length,
            transferred,
            elapsedMs,
@@ -397,6 +549,7 @@ static void print_repl_help(void) {
             "  repeat <color-a> [color-b]          Test experimental 0x01 pair repeat.\n"
             "  skip-literal <pixels> <a> [b]       Test 0x02 skip, then verified literal pixels.\n"
             "  skip-repeat <pixels> <a> [b]        Preserve an even prefix, repeat over the rest.\n"
+            "  chain <segment> <segment> ...       Send one packet built from chained segments.\n"
             "  clear-rect [color]                  Clear the selected rectangle via literal pixels.\n"
             "  clear-screen [color]                Clear the selected screen via literal pixels.\n"
             "  colors                              List named RGB565 colors.\n"
@@ -404,8 +557,20 @@ static void print_repl_help(void) {
             "  quit                                Release USB and exit.\n"
             "\n"
             "Colors may be names or 16-bit values such as 0xf800. The rectangle must\n"
-            "contain an even number of pixels. `repeat`, `skip-literal`, and\n"
-            "`skip-repeat` are unverified protocol experiments; use a small rectangle first.\n"
+            "contain an even number of pixels. `repeat`, `skip-literal`, `skip-repeat`, and\n"
+            "`chain` are unverified protocol experiments; use a small rectangle first.\n"
+            "\n"
+            "`chain` sends several tokens back-to-back in a single packet, so the untested\n"
+            "hypothesis of alternating skip/literal/repeat segments within one transfer can be\n"
+            "checked directly. Each segment is one whitespace-separated argument, colon-joined:\n"
+            "  skip:<pixels>\n"
+            "  literal:<pixels>:<color-a>[:<color-b>]\n"
+            "  repeat:<pixels>:<color-a>[:<color-b>]\n"
+            "Segment pixel counts must be even and must not sum past the selected rectangle.\n"
+            "Example on the default 64x32 rectangle (2048 pixels), painted blue first:\n"
+            "  chain skip:1024 literal:512:yellow repeat:512:green\n"
+            "  -> top half stays blue, next quarter turns yellow, last quarter turns green,\n"
+            "     all from one packet.\n"
             "\n"
             "Recommended hardware test (default 64x32 rectangle):\n"
             "  literal blue                    Baseline: the complete rectangle becomes blue.\n"
@@ -456,6 +621,67 @@ static bool parse_command_colors(char **tokens,
     if (tokenCount == firstIndex + 2 && !parse_color(tokens[firstIndex + 1], secondColorOut)) {
         return false;
     }
+    return true;
+}
+
+static bool parse_chain_segment(const char *token, ChainSegment *segmentOut) {
+    char buffer[64];
+    size_t length = strlen(token);
+    if (length == 0 || length >= sizeof(buffer)) {
+        return false;
+    }
+    memcpy(buffer, token, length + 1);
+
+    char *parts[4] = {0};
+    int partCount = 0;
+    char *save = NULL;
+    for (char *part = strtok_r(buffer, ":", &save);
+         part != NULL && partCount < 4;
+         part = strtok_r(NULL, ":", &save)) {
+        parts[partCount++] = part;
+    }
+    if (partCount < 1) {
+        return false;
+    }
+
+    if (strcmp(parts[0], "skip") == 0) {
+        uint32_t pixels = 0;
+        if (partCount != 2 || !parse_u32(parts[1], &pixels)) {
+            return false;
+        }
+        segmentOut->kind = ChainSegmentSkip;
+        segmentOut->pixels = pixels;
+        segmentOut->firstColor = 0;
+        segmentOut->secondColor = 0;
+        return true;
+    }
+
+    ChainSegmentKind kind;
+    if (strcmp(parts[0], "literal") == 0) {
+        kind = ChainSegmentLiteral;
+    } else if (strcmp(parts[0], "repeat") == 0) {
+        kind = ChainSegmentRepeat;
+    } else {
+        return false;
+    }
+
+    uint32_t pixels = 0;
+    uint16_t firstColor = 0;
+    uint16_t secondColor = 0;
+    if ((partCount != 3 && partCount != 4)
+        || !parse_u32(parts[1], &pixels)
+        || !parse_color(parts[2], &firstColor)) {
+        return false;
+    }
+    secondColor = firstColor;
+    if (partCount == 4 && !parse_color(parts[3], &secondColor)) {
+        return false;
+    }
+
+    segmentOut->kind = kind;
+    segmentOut->pixels = pixels;
+    segmentOut->firstColor = firstColor;
+    segmentOut->secondColor = secondColor;
     return true;
 }
 
@@ -605,6 +831,36 @@ static int run_repl(DisplayConnection *connection, volatile sig_atomic_t *should
             continue;
         }
 
+        if (strcmp(command, "chain") == 0) {
+            if (tokenCount < 2) {
+                fprintf(stderr,
+                        "Usage: chain <segment> <segment> ... — segments: skip:<pixels> | "
+                        "literal:<pixels>:<color-a>[:<color-b>] | repeat:<pixels>:<color-a>[:<color-b>]\n");
+                continue;
+            }
+            int segmentCount = tokenCount - 1;
+            ChainSegment segments[kMaximumChainSegments];
+            bool parsedOK = true;
+            for (int index = 0; index < segmentCount; index++) {
+                if (!parse_chain_segment(tokens[index + 1], &segments[index])) {
+                    fprintf(stderr,
+                            "Couldn't parse segment `%s`. Expected skip:<pixels> | literal:<pixels>:<color> | "
+                            "repeat:<pixels>:<color>[:<color-b>].\n",
+                            tokens[index + 1]);
+                    parsedOK = false;
+                    break;
+                }
+            }
+            if (!parsedOK) {
+                continue;
+            }
+            int status = send_chain_command(connection, rect, segments, segmentCount);
+            if (status != 0) {
+                fprintf(stderr, "Display write failed. Return to `literal dimgray` or quit before further experiments.\n");
+            }
+            continue;
+        }
+
         fprintf(stderr, "Unknown command `%s`. Type `help` for the available commands.\n", command);
     }
 
@@ -688,14 +944,45 @@ int mk2_display_command_self_test(void) {
         && fullRepeat.bytes[23] == 0x00;
     free_packet(&fullRepeat);
 
-    if (!literalOK || !repeatOK || !skipOK || !combinedOK || !fullOK) {
+    DisplayRect chainRect = {.screen = 0, .x = 0, .y = 0, .width = 6, .height = 1};
+    ChainSegment chainSegments[] = {
+        {.kind = ChainSegmentSkip, .pixels = 2, .firstColor = 0, .secondColor = 0},
+        {.kind = ChainSegmentLiteral, .pixels = 2, .firstColor = 0xf800, .secondColor = 0xf800},
+        {.kind = ChainSegmentRepeat, .pixels = 2, .firstColor = 0x001f, .secondColor = 0x001f},
+    };
+    DisplayPacket chain = build_chain_packet(chainRect, chainSegments, 3);
+    const uint8_t expectedChain[] = {
+        0x84, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x01,
+        0x02, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x01, 0xf8, 0x00, 0xf8, 0x00,
+        0x01, 0x00, 0x00, 0x01, 0x00, 0x1f, 0x00, 0x1f,
+        0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    };
+    bool chainOK = chain.bytes != NULL
+        && chain.length == sizeof(expectedChain)
+        && bytes_equal(chain.bytes, expectedChain, sizeof(expectedChain));
+    free_packet(&chain);
+
+    ChainSegment overflowSegments[] = {
+        {.kind = ChainSegmentSkip, .pixels = 4, .firstColor = 0, .secondColor = 0},
+        {.kind = ChainSegmentLiteral, .pixels = 4, .firstColor = 0xf800, .secondColor = 0xf800},
+    };
+    DisplayPacket overflow = build_chain_packet(chainRect, overflowSegments, 2);
+    bool overflowRejectedOK = overflow.bytes == NULL;
+    free_packet(&overflow);
+
+    if (!literalOK || !repeatOK || !skipOK || !combinedOK || !fullOK || !chainOK || !overflowRejectedOK) {
         fprintf(stderr,
-                "Display command self-test failed: literal=%s repeat=%s skip=%s combined=%s full=%s\n",
+                "Display command self-test failed: literal=%s repeat=%s skip=%s combined=%s full=%s chain=%s "
+                "overflowRejected=%s\n",
                 literalOK ? "ok" : "failed",
                 repeatOK ? "ok" : "failed",
                 skipOK ? "ok" : "failed",
                 combinedOK ? "ok" : "failed",
-                fullOK ? "ok" : "failed");
+                fullOK ? "ok" : "failed",
+                chainOK ? "ok" : "failed",
+                overflowRejectedOK ? "ok" : "failed");
         return 1;
     }
 

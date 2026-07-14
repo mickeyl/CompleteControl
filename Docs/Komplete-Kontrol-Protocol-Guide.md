@@ -348,10 +348,13 @@ MK2:
 | Opcode | Proposed operation | MK2 status |
 | --- | --- | --- |
 | `0x00` | Copy the following RGB565 pixel pairs | Verified; this is the production writer's baseline |
-| `0x01` | Repeat the following RGB565 pixel pair | Experimental |
-| `0x02` | Skip the given number of pixel pairs | Only the zero-count framing token is verified; non-zero skip is experimental |
+| `0x01` | Repeat the following RGB565 pixel pair | Confirmed on hardware 2026-07-14, including chained multi-segment packets |
+| `0x02` | Skip the given number of pixel pairs | Non-zero skip confirmed on hardware 2026-07-14, including multiple skips per packet |
 | `0x03` | Commit/blit | Verified as part of the baseline packet |
 | `0x40` | End transfer | Verified as part of the baseline packet |
+
+Chaining more than one skip/literal/repeat segment into a single packet is
+also confirmed — see below.
 
 Each token is four bytes: an opcode followed by a 24-bit big-endian pair count.
 The S-Series screen geometry needs at most 65,280 pairs, so the high count byte
@@ -407,6 +410,48 @@ transfer at the transport layer. The visible rectangle is the protocol result
 that must be recorded. Keep the first run on the small default rectangle; the
 verified `clear-rect` literal command restores it afterward.
 
+A bench session on 2026-07-14 ran this exact sequence on an S-Series MK2 and
+observed the expected rectangle result for every step: `repeat red` painted
+the complete rectangle, `skip-literal 1024 yellow` left the top half blue and
+painted the bottom half yellow, and `skip-repeat 1024 green` left the top half
+unchanged and painted the bottom half green. Both `0x01` and non-zero `0x02`
+are therefore confirmed working *in isolation* — one skip/literal or
+skip/repeat pair per packet, matching `build_packet`'s fixed shape.
+
+That single-segment shape is not the general case. The REPL's `chain` command
+extends the wire encoding to an arbitrary sequence of `skip`/`literal`/
+`repeat` segments concatenated into one packet ahead of the `0x03`/`0x40`
+trailer (`build_chain_packet` in `MK2DisplayCommandREPL.c`), so more than one
+non-zero skip and more than one literal/repeat run can be tested in a single
+bulk transfer, e.g.:
+
+```text
+literal blue
+chain skip:1024 literal:512:yellow repeat:512:green
+clear-rect black
+quit
+```
+
+A bench session on 2026-07-14 confirmed this on an S-Series MK2 with three
+distinct chains, each following a `literal blue` baseline and a `clear-rect
+black` reset, on the default 64x32 (2048-pixel, 64px/row) test rectangle:
+
+- `chain skip:1024 literal:512:yellow repeat:512:green` — top 16 rows stayed
+  blue, next 8 rows turned yellow, last 8 rows turned green.
+- `chain skip:512 literal:512:red skip:512 literal:512:cyan` — rows 0-7 blue,
+  8-15 red, 16-23 blue, 24-31 cyan. This isolates that **two independent
+  non-zero `0x02` skips** in one packet are both honoured correctly, not just
+  the first.
+- `chain repeat:1024:red skip:512 repeat:512:green` — rows 0-15 red, 16-23
+  blue, 24-31 green. This isolates that `0x01` also works as the very first
+  token after the header (not only after a `skip`) and that multiple `0x01`
+  tokens chain correctly too.
+
+Chained multi-segment packets are therefore confirmed working on hardware,
+not just the single-segment shape. This removes the prerequisite blocking the
+use of `0x02` to skip clean gaps *between* several dirty runs in one transfer,
+which is the shape the diffing section below would need.
+
 ### Display update cost and diffing
 
 Measured on the S61 MK2 with full-width 480-pixel row bands in a debug build:
@@ -433,6 +478,18 @@ The current reconciler intentionally does not crop columns. Hardware measurement
 show a penalty for narrow windows; any future multi-rectangle optimization should
 split only at useful clean-row gaps and preserve atomic newest-wins semantics.
 The current decisions are in `Docs/transport-latency-optimization-review.md`.
+
+Chained `skip`/`literal`/`repeat` segments (see above, confirmed 2026-07-14)
+offer a cheaper route to the same goal than
+`Docs/transport-latency-optimization-review.md`'s AP2 multi-rectangle proposal:
+AP2 splits a dirty band with a clean gap into several separate bulk transfers,
+each paying its own 16-byte header + 12-byte trailer and its own
+`libusb_bulk_transfer` call; a single chained packet can instead express
+`skip` over the clean gap and `literal`/`repeat` over each dirty run inline,
+in one transfer. `repeat` only helps where a run is genuinely one solid pixel
+pair (a fill, not a dithered gradient). `PixelDisplayReconciler2` does not yet
+build such packets — see `Docs/Backlog.md` "Display protocol" for the
+remaining implementation work.
 
 ---
 
