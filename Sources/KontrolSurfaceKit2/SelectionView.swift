@@ -448,6 +448,10 @@ public struct MK2SelectionList: Sendable {
         into frame: inout MK2PixelFrame,
         renderer: FreeTypeTextRenderer?
     ) {
+        // Center the single-line row text in the row band instead of a fixed
+        // top inset, so the text sits mid-height whatever the row height is —
+        // the same convention MK2ValueCell uses for its value glyph.
+        let textY = y + max(0, (rowHeight - SurfaceFont.grid.cellHeight) / 2)
         for (index, column) in columns.enumerated() {
             guard item.columns.indices.contains(index) else { continue }
             let value = item.columns[index]
@@ -459,9 +463,9 @@ public struct MK2SelectionList: Sendable {
                 : x + max(0, column.width - Self.textWidth(value, fixedPitch: column.fixedPitch, renderer: renderer))
             if column.fixedPitch {
                 BitmapLabel(value, font: .grid, color: color)
-                    .draw(into: &frame, x: drawX, y: y + 6, clip: MK2PixelRect(x: x, y: y, width: column.width, height: rowHeight))
+                    .draw(into: &frame, x: drawX, y: textY, clip: MK2PixelRect(x: x, y: y, width: column.width, height: rowHeight))
             } else {
-                MK2SelectionDrawing.drawBody(value, into: &frame, renderer: renderer, x: drawX, y: y + Self.primaryTextTopInset, color: color, maxWidth: column.width)
+                MK2SelectionDrawing.drawBody(value, into: &frame, renderer: renderer, x: drawX, y: textY, color: color, maxWidth: column.width)
             }
         }
     }
