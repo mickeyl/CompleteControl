@@ -84,6 +84,23 @@
   gap) distribution into the cost model above to get an expected ms-saved/tick
   number before writing the actual chained encoder.
 
+  Measured 2026-07-14: a ~3:47 min live Paulinche session (tracker editing,
+  playback, encoder/shift interaction, real S-Series hardware attached) via
+  `KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1` produced 896 reconciled bands.
+  58.4% had zero internal clean-row gap (no possible win — small localized
+  updates, e.g. meter/value-cell ticks) — confirms the concern that not every
+  update benefits. But priced against the cost model, aggregate USB wire time
+  across the session drops from 8599.8 ms to 6267.8 ms, a **27.1% reduction**
+  (skip-only estimate, no `repeat`/solid-run detection yet, so this is a lower
+  bound). Per-event ΔT is heavily right-skewed (median 0 ms, p90 9.2 ms, max
+  14.1 ms) — the win concentrates in a minority of events with large gaps
+  (matches the shift-flip-style scenario), which is why the median looks like
+  "no benefit" while the aggregate is a clear, above-noise-floor win. Verdict:
+  worth building the chained encoder. Raw log and the aggregation script
+  (`analyze_reconciler_telemetry.py`) are session-local, not checked in; rerun
+  the same measurement to validate against a different usage mix before/after
+  implementation if more confidence is wanted.
+
 ## KontrolSurfaceKit2
 
 - Bake the surface-font vertical correction into the metrics (noted 2026-07-14).
