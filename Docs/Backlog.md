@@ -53,7 +53,11 @@
   fix: fold the correction once into the font baseline / `drawText`, so a call
   site that asks to centre in a rect gets an optically centred result with no
   manual nudge — then audit and remove the scattered offsets (chrome, value
-  cells, toggles, lists).
+  cells, toggles, lists). Concretely wanted: a `drawText(..., centeredIn: rect)`
+  / `verticalCenterInset(for style:, height:)` API that derives the baseline +
+  optical offset from the font metrics, so mixed mono/proportional rows align
+  automatically and nobody hand-tunes a `+1` per case (the selection list needed
+  a baseline-alignment *and* a +1 nudge on 2026-07-14 — that should be free).
 
 - Widget Lab hardware review completed on 2026-07-13. The complete rebuilt demo
   catalog and its current shared-HIG presentation were exercised on the physical
