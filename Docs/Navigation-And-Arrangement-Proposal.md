@@ -125,6 +125,7 @@ Also done:
 - **PAGE per mode**: row page (±16) in the pattern grid, order page (±8) in the arrangement; `appendPattern`/`duplicate` moved off PAGE to the arrangement soft keys. (Pattern-mode PAGE pages rows, not the proposal's channel page — channel paging is app-state and only matters past four channels, so it stays deferred.)
 
 Also done:
+- **Arrangement layout rework (2026-07-14, hardware review):** the right screen renders the selected order's **real pattern grid** (reused `MK2PatternGridElement` + minimap), not the schematic thumbnail; the order properties are an **E1-E4 footer under the order list** (left screen), where those encoders physically sit. E2 edits REPEAT; the 4-D wheel navigates orders. The pattern-grid projection is now shared (`patternGridContent`) between the editor and the preview. `MK2ScenePreviewElement` stays in the Kit as the reusable thumbnail for the scene-preview backlog item, currently without a consumer.
 - **SCENE/PATTERN mode lamps** as a radio pair (active bright, other dim).
 - **Repeat-count editing** on E6 in the arrangement (`changeOrderRepeatCount`); E5/E7/E8 (pattern/length/position) are inert until wired, and E5-E8 no longer edit hidden cells in song mode.
 
