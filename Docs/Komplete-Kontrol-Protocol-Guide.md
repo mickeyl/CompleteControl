@@ -339,6 +339,74 @@ The important endianness rule is asymmetric: display coordinates, dimensions,
 count, and RGB565 pixels are big-endian; rotary counters and ribbon fields are
 little-endian.
 
+### Experimental display command verification
+
+The colour-display command stream has two additional operations reported by
+cross-device reverse engineering but not yet bench-verified on the S-Series
+MK2:
+
+| Opcode | Proposed operation | MK2 status |
+| --- | --- | --- |
+| `0x00` | Copy the following RGB565 pixel pairs | Verified; this is the production writer's baseline |
+| `0x01` | Repeat the following RGB565 pixel pair | Experimental |
+| `0x02` | Skip the given number of pixel pairs | Only the zero-count framing token is verified; non-zero skip is experimental |
+| `0x03` | Commit/blit | Verified as part of the baseline packet |
+| `0x40` | End transfer | Verified as part of the baseline packet |
+
+Each token is four bytes: an opcode followed by a 24-bit big-endian pair count.
+The S-Series screen geometry needs at most 65,280 pairs, so the high count byte
+is zero in all current packets. `0x01` is described in the
+[earlier cabl MK3 reverse engineering](https://github.com/shaduzlabs/cabl/issues/9#issuecomment-353465032);
+a [later packet capture](https://github.com/shaduzlabs/cabl/issues/9#issuecomment-2704220812)
+documents `0x02` as advancing the current pixel position by twice its pair
+count. The newer
+[RufusIbiza openAV-Ctlra feature branch](https://github.com/RufusIbiza/openAV-Ctlra/tree/feature/maschine-mk3-support/resources/maschine_mk3)
+corroborates the encodings in its `ni_screen_line` and `ni_screen_skip` helpers.
+Its current zone-update path, however, uses rectangle geometry followed by an
+`0x00` literal block rather than either helper. These therefore remain
+colour-display-family hypotheses until the REPL results below are observed on
+an S-Series MK2.
+
+Run the verifier directly against libusb:
+
+```bash
+make mk2-usb-spy-display-repl
+```
+
+The target stops the CompleteControl daemon, removes its stale socket/lock, and
+runs `MK2USBSpy --display-repl`. The tool then claims only interface 3. It does
+not use or modify the daemon, and it sends no display packet until an explicit
+REPL command is entered. The daemon remains stopped after the session; use
+`make daemon-start` when the installed service should own the controller again.
+
+A discriminating test sequence for the default 64x32 rectangle is:
+
+```text
+literal blue
+repeat red
+literal blue
+skip-literal 1024 yellow
+skip-repeat 1024 green
+clear-rect black
+quit
+```
+
+Expected observations:
+
+- `literal blue` paints the complete rectangle and establishes the verified
+  baseline.
+- If `repeat red` paints the complete rectangle red, `0x01` works.
+- After the second blue baseline, a working `skip-literal 1024 yellow` leaves
+  the first 16 rows blue and paints the last 16 rows yellow. This isolates a
+  non-zero `0x02` from `0x01`.
+- `skip-repeat 1024 green` then checks both operations together: the first half
+  stays unchanged and the second half becomes green.
+
+A successful USB return only proves that the firmware accepted the bulk
+transfer at the transport layer. The visible rectangle is the protocol result
+that must be recorded. Keep the first run on the small default rectangle; the
+verified `clear-rect` literal command restores it afterward.
+
 ### Display update cost and diffing
 
 Measured on the S61 MK2 with full-width 480-pixel row bands in a debug build:
@@ -447,6 +515,7 @@ Operational details and headless snapshot variables live in `CLAUDE.md`, section
 | --- | --- |
 | MK2 constants, modes, decoder, LED palette | `Sources/KompleteKontrol/KompleteKontrolMK2.swift` |
 | USB descriptors, endpoint discovery, `0x84` serialization | `Sources/KontrolUSB/KontrolUSB.c` |
+| Experimental display-command REPL and packet self-test | `Tools/MK2USBSpy/MK2DisplayCommandREPL.c` |
 | Daemon ownership and scheduling | `Sources/KompleteKontrol/KompleteKontrol.swift` |
 | Device-session seam | `Sources/KompleteKontrol/KontrolDeviceSession.swift` |
 | Simulator wire protocol | `Sources/KompleteKontrol/SimWireProtocol.swift` |

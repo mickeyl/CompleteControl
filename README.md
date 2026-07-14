@@ -138,6 +138,7 @@ make mk2-surface-demo
 make mk2-widget-lab-demo
 make run-simulator
 make mk2-usb-spy
+make mk2-usb-spy-display-repl
 ```
 
 - `MK2SurfaceDemo` is the compact hardware feature demo.
@@ -146,7 +147,9 @@ make mk2-usb-spy
 - `KontrolSimulator` emulates the S61 MK2 panel and can start a user-level
   simulator daemon from its Daemon menu.
 - `MK2USBSpy` inspects low-level descriptors and input traffic without the
-  normal daemon.
+  normal daemon. Its display REPL claims only USB interface 3 and sends no
+  display data until an explicit command is entered. The Make target stops the
+  daemon first; start it again after the session when needed.
 
 To run Widget Lab against the simulator daemon:
 

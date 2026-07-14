@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <getopt.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,6 +11,8 @@
 #include <unistd.h>
 
 #include <libusb.h>
+
+#include "MK2DisplayCommandREPL.h"
 
 static const uint16_t kVendorNativeInstruments = 0x17cc;
 static const uint16_t kMK2PIDs[] = {0x1610, 0x1620, 0x1630};
@@ -461,39 +464,108 @@ static void release_all_interfaces(libusb_device_handle *handle, libusb_device *
     libusb_free_config_descriptor(config);
 }
 
-static void usage(const char *argv0) {
-    printf("Usage: %s [--pid 0x1620] [--seconds N] [--no-detach]\n", argv0);
-    printf("\n");
-    printf("Dumps Komplete Kontrol MK2 USB descriptors, claims every interface,\n");
-    printf("and prints every packet seen on every bulk/interrupt IN endpoint.\n");
-    printf("Run the daemon stopped, usually with sudo.\n");
+static bool parse_nonnegative_int(const char *text, int *valueOut) {
+    char *end = NULL;
+    errno = 0;
+    long value = strtol(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0' || value < 0 || value > INT32_MAX) {
+        return false;
+    }
+    *valueOut = (int)value;
+    return true;
+}
+
+static void usage(FILE *stream, const char *argv0) {
+    fprintf(stream,
+            "Examples:\n"
+            "  %s --seconds 10\n"
+            "  %s --pid 0x1620 --display-repl\n"
+            "  %s --display-command-self-test\n"
+            "\n"
+            "Usage: %s [options]\n"
+            "\n"
+            "Inspect Komplete Kontrol MK2 USB traffic or interactively verify the\n"
+            "experimental 0x60 display command stream. Run with the daemon stopped,\n"
+            "usually through the corresponding Make target and with sudo.\n"
+            "\n"
+            "Options:\n"
+            "  --display-repl               Claim only the display interface and open the REPL.\n"
+            "  --display-command-self-test  Verify packet construction without USB hardware.\n"
+            "  --pid <value>                Select an MK2 product ID, for example 0x1620.\n"
+            "  --seconds <count>            Stop packet capture after this many seconds.\n"
+            "  --no-detach                  Do not detach kernel drivers before claiming USB.\n"
+            "  -h, --help                   Show this help.\n",
+            argv0,
+            argv0,
+            argv0,
+            argv0);
 }
 
 int main(int argc, char **argv) {
     uint16_t forcedPID = 0;
     int seconds = 0;
     bool detachKernelDrivers = true;
+    bool displayREPL = false;
+    bool displayCommandSelfTest = false;
 
-    for (int index = 1; index < argc; index++) {
-        if (strcmp(argv[index], "--help") == 0 || strcmp(argv[index], "-h") == 0) {
-            usage(argv[0]);
-            return 0;
-        } else if (strcmp(argv[index], "--pid") == 0 && index + 1 < argc) {
-            if (!parse_u16(argv[++index], &forcedPID)) {
-                fprintf(stderr, "invalid --pid value\n");
+    if (argc == 2 && strcmp(argv[1], "help") == 0) {
+        usage(stdout, argv[0]);
+        return 0;
+    }
+
+    static const struct option longOptions[] = {
+        {"help", no_argument, NULL, 'h'},
+        {"pid", required_argument, NULL, 'p'},
+        {"seconds", required_argument, NULL, 's'},
+        {"no-detach", no_argument, NULL, 1000},
+        {"display-repl", no_argument, NULL, 1001},
+        {"display-command-self-test", no_argument, NULL, 1002},
+        {NULL, 0, NULL, 0},
+    };
+
+    int option = 0;
+    while ((option = getopt_long(argc, argv, "hp:s:", longOptions, NULL)) != -1) {
+        switch (option) {
+            case 'h':
+                usage(stdout, argv[0]);
+                return 0;
+            case 'p':
+                if (!parse_u16(optarg, &forcedPID)) {
+                    fprintf(stderr, "Invalid --pid value `%s`; expected a 16-bit integer such as 0x1620.\n", optarg);
+                    return 2;
+                }
+                break;
+            case 's':
+                if (!parse_nonnegative_int(optarg, &seconds)) {
+                    fprintf(stderr, "Invalid --seconds value `%s`; expected a non-negative integer.\n", optarg);
+                    return 2;
+                }
+                break;
+            case 1000:
+                detachKernelDrivers = false;
+                break;
+            case 1001:
+                displayREPL = true;
+                break;
+            case 1002:
+                displayCommandSelfTest = true;
+                break;
+            default:
+                fprintf(stderr, "Run `%s --help` for usage.\n", argv[0]);
                 return 2;
-            }
-        } else if (strcmp(argv[index], "--seconds") == 0 && index + 1 < argc) {
-            seconds = atoi(argv[++index]);
-            if (seconds < 0) {
-                seconds = 0;
-            }
-        } else if (strcmp(argv[index], "--no-detach") == 0) {
-            detachKernelDrivers = false;
-        } else {
-            usage(argv[0]);
-            return 2;
         }
+    }
+
+    if (optind != argc) {
+        fprintf(stderr, "Unexpected positional argument `%s`. Run `%s --help` for usage.\n", argv[optind], argv[0]);
+        return 2;
+    }
+    if (displayREPL && seconds != 0) {
+        fprintf(stderr, "--seconds cannot be combined with --display-repl; leave the REPL with `quit` or Ctrl-C.\n");
+        return 2;
+    }
+    if (displayCommandSelfTest) {
+        return mk2_display_command_self_test();
     }
 
     signal(SIGINT, handle_signal);
@@ -556,10 +628,30 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("MK2USBSpy pid=0x%04x seconds=%d detach=%s\n",
+    printf("MK2USBSpy pid=0x%04x mode=%s seconds=%d detach=%s\n",
            selectedDescriptor.idProduct,
+           displayREPL ? "display-repl" : "capture",
            seconds,
            detachKernelDrivers ? "yes" : "no");
+
+    if (displayREPL) {
+        if (!is_mk2_pid(selectedDescriptor.idProduct)) {
+            fprintf(stderr, "The display REPL only permits Komplete Kontrol S49/S61/S88 MK2 product IDs.\n");
+            libusb_close(handle);
+            libusb_unref_device(selected);
+            libusb_exit(context);
+            return 2;
+        }
+        int replStatus = mk2_display_command_repl(handle,
+                                                  selected,
+                                                  detachKernelDrivers,
+                                                  &g_shouldStop);
+        libusb_close(handle);
+        libusb_unref_device(selected);
+        libusb_exit(context);
+        return replStatus;
+    }
+
     dump_descriptors(selected, handle);
 
     status = claim_all_interfaces(handle, selected, detachKernelDrivers);
