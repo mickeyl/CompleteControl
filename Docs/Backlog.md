@@ -63,6 +63,27 @@
   multi-rectangle-transfer approach once someone picks this up, since chaining
   supersedes it rather than complementing it.
 
+  Cost model (2026-07-14, fit against the row-band table above and live REPL
+  transfer timings, both agree within measurement noise): `T(bytes) ≈ 0.44 ms
+  + 0.0000634 ms/byte`, i.e. per full-width row ≈0.061 ms; chaining saves
+  ≈0.061 ms per row turned from a resent literal row into a `skip`, with
+  per-segment token overhead (~25 ns) negligible even under heavy
+  fragmentation. Net win is unconditional whenever a band has an internal
+  clean-row gap, but a tightly-localized change (band ≈ actually-dirty rows,
+  e.g. a meter/value-cell tick) gains nothing — the entire benefit is gated on
+  how often/large such gaps are in real sessions, which was unmeasured.
+
+  `PixelDisplayReconciler2` now has an opt-in telemetry hook to answer that
+  before building the encoder: set `KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1`
+  to log one `PERF reconciler-band screen=… bandRows=… dirtyRows=… cleanRows=…
+  gaps=… largestGap=…` line per reconciled band (`logBandTelemetry` in
+  `PixelDisplayReconciler2.swift`). Off by default, zero cost in production —
+  it does an extra full memcmp scan of the band only when enabled. Next step:
+  run a real session (normal use + a shift press, matching the flagged
+  worst-case below) with it on, then feed the resulting (bandRows, dirtyRows,
+  gap) distribution into the cost model above to get an expected ms-saved/tick
+  number before writing the actual chained encoder.
+
 ## KontrolSurfaceKit2
 
 - Bake the surface-font vertical correction into the metrics (noted 2026-07-14).
