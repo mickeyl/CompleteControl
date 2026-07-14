@@ -5,88 +5,47 @@ import Testing
 
 @Suite("Paulinche splash renderer")
 struct PaulincheSplashRendererTests {
-    @Test("Splash renders artwork behind a centered identity block")
-    func splashRendersArtworkAndIdentity() throws {
-        var art = MK2PixelFrame(fill: 0xffff)
-        art.fill(MK2PixelRect(x: 0, y: 0, width: 480, height: 40), 0xf800)
-        let artwork = try #require(MK2PixelImage(data: PixelSnapshot.pngData(art)))
+    /// A 960×272 panorama: red left half, blue right half, so the split is verifiable.
+    private static func panoramaArtwork() -> MK2PixelImage {
+        let width = MK2PixelFrame.width * 2
+        let pixels = (0..<MK2PixelFrame.height).flatMap { _ in
+            (0..<width).map { x in x < MK2PixelFrame.width ? UInt16(0xf800) : UInt16(0x001f) }
+        }
+        return MK2PixelImage(width: width, height: MK2PixelFrame.height, pixels: pixels)
+    }
 
-        let scene = MK2PaulincheSplashScene(
-            title: "PAULINCHE",
-            subtitle: "AMIGA MOD TRACKER",
-            version: "VERSION 0.1 (1)",
-            detail: "WARMING UP …",
-            artwork: artwork
-        )
-        let rendered = MK2PaulincheSplashRenderer.render(scene, renderer: try? FreeTypeTextRenderer())
-
+    @Test("A 960×272 panorama splits pixel-for-pixel across the two screens")
+    func panoramaSplitsAcrossScreens() {
+        let rendered = MK2PaulincheSplashRenderer.render(artwork: Self.panoramaArtwork())
         #expect(rendered.left.screen.kind == .fullScreen)
         #expect(rendered.right.screen.kind == .fullScreen)
 
-        // The artwork fills the left screen at 40% brightness (dithered quantization),
-        // the right echo at 20%.
         let left = rendered.left.screen.frame
-        #expect(left[10, 200] == MK2OrderedDither.scaled(0xffff, by: 0.4, x: 10, y: 200))
         let right = rendered.right.screen.frame
-        #expect(right[10, 200] == MK2OrderedDither.scaled(0xffff, by: 0.2, x: 10, y: 200))
-
-        // The title ink sits horizontally centered over the artwork.
-        var minX = MK2PixelFrame.width, maxX = 0
-        for y in 92..<130 {
-            for x in 0..<MK2PixelFrame.width where left[x, y] == 0xffff {
-                minX = min(minX, x)
-                maxX = max(maxX, x)
-            }
-        }
-        #expect(maxX > minX)
-        #expect(abs((minX + maxX) / 2 - 240) < 12)
-
-        // No input bindings — the splash leaves the hardware to the caller.
-        let surfaceScene = MK2PaulincheSplashRenderer.surfaceScene(scene)
-        #expect(surfaceScene.bindings.encoder.isEmpty)
-        #expect(surfaceScene.bindings.buttonDown.isEmpty)
+        // Full brightness, no scaling: the left screen shows the red first half, the
+        // right screen the blue second half — edge to edge.
+        #expect(left[10, 100] == 0xf800)
+        #expect(left[470, 100] == 0xf800)
+        #expect(right[10, 100] == 0x001f)
+        #expect(right[470, 100] == 0x001f)
     }
 
-    @Test("Default splash spans the wave panorama continuously across both screens")
-    func panoramaSpansBothScreens() throws {
-        let scene = MK2PaulincheSplashScene(
-            title: "PAULINCHE",
-            subtitle: "AMIGA MOD TRACKER",
-            version: "VERSION 0.1 (1)"
-        )
-        let rendered = MK2PaulincheSplashRenderer.render(scene)
-        let left = rendered.left.screen.frame
-        let right = rendered.right.screen.frame
-
-        let panorama = MK2PaulincheSplashArtwork.panorama()
-        #expect(panorama.width == 2 * 480 + MK2PaulincheSplashArtwork.defaultBezelGapColumns)
-
-        // Both screens sample the same panorama at the same brightness (dithered at
-        // frame coordinates): the left screen shows its first columns, the right
-        // screen its last ones. Row 10 and 220 are pure gradient, row 60 crosses the
-        // wave crests; all three stay clear of the label rows on the left screen.
-        let rightStart = panorama.width - 480
-        for y in [10, 60, 220] {
-            for x in [0, 200, 479] {
-                #expect(left[x, y] == MK2OrderedDither.scaled(panorama.pixels[y * panorama.width + x], by: 0.45, x: x, y: y))
-                #expect(right[x, y] == MK2OrderedDither.scaled(panorama.pixels[y * panorama.width + rightStart + x], by: 0.45, x: x, y: y))
-            }
-        }
+    @Test("No artwork leaves the background and installs no bindings")
+    func noArtwork() {
+        let rendered = MK2PaulincheSplashRenderer.surfaceScene(artwork: nil)
+        #expect(rendered.displays[0] != nil)
+        #expect(rendered.displays[1] != nil)
+        #expect(rendered.bindings.encoder.isEmpty)
+        #expect(rendered.bindings.buttonDown.isEmpty)
     }
 
     @Test("Splash can be captured as a two-screen snapshot")
     func splashSnapshotSmoke() throws {
         let environment = ProcessInfo.processInfo.environment
-        let artwork = environment["PAULINCHE_SPLASH_ARTWORK"]
-            .flatMap { MK2PixelImage(contentsOf: URL(fileURLWithPath: $0)) }
-        let scene = MK2PaulincheSplashScene(
-            title: "PAULINCHE",
-            subtitle: "AMIGA MOD TRACKER",
-            version: "VERSION 0.1 (1)",
-            detail: "WARMING UP …",
-            artwork: artwork
-        )
-        let rendered = MK2PaulincheSplashRenderer.render(scene, renderer: try? FreeTypeTextRenderer())
+        let artwork = environment["PAULINCHE_SPLASH_ARTWORK"].flatMap {
+            MK2PixelImage(contentsOf: URL(fileURLWithPath: $0), width: MK2PixelFrame.width * 2, height: MK2PixelFrame.height)
+        } ?? Self.panoramaArtwork()
+        let rendered = MK2PaulincheSplashRenderer.render(artwork: artwork, renderer: try? FreeTypeTextRenderer())
         let png = PixelSnapshot.pngData(frames: [rendered.left.screen.frame, rendered.right.screen.frame])
         #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         if let dir = environment["PAULINCHE_SNAPSHOT_DIR"] {
