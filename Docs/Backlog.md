@@ -53,15 +53,16 @@
   with three distinct multi-segment bench tests). This removes the open
   question and makes chaining a cheaper alternative to the AP2 multi-rectangle
   proposal below: one transfer with inline skips over clean gaps, instead of N
-  transfers each paying header/trailer/syscall overhead. Remaining work is
-  entirely on the reconciler side: `PixelDisplayReconciler2` still only ever
-  emits one contiguous full-width literal block per dirty band — it needs a
-  new encoding pass that detects solid pixel-pair runs (candidates for
-  `repeat`) and clean sub-row gaps within a band (candidates for `skip`) and
-  emits a chained packet instead. `repeat` only pays off for genuinely solid
-  fills, not dithered gradients. Worth prioritizing against the plain AP2
-  multi-rectangle-transfer approach once someone picks this up, since chaining
-  supersedes it rather than complementing it.
+  transfers each paying header/trailer/syscall overhead. Keep
+  `PixelDisplayReconciler2` framebuffer-oriented: it should continue to emit
+  deterministic dirty rectangles through the existing display-blit contract.
+  The adaptive `literal`/`repeat`/`skip` encoding belongs at the physical-device
+  writer (`LibUSBDeviceSession`/`KontrolUSB`), backed by a session-local shadow
+  of the last successfully written physical display. This keeps the public Kit2
+  API, daemon protocol, and simulator framebuffer-based while applying the
+  optimization to every real-hardware display producer. `repeat` only pays off
+  for genuinely solid fills, not dithered gradients. Chaining supersedes the
+  plain AP2 multi-rectangle-transfer approach rather than complementing it.
 
   Cost model (2026-07-14, fit against the row-band table above and live REPL
   transfer timings, both agree within measurement noise): `T(bytes) ≈ 0.44 ms
@@ -73,16 +74,15 @@
   e.g. a meter/value-cell tick) gains nothing — the entire benefit is gated on
   how often/large such gaps are in real sessions, which was unmeasured.
 
-  `PixelDisplayReconciler2` now has an opt-in telemetry hook to answer that
-  before building the encoder: set `KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1`
+  `PixelDisplayReconciler2` now has an opt-in telemetry hook to record that
+  framebuffer-level baseline: set `KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1`
   to log one `PERF reconciler-band screen=… bandRows=… dirtyRows=… cleanRows=…
   gaps=… largestGap=…` line per reconciled band (`logBandTelemetry` in
-  `PixelDisplayReconciler2.swift`). Off by default, zero cost in production —
-  it does an extra full memcmp scan of the band only when enabled. Next step:
-  run a real session (normal use + a shift press, matching the flagged
-  worst-case below) with it on, then feed the resulting (bandRows, dirtyRows,
-  gap) distribution into the cost model above to get an expected ms-saved/tick
-  number before writing the actual chained encoder.
+  `PixelDisplayReconciler2.swift`). Off by default, the disabled path only checks
+  a cached static flag; the extra full memcmp scan of the band runs only when
+  enabled. Keep this as the framebuffer-level baseline, then compare it with the
+  physical-device writer's predicted and actual encoded byte counts when the
+  chained encoder is implemented.
 
   Measured 2026-07-14: a ~3:47 min live Paulinche session (tracker editing,
   playback, encoder/shift interaction, real S-Series hardware attached) via
@@ -96,10 +96,10 @@
   14.1 ms) — the win concentrates in a minority of events with large gaps
   (matches the shift-flip-style scenario), which is why the median looks like
   "no benefit" while the aggregate is a clear, above-noise-floor win. Verdict:
-  worth building the chained encoder. Raw log and the aggregation script
-  (`analyze_reconciler_telemetry.py`) are session-local, not checked in; rerun
-  the same measurement to validate against a different usage mix before/after
-  implementation if more confidence is wanted.
+  worth building the physical-device chained encoder. Raw log and the
+  aggregation script (`analyze_reconciler_telemetry.py`) are session-local, not
+  checked in; rerun the same measurement to validate against a different usage
+  mix before/after implementation if more confidence is wanted.
 
 ## KontrolSurfaceKit2
 
