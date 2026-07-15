@@ -5,6 +5,11 @@ import Testing
 
 @Suite("Paulinche splash renderer")
 struct PaulincheSplashRendererTests {
+    private static let credits = MK2PaulincheSplashCredits(
+        copyrightLine: "© Dr. Michael 'Mickey' Lauer aka Lord Performer Artworx",
+        versionLine: "Version 0.8.0 (230) b1ae309"
+    )
+
     /// A 960×272 panorama: red left half, blue right half, so the split is verifiable.
     private static func panoramaArtwork() -> MK2PixelImage {
         let width = MK2PixelFrame.width * 2
@@ -39,13 +44,36 @@ struct PaulincheSplashRendererTests {
         #expect(rendered.bindings.buttonDown.isEmpty)
     }
 
+    @Test("Credits render only at the bottom of the right display")
+    func creditsRenderOnRightDisplay() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let plain = MK2PaulincheSplashRenderer.render(artwork: Self.panoramaArtwork(), renderer: renderer)
+        let credited = MK2PaulincheSplashRenderer.render(
+            artwork: Self.panoramaArtwork(),
+            credits: Self.credits,
+            renderer: renderer
+        )
+
+        #expect(credited.left.screen.frame == plain.left.screen.frame)
+        #expect(credited.right.screen.frame != plain.right.screen.frame)
+        #expect((0..<234).allSatisfy { y in
+            (0..<MK2PixelFrame.width).allSatisfy { x in
+                credited.right.screen.frame[x, y] == plain.right.screen.frame[x, y]
+            }
+        })
+    }
+
     @Test("Splash can be captured as a two-screen snapshot")
     func splashSnapshotSmoke() throws {
         let environment = ProcessInfo.processInfo.environment
         let artwork = environment["PAULINCHE_SPLASH_ARTWORK"].flatMap {
             MK2PixelImage(contentsOf: URL(fileURLWithPath: $0), width: MK2PixelFrame.width * 2, height: MK2PixelFrame.height)
         } ?? Self.panoramaArtwork()
-        let rendered = MK2PaulincheSplashRenderer.render(artwork: artwork, renderer: try? FreeTypeTextRenderer())
+        let rendered = MK2PaulincheSplashRenderer.render(
+            artwork: artwork,
+            credits: Self.credits,
+            renderer: try? FreeTypeTextRenderer()
+        )
         let png = PixelSnapshot.pngData(frames: [rendered.left.screen.frame, rendered.right.screen.frame])
         #expect(Array(png.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         if let dir = environment["PAULINCHE_SNAPSHOT_DIR"] {

@@ -8,6 +8,8 @@ enum MK2PaulincheRendererSupport {
         static let background: UInt16 = 0x0841 // near-black blue
         static let text: UInt16 = 0xffff
         static let dim: UInt16 = 0x8410
+        static let credit: UInt16 = 0xbdf7
+        static let creditDim: UInt16 = 0x632c
         static let border: UInt16 = 0x4208
         static let blue: UInt16 = 0x7dbf
         static let green: UInt16 = 0x464f
