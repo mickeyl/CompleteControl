@@ -93,7 +93,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayBytes(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                               pixels: [UInt8], timeoutMs: UInt32) -> KontrolUSBResult {
-        let result: KontrolUSBResult
+        var result: KontrolUSBResult
         if let displayPacketEncoder {
             displayPacketLock.lock()
             defer { displayPacketLock.unlock() }
@@ -110,6 +110,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
             result = send(.displayPacket(packet.bytes))
             if result.status == 0 {
                 displayPacketEncoder.commit(packet)
+                result.transferredBytes = UInt32(packet.bytes.count)
             }
         } else {
             result = send(.displayBlit(
@@ -120,6 +121,9 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
                 height: height,
                 pixelsBE: pixels
             ))
+            if result.status == 0 {
+                result.transferredBytes = UInt32(pixels.count + 36)
+            }
         }
         if result.status == 0 {
             MK2DisplayShadow.shared.recordBytes(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels)

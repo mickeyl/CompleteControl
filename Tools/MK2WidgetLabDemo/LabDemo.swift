@@ -81,6 +81,13 @@ struct LabContext: Sendable {
     /// Run a mutation on the shell's executor without re-presenting — for
     /// demos that coalesce expensive renders themselves.
     let mutate: @Sendable (_ mutation: @escaping @Sendable () -> Void) -> Void
+    /// Present benchmark framebuffers through the real Kit2 → daemon → device
+    /// path and wait until their physical display transfers have completed.
+    let beginDisplayMeasurements: @Sendable () async throws -> String
+    let measureDisplays: @Sendable (
+        _ displays: [MK2PixelFrame?]
+    ) async throws -> MK2DisplayPresentationMeasurement
+    let endDisplayMeasurements: @Sendable () async throws -> MK2DisplayTransportSnapshot
 }
 
 /// One self-contained demo: it builds its complete scene (screens, lamps,

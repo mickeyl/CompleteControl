@@ -59,21 +59,23 @@ public struct KKUSBResult: Sendable, CustomStringConvertible {
     public var pipeRef: UInt8
     public var endpointAddress: UInt8
     public var numEndpoints: UInt8
+    public var transferredBytes: UInt32
     public var message: String
 
     public var succeeded: Bool { status == 0 }
 
     public var description: String {
         let hex = String(format: "0x%08x", UInt32(bitPattern: status))
-        return "\(hex) opened=\(opened ? 1 : 0) pipe=\(pipeRef) ep=0x\(String(format: "%02x", endpointAddress)) endpoints=\(numEndpoints) \(message)"
+        return "\(hex) opened=\(opened ? 1 : 0) pipe=\(pipeRef) ep=0x\(String(format: "%02x", endpointAddress)) endpoints=\(numEndpoints) transferred=\(transferredBytes) \(message)"
     }
 
-    public init(status: Int32, opened: Bool = false, pipeRef: UInt8 = 0, endpointAddress: UInt8 = 0, numEndpoints: UInt8 = 0, message: String = "") {
+    public init(status: Int32, opened: Bool = false, pipeRef: UInt8 = 0, endpointAddress: UInt8 = 0, numEndpoints: UInt8 = 0, transferredBytes: UInt32 = 0, message: String = "") {
         self.status = status
         self.opened = opened
         self.pipeRef = pipeRef
         self.endpointAddress = endpointAddress
         self.numEndpoints = numEndpoints
+        self.transferredBytes = transferredBytes
         self.message = message
     }
 
@@ -89,6 +91,7 @@ public struct KKUSBResult: Sendable, CustomStringConvertible {
             pipeRef: result.pipeRef,
             endpointAddress: result.endpointAddress,
             numEndpoints: result.numEndpoints,
+            transferredBytes: result.transferredBytes,
             message: message
         )
     }
@@ -1383,6 +1386,9 @@ public enum KompleteKontrolLibUSBServer {
         private let displayQueue = DispatchQueue(label: "media.vanille.kompletekontrol.display", qos: .userInitiated)
         private var pendingDisplayBlits: [UInt8: PendingDisplayBlit] = [:]
         private var displayDrainScheduled = false
+        private var displayTransportMetrics = MK2DisplayTransportMetrics()
+        private var displayTransportMetricsEnabled = false
+        private let displayTransportEncoding = MK2DisplayEncodingSelection.resolve().mode.rawValue
         // Separate queue from displayQueue: LEDs/guide use a different USB endpoint
         // (interrupt) than display blits (bulk), and sessionIOLock already permits
         // concurrent shared holders, so there's no reason to make a "tiny and
@@ -1631,6 +1637,16 @@ public enum KompleteKontrolLibUSBServer {
                         return ack(-1, "display parse")
                     }
                     return ack(enqueueDisplayBlit(command, sequence: frame.sequence, clientID: clientID), "display queued")
+                case .displayBarrier:
+                    guard channel == .display else {
+                        return ack(-1, "display barrier channel")
+                    }
+                    let action = frame.payload.first
+                    guard frame.payload.count <= 1, action == nil || action == 0 || action == 1 else {
+                        return ack(-1, "display barrier action")
+                    }
+                    let barrier = waitForDisplayBarrier(action: action)
+                    return ack(barrier.status, barrier.message)
                 case .displaySnapshot:
                     // Deliberately session-free: the shadow is read under its own lock and
                     // no registration happens, so a snapshot can never evict or stall the
@@ -1812,6 +1828,31 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
+        private func waitForDisplayBarrier(action: UInt8?) -> (status: Int32, message: String) {
+            // FIFO on the serial display queue makes this block run after every
+            // drain submitted by earlier display-blit requests.
+            displayQueue.sync {}
+            lock.lock()
+            defer { lock.unlock() }
+            guard pendingDisplayBlits.isEmpty, !displayDrainScheduled else {
+                return (-11, "display barrier busy")
+            }
+            if action == 1 {
+                displayTransportMetrics = MK2DisplayTransportMetrics()
+                displayTransportMetricsEnabled = true
+            } else if !displayTransportMetricsEnabled {
+                return (-12, "display measurement session inactive")
+            }
+            let snapshot = MK2DisplayTransportSnapshot(
+                encoding: displayTransportEncoding,
+                metrics: displayTransportMetrics
+            )
+            if action == 0 {
+                displayTransportMetricsEnabled = false
+            }
+            return (0, snapshot.barrierMessage)
+        }
+
         // Own serial queue from drainDisplayBlits: LEDs/guide use a different USB
         // endpoint than pixels, and sessionIOLock's shared lock already allows the two
         // to run concurrently — see the stateReportQueue declaration for why this is
@@ -1878,14 +1919,19 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func performDisplayBlit(_ blit: PendingDisplayBlit) {
-            guard let session = ensureSession() else { return }
+            guard let session = ensureSession() else {
+                recordDisplayTransport(status: -2, transferredBytes: 0, nanoseconds: 0)
+                return
+            }
             let start = KKTiming.now()
             sessionIOLock.lockShared()
             lock.lock()
             let isCurrent = libusbSession === session
+            let measuresTransport = displayTransportMetricsEnabled
             lock.unlock()
             guard isCurrent else {
                 sessionIOLock.unlock()
+                recordDisplayTransport(status: -2, transferredBytes: 0, nanoseconds: 0)
                 return
             }
             let result = session.writeMK2DisplayBytes(
@@ -1897,11 +1943,34 @@ public enum KompleteKontrolLibUSBServer {
                 pixels: blit.pixels,
                 timeoutMs: max(1, min(blit.timeoutMs, 10_000)))
             sessionIOLock.unlock()
-            daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(KKTiming.msSince(start)) transport=\(KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " "))", group: "mk2")
+            let elapsed = KKTiming.now() &- start
+            if measuresTransport {
+                recordDisplayTransport(
+                    status: result.status,
+                    transferredBytes: result.transferredBytes,
+                    nanoseconds: elapsed
+                )
+            }
+            daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(Double(elapsed) / 1_000_000.0) transport=\(KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " "))", group: "mk2")
             if result.status != 0 {
                 let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
                 daemonLog("display worker failed status=\(result.status) \(message)", group: "mk2", level: .error)
             }
+        }
+
+        private func recordDisplayTransport(status: Int32, transferredBytes: UInt32, nanoseconds: UInt64) {
+            lock.lock()
+            guard displayTransportMetricsEnabled else {
+                lock.unlock()
+                return
+            }
+            displayTransportMetrics.writeCount &+= 1
+            displayTransportMetrics.byteCount &+= UInt64(transferredBytes)
+            displayTransportMetrics.transportNanoseconds &+= nanoseconds
+            if status != 0 {
+                displayTransportMetrics.failureCount &+= 1
+            }
+            lock.unlock()
         }
 
         private func handleDaemonCommand(_ line: String, ifCurrentSession session: any KontrolDeviceSession) -> String {
@@ -3228,6 +3297,8 @@ public enum KompleteKontrolLibUSBServer {
                     pendingEvictionFDs.append(fd)
                 }
                 if let fd = displayClientFDs.removeValue(forKey: victim) {
+                    displayTransportMetricsEnabled = false
+                    displayTransportMetrics = MK2DisplayTransportMetrics()
                     pendingEvictionFDs.append(fd)
                 }
                 daemonLog("client \(victim) (\(name)) evicted by pid \(newPID)")
@@ -3248,7 +3319,12 @@ public enum KompleteKontrolLibUSBServer {
             clientFDs.removeValue(forKey: clientID)
             binaryControlClientIDs.remove(clientID)
             eventClientFDs.removeValue(forKey: clientID)
-            displayClientFDs.removeValue(forKey: clientID)
+            if displayClientFDs.removeValue(forKey: clientID) != nil {
+                // A benchmark client may disappear before it can send the closing
+                // barrier. Never leave measurement overhead enabled after that.
+                displayTransportMetricsEnabled = false
+                displayTransportMetrics = MK2DisplayTransportMetrics()
+            }
             shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
             lock.unlock()
             if shouldShowNoClient {

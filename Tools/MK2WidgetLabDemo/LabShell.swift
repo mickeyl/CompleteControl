@@ -28,6 +28,7 @@ let labDemos: [any LabDemo] = [
     TrackerPatternDemo(),
     ModalDialogDemo(),
     LightGuideDemo(),
+    DisplayBenchmarkDemo(),
 ]
 
 let shellReplCommands: [ReplCommand] = [
@@ -112,6 +113,15 @@ actor LabShell {
             },
             mutate: { [weak self] mutation in
                 Task { await self?.applyDemoMutation(mutation, rerender: false) }
+            },
+            beginDisplayMeasurements: { [surface] in
+                try await surface.beginDisplayMeasurementSession()
+            },
+            measureDisplays: { [surface] displays in
+                try await surface.presentDisplaysAndMeasure(displays)
+            },
+            endDisplayMeasurements: { [surface] in
+                try await surface.endDisplayMeasurementSession()
             }
         )
     }
@@ -550,4 +560,3 @@ let namedLEDColors: [String: KKRGB] = [
     "gray": KKRGB(red: 0x80, green: 0x80, blue: 0x80),
     "dim": KKRGB(red: 0x40, green: 0x40, blue: 0x40),
 ]
-

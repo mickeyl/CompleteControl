@@ -107,7 +107,11 @@
   only 0.000254 ms estimated wire saving for 0.007 ms median host encode time.
   This confirms both sides of the decision: large gaps comfortably amortize the
   encoder, while localized payloads pay a tiny net host cost. The real-session
-  legacy/adaptive comparison remains the acceptance gate.
+  legacy/adaptive comparison remains the acceptance gate. The Widget Lab
+  **Display Benchmark** now supplies a repeatable physical A/B harness with seven
+  representative payload classes, completed-transfer barriers, physical byte
+  counts, and USB/end-to-end percentiles; capture one release run in each mode
+  before changing the default.
 
 ## KontrolSurfaceKit2
 

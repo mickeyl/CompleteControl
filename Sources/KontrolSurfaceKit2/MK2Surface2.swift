@@ -10,6 +10,46 @@ public enum MK2SurfaceConnection2: Sendable, Equatable {
     case evicted
 }
 
+public struct MK2DisplayPresentationMeasurement: Sendable, Equatable {
+    public var encoding: String
+    public var blitCount: Int
+    public var logicalPixelBytes: Int
+    public var transport: MK2DisplayTransportMetrics
+    public var wallNanoseconds: UInt64
+
+    public init(
+        encoding: String,
+        blitCount: Int,
+        logicalPixelBytes: Int,
+        transport: MK2DisplayTransportMetrics,
+        wallNanoseconds: UInt64
+    ) {
+        self.encoding = encoding
+        self.blitCount = blitCount
+        self.logicalPixelBytes = logicalPixelBytes
+        self.transport = transport
+        self.wallNanoseconds = wallNanoseconds
+    }
+}
+
+public enum MK2DisplayMeasurementError: Error, Sendable, Equatable, CustomStringConvertible {
+    case disconnected
+    case sessionInactive
+    case barrierUnavailable
+    case transportFailure(UInt64)
+    case countersReset
+
+    public var description: String {
+        switch self {
+            case .disconnected: "display daemon is not connected"
+            case .sessionInactive: "display measurement session is not active"
+            case .barrierUnavailable: "display barrier is unavailable or timed out"
+            case let .transportFailure(count): "display transport reported \(count) failed write(s)"
+            case .countersReset: "display transport counters changed generation"
+        }
+    }
+}
+
 /// Bounds the number of in-flight tick tasks to one. Without it a tick that runs longer
 /// than the timer interval (synchronous socket round-trips + frame diffing) makes the
 /// timer enqueue actor tasks faster than they drain — input events then queue behind an
@@ -64,6 +104,7 @@ public actor MK2Surface2 {
     private var controlClient: KompleteKontrolDaemonBinaryClient?
     private var eventClient: KompleteKontrolDaemonBinaryClient?
     private var displayClient: KompleteKontrolDaemonBinaryClient?
+    private var displayMeasurementSessionActive = false
     private var daemonThread: Thread?
     private var previousSurfaceReport: [UInt8]?
     private var connectionState: MK2SurfaceConnection2 = .stopped
@@ -127,6 +168,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        displayMeasurementSessionActive = false
         deviceModel = nil
         daemonThread?.cancel()
         daemonThread = nil
@@ -149,6 +191,73 @@ public actor MK2Surface2 {
 
     public func present(_ next: MK2SurfaceScene2) {
         scene = next
+    }
+
+    public func beginDisplayMeasurementSession() throws -> String {
+        guard running, let displayClient else {
+            throw MK2DisplayMeasurementError.disconnected
+        }
+        guard let snapshot = displayClient.beginDisplayMeasurementSession() else {
+            throw MK2DisplayMeasurementError.barrierUnavailable
+        }
+        displayMeasurementSessionActive = true
+        return snapshot.encoding
+    }
+
+    @discardableResult
+    public func endDisplayMeasurementSession() throws -> MK2DisplayTransportSnapshot {
+        guard displayMeasurementSessionActive, let displayClient else {
+            throw MK2DisplayMeasurementError.sessionInactive
+        }
+        defer { displayMeasurementSessionActive = false }
+        guard let snapshot = displayClient.endDisplayMeasurementSession() else {
+            throw MK2DisplayMeasurementError.barrierUnavailable
+        }
+        return snapshot
+    }
+
+    /// Replaces only the active display framebuffers, sends their reconciled blits,
+    /// and waits for the daemon's physical display queue to drain. Existing input
+    /// bindings, lamps, and key colours stay active while a benchmark fixture is shown.
+    public func presentDisplaysAndMeasure(
+        _ displays: [MK2PixelFrame?]
+    ) throws -> MK2DisplayPresentationMeasurement {
+        guard running, let displayClient else {
+            throw MK2DisplayMeasurementError.disconnected
+        }
+        guard displayMeasurementSessionActive else {
+            throw MK2DisplayMeasurementError.sessionInactive
+        }
+        guard let before = displayClient.waitForDisplayBarrier() else {
+            throw MK2DisplayMeasurementError.barrierUnavailable
+        }
+        scene.displays = Array(displays.prefix(2))
+        while scene.displays.count < 2 {
+            scene.displays.append(nil)
+        }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        let reconciliation = reconcileDisplays(force: false, frames: scene.displays)
+        guard reconciliation.succeeded else {
+            throw MK2DisplayMeasurementError.disconnected
+        }
+        guard let after = displayClient.waitForDisplayBarrier(),
+              after.encoding == before.encoding else {
+            throw MK2DisplayMeasurementError.barrierUnavailable
+        }
+        guard let transport = after.metrics.subtracting(before.metrics) else {
+            throw MK2DisplayMeasurementError.countersReset
+        }
+        guard transport.failureCount == 0 else {
+            throw MK2DisplayMeasurementError.transportFailure(transport.failureCount)
+        }
+        return MK2DisplayPresentationMeasurement(
+            encoding: after.encoding,
+            blitCount: reconciliation.blitCount,
+            logicalPixelBytes: reconciliation.logicalPixelBytes,
+            transport: transport,
+            wallNanoseconds: DispatchTime.now().uptimeNanoseconds &- start
+        )
     }
 
     /// Updates high-frequency lamp feedback without rebuilding display frames or
@@ -333,6 +442,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        displayMeasurementSessionActive = false
         daemonThread?.cancel()
         daemonThread = nil
         eventContinuation?.finish()
@@ -541,9 +651,21 @@ public actor MK2Surface2 {
         lastKeyColors = colors
     }
 
-    private func reconcileDisplays(force: Bool) {
-        let blits = displayReconciler.reconcile(frames: activeDisplays, force: force)
+    private struct DisplayReconciliation {
+        var blitCount: Int
+        var logicalPixelBytes: Int
+        var succeeded: Bool
+    }
+
+    @discardableResult
+    private func reconcileDisplays(
+        force: Bool,
+        frames: [MK2PixelFrame?]? = nil
+    ) -> DisplayReconciliation {
+        let blits = displayReconciler.reconcile(frames: frames ?? activeDisplays, force: force)
+        var logicalPixelBytes = 0
         for blit in blits {
+            logicalPixelBytes += blit.pixels.count * MemoryLayout<UInt16>.size
             let response = blitDisplay(
                 screen: blit.screen,
                 x: blit.rect.x,
@@ -562,9 +684,18 @@ public actor MK2Surface2 {
                     displayReconciler.reset()
                     handleWriteTimeout("display blit timed out")
                 }
-                break
+                return DisplayReconciliation(
+                    blitCount: blits.count,
+                    logicalPixelBytes: logicalPixelBytes,
+                    succeeded: false
+                )
             }
         }
+        return DisplayReconciliation(
+            blitCount: blits.count,
+            logicalPixelBytes: logicalPixelBytes,
+            succeeded: true
+        )
     }
 
     private func maybeCheckIdleDaemon(now: UInt64) {
@@ -618,6 +749,7 @@ public actor MK2Surface2 {
         controlClient = nil
         eventClient = nil
         displayClient = nil
+        displayMeasurementSessionActive = false
         deviceModel = nil
         activeDaemonSocketPath = nil
         daemonThread?.cancel()

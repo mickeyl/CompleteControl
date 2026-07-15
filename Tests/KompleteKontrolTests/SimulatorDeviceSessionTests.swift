@@ -193,7 +193,8 @@ struct SimulatorDeviceSessionTests {
         let session = SimulatorDeviceSession(fd: daemon)
 
         let pixels: [UInt8] = [0xf8, 0x00, 0x00, 0x1f]
-        _ = session.writeMK2DisplayBytes(screen: 1, x: 4, y: 5, width: 2, height: 1, pixels: pixels, timeoutMs: 100)
+        let result = session.writeMK2DisplayBytes(screen: 1, x: 4, y: 5, width: 2, height: 1, pixels: pixels, timeoutMs: 100)
+        #expect(result.transferredBytes == 40)
 
         var buffer = [UInt8](repeating: 0, count: 256)
         let n = buffer.withUnsafeMutableBytes { Darwin.read(sim, $0.baseAddress, 256) }
@@ -215,9 +216,10 @@ struct SimulatorDeviceSessionTests {
         ])
         let session = SimulatorDeviceSession(fd: daemon, displayEncodingSelection: selection)
         let pixels: [UInt8] = [0xf8, 0x00, 0xf8, 0x00, 0xf8, 0x00, 0xf8, 0x00]
-        _ = session.writeMK2DisplayBytes(
+        let result = session.writeMK2DisplayBytes(
             screen: 0, x: 10, y: 20, width: 4, height: 1, pixels: pixels, timeoutMs: 100
         )
+        #expect(result.transferredBytes > 0)
 
         var buffer = [UInt8](repeating: 0, count: 256)
         let n = buffer.withUnsafeMutableBytes { Darwin.read(sim, $0.baseAddress, 256) }

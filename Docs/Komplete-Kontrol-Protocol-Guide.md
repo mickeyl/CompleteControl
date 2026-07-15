@@ -588,6 +588,34 @@ make display-codec-benchmark
 Encoder CPU time in that report measures host work only. Actual end-to-end
 latency still requires the same workload on real hardware.
 
+### Physical display benchmark barrier
+
+The daemon binary display channel also exposes a benchmark-only `DISPLAY_BARRIER`
+request (message type `9`). Its optional one-byte payload controls a measurement
+session:
+
+| Payload | Operation |
+| --- | --- |
+| `01` | Drain earlier display work, reset counters, and enable measurement |
+| empty | Drain earlier display work and return the current counters |
+| `00` | Drain earlier display work, return the final counters, and disable measurement |
+
+The acknowledgement reports the selected encoding plus cumulative physical write
+count, transferred packet bytes, transport nanoseconds, and failures. A barrier is
+ordered behind earlier display work on the daemon's serial display queue, so its
+acknowledgement means the corresponding `libusb_bulk_transfer` calls have returned,
+not merely that the logical blits were accepted by the daemon socket.
+
+Transport counters are disabled outside an explicit measurement session. The normal
+display worker only reads the enabled flag while holding its existing session lock;
+it takes no additional lock, timestamp, or barrier round trip. The C result carries
+the byte count already returned by `libusb_bulk_transfer`.
+
+`MK2WidgetLabDemo` uses this barrier in its **Display Benchmark** diagnostic. Each
+fixture is rendered before timing, then alternated through the normal Kit2
+framebuffer reconciler. The reported end-to-end time covers diffing, daemon IPC and
+queueing, adaptive encoding when selected, and the completed physical transfer.
+
 Run the normal stack with:
 
 ```bash

@@ -21,9 +21,87 @@ public enum KKDaemonBinaryMessageType: UInt16, Sendable {
     /// Connected-device identity (product id, key count), answered as an ack
     /// message ("product=0x1620 keys=61") like `version`.
     case deviceInfo = 8
+    /// Wait until all display work queued before this request has completed and
+    /// return cumulative physical transport counters in the ack message.
+    case displayBarrier = 9
     case input = 16
     case midi = 17
     case device = 18
+}
+
+public struct MK2DisplayTransportMetrics: Sendable, Equatable {
+    public var writeCount: UInt64
+    public var byteCount: UInt64
+    public var transportNanoseconds: UInt64
+    public var failureCount: UInt64
+
+    public init(
+        writeCount: UInt64 = 0,
+        byteCount: UInt64 = 0,
+        transportNanoseconds: UInt64 = 0,
+        failureCount: UInt64 = 0
+    ) {
+        self.writeCount = writeCount
+        self.byteCount = byteCount
+        self.transportNanoseconds = transportNanoseconds
+        self.failureCount = failureCount
+    }
+
+    public func subtracting(_ earlier: Self) -> Self? {
+        guard writeCount >= earlier.writeCount,
+              byteCount >= earlier.byteCount,
+              transportNanoseconds >= earlier.transportNanoseconds,
+              failureCount >= earlier.failureCount else {
+            return nil
+        }
+        return Self(
+            writeCount: writeCount - earlier.writeCount,
+            byteCount: byteCount - earlier.byteCount,
+            transportNanoseconds: transportNanoseconds - earlier.transportNanoseconds,
+            failureCount: failureCount - earlier.failureCount
+        )
+    }
+}
+
+public struct MK2DisplayTransportSnapshot: Sendable, Equatable {
+    public var encoding: String
+    public var metrics: MK2DisplayTransportMetrics
+
+    public init(encoding: String, metrics: MK2DisplayTransportMetrics) {
+        self.encoding = encoding
+        self.metrics = metrics
+    }
+
+    public var barrierMessage: String {
+        "display-drained encoding=\(encoding) writes=\(metrics.writeCount) bytes=\(metrics.byteCount) nanoseconds=\(metrics.transportNanoseconds) failures=\(metrics.failureCount)"
+    }
+
+    public static func parseBarrierMessage(_ message: String) -> Self? {
+        var fields: [String: String] = [:]
+        for token in message.split(separator: " ") {
+            let parts = token.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                fields[parts[0]] = parts[1]
+            }
+        }
+        guard message.hasPrefix("display-drained "),
+              let encoding = fields["encoding"],
+              let writes = fields["writes"].flatMap(UInt64.init),
+              let bytes = fields["bytes"].flatMap(UInt64.init),
+              let nanoseconds = fields["nanoseconds"].flatMap(UInt64.init),
+              let failures = fields["failures"].flatMap(UInt64.init) else {
+            return nil
+        }
+        return Self(
+            encoding: encoding,
+            metrics: MK2DisplayTransportMetrics(
+                writeCount: writes,
+                byteCount: bytes,
+                transportNanoseconds: nanoseconds,
+                failureCount: failures
+            )
+        )
+    }
 }
 
 public struct KKDaemonBinaryFrame: Sendable, Equatable {
@@ -352,6 +430,35 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
             return false
         }
         return response.status == 0
+    }
+
+    public func beginDisplayMeasurementSession(
+        timeoutUsec: useconds_t = 2_000_000
+    ) -> MK2DisplayTransportSnapshot? {
+        displayBarrier(payload: [1], timeoutUsec: timeoutUsec)
+    }
+
+    public func waitForDisplayBarrier(
+        timeoutUsec: useconds_t = 2_000_000
+    ) -> MK2DisplayTransportSnapshot? {
+        displayBarrier(payload: [], timeoutUsec: timeoutUsec)
+    }
+
+    public func endDisplayMeasurementSession(
+        timeoutUsec: useconds_t = 2_000_000
+    ) -> MK2DisplayTransportSnapshot? {
+        displayBarrier(payload: [0], timeoutUsec: timeoutUsec)
+    }
+
+    private func displayBarrier(
+        payload: [UInt8],
+        timeoutUsec: useconds_t
+    ) -> MK2DisplayTransportSnapshot? {
+        guard let response = request(type: .displayBarrier, payload: payload, timeoutUsec: timeoutUsec),
+              response.status == 0 else {
+            return nil
+        }
+        return MK2DisplayTransportSnapshot.parseBarrierMessage(response.message)
     }
 
     public func readEvent(timeoutUsec: useconds_t = 1_000_000) -> KKDaemonBinaryFrame? {

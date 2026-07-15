@@ -13,6 +13,7 @@ typedef struct {
     uint8_t pipeRef;
     uint8_t endpointAddress;
     uint8_t numEndpoints;
+    uint32_t transferredBytes;
     char message[2048];
 } KontrolUSBResult;
 

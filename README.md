@@ -173,6 +173,25 @@ make display-codec-benchmark
   configuration and reports encoded bytes, estimated USB wire-time savings, and
   host encoder time. Hardware remains the authority for end-to-end latency.
 
+For an end-to-end hardware comparison, install each mode and run the optimized
+Widget Lab build:
+
+```bash
+make install-daemon MK2_DISPLAY_ENCODING=legacy
+make mk2-widget-lab-demo-release
+
+# In the REPL:
+open display-benchmark
+displaybench 12
+```
+
+Repeat with `MK2_DISPLAY_ENCODING=adaptive`. The same benchmark is available from
+the hardware UI under **Diagnostics → Display Benchmark**; PLAY or 4-D press starts
+it. It measures seven deterministic workloads (cursor, rotary value, meter, large
+gap, large contiguous bitmap, full solid, and full noisy) and prints machine-readable
+`BENCH display …` lines in addition to the OLED result table. Measurement counters
+exist only for the duration of a run and are disabled again on completion or cancel.
+
 To run Widget Lab against the simulator daemon:
 
 ```bash

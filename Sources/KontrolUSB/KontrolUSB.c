@@ -1079,6 +1079,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayPacket(KontrolUSBLibUSBSe
     if (status == 0 && transferred != (int)byteCount) {
         status = LIBUSB_ERROR_IO;
     }
+    result.transferredBytes = transferred > 0 ? (uint32_t)transferred : 0;
     result_append(&result,
                   "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u packetBytes=%u -> %d (%s) transferred=%d; ",
                   session->displayOutputEndpoint,
@@ -1183,6 +1184,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionR
     int transferred = 0;
     uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
     int status = libusb_bulk_transfer(session->handle, session->displayOutputEndpoint, buffer, (int)offset, &transferred, timeout);
+    result.transferredBytes = transferred > 0 ? (uint32_t)transferred : 0;
     result_append(&result, "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u bytes=%zu -> %d (%s) transferred=%d; ",
                   session->displayOutputEndpoint,
                   screen,
@@ -1287,6 +1289,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayBytes(KontrolUSBLibUSBSes
     int transferred = 0;
     uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
     int status = libusb_bulk_transfer(session->handle, session->displayOutputEndpoint, buffer, (int)offset, &transferred, timeout);
+    result.transferredBytes = transferred > 0 ? (uint32_t)transferred : 0;
     result_append(&result, "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u bytes=%zu -> %d (%s) transferred=%d; ",
                   session->displayOutputEndpoint,
                   screen,

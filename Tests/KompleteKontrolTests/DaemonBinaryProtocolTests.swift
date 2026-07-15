@@ -50,6 +50,36 @@ struct DaemonBinaryProtocolTests {
         #expect(parsed?.timeoutMs == 25)
         #expect(parsed?.pixels == pixels)
     }
+
+    @Test("Display barrier metrics round-trip and produce a checked delta")
+    func displayBarrierMetrics() throws {
+        let earlier = MK2DisplayTransportSnapshot(
+            encoding: "adaptive",
+            metrics: MK2DisplayTransportMetrics(
+                writeCount: 10,
+                byteCount: 20_000,
+                transportNanoseconds: 8_000_000,
+                failureCount: 1
+            )
+        )
+        let later = MK2DisplayTransportSnapshot(
+            encoding: "adaptive",
+            metrics: MK2DisplayTransportMetrics(
+                writeCount: 13,
+                byteCount: 24_096,
+                transportNanoseconds: 9_250_000,
+                failureCount: 1
+            )
+        )
+
+        #expect(MK2DisplayTransportSnapshot.parseBarrierMessage(later.barrierMessage) == later)
+        let delta = try #require(later.metrics.subtracting(earlier.metrics))
+        #expect(delta.writeCount == 3)
+        #expect(delta.byteCount == 4_096)
+        #expect(delta.transportNanoseconds == 1_250_000)
+        #expect(delta.failureCount == 0)
+        #expect(earlier.metrics.subtracting(later.metrics) == nil)
+    }
 }
 
 @Suite("Daemon session policy")
