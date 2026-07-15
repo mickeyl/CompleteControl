@@ -206,6 +206,31 @@ struct SimulatorDeviceSessionTests {
         #expect(Array(payload.suffix(4)) == pixels)
     }
 
+    @Test("Adaptive display mode forwards a raw packet the strict decoder can apply")
+    func adaptiveOutputPath() throws {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let selection = MK2DisplayEncodingSelection.resolve(environment: [
+            MK2DisplayEncodingSelection.environmentKey: "adaptive",
+        ])
+        let session = SimulatorDeviceSession(fd: daemon, displayEncodingSelection: selection)
+        let pixels: [UInt8] = [0xf8, 0x00, 0xf8, 0x00, 0xf8, 0x00, 0xf8, 0x00]
+        _ = session.writeMK2DisplayBytes(
+            screen: 0, x: 10, y: 20, width: 4, height: 1, pixels: pixels, timeoutMs: 100
+        )
+
+        var buffer = [UInt8](repeating: 0, count: 256)
+        let n = buffer.withUnsafeMutableBytes { Darwin.read(sim, $0.baseAddress, 256) }
+        let (frames, _) = SimWireCodec.decode(Array(buffer[0..<max(0, n)]))
+        let frame = try #require(frames.first)
+        #expect(frame.type == .displayPacket)
+        let decoded = try MK2DisplayPacketDecoder().decodeAndApply(frame.payload)
+        #expect(decoded.screen == 0)
+        #expect(decoded.x == 10)
+        #expect(decoded.y == 20)
+        #expect(decoded.pixelsBE == pixels)
+    }
+
     @Test("Socket EOF marks the session device-lost (window closed = unplug)")
     func deviceLoss() {
         let (daemon, sim) = makePair()

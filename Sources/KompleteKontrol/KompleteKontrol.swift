@@ -651,7 +651,15 @@ public enum KompleteKontrolLibUSBServer {
         for path in socketPaths.values {
             unlink(path)
         }
-        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-")")
+        let displayEncoding = MK2DisplayEncodingSelection.resolve()
+        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-") displayEncoding=\(displayEncoding.mode.rawValue)")
+        if displayEncoding.fellBackToLegacy {
+            daemonLog(
+                "invalid \(MK2DisplayEncodingSelection.environmentKey)=\(displayEncoding.requestedValue ?? ""); using legacy",
+                group: "mk2",
+                level: .error
+            )
+        }
 
         var serverFDs: [Int32: KKDaemonBinaryChannel] = [:]
         for channel in [KKDaemonBinaryChannel.control, .event, .display] {
@@ -1889,7 +1897,7 @@ public enum KompleteKontrolLibUSBServer {
                 pixels: blit.pixels,
                 timeoutMs: max(1, min(blit.timeoutMs, 10_000)))
             sessionIOLock.unlock()
-            daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(KKTiming.msSince(start))", group: "mk2")
+            daemonTraceLog("display worker client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) status=\(result.status) elapsed=\(KKTiming.msSince(start)) transport=\(KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " "))", group: "mk2")
             if result.status != 0 {
                 let message = KKUSBResult(result).message.replacingOccurrences(of: "\n", with: " ")
                 daemonLog("display worker failed status=\(result.status) \(message)", group: "mk2", level: .error)

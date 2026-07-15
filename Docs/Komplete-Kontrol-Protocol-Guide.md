@@ -341,9 +341,9 @@ little-endian.
 
 ### Experimental display command verification
 
-The colour-display command stream has two additional operations reported by
-cross-device reverse engineering but not yet bench-verified on the S-Series
-MK2:
+The colour-display command stream has two additional operations first reported
+by cross-device reverse engineering and subsequently bench-verified on the
+S-Series MK2:
 
 | Opcode | Proposed operation | MK2 status |
 | --- | --- | --- |
@@ -487,9 +487,26 @@ each paying its own 16-byte header + 12-byte trailer and its own
 `libusb_bulk_transfer` call; a single chained packet can instead express
 `skip` over the clean gap and `literal`/`repeat` over each dirty run inline,
 in one transfer. `repeat` only helps where a run is genuinely one solid pixel
-pair (a fill, not a dithered gradient). `PixelDisplayReconciler2` does not yet
-build such packets — see `Docs/Backlog.md` "Display protocol" for the
-remaining implementation work.
+pair (a fill, not a dithered gradient).
+
+CompleteControl's adaptive writer implements this below the device-session seam.
+`PixelDisplayReconciler2` and the daemon display socket remain framebuffer-based.
+For each real-device session, the writer keeps a private RGB565 shadow and emits
+the cheapest one-transfer chain of literal, repeat-pair, and skip segments. The
+shadow advances only after a complete successful transport write; reconnecting
+creates a fresh shadow. If the adaptive packet is not smaller than the legacy
+literal packet, the writer uses the byte-identical legacy encoding.
+
+The implementation is deliberately opt-in while hardware latency acceptance is
+pending:
+
+```text
+KK_MK2_DISPLAY_ENCODING=legacy    # default; original writer and simulator blits
+KK_MK2_DISPLAY_ENCODING=adaptive  # adaptive packet writer and strict simulator path
+```
+
+An unset or invalid value selects `legacy`. Mode selection occurs at daemon
+startup so switching modes also resets the device session and its shadow.
 
 ---
 
@@ -497,8 +514,9 @@ remaining implementation work.
 
 Clients do not claim USB. They connect to `ccd`, which owns the persistent device
 session and exposes separate control, event, and display sockets. The client-facing
-protocol carries raw surface/MIDI bytes and logical display rectangles; only the
-daemon's libusb backend constructs the physical `0x84` packet.
+protocol carries raw surface/MIDI bytes and logical display rectangles. In
+adaptive mode, the selected device backend constructs a physical `0x84` packet;
+the client and daemon socket protocols do not change.
 
 ```mermaid
 graph LR
@@ -547,13 +565,28 @@ The local simulator wire format is:
 | Direction | Frames |
 | --- | --- |
 | Simulator → daemon | `HELLO`, `BUTTON`, `ENCODER`, `ENCODER_TOUCH`, `FOURD_WHEEL`, `FOURD_STATE`, `NOTE`, `MIDI`, `STRIP` |
-| Daemon → simulator | `DISPLAY_BLIT`, `REPORT` |
+| Daemon → simulator | `DISPLAY_BLIT`, `DISPLAY_PACKET`, `REPORT` |
 
 The simulator proves the stack above the device-session seam: daemon framing,
 client decoding, reconnect behaviour, logical display rectangles, and LED
-capability rules. It deliberately does **not** prove USB claims, the physical
-`0x84` serialization in `KontrolUSB.c`, endpoint timing/stalls, firmware buffering,
-or colour through the real diffuser plastics.
+capability rules. In fail-safe `legacy` mode it retains the original
+`DISPLAY_BLIT` path. In `adaptive` mode, `SimulatorDeviceSession` sends the raw
+physical packet as `DISPLAY_PACKET`; an independent strict reference decoder in
+the simulator applies literal, repeat-pair, and skip tokens to its own shadow
+before displaying the resulting rectangle. This validates packet syntax,
+chaining semantics, and pixel equivalence, but deliberately does **not** prove
+USB claims, endpoint timing/stalls, firmware buffering, or colour through the
+real diffuser plastics.
+
+The deterministic headless replay reports exact packet bytes and estimated wire
+time using the hardware-calibrated cost model:
+
+```bash
+make display-codec-benchmark
+```
+
+Encoder CPU time in that report measures host work only. Actual end-to-end
+latency still requires the same workload on real hardware.
 
 Run the normal stack with:
 

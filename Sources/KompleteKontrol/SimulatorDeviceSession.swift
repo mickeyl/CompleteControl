@@ -23,8 +23,10 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
     private static let s61MK2KeyCount: UInt8 = 61
 
     private let fd: Int32
+    private let displayPacketEncoder: MK2DisplayPacketEncoder?
     private let lock = NSLock()          // guards `lost`
     private let sendLock = NSLock()      // serializes frames from display/state queues
+    private let displayPacketLock = NSLock()
     private var lostFlag = false
 
     // Reactor-thread only (handleEvents): the running input state + partial read buffer.
@@ -35,8 +37,9 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     // Internal (not private) so tests can drive a session over a socketpair without a
     // listening simulator.
-    init(fd: Int32) {
+    init(fd: Int32, displayEncodingSelection: MK2DisplayEncodingSelection = .resolve()) {
         self.fd = fd
+        displayPacketEncoder = displayEncodingSelection.mode == .adaptive ? MK2DisplayPacketEncoder() : nil
     }
 
     static func open(socketPath: String) -> (session: SimulatorDeviceSession?, result: KontrolUSBResult) {
@@ -90,7 +93,34 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayBytes(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                               pixels: [UInt8], timeoutMs: UInt32) -> KontrolUSBResult {
-        let result = send(.displayBlit(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels))
+        let result: KontrolUSBResult
+        if let displayPacketEncoder {
+            displayPacketLock.lock()
+            defer { displayPacketLock.unlock() }
+            guard let packet = displayPacketEncoder.encode(
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelsBE: pixels
+            ) else {
+                return Self.makeResult(status: -2, "invalid adaptive MK2 display rectangle")
+            }
+            result = send(.displayPacket(packet.bytes))
+            if result.status == 0 {
+                displayPacketEncoder.commit(packet)
+            }
+        } else {
+            result = send(.displayBlit(
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelsBE: pixels
+            ))
+        }
         if result.status == 0 {
             MK2DisplayShadow.shared.recordBytes(screen: screen, x: x, y: y, width: width, height: height, pixelsBE: pixels)
         }
@@ -230,7 +260,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
                 let position = (UInt16(frame.payload[0]) << 8) | UInt16(frame.payload[1])
                 let time = (UInt16(frame.payload[2]) << 8) | UInt16(frame.payload[3])
                 emitStrip(position: position, time: time)
-            case .hello, .displayBlit, .report:
+            case .hello, .displayBlit, .displayPacket, .report:
                 break // hello reserved; output frame types are never received here
         }
     }

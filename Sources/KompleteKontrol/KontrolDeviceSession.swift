@@ -45,17 +45,22 @@ protocol KontrolDeviceSession: AnyObject {
 /// seam existed.
 final class LibUSBDeviceSession: KontrolDeviceSession {
     private let ref: KontrolUSBLibUSBSessionRef
+    private let displayPacketEncoder: MK2DisplayPacketEncoder?
+    private let displayPacketLock = NSLock()
     private var inputSink: ((UnsafePointer<UInt8>, UInt32) -> Void)?
     private var midiSink: ((UnsafePointer<UInt8>, UInt32) -> Void)?
 
-    private init(ref: KontrolUSBLibUSBSessionRef) { self.ref = ref }
+    private init(ref: KontrolUSBLibUSBSessionRef, displayEncodingSelection: MK2DisplayEncodingSelection) {
+        self.ref = ref
+        displayPacketEncoder = displayEncodingSelection.mode == .adaptive ? MK2DisplayPacketEncoder() : nil
+    }
 
     /// Open a real session, or nil with the failing result.
     static func open() -> (session: LibUSBDeviceSession?, result: KontrolUSBResult) {
         var raw: KontrolUSBLibUSBSessionRef?
         let result = KontrolUSBLibUSBSessionOpen(&raw)
         guard result.status == 0, let raw else { return (nil, result) }
-        return (LibUSBDeviceSession(ref: raw), result)
+        return (LibUSBDeviceSession(ref: raw, displayEncodingSelection: .resolve()), result)
     }
 
     var productID: UInt16 { KontrolUSBLibUSBSessionProductID(ref) }
@@ -73,6 +78,18 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayBytes(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                               pixels: [UInt8], timeoutMs: UInt32) -> KontrolUSBResult {
+        if let displayPacketEncoder {
+            return writeAdaptiveDisplayBytes(
+                encoder: displayPacketEncoder,
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixels: pixels,
+                timeoutMs: timeoutMs
+            )
+        }
         let result = pixels.withUnsafeBufferPointer { buffer in
             KontrolUSBLibUSBSessionWriteMK2DisplayBytes(
                 ref, screen, x, y, width, height, buffer.baseAddress, UInt32(buffer.count), timeoutMs)
@@ -85,6 +102,24 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     func writeMK2DisplayPixels(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                                pixels: [UInt16], timeoutMs: UInt32) -> KontrolUSBResult {
+        if let displayPacketEncoder {
+            var bytes = [UInt8]()
+            bytes.reserveCapacity(pixels.count * 2)
+            for pixel in pixels {
+                bytes.append(UInt8(pixel >> 8))
+                bytes.append(UInt8(pixel & 0xff))
+            }
+            return writeAdaptiveDisplayBytes(
+                encoder: displayPacketEncoder,
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixels: bytes,
+                timeoutMs: timeoutMs
+            )
+        }
         let result = pixels.withUnsafeBufferPointer { buffer in
             KontrolUSBLibUSBSessionWriteMK2Display(
                 ref, screen, x, y, width, height, buffer.baseAddress, UInt32(buffer.count), timeoutMs)
@@ -97,9 +132,90 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     func fillMK2Display(screen: UInt8, x: UInt16, y: UInt16, width: UInt16, height: UInt16,
                         rgb565: UInt16, timeoutMs: UInt32) -> KontrolUSBResult {
+        if let displayPacketEncoder {
+            guard screen <= 1,
+                  width > 0, height > 0,
+                  Int(x) + Int(width) <= KompleteKontrolMK2Protocol.displayWidth,
+                  Int(y) + Int(height) <= KompleteKontrolMK2Protocol.displayHeight else {
+                return Self.makeResult(status: -2, "invalid adaptive MK2 display rectangle")
+            }
+            let pixelCount = Int(width) * Int(height)
+            var bytes = [UInt8](repeating: 0, count: pixelCount * 2)
+            let high = UInt8(rgb565 >> 8)
+            let low = UInt8(rgb565 & 0xff)
+            for pixel in 0..<pixelCount {
+                bytes[pixel * 2] = high
+                bytes[pixel * 2 + 1] = low
+            }
+            return writeAdaptiveDisplayBytes(
+                encoder: displayPacketEncoder,
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixels: bytes,
+                timeoutMs: timeoutMs
+            )
+        }
         let result = KontrolUSBLibUSBSessionFillMK2Display(ref, screen, x, y, width, height, rgb565, timeoutMs)
         if result.status == 0 {
             MK2DisplayShadow.shared.recordFill(screen: screen, x: x, y: y, width: width, height: height, rgb565: rgb565)
+        }
+        return result
+    }
+
+    private func writeAdaptiveDisplayBytes(
+        encoder: MK2DisplayPacketEncoder,
+        screen: UInt8,
+        x: UInt16,
+        y: UInt16,
+        width: UInt16,
+        height: UInt16,
+        pixels: [UInt8],
+        timeoutMs: UInt32
+    ) -> KontrolUSBResult {
+        displayPacketLock.lock()
+        defer { displayPacketLock.unlock() }
+        guard let packet = encoder.encode(
+            screen: screen,
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            pixelsBE: pixels
+        ) else {
+            return Self.makeResult(status: -2, "invalid adaptive MK2 display rectangle")
+        }
+        let result = packet.bytes.withUnsafeBufferPointer { buffer in
+            KontrolUSBLibUSBSessionWriteMK2DisplayPacket(
+                ref,
+                buffer.baseAddress,
+                UInt32(buffer.count),
+                timeoutMs
+            )
+        }
+        if result.status == 0 {
+            encoder.commit(packet)
+            MK2DisplayShadow.shared.recordBytes(
+                screen: screen,
+                x: x,
+                y: y,
+                width: width,
+                height: height,
+                pixelsBE: pixels
+            )
+        }
+        return result
+    }
+
+    private static func makeResult(status: Int32, _ message: String) -> KontrolUSBResult {
+        var result = KontrolUSBResult()
+        result.status = status
+        withUnsafeMutableBytes(of: &result.message) { raw in
+            let bytes = Array(message.utf8.prefix(raw.count - 1))
+            raw.copyBytes(from: bytes)
+            raw[bytes.count] = 0
         }
         return result
     }

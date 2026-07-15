@@ -24,6 +24,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
+    private let displayPacketDecoder = MK2DisplayPacketDecoder()
 
     // Rudimentary control over a user-level simulator daemon: ccd in CCD_SIMULATE
     // mode touches no USB and binds a /tmp socket, so no sudo is involved. Clients
@@ -895,6 +896,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switch frame.type {
             case .displayBlit:
                 applyBlit(frame.payload)
+            case .displayPacket:
+                do {
+                    let blit = try displayPacketDecoder.decodeAndApply(frame.payload)
+                    panel.applyBlit(
+                        screen: Int(blit.screen),
+                        x: Int(blit.x),
+                        y: Int(blit.y),
+                        w: Int(blit.width),
+                        h: Int(blit.height),
+                        be: blit.pixelsBE
+                    )
+                } catch {
+                    NSLog("KontrolSimulator: rejected MK2 display packet: %@", String(describing: error))
+                }
             case .report:
                 guard let reportID = frame.payload.first else { return }
                 panel.applyReport(reportID: reportID, bytes: Array(frame.payload.dropFirst()))
@@ -910,7 +925,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let y = Int(payload[3]) << 8 | Int(payload[4])
         let width = Int(payload[5]) << 8 | Int(payload[6])
         let height = Int(payload[7]) << 8 | Int(payload[8])
-        panel.applyBlit(screen: screen, x: x, y: y, w: width, h: height, be: Array(payload.dropFirst(9)))
+        let pixels = Array(payload.dropFirst(9))
+        panel.applyBlit(screen: screen, x: x, y: y, w: width, h: height, be: pixels)
+        displayPacketDecoder.record(MK2DecodedDisplayBlit(
+            screen: UInt8(clamping: screen),
+            x: UInt16(clamping: x),
+            y: UInt16(clamping: y),
+            width: UInt16(clamping: width),
+            height: UInt16(clamping: height),
+            pixelsBE: pixels
+        ))
     }
 }
 

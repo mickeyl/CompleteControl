@@ -53,16 +53,16 @@
   with three distinct multi-segment bench tests). This removes the open
   question and makes chaining a cheaper alternative to the AP2 multi-rectangle
   proposal below: one transfer with inline skips over clean gaps, instead of N
-  transfers each paying header/trailer/syscall overhead. Keep
-  `PixelDisplayReconciler2` framebuffer-oriented: it should continue to emit
-  deterministic dirty rectangles through the existing display-blit contract.
-  The adaptive `literal`/`repeat`/`skip` encoding belongs at the physical-device
-  writer (`LibUSBDeviceSession`/`KontrolUSB`), backed by a session-local shadow
-  of the last successfully written physical display. This keeps the public Kit2
-  API, daemon protocol, and simulator framebuffer-based while applying the
-  optimization to every real-hardware display producer. `repeat` only pays off
-  for genuinely solid fills, not dithered gradients. Chaining supersedes the
-  plain AP2 multi-rectangle-transfer approach rather than complementing it.
+  transfers each paying header/trailer/syscall overhead. The opt-in adaptive
+  writer is implemented on `wip/pdr2`: `PixelDisplayReconciler2`, the public
+  Kit2 API, and the daemon protocol remain framebuffer-based, while the selected
+  device backend owns `literal`/`repeat`/`skip` encoding and a session-local
+  successfully-written shadow. `KK_MK2_DISPLAY_ENCODING=legacy` remains the
+  fail-safe default and uses the original writer byte-for-byte;
+  `KK_MK2_DISPLAY_ENCODING=adaptive` enables the new writer and the simulator's
+  strict raw-packet path. Remaining work is real-session latency acceptance in
+  both modes before considering an adaptive default. `repeat` only pays off for
+  genuinely solid fills, not dithered gradients.
 
   Cost model (2026-07-14, fit against the row-band table above and live REPL
   transfer timings, both agree within measurement noise): `T(bytes) ≈ 0.44 ms
@@ -80,9 +80,8 @@
   gaps=… largestGap=…` line per reconciled band (`logBandTelemetry` in
   `PixelDisplayReconciler2.swift`). Off by default, the disabled path only checks
   a cached static flag; the extra full memcmp scan of the band runs only when
-  enabled. Keep this as the framebuffer-level baseline, then compare it with the
-  physical-device writer's predicted and actual encoded byte counts when the
-  chained encoder is implemented.
+  enabled. Keep this as the framebuffer-level baseline and compare it with the
+  physical-device writer's encoded byte counts during the acceptance run.
 
   Measured 2026-07-14: a ~3:47 min live Paulinche session (tracker editing,
   playback, encoder/shift interaction, real S-Series hardware attached) via
@@ -96,10 +95,19 @@
   14.1 ms) — the win concentrates in a minority of events with large gaps
   (matches the shift-flip-style scenario), which is why the median looks like
   "no benefit" while the aggregate is a clear, above-noise-floor win. Verdict:
-  worth building the physical-device chained encoder. Raw log and the
+  justified building the physical-device chained encoder. Raw log and the
   aggregation script (`analyze_reconciler_telemetry.py`) are session-local, not
   checked in; rerun the same measurement to validate against a different usage
   mix before/after implementation if more confidence is wanted.
+
+  Automated release replay added 2026-07-15 (`make display-codec-benchmark`). A
+  160-row skip-only band with 16 changed rows encoded as 15,400 instead of
+  153,636 bytes: 8.764 ms estimated wire saving for 0.181 ms median host encode
+  time. The deliberate no-gap control encoded as 7,712 instead of 7,716 bytes:
+  only 0.000254 ms estimated wire saving for 0.007 ms median host encode time.
+  This confirms both sides of the decision: large gaps comfortably amortize the
+  encoder, while localized payloads pay a tiny net host cost. The real-session
+  legacy/adaptive comparison remains the acceptance gate.
 
 ## KontrolSurfaceKit2
 

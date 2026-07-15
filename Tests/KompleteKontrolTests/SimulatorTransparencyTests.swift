@@ -153,4 +153,13 @@ struct SimWireCodecTests {
         #expect(frames.first?.payload[0] == 5)
         #expect(Int8(bitPattern: frames.first!.payload[1]) == -7)
     }
+
+    @Test("Raw display packets round-trip without interpretation in SimWire")
+    func displayPacketRoundTrip() {
+        let packet: [UInt8] = [0x84, 0x00, 0x00, 0x60, 0x00, 0x00]
+        let frame = SimFrame.displayPacket(packet)
+        let (frames, consumed) = SimWireCodec.decode(SimWireCodec.encode(frame))
+        #expect(frames == [frame])
+        #expect(consumed == SimWireCodec.encode(frame).count)
+    }
 }

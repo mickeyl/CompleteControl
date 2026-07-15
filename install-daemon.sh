@@ -13,6 +13,7 @@ SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
 DEBUG_DAEMON="${KK_INSTALL_DEBUG_DAEMON:-0}"
 BUILD_CONFIGURATION="${KK_INSTALL_DAEMON_CONFIGURATION:-release}"
 EXECUTABLE_PATH="${KK_INSTALL_DAEMON_EXECUTABLE:-$SCRIPT_DIR/.build/release/ccd}"
+DISPLAY_ENCODING="${KK_INSTALL_MK2_DISPLAY_ENCODING:-legacy}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -28,6 +29,14 @@ else
     echo "Mode: normal release daemon"
 fi
 echo "Executable: $EXECUTABLE_PATH"
+case "$DISPLAY_ENCODING" in
+    legacy|adaptive) ;;
+    *)
+        echo "Warning: invalid MK2 display encoding '$DISPLAY_ENCODING'; using legacy." >&2
+        DISPLAY_ENCODING="legacy"
+        ;;
+esac
+echo "MK2 display encoding: $DISPLAY_ENCODING"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -78,9 +87,10 @@ chmod +x /usr/local/bin/ccd
 # Update plist with correct executable path
 echo "Installing launchd plist..."
 cp "$PLIST_FILE" "$LAUNCHD_PLIST"
+/usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
+/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING string $DISPLAY_ENCODING" "$LAUNCHD_PLIST"
 if [ "$DEBUG_DAEMON" = "1" ]; then
-    /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:LOGLEVEL string TRACE" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$LAUNCHD_PLIST"

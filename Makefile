@@ -1,6 +1,13 @@
 .DEFAULT_GOAL := help
 
 SOCKET ?= /var/run/kompletekontrol-libusb.sock
+MK2_DISPLAY_ENCODING ?= legacy
+ifeq ($(MK2_DISPLAY_ENCODING),legacy)
+else ifeq ($(MK2_DISPLAY_ENCODING),adaptive)
+else
+$(warning Invalid MK2_DISPLAY_ENCODING='$(MK2_DISPLAY_ENCODING)'; using legacy)
+override MK2_DISPLAY_ENCODING := legacy
+endif
 DAEMON := .build/debug/ccd
 DAEMON_RELEASE := .build/release/ccd
 MK2_SURFACE_DEMO := .build/debug/MK2SurfaceDemo
@@ -12,10 +19,10 @@ MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init clean build build-release mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nTargets:\n" } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  legacy (fail-safe) or adaptive\n\nTargets:\n", encoding } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -28,6 +35,9 @@ build: vendor-init ## Build all MK2 libraries and tools.
 
 build-release: vendor-init ## Build all MK2 libraries and tools optimized.
 	swift build -c release
+
+display-codec-benchmark: ## Run the deterministic adaptive display-codec cost replay.
+	swift test -c release --filter MK2DisplayPacketCodecTests.representativeCostReport
 
 mk2-surface-demo-build: vendor-init ## Build the MK2 hardware-only SurfaceKit2 feature demo.
 	swift build --product MK2SurfaceDemo
@@ -116,7 +126,8 @@ daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
-	sudo env KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
+	sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
 daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
 	@echo "Stopping installed/foreground daemons..."
@@ -124,14 +135,15 @@ daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized fore
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
-	@sudo "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
+	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
+	@sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
 
 SIM_SOCKET := /tmp/kontrol-simulator.sock
 
 run-simulator: daemon-build ## Build and run the KontrolSimulator panel app (virtual MK2 for hardware-free testing).
 	swift build --product KontrolSimulator
 	@echo "Launching the simulator window. The built-in Daemon menu will use the freshly built debug ccd."
-	.build/debug/KontrolSimulator
+	KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) .build/debug/KontrolSimulator
 
 daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
 	@echo "Stopping installed/foreground daemons..."
@@ -139,15 +151,15 @@ daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daem
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon in SIMULATION mode (device = $(SIM_SOCKET)). Launch 'make run-simulator' first. Ctrl-C to stop."
-	sudo env CCD_SIMULATE=$(SIM_SOCKET) KK_DAEMON_DEBUG=1 LOGLEVEL=INFO "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+	sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) CCD_SIMULATE=$(SIM_SOCKET) KK_DAEMON_DEBUG=1 LOGLEVEL=INFO "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
 daemon-release: daemon ## Alias for daemon.
 
 install-daemon: daemon-build-release ## Install optimized daemon as launchd service (requires sudo).
-	sudo env KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON_RELEASE)" KK_INSTALL_DAEMON_CONFIGURATION=release ./install-daemon.sh
+	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON_RELEASE)" KK_INSTALL_DAEMON_CONFIGURATION=release ./install-daemon.sh
 
 install-debug-daemon: daemon-build ## Install daemon as launchd service with trace logging enabled.
-	sudo env KK_INSTALL_DEBUG_DAEMON=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
+	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DEBUG_DAEMON=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
 
 uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	@echo "Stopping and removing daemon service..."
@@ -162,6 +174,8 @@ uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 
 daemon-status: ## Show daemon status.
 	@sudo launchctl list | grep kompletekontrol || echo "Daemon not running or not installed."
+	@mode="$$(sudo /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING' /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true)"; \
+	if [ -n "$$mode" ]; then echo "MK2 display encoding: $$mode"; else echo "MK2 display encoding: legacy (default)"; fi
 
 daemon-start: ## Start daemon via launchctl.
 	@sudo launchctl bootstrap system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist

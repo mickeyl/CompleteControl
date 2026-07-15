@@ -81,6 +81,24 @@ make install-daemon
 make daemon-status
 ```
 
+Display packet optimization is fail-safe and opt-in. The default `legacy` mode
+uses the original literal writer and simulator blits. Install or run the adaptive
+writer explicitly with:
+
+```bash
+make install-daemon MK2_DISPLAY_ENCODING=adaptive
+make daemon-status
+```
+
+Return to the original path without rolling back code:
+
+```bash
+make install-daemon MK2_DISPLAY_ENCODING=legacy
+```
+
+Unknown values fall back to `legacy`. The installed mode is stored in the
+LaunchDaemon environment and takes effect after the installer restarts it.
+
 Run an instrumented foreground daemon:
 
 ```bash
@@ -139,6 +157,7 @@ make mk2-widget-lab-demo
 make run-simulator
 make mk2-usb-spy
 make mk2-usb-spy-display-repl
+make display-codec-benchmark
 ```
 
 - `MK2SurfaceDemo` is the compact hardware feature demo.
@@ -150,6 +169,9 @@ make mk2-usb-spy-display-repl
   normal daemon. Its display REPL claims only USB interface 3 and sends no
   display data until an explicit command is entered. The Make target stops the
   daemon first; start it again after the session when needed.
+- `display-codec-benchmark` runs a deterministic headless replay in release
+  configuration and reports encoded bytes, estimated USB wire-time savings, and
+  host encoder time. Hardware remains the authority for end-to-end latency.
 
 To run Widget Lab against the simulator daemon:
 

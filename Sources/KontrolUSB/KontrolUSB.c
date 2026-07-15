@@ -1044,6 +1044,57 @@ static void put_be16(uint8_t *buffer, size_t *offset, uint16_t value) {
     *offset += 2;
 }
 
+static uint16_t get_be16(const uint8_t *buffer, size_t offset) {
+    return (uint16_t)(((uint16_t)buffer[offset] << 8) | buffer[offset + 1]);
+}
+
+KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayPacket(KontrolUSBLibUSBSessionRef sessionRef,
+                                                              const uint8_t *packet,
+                                                              uint32_t byteCount,
+                                                              uint32_t timeoutMs) {
+    KontrolUSBResult result;
+    memset(&result, 0, sizeof(result));
+    result.status = LIBUSB_ERROR_INVALID_PARAM;
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL || session->handle == NULL || packet == NULL || byteCount < 28 || byteCount > INT32_MAX) {
+        return result;
+    }
+    result.opened = 1;
+    result.pipeRef = 1;
+    result.endpointAddress = session->displayOutputEndpoint;
+    if (session->displayOutputEndpoint == 0) {
+        result_append(&result, "no MK2 bulk display endpoint discovered; ");
+        result.status = LIBUSB_ERROR_NOT_FOUND;
+        return result;
+    }
+
+    int transferred = 0;
+    uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
+    int status = libusb_bulk_transfer(session->handle,
+                                      session->displayOutputEndpoint,
+                                      (uint8_t *)packet,
+                                      (int)byteCount,
+                                      &transferred,
+                                      timeout);
+    if (status == 0 && transferred != (int)byteCount) {
+        status = LIBUSB_ERROR_IO;
+    }
+    result_append(&result,
+                  "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u packetBytes=%u -> %d (%s) transferred=%d; ",
+                  session->displayOutputEndpoint,
+                  byteCount > 2 ? packet[2] : 0xff,
+                  get_be16(packet, 8),
+                  get_be16(packet, 10),
+                  get_be16(packet, 12),
+                  get_be16(packet, 14),
+                  byteCount,
+                  status,
+                  status < 0 ? libusb_error_name(status) : "OK",
+                  transferred);
+    result.status = status;
+    return result;
+}
+
 KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionRef sessionRef,
                                                         uint8_t screen,
                                                         uint16_t x,

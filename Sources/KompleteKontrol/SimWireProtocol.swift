@@ -29,6 +29,7 @@ public enum SimFrameType: UInt8, Sendable {
     // ccd → sim
     case displayBlit = 0x80     // {u8 screen, u16be x, u16be y, u16be w, u16be h, rgb565be…}
     case report = 0x81          // {u8 reportID, payload…}
+    case displayPacket = 0x82   // raw physical 0x84 packet; adaptive mode only
 }
 
 public struct SimFrame: Sendable, Equatable {
@@ -134,5 +135,9 @@ public extension SimFrame {
 
     static func report(reportID: UInt8, bytes: [UInt8]) -> SimFrame {
         SimFrame(type: .report, payload: [reportID] + bytes)
+    }
+
+    static func displayPacket(_ bytes: [UInt8]) -> SimFrame {
+        SimFrame(type: .displayPacket, payload: bytes)
     }
 }
