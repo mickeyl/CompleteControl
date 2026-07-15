@@ -44,6 +44,12 @@ The normal hardware daemon is `ccd --kk-libusb-daemon [socket-path]`. It owns
 one persistent MK2 libusb session and exposes independent control, event, and
 display channels to clients.
 
+Adaptive MK2 display encoding is the production default. The device-session
+backend owns its successfully-written framebuffer shadow and chooses the smallest
+single-transfer literal/repeat/skip packet. Keep
+`KK_MK2_DISPLAY_ENCODING=legacy` as the byte-for-byte fail-safe override; invalid
+explicit values must continue to select that safe path.
+
 Key invariants:
 
 - keep libusb callback work small and never perform display/state output directly

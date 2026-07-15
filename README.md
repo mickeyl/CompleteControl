@@ -81,23 +81,18 @@ make install-daemon
 make daemon-status
 ```
 
-Display packet optimization is fail-safe and opt-in. The default `legacy` mode
-uses the original literal writer and simulator blits. Install or run the adaptive
-writer explicitly with:
+The default `adaptive` display writer compresses each physical transfer with
+hardware-verified literal, repeat-pair, and skip commands.
 
-```bash
-make install-daemon MK2_DISPLAY_ENCODING=adaptive
-make daemon-status
-```
-
-Return to the original path without rolling back code:
+Use the byte-for-byte original writer as a fail-safe without rolling back code:
 
 ```bash
 make install-daemon MK2_DISPLAY_ENCODING=legacy
 ```
 
-Unknown values fall back to `legacy`. The installed mode is stored in the
-LaunchDaemon environment and takes effect after the installer restarts it.
+An unset value selects `adaptive`; unknown explicit values fail safely to
+`legacy`. The installed mode is stored in the LaunchDaemon environment and takes
+effect after the installer restarts it.
 
 Run an instrumented foreground daemon:
 
@@ -185,12 +180,13 @@ open display-benchmark
 displaybench 12
 ```
 
-Repeat with `MK2_DISPLAY_ENCODING=adaptive`. The same benchmark is available from
-the hardware UI under **Diagnostics → Display Benchmark**; PLAY or 4-D press starts
-it. It measures seven deterministic workloads (cursor, rotary value, meter, large
-gap, large contiguous bitmap, full solid, and full noisy) and prints machine-readable
-`BENCH display …` lines in addition to the OLED result table. Measurement counters
-exist only for the duration of a run and are disabled again on completion or cancel.
+Repeat with the default adaptive installation (`make install-daemon`). The same
+benchmark is available from the hardware UI under **Diagnostics → Display
+Benchmark**; PLAY or 4-D press starts it. It measures seven deterministic workloads
+(cursor, rotary value, meter, large gap, large contiguous bitmap, full solid, and
+full noisy) and prints machine-readable `BENCH display …` lines in addition to the
+OLED result table. Measurement counters exist only for the duration of a run and
+are disabled again on completion or cancel.
 
 To run Widget Lab against the simulator daemon:
 
@@ -199,6 +195,13 @@ make run-simulator
 # Start the daemon from the simulator's Daemon menu.
 make mk2-widget-lab-demo-sim
 ```
+
+## Acknowledgements
+
+The adaptive display writer was inspired in part by the openAV-Ctlra community's
+[Maschine MK3 display work](https://github.com/openAVproductions/openAV-Ctlra/pull/115),
+which helped direct our S-Series MK2 hardware experiments toward the display
+command family's repeat-pair and skip operations.
 
 ## Development
 

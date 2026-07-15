@@ -186,11 +186,14 @@ struct SimulatorDeviceSessionTests {
         #expect(KKMK2InputReportDecoder.eventsForReport(previous: nil, current: received[1]) == [.strip(position: nil, time: 133)])
     }
 
-    @Test("A display blit is forwarded verbatim as a wire frame")
+    @Test("Legacy mode forwards a display blit verbatim as a wire frame")
     func outputPath() {
         let (daemon, sim) = makePair()
         defer { Darwin.close(daemon); Darwin.close(sim) }
-        let session = SimulatorDeviceSession(fd: daemon)
+        let selection = MK2DisplayEncodingSelection.resolve(environment: [
+            MK2DisplayEncodingSelection.environmentKey: "legacy",
+        ])
+        let session = SimulatorDeviceSession(fd: daemon, displayEncodingSelection: selection)
 
         let pixels: [UInt8] = [0xf8, 0x00, 0x00, 0x1f]
         let result = session.writeMK2DisplayBytes(screen: 1, x: 4, y: 5, width: 2, height: 1, pixels: pixels, timeoutMs: 100)

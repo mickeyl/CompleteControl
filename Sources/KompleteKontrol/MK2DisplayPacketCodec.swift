@@ -14,7 +14,7 @@ struct MK2DisplayEncodingSelection: Sendable, Equatable {
 
     static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
         guard let requested = environment[environmentKey], !requested.isEmpty else {
-            return Self(mode: .legacy, requestedValue: nil, fellBackToLegacy: false)
+            return Self(mode: .adaptive, requestedValue: nil, fellBackToLegacy: false)
         }
         guard let mode = MK2DisplayEncodingMode(rawValue: requested.lowercased()) else {
             return Self(mode: .legacy, requestedValue: requested, fellBackToLegacy: true)

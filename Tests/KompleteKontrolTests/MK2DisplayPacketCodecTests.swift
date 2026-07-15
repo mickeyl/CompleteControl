@@ -4,10 +4,10 @@ import Testing
 
 @Suite("MK2 display packet codec")
 struct MK2DisplayPacketCodecTests {
-    @Test("Legacy is the fail-safe default and invalid values fall back to it")
+    @Test("Adaptive is the default and invalid values fail safely to legacy")
     func configurationFallback() {
         let defaultSelection = MK2DisplayEncodingSelection.resolve(environment: [:])
-        #expect(defaultSelection.mode == .legacy)
+        #expect(defaultSelection.mode == .adaptive)
         #expect(!defaultSelection.fellBackToLegacy)
 
         let adaptive = MK2DisplayEncodingSelection.resolve(environment: [

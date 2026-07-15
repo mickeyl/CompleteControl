@@ -497,16 +497,49 @@ shadow advances only after a complete successful transport write; reconnecting
 creates a fresh shadow. If the adaptive packet is not smaller than the legacy
 literal packet, the writer uses the byte-identical legacy encoding.
 
-The implementation is deliberately opt-in while hardware latency acceptance is
-pending:
+Hardware A/B acceptance on 2026-07-15 made the adaptive writer the production
+default:
 
 ```text
-KK_MK2_DISPLAY_ENCODING=legacy    # default; original writer and simulator blits
-KK_MK2_DISPLAY_ENCODING=adaptive  # adaptive packet writer and strict simulator path
+KK_MK2_DISPLAY_ENCODING=adaptive  # default; adaptive writer and strict simulator path
+KK_MK2_DISPLAY_ENCODING=legacy    # byte-identical original writer and simulator blits
 ```
 
-An unset or invalid value selects `legacy`. Mode selection occurs at daemon
-startup so switching modes also resets the device session and its shadow.
+An unset value selects `adaptive`; an invalid explicit value fails safely to
+`legacy`. Mode selection occurs at daemon startup so switching modes also resets
+the device session and its shadow.
+
+The measured transport model is `T(bytes) ≈ 0.44 ms + 0.0000634 ms/byte`. In the
+release headless replay, a 160-row band with 16 changed rows encoded to 15,400
+instead of 153,636 bytes, saving an estimated 8.764 ms of wire time for 0.181 ms
+median host encoding. A localized no-gap control encoded to 7,712 instead of
+7,716 bytes and paid 0.007 ms median host encoding. For workload sampling,
+`KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1` logs dirty-band and internal-gap
+geometry without changing the normal framebuffer transport contract.
+
+The release Widget Lab benchmark ran 12 completed physical presentations for
+each of seven fixture classes in both modes on an S-Series MK2. Adaptive reduced
+average transport from 147,602 to 61,077 bytes (**58.6%**), median physical USB
+time from 14.550 to 1.327 ms (**90.9%**), and median end-to-end time from 15.862
+to 2.463 ms (**84.5%**). Per-scenario end-to-end medians were:
+
+| Fixture | Legacy | Adaptive | Reduction |
+| --- | ---: | ---: | ---: |
+| Cursor | 7.893 ms | 0.344 ms | 95.6% |
+| Rotary value | 8.197 ms | 0.599 ms | 92.7% |
+| Meter step | 15.539 ms | 7.967 ms | 48.7% |
+| Large internal gap | 17.824 ms | 2.174 ms | 87.8% |
+| Large contiguous noise | 15.862 ms | 15.096 ms | 4.8% |
+| Full solid frame | 21.644 ms | 1.786 ms | 91.7% |
+| Full noisy frame | 21.678 ms | 20.919 ms | 3.5% |
+
+The mixed-workload wall P90 moved only from 21.728 to 20.880 ms because the 12
+deliberately incompressible full-noise samples alone occupy more than the slowest
+10% of the 84-sample population. The per-class results show the intended shape:
+large wins for interactive, gapped, and solid updates with no meaningful
+incompressible-payload regression. A prior 896-update Paulinche hardware session
+predicted a more workload-representative 27.1% aggregate USB wire-time reduction
+from skip encoding alone, before repeat-pair savings.
 
 ---
 

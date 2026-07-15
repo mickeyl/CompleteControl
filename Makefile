@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 SOCKET ?= /var/run/kompletekontrol-libusb.sock
-MK2_DISPLAY_ENCODING ?= legacy
+MK2_DISPLAY_ENCODING ?= adaptive
 ifeq ($(MK2_DISPLAY_ENCODING),legacy)
 else ifeq ($(MK2_DISPLAY_ENCODING),adaptive)
 else
@@ -22,7 +22,7 @@ MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(fi
 .PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  legacy (fail-safe) or adaptive\n\nTargets:\n", encoding } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n\nTargets:\n", encoding } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -175,7 +175,7 @@ uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 daemon-status: ## Show daemon status.
 	@sudo launchctl list | grep kompletekontrol || echo "Daemon not running or not installed."
 	@mode="$$(sudo /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING' /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true)"; \
-	if [ -n "$$mode" ]; then echo "MK2 display encoding: $$mode"; else echo "MK2 display encoding: legacy (default)"; fi
+	if [ -n "$$mode" ]; then echo "MK2 display encoding: $$mode"; else echo "MK2 display encoding: adaptive (default)"; fi
 
 daemon-start: ## Start daemon via launchctl.
 	@sudo launchctl bootstrap system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
