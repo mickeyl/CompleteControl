@@ -123,6 +123,26 @@ mapping-engine state and clears host-owned output.
 See [Docs/daemon-usb-reactor.md](Docs/daemon-usb-reactor.md) before changing USB
 scheduling or callback behavior.
 
+### Test-Automation Input Injection
+
+Set `CCD_ENABLE_AUTOMATION=1` when starting the daemon to open a fourth, opt-in socket
+(`<socket-path>.automation`, `chmod 0600`) that accepts a plain-text line REPL for synthesizing
+button presses, encoder turns, MIDI notes, and ribbon/strip input. Injected input reaches every
+connected client (Paulinche, the widget lab, demos) exactly as real or simulated hardware input
+would — see `MK2InputFrameLowering` and `DaemonHardware.handleAutomation`. Unset (the default),
+the socket does not exist at all.
+
+```bash
+CCD_ENABLE_AUTOMATION=1 ccd --kk-libusb-daemon /tmp/kk-test.sock
+Scripts/kk-input.py --socket /tmp/kk-test.sock.automation button play down
+Scripts/kk-input.py --socket /tmp/kk-test.sock.automation --script scenario.txt
+```
+
+Commands: `button <name> down|up`, `encoder <1-8> <delta>`, `encodertouch <1-8> on|off`,
+`fourdwheel <delta>`, `fourd left|up|down|right|click|touch|release`,
+`note <midiNote> <velocity> on|off`, `midi <statusHex> <data1> <data2>`,
+`strip <position 0-1024|release> [timeMs]`, `help`.
+
 ## KontrolSurfaceKit2
 
 Add the package products needed by an application:

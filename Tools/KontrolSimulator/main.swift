@@ -21,6 +21,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let stayOnTop = "KontrolSimulator.window.stayOnTop"
         static let cheatSheetVisible = "KontrolSimulator.cheatSheet.visible"
         static let daemonAutostart = "KontrolSimulator.daemon.autostart"
+        static let daemonAutomationEnabled = "KontrolSimulator.daemon.automationEnabled"
     }
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
@@ -37,6 +38,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var daemonStartItem: NSMenuItem?
     private var daemonStopItem: NSMenuItem?
     private var daemonAutostartItem: NSMenuItem?
+    private var daemonAutomationItem: NSMenuItem?
     private var window: NSWindow!
     private var scrollView: NSScrollView!
     private var panel: PanelView!
@@ -239,6 +241,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         daemonMenu.addItem(.separator())
         daemonAutostartItem = add(to: daemonMenu, "Autostart Daemon If Not Running", #selector(toggleDaemonAutostart), "")
         daemonMenu.addItem(.separator())
+        daemonAutomationItem = add(to: daemonMenu, "Enable Test-Automation Socket", #selector(toggleDaemonAutomation), "")
+        daemonMenu.addItem(.separator())
         add(to: daemonMenu, "Copy Client Environment", #selector(copyClientEnvironment), "")
 
         let viewItem = NSMenuItem()
@@ -290,6 +294,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var environment = ProcessInfo.processInfo.environment
         environment["CCD_SIMULATE"] = link.socketPath
         environment["LOGLEVEL"] = environment["LOGLEVEL"] ?? "INFO"
+        if UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutomationEnabled) {
+            environment["CCD_ENABLE_AUTOMATION"] = "1"
+        }
         process.environment = environment
         process.standardOutput = log
         process.standardError = log
@@ -351,6 +358,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// The daemon only reads `CCD_ENABLE_AUTOMATION` at process start, so this takes effect
+    /// on the next "Start Simulator Daemon" — an already-running daemon keeps its current
+    /// setting until stopped and restarted.
+    @objc private func toggleDaemonAutomation() {
+        let defaults = UserDefaults.standard
+        let enabled = !defaults.bool(forKey: DefaultsKey.daemonAutomationEnabled)
+        defaults.set(enabled, forKey: DefaultsKey.daemonAutomationEnabled)
+        updateDaemonMenuState()
+    }
+
     @objc private func copyClientEnvironment() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -373,6 +390,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         daemonStartItem?.isEnabled = daemonProcess == nil
         daemonStopItem?.isEnabled = daemonProcess != nil
         daemonAutostartItem?.state = UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart) ? .on : .off
+        daemonAutomationItem?.state = UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutomationEnabled) ? .on : .off
         daemonStartItem?.title = daemonConnected && daemonProcess == nil
             ? "Start Simulator Daemon (external daemon attached)"
             : "Start Simulator Daemon"

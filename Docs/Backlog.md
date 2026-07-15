@@ -22,18 +22,6 @@
   appears immediately and the first browser frame follows without a
   multi-second stall on repeated cold and warm hardware launches.
 
-- **Full REPL remote control / headless UI-testing (prioritised 2026-07-14).**
-  Bore the half-remote out into a real one: remote control of every button,
-  encoder turn, encoder touch/double-touch and 4-D gesture, injected at the
-  `MK2Surface2` input seam (not per-demo verbs), so the widget lab *and* a real
-  client (Paulinche via the daemon) can be 100% driven headless. That unlocks
-  UI-testing automation — script a sequence of presses/turns and assert on the
-  resulting frames through the snapshot path. Concrete motivation: the arrangement
-  work (2026-07-14) shipped a SCENE button that lit but emitted no input event
-  (missing from the adapter's bind list); a headless remote would have caught that
-  in a scripted test instead of on the bench. The simulator wire already carries
-  these events, so the missing piece is the REPL/command surface at the input seam.
-
 ## Simulator
 
 - Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation

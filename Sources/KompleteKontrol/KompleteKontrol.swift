@@ -464,6 +464,7 @@ public enum KompleteKontrolLibUSBServer {
             case .control: return socketPath
             case .event: return socketPath + ".events"
             case .display: return socketPath + ".display"
+            case .automation: return socketPath + ".automation"
         }
     }
 
@@ -587,7 +588,7 @@ public enum KompleteKontrolLibUSBServer {
         return false
     }
 
-    private static func makeDaemonServerSocket(socketPath: String) -> Int32? {
+    private static func makeDaemonServerSocket(socketPath: String, mode: mode_t = 0o666) -> Int32? {
         let serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverFD >= 0 else {
             daemonLog("socket() failed path=\(socketPath) errno=\(errno)")
@@ -612,7 +613,7 @@ public enum KompleteKontrolLibUSBServer {
             close(serverFD)
             return nil
         }
-        chmod(socketPath, 0o666)
+        chmod(socketPath, mode)
         guard listen(serverFD, 16) == 0 else {
             daemonLog("listen failed path=\(socketPath) errno=\(errno)")
             close(serverFD)
@@ -646,16 +647,22 @@ public enum KompleteKontrolLibUSBServer {
             exit(6)
         }
         daemonDebugLog("lock acquire complete", group: "daemon")
-        let socketPaths = [
-            KKDaemonBinaryChannel.control: daemonSocketPath(base: socketPath, channel: .control),
-            KKDaemonBinaryChannel.event: daemonSocketPath(base: socketPath, channel: .event),
-            KKDaemonBinaryChannel.display: daemonSocketPath(base: socketPath, channel: .display),
+        // Opt-in only, mirroring CCD_SIMULATE's shape: absent, the daemon never binds the
+        // socket at all, so test-automation input injection adds zero exposure in production.
+        let automationEnabled = ProcessInfo.processInfo.environment["CCD_ENABLE_AUTOMATION"] != nil
+        var socketPaths: [KKDaemonBinaryChannel: String] = [
+            .control: daemonSocketPath(base: socketPath, channel: .control),
+            .event: daemonSocketPath(base: socketPath, channel: .event),
+            .display: daemonSocketPath(base: socketPath, channel: .display),
         ]
+        if automationEnabled {
+            socketPaths[.automation] = daemonSocketPath(base: socketPath, channel: .automation)
+        }
         for path in socketPaths.values {
             unlink(path)
         }
         let displayEncoding = MK2DisplayEncodingSelection.resolve()
-        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-") displayEncoding=\(displayEncoding.mode.rawValue)")
+        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-") automation=\(socketPaths[.automation] ?? "-") displayEncoding=\(displayEncoding.mode.rawValue)")
         if displayEncoding.fellBackToLegacy {
             daemonLog(
                 "invalid \(MK2DisplayEncodingSelection.environmentKey)=\(displayEncoding.requestedValue ?? ""); using legacy",
@@ -665,14 +672,21 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         var serverFDs: [Int32: KKDaemonBinaryChannel] = [:]
-        for channel in [KKDaemonBinaryChannel.control, .event, .display] {
+        var listenChannels: [KKDaemonBinaryChannel] = [.control, .event, .display]
+        if automationEnabled {
+            listenChannels.append(.automation)
+        }
+        for channel in listenChannels {
             guard let path = socketPaths[channel] else { continue }
-            guard let fd = makeDaemonServerSocket(socketPath: path) else {
+            // The automation socket lets a connected client inject synthetic hardware input —
+            // tighter than the other channels' 0666, owner-only by default.
+            let mode: mode_t = channel == .automation ? 0o600 : 0o666
+            guard let fd = makeDaemonServerSocket(socketPath: path, mode: mode) else {
                 exit(channel == .control ? 1 : 4)
             }
             serverFDs[fd] = channel
         }
-        daemonLog("listening control/event/display")
+        daemonLog("listening control/event/display\(automationEnabled ? "/automation" : "")")
 
         let hardware = DaemonHardware()
         hardware.runStartupAnimationThenIdle()
@@ -984,7 +998,11 @@ public enum KompleteKontrolLibUSBServer {
         }
         buffer.append(contentsOf: scratch.prefix(count))
 
-        let isBinaryConnection = channel != .control || buffer.readUInt32LEIfAvailable(at: 0) == KKDaemonBinaryFrame.magic
+        // The automation channel is always the text REPL — never binary-sniffed like .control,
+        // and never always-binary like .event/.display.
+        let isBinaryConnection = channel == .automation
+            ? false
+            : channel != .control || buffer.readUInt32LEIfAvailable(at: 0) == KKDaemonBinaryFrame.magic
         if channel == .control, isBinaryConnection {
             hardware.markControlClientBinary(clientID: clientID)
         }
@@ -1011,7 +1029,9 @@ public enum KompleteKontrolLibUSBServer {
             clientID: clientID,
             handle: { line, clientID in
                 daemonTraceLog("client \(clientID) recv \(KKTiming.clipped(line))")
-                return hardware.handle(line, clientID: clientID)
+                return channel == .automation
+                    ? hardware.handleAutomation(line, clientID: clientID)
+                    : hardware.handle(line, clientID: clientID)
             },
             handleBinary: { line, payload, clientID in
                 daemonTraceLog("client \(clientID) recv \(KKTiming.clipped(line)) payloadBytes=\(payload.count)")
@@ -1331,7 +1351,10 @@ public enum KompleteKontrolLibUSBServer {
         }
     }
 
-    private final class DaemonHardware: @unchecked Sendable {
+    // Internal rather than private so `@testable import KompleteKontrol` can drive
+    // `handleAutomation(_:clientID:)` directly over an in-process socketpair, mirroring how
+    // SimulatorDeviceSessionTests exercises SimulatorDeviceSession — no listening socket needed.
+    final class DaemonHardware: @unchecked Sendable {
         private struct RegisteredClient {
             var pid: Int32
             var name: String
@@ -1377,6 +1400,12 @@ public enum KompleteKontrolLibUSBServer {
         private var binaryControlClientIDs: Set<Int> = []
         private var eventClientFDs: [Int: Int32] = [:]
         private var displayClientFDs: [Int: Int32] = [:]
+        private var automationClientFDs: [Int: Int32] = [:]
+        // Persistent button/encoder/4-D state for synthetic input, mirroring the role
+        // SimulatorDeviceSession's own builder plays for the sim wire — held here (not per
+        // connection) so e.g. a button held by one automation command and released by a later
+        // one behaves like a real keypress regardless of which client sent which line.
+        private var automationInputBuilder = MK2InputReportBuilder()
         private var pendingEvictionFDs: [Int32] = []
         private var trackedLibusbFds: Set<Int32> = []
         private var queuedInputMessages: [String] = []
@@ -1543,6 +1572,127 @@ public enum KompleteKontrolLibUSBServer {
             let retryResponse = handleDaemonCommand(line, ifCurrentSession: reconnectedSession)
             _ = dropSession(reconnectedSession, after: retryResponse)
             return retryResponse
+        }
+
+        // Automation-socket command REPL — plain text lines, "ok"/"err ..." responses (same
+        // convention as `handle(_:clientID:)`). Never touches session/registration state: every
+        // command lowers a synthetic gesture through `MK2InputFrameLowering` and calls the same
+        // `pushInputToClients`/`pushMidiToClients` sinks real (or simulated) hardware input
+        // already flows through, so every connected client — including a real Paulinche
+        // instance — cannot tell the difference. Opt-in only; see `runDaemon`'s
+        // `CCD_ENABLE_AUTOMATION` gate, which is the only thing standing between this and every
+        // client on the machine being able to fake a keypress.
+        func handleAutomation(_ line: String, clientID: Int) -> String {
+            let tokens = line.split(separator: " ").map(String.init)
+            guard let command = tokens.first else { return "err parse" }
+
+            func onOff(_ token: String) -> Bool? {
+                switch token {
+                    case "on", "down": true
+                    case "off", "up": false
+                    default: nil
+                }
+            }
+
+            switch command {
+                case "help":
+                    return "ok button <name> down|up | encoder <1-8> <delta> | encodertouch <1-8> on|off | " +
+                        "fourdwheel <delta> | fourd left|up|down|right|click|touch|release | " +
+                        "note <midiNote> <velocity> on|off | midi <statusHex> <data1> <data2> | " +
+                        "strip <position 0-1024|release> [timeMs]"
+
+                case "button":
+                    guard tokens.count >= 3, let led = KKMK2ButtonLED(protocolName: tokens[1]),
+                          let pressed = onOff(tokens[2]) else {
+                        return "err parse"
+                    }
+                    injectAutomationFrame(.button(led: led, pressed: pressed))
+                    return "ok"
+
+                case "encoder":
+                    guard tokens.count >= 3, let index = Int(tokens[1]), (1...8).contains(index),
+                          let delta = Int(tokens[2]) else {
+                        return "err parse"
+                    }
+                    injectAutomationFrame(.encoder(index: index, delta: delta))
+                    return "ok"
+
+                case "encodertouch":
+                    guard tokens.count >= 3, let index = Int(tokens[1]), (1...8).contains(index),
+                          let touched = onOff(tokens[2]) else {
+                        return "err parse"
+                    }
+                    injectAutomationFrame(.encoderTouch(index: index, touched: touched))
+                    return "ok"
+
+                case "fourdwheel":
+                    guard tokens.count >= 2, let delta = Int(tokens[1]) else { return "err parse" }
+                    injectAutomationFrame(.fourDWheel(delta: delta))
+                    return "ok"
+
+                case "fourd":
+                    guard tokens.count >= 2 else { return "err parse" }
+                    let state: MK2InputReportBuilder.FourDState?
+                    switch tokens[1] {
+                        case "left": state = .pushLeft
+                        case "up": state = .pushUp
+                        case "down": state = .pushDown
+                        case "right": state = .pushRight
+                        case "click": state = .click
+                        case "touch": state = .touched
+                        case "release": state = .released
+                        default: state = nil
+                    }
+                    guard let state else { return "err parse" }
+                    injectAutomationFrame(.fourDState(state.rawValue))
+                    return "ok"
+
+                case "note":
+                    guard tokens.count >= 4,
+                          let noteValue = Int(tokens[1]), (0...127).contains(noteValue),
+                          let velocityValue = Int(tokens[2]), (0...127).contains(velocityValue),
+                          let on = onOff(tokens[3]) else {
+                        return "err parse"
+                    }
+                    injectAutomationFrame(.note(UInt8(noteValue), velocity: UInt8(velocityValue), on: on))
+                    return "ok"
+
+                case "midi":
+                    guard tokens.count >= 4,
+                          let status = KKHex.parse(tokens[1]),
+                          let data1 = KKHex.parse(tokens[2]),
+                          let data2 = KKHex.parse(tokens[3]) else {
+                        return "err parse"
+                    }
+                    injectAutomationFrame(.midi(status: UInt8(status & 0xff), data1: UInt8(data1 & 0xff), data2: UInt8(data2 & 0xff)))
+                    return "ok"
+
+                case "strip":
+                    guard tokens.count >= 2 else { return "err parse" }
+                    let position: Int?
+                    if tokens[1] == "release" {
+                        position = nil
+                    } else if let value = Int(tokens[1]), (0...1024).contains(value) {
+                        position = value
+                    } else {
+                        return "err parse"
+                    }
+                    let time = tokens.count >= 3 ? (Int(tokens[2]) ?? 0) : 0
+                    injectAutomationFrame(.strip(position: position, time: time))
+                    return "ok"
+
+                default:
+                    return "err unknown command \(command)"
+            }
+        }
+
+        private func injectAutomationFrame(_ frame: SimFrame) {
+            MK2InputFrameLowering.apply(
+                frame,
+                builder: &automationInputBuilder,
+                emitInput: pushInputToClients,
+                emitMIDI: pushMidiToClients
+            )
         }
 
         func handleBinary(_ line: String, payload: [UInt8], clientID: Int) -> String {
@@ -3259,6 +3409,8 @@ public enum KompleteKontrolLibUSBServer {
                     clientFDs[clientID] = fd
                 case .display:
                     displayClientFDs[clientID] = fd
+                case .automation:
+                    automationClientFDs[clientID] = fd
             }
             lock.unlock()
         }
@@ -3319,6 +3471,7 @@ public enum KompleteKontrolLibUSBServer {
             clientFDs.removeValue(forKey: clientID)
             binaryControlClientIDs.remove(clientID)
             eventClientFDs.removeValue(forKey: clientID)
+            automationClientFDs.removeValue(forKey: clientID)
             if displayClientFDs.removeValue(forKey: clientID) != nil {
                 // A benchmark client may disappear before it can send the closing
                 // barrier. Never leave measurement overhead enabled after that.

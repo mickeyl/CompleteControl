@@ -5,6 +5,9 @@ public enum KKDaemonBinaryChannel: UInt8, Sendable {
     case control = 1
     case event = 2
     case display = 3
+    /// Test-automation input injection. Opt-in only (`CCD_ENABLE_AUTOMATION`) and absent from
+    /// the daemon otherwise — see `KompleteKontrolLibUSBServer.runDaemon`.
+    case automation = 4
 }
 
 public enum KKDaemonBinaryMessageType: UInt16, Sendable {

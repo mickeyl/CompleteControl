@@ -210,90 +210,15 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
     }
 
     // Lower one semantic input frame into a state change and emit the updated raw report.
+    // The actual byte-level lowering is shared with the daemon's automation-socket handler —
+    // see MK2InputFrameLowering.
     private func apply(_ frame: SimFrame) {
-        switch frame.type {
-            case .button:
-                guard frame.payload.count >= 2, let led = KKMK2ButtonLED(rawValue: Int(frame.payload[0])) else { return }
-                builder.setButton(led, pressed: frame.payload[1] != 0)
-                emitInputReport()
-            case .encoder:
-                guard frame.payload.count >= 2 else { return }
-                builder.turnEncoder(Int(frame.payload[0]), delta: Int(Int8(bitPattern: frame.payload[1])))
-                emitInputReport()
-            case .encoderTouch:
-                guard frame.payload.count >= 2 else { return }
-                builder.setEncoderTouch(Int(frame.payload[0]), touched: frame.payload[1] != 0)
-                emitInputReport()
-            case .fourDWheel:
-                guard frame.payload.count >= 1 else { return }
-                builder.turnFourDWheel(delta: Int(Int8(bitPattern: frame.payload[0])))
-                emitInputReport()
-            case .fourDState:
-                guard frame.payload.count >= 1,
-                      let state = MK2InputReportBuilder.FourDState(rawValue: frame.payload[0]) else { return }
-                builder.setFourD(state)
-                emitInputReport()
-            case .note:
-                guard frame.payload.count >= 3 else { return }
-                let note = frame.payload[0]
-                let velocity = frame.payload[1]
-                let on = frame.payload[2] != 0
-                emitMIDI([on ? 0x09 : 0x08, on ? 0x90 : 0x80, note, on ? velocity : 0x00])
-            case .midi:
-                guard frame.payload.count >= 3 else { return }
-                let status = frame.payload[0]
-                let codeIndex: UInt8
-                switch status & 0xf0 {
-                    case 0x80:
-                        codeIndex = 0x08
-                    case 0x90:
-                        codeIndex = frame.payload[2] == 0 ? 0x08 : 0x09
-                    case 0xb0:
-                        codeIndex = 0x0b
-                    case 0xd0:
-                        codeIndex = 0x0d
-                    case 0xe0:
-                        codeIndex = 0x0e
-                    default:
-                        codeIndex = 0x00
-                }
-                guard codeIndex != 0 else { return }
-                emitMIDI([codeIndex, status, frame.payload[1], frame.payload[2]])
-            case .strip:
-                guard frame.payload.count >= 4 else { return }
-                let position = (UInt16(frame.payload[0]) << 8) | UInt16(frame.payload[1])
-                let time = (UInt16(frame.payload[2]) << 8) | UInt16(frame.payload[3])
-                emitStrip(position: position, time: time)
-            case .hello, .displayBlit, .displayPacket, .report:
-                break // hello reserved; output frame types are never received here
-        }
-    }
-
-    private func emitInputReport() {
-        builder.bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            inputSink?(base, UInt32(buffer.count))
-        }
-    }
-
-    private func emitStrip(position: UInt16, time: UInt16) {
-        var bytes = [UInt8](repeating: 0, count: 9)
-        bytes[0] = KompleteKontrolMK2Protocol.stripReportID
-        bytes[5] = UInt8(time & 0xff)
-        bytes[6] = UInt8(time >> 8)
-        bytes[7] = UInt8(position & 0xff)
-        bytes[8] = UInt8(position >> 8)
-        bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            inputSink?(base, UInt32(buffer.count))
-        }
-    }
-
-    private func emitMIDI(_ bytes: [UInt8]) {
-        bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            midiSink?(base, UInt32(buffer.count))
-        }
+        MK2InputFrameLowering.apply(
+            frame,
+            builder: &builder,
+            emitInput: { data, length in self.inputSink?(data, length) },
+            emitMIDI: { data, length in self.midiSink?(data, length) }
+        )
     }
 
     @discardableResult

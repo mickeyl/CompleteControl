@@ -237,6 +237,13 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
         }
     }
 
+    /// Reverse of `protocolName`, for text protocols that name a button by its input-decoder
+    /// string (e.g. the automation-socket REPL) instead of holding a typed case.
+    public init?(protocolName: String) {
+        guard let match = Self.allCases.first(where: { $0.protocolName == protocolName }) else { return nil }
+        self = match
+    }
+
     /// LEDs that accept the MK2 palette byte directly in the 0x80 report.
     /// Most panel buttons are fixed-colour indicators; M/S, F1-F8, and the
     /// touch-strip LED slots are palette-capable.
