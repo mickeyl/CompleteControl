@@ -115,6 +115,27 @@
 
 ## KontrolSurfaceKit2
 
+- **Formalize a semantic warning color in `MK2HIG` (priority: medium-high,
+  noted 2026-07-15).** Driven by the MK2 Wavetable-Editor Phase 2 concept
+  (Paulinche `BACKLOG.md`, "MK2 Wavetable-Editor (Instrument-Editor Phase
+  2)") which needs an OCS-incompatibility warning tag on the instrument
+  editor surface. `MK2HIG` currently has no general warning semantic beyond
+  the `IconGlyph.warning` glyph — only `Meter.warning`/`Meter.danger`
+  (level ballistics, yellow/red) and `Chrome.shiftAccent` (SHIFT layer,
+  amber `0xfc00`/`#ff8200`), both already owned by a different meaning.
+  Proposal: a new `MK2HIG.Semantic` namespace with `warning`, RGB565-
+  quantized from Apple's `systemOrange` (the app-side OCS-warning color in
+  Paulinche's `ocsWarningRow`/`EditorCard.ocsIncompatibilityReason`) —
+  lands around `0xF940`/`#ff9600`, consistent with the existing
+  `Design.Waveform`/`Design.Accent` ↔ `MK2HIG.Waveform` coupling rule
+  above ("change both sides together"). **Risk, needs a bench check before
+  landing:** `#ff9600` sits close enough to `shiftAccent` `#ff8200` that
+  the two may be hard to tell apart at a glance on the physical OLED —
+  possibly shift the warning hue toward red instead of yellow so a warning
+  tag can never be mistaken for a SHIFT hint. Do not fix the final hex
+  without hardware confirmation, same as the other color decisions in this
+  section.
+
 - Bake the surface-font vertical correction into the metrics (noted 2026-07-14).
   The bitmap `SurfaceFont`s render top-heavy (grid ascent 12 of cellHeight 16),
   so text drawn at a naive top inset reads high, and call sites compensate ad hoc
