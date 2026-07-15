@@ -30,7 +30,7 @@ struct PaulincheArrangementRendererTests {
         #expect(grid.countPixels(in: MK2PixelRect(x: 466, y: 62, width: 9, height: 200), notMatching: Self.background) > 100)
     }
 
-    @Test("Order-property encoders E1–E4 forward touch and rotation")
+    @Test("Editable order-property encoders use the calibrated discrete throw")
     func orderPropertyEncodersForward() {
         let recorder = ArrangementEncoderRecorder()
         let rendered = MK2PaulincheArrangementRenderer.surfaceScene(
@@ -45,11 +45,15 @@ struct PaulincheArrangementRendererTests {
             #expect(rendered.bindings.encoderTouch[encoder] != nil)
         }
         rendered.bindings.encoderTouch[2]?(true)
-        rendered.bindings.encoder[2]?(3, 0, 0)
+        rendered.bindings.encoder[2]?(41, 0, 0)
+
+        #expect(recorder.changes.isEmpty)
+
+        rendered.bindings.encoder[2]?(1, 0, 0)
 
         #expect(recorder.touches == [2])
         #expect(recorder.changes.first?.0 == 2)
-        #expect(recorder.changes.first?.1 == 3)
+        #expect(recorder.changes.first?.1 == 1)
     }
 
     @Test("Arrangement screens can be captured as a two-screen snapshot")

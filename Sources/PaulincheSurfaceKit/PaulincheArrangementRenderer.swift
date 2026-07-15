@@ -147,12 +147,11 @@ public enum MK2PaulincheArrangementRenderer {
                 colors: selectionColors
             )
             MK2ParameterPageElement(
-                slots: parameterSlots(scene.parameters),
+                slots: parameterSlots(scene, actions: actions),
                 rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
                 columns: 4,
                 relativeToContent: false
             )
-            orderPropertyBindings(scene.parameters, actions: actions)
         }.build(renderer: renderer)
     }
 
@@ -182,14 +181,18 @@ public enum MK2PaulincheArrangementRenderer {
         )
     }
 
-    private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
+    private static func parameterSlots(
+        _ scene: MK2PaulincheArrangementScene,
+        actions: MK2PaulincheArrangementActions
+    ) -> [MK2ParameterPageSlot] {
         typealias Palette = MK2PaulincheRendererSupport.Palette
-        return parameters.prefix(4).enumerated().map { index, parameter in
+        return scene.parameters.prefix(4).enumerated().map { index, parameter in
             MK2ParameterPageSlot(
                 label: parameter.label,
                 iconGlyph: parameter.iconGlyph,
                 value: parameter.value,
                 isFocused: parameter.isFocused,
+                encoderValue: orderPropertyEncoderValue(index: index, scene: scene, actions: actions),
                 colors: MK2ValueCellColors(
                     label: Palette.dim,
                     value: Palette.text,
@@ -198,23 +201,69 @@ public enum MK2PaulincheArrangementRenderer {
                     focusedValue: 0x0000,
                     focusedFill: Palette.editFieldFocusedFill,
                     focusedBorder: Palette.text
-                ),
-                selectionEncoder: index + 1
+                )
             )
         }
     }
 
-    private static func orderPropertyBindings(
-        _ parameters: [MK2PaulinchePatternParameter],
+    /// Arrangement values use the same calibrated discrete-value path as the
+    /// widget lab. Previously these slots forwarded every raw high-resolution
+    /// count as an app step, bypassing Kit2's domain-scaled detents entirely.
+    private static func orderPropertyEncoderValue(
+        index: Int,
+        scene: MK2PaulincheArrangementScene,
         actions: MK2PaulincheArrangementActions
-    ) -> [any MK2ScreenElement] {
-        parameters.prefix(4).enumerated().map { index, _ in
-            let encoder = index + 1
-            return MK2EncoderBindingElement(
-                encoder,
-                onTouch: { touched in actions.onEncoderTouch?(encoder, touched) },
-                onChange: { delta, _, _ in actions.onEncoderChange?(encoder, delta) }
-            )
+    ) -> MK2EncoderDiscreteValue? {
+        let encoder = index + 1
+        let touch: @Sendable (Bool) -> Void = { touched in
+            actions.onEncoderTouch?(encoder, touched)
+        }
+        switch encoder {
+            case 1:
+                // Pattern IDs need not be contiguous and the app owns their
+                // ordering. A relative tiny domain gives E1 the calibrated
+                // throw while the app resolves -1/+1 to the adjacent pattern.
+                return MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: 0,
+                    bounds: -1...1,
+                    onTouch: touch,
+                    onChange: { delta in actions.onEncoderChange?(encoder, delta) }
+                )
+            case 2:
+                // Repeat count has no product-level maximum. Use a relative
+                // three-value domain solely for the calibrated tiny-domain
+                // throw, then forward its -1/+1 result as a delta.
+                return MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: 0,
+                    bounds: -1...1,
+                    onTouch: touch,
+                    onChange: { delta in actions.onEncoderChange?(encoder, delta) }
+                )
+            case 3:
+                let selected = min(max(0, scene.selectedOrderIndex), max(0, scene.orders.count - 1))
+                let rows = scene.orders.indices.contains(selected) ? scene.orders[selected].length : 16
+                let currentBars = min(16, max(1, rows / 16))
+                return MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: currentBars,
+                    bounds: 1...16,
+                    onTouch: touch,
+                    onChange: { nextBars in actions.onEncoderChange?(encoder, nextBars - currentBars) }
+                )
+            case 4 where scene.orders.count > 1:
+                let current = min(scene.orders.count - 1, max(0, scene.selectedOrderIndex))
+                return MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: current,
+                    bounds: 0...(scene.orders.count - 1),
+                    onTouch: touch,
+                    onChange: { next in actions.onEncoderChange?(encoder, next - current) }
+                )
+            default:
+                // POS has no destination in a one-entry arrangement.
+                return nil
         }
     }
 
