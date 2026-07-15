@@ -223,7 +223,6 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
                         MK2ModalDialogAction("Yes, clear", detail: "The current pattern will be emptied"),
                     ],
                     selectedIndex: selectedIndex,
-                    dismissHint: "Any other hardware button cancels",
                     onSelectionChange: { [weak self] index in
                         context.update { self?.setModalSelection(index) }
                     },

@@ -52,7 +52,6 @@ final class ModalDialogDemo: LabDemo, @unchecked Sendable {
             message: Self.sampleMessage(for: severity),
             actions: actions,
             selectedIndex: selectedIndex,
-            dismissHint: "Any other hardware button cancels",
             onSelectionChange: { [weak self] index in
                 context.update {
                     guard let self, self.dialogSelectedIndex != nil else { return }

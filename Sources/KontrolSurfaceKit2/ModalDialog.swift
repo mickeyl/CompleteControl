@@ -92,7 +92,6 @@ public struct MK2ModalDialog: Sendable {
     public var message: [String]
     public var actions: [MK2ModalDialogAction]
     public var selectedIndex: Int
-    public var dismissHint: String
     public var colors: MK2ModalDialogColors
 
     private let onSelectionChange: @Sendable (_ index: Int) -> Void
@@ -106,7 +105,6 @@ public struct MK2ModalDialog: Sendable {
         message: [String],
         actions: [MK2ModalDialogAction],
         selectedIndex: Int = 0,
-        dismissHint: String = "Any other hardware button cancels.",
         colors: MK2ModalDialogColors = MK2ModalDialogColors(),
         onSelectionChange: @escaping @Sendable (_ index: Int) -> Void,
         onConfirm: @escaping @Sendable (_ index: Int) -> Void,
@@ -118,7 +116,6 @@ public struct MK2ModalDialog: Sendable {
         self.message = message
         self.actions = actions
         self.selectedIndex = selectedIndex
-        self.dismissHint = dismissHint
         self.colors = colors
         self.onSelectionChange = onSelectionChange
         self.onConfirm = onConfirm
@@ -204,7 +201,7 @@ public struct MK2ModalDialog: Sendable {
             remainingLines -= drawn
         }
 
-        drawBody("4-D: select and confirm", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
+        drawBody("4-D: Select and confirm, any other button cancels.", renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
     }
 
@@ -225,7 +222,6 @@ public struct MK2ModalDialog: Sendable {
             }
         }
 
-        drawBody(dismissHint, renderer: renderer, into: &frame, x: 24, y: 242, color: colors.dim, maxWidth: 432)
         return frame
     }
 
