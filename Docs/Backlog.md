@@ -2,6 +2,26 @@
 
 ## Next up
 
+- **Investigate intermittent 10-second Widget Lab startup latency (noted
+  2026-07-15).** On physical MK2 hardware, `MK2WidgetLabDemo` sometimes takes
+  almost ten seconds before both the REPL prompt and first browser frame appear,
+  despite an already-running daemon; Paulinche reaches its first surface much
+  sooner. The strongest current suspect is eager demo construction:
+  `LabShell.demoRegistry` touches the global `labDemos` array before
+  `MK2SurfaceEventRunner.run`, `TrackerPatternDemo` immediately constructs
+  `DemoMetronome`, and `DemoMetronome.init()` synchronously prepares and starts
+  an `AVAudioEngine`. A cold or reconfiguring CoreAudio route can therefore
+  block the executable before surface startup and the REPL. The icon catalog
+  JSON load and cold FreeType glyph caches are secondary candidates. First add
+  monotonic timing points around LabShell/demo-registry initialization,
+  `surface.start()`, `showBrowser()`, daemon registration/host-control setup,
+  first `present()`, and REPL launch. Then make the tracker metronome lazy or
+  prewarm it off the startup path, as Paulinche already does for realtime audio.
+  Also verify whether the runner's current start-before-initial-render ordering
+  can queue `showBrowser()` behind a slow daemon handshake. Acceptance: prompt
+  appears immediately and the first browser frame follows without a
+  multi-second stall on repeated cold and warm hardware launches.
+
 - **Full REPL remote control / headless UI-testing (prioritised 2026-07-14).**
   Bore the half-remote out into a real one: remote control of every button,
   encoder turn, encoder touch/double-touch and 4-D gesture, injected at the
