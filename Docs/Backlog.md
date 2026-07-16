@@ -33,6 +33,26 @@
 
 ## Daemon / libusb architecture
 
+- **Blank daemon-owned NO CLIENT displays after inactivity (noted
+  2026-07-16).** Add a small visible/blanked state machine to the existing idle
+  diagnostic, with a default timeout around 10 minutes and a configurable
+  `0 = disabled` escape hatch. Only meaningful surface or MIDI input resets the
+  deadline; daemon display writes and controller-mirror floods do not. On
+  expiry, send one true-black fill to both displays, retain the current
+  diagnostic/log state in memory, and suppress further diagnostic display
+  flushes until wake. Any hardware input must wake and still be delivered (the
+  first event is never swallowed); a client connection wakes immediately and
+  hands display ownership to that client. Keep the scope strictly inside the
+  current `shouldDaemonShowIdleSurface()` / NO CLIENT ownership boundary: the
+  daemon must not infer application idleness or globally blank displays while a
+  registered client owns them. A later client-controlled display-sleep command
+  can be designed explicitly if Paulinche needs it; a true global safety policy
+  would first require separate desired-client and physical framebuffer shadows.
+  Treat this as defensive display blanking, not a promise of panel power-off.
+  Acceptance: focused deadline/wake tests plus simulator and physical-MK2 checks
+  for one-shot blacking, wake-without-event-loss, client handoff, and absence of
+  periodic USB display traffic while blanked.
+
 - Continue revisiting the daemon's libusb architecture for MK2 idle and client operation.
   Display, MIDI, surface input, button LEDs, and light guide sit on separate USB
   interfaces/endpoints, but the daemon still owns them through one device session and one
