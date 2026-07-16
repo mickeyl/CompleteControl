@@ -19,7 +19,7 @@ MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n\nTargets:\n", encoding } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -204,6 +204,9 @@ mk2-widget-lab-demo-sim: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab dem
 mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release ## Run optimized MK2 Widget Lab demo.
 	@$(MAKE) daemon-preflight
 	$(MK2_WIDGET_LAB_DEMO_RELEASE)
+
+kk-input: ## Open the interactive automation-input REPL with automatic socket discovery.
+	Scripts/kk-input.py
 
 kk-reset: kk-stop kk-clean-socket ## Stop foreground daemon leftovers and remove stale socket.
 

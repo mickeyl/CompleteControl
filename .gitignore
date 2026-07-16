@@ -1,5 +1,7 @@
 .build/
 .swiftpm/
+__pycache__/
+*.py[cod]
 .DS*
 .vscode
 Docs/Komplete-Kontrol-Protocol-Guide.md

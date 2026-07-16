@@ -134,9 +134,16 @@ the socket does not exist at all.
 
 ```bash
 CCD_ENABLE_AUTOMATION=1 ccd --kk-libusb-daemon /tmp/kk-test.sock
+KK_DAEMON_SOCKET=/tmp/kk-test.sock make kk-input
 Scripts/kk-input.py --socket /tmp/kk-test.sock.automation button play down
 Scripts/kk-input.py --socket /tmp/kk-test.sock.automation --script scenario.txt
 ```
+
+With no command, `kk-input.py` opens a readline-based REPL with contextual Tab completion,
+persistent command history, reconnect/status helpers, and clean Ctrl-C/Ctrl-D handling. The
+default `make kk-input` target auto-discovers `KK_DAEMON_SOCKET`, then the hardware and simulator
+daemon sockets. History is stored under `XDG_STATE_HOME` (normally
+`~/.local/state/kk-input/history`); use `--no-history` or `--history-file` to override it.
 
 Commands: `button <name> down|up`, `encoder <1-8> <delta>`, `encodertouch <1-8> on|off`,
 `fourdwheel <delta>`, `fourd left|up|down|right|click|touch|release`,

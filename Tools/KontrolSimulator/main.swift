@@ -33,6 +33,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static let simulatorDaemonSocketPath = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
     static let simulatorDaemonLogPath = "/tmp/kontrol-simulator-daemon.log"
     private var daemonProcess: Process?
+    private var restartDaemonAfterTermination = false
     private var daemonConnected = false
     private var terminationSignalSources: [DispatchSourceSignal] = []
     private var daemonStartItem: NSMenuItem?
@@ -209,6 +210,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        restartDaemonAfterTermination = false
         daemonProcess?.terminate()
     }
 
@@ -302,8 +304,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         process.standardError = log
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
-                self?.daemonProcess = nil
-                self?.refreshDaemonStatusPresentation()
+                guard let self else { return }
+                self.daemonProcess = nil
+                let shouldRestart = self.restartDaemonAfterTermination
+                    && UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart)
+                self.restartDaemonAfterTermination = false
+                self.refreshDaemonStatusPresentation()
+                if shouldRestart {
+                    self.startSimulatorDaemon()
+                }
             }
         }
         do {
@@ -316,6 +325,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func stopSimulatorDaemon() {
+        restartDaemonAfterTermination = false
         daemonProcess?.terminate()
     }
 
@@ -358,14 +368,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// The daemon only reads `CCD_ENABLE_AUTOMATION` at process start, so this takes effect
-    /// on the next "Start Simulator Daemon" — an already-running daemon keeps its current
-    /// setting until stopped and restarted.
+    /// The daemon only reads `CCD_ENABLE_AUTOMATION` at process start. Restart a daemon owned
+    /// by the simulator immediately when autostart is enabled; an externally attached daemon
+    /// keeps its current setting because its lifetime belongs to its launcher.
     @objc private func toggleDaemonAutomation() {
         let defaults = UserDefaults.standard
         let enabled = !defaults.bool(forKey: DefaultsKey.daemonAutomationEnabled)
         defaults.set(enabled, forKey: DefaultsKey.daemonAutomationEnabled)
         updateDaemonMenuState()
+        if defaults.bool(forKey: DefaultsKey.daemonAutostart), daemonProcess != nil {
+            restartDaemonAfterTermination = true
+            daemonProcess?.terminate()
+        } else if defaults.bool(forKey: DefaultsKey.daemonAutostart), !daemonConnected {
+            startSimulatorDaemon()
+        }
     }
 
     @objc private func copyClientEnvironment() {
