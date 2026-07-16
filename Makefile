@@ -18,11 +18,17 @@ MK2_USB_SPY := .build/debug/MK2USBSpy
 MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
+WIDGETLAB_TEST_SOCKET ?= /tmp/kontrol-simulator-daemon.sock
+WIDGETLAB_STRESS_DURATION ?= 15m
+WIDGETLAB_SOAK_DURATION ?= 8h
+WIDGETLAB_TEST_ARGS ?=
+ADAPTIVE_REPORT ?=
+LEGACY_REPORT ?=
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n\nTargets:\n", encoding } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -204,6 +210,22 @@ mk2-widget-lab-demo-sim: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab dem
 mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release ## Run optimized MK2 Widget Lab demo.
 	@$(MAKE) daemon-preflight
 	$(MK2_WIDGET_LAB_DEMO_RELEASE)
+
+mk2-widget-lab-test-validate: mk2-widget-lab-demo-build ## Validate that every Widget Lab demo has a smoke scenario.
+	Scripts/kk-widgetlab-test.py validate
+
+mk2-widget-lab-smoke: mk2-widget-lab-demo-build ## Run the complete Widget Lab smoke suite against the simulator daemon.
+	Scripts/kk-widgetlab-test.py smoke --socket $(WIDGETLAB_TEST_SOCKET) $(WIDGETLAB_TEST_ARGS)
+
+mk2-widget-lab-stress: mk2-widget-lab-demo-build ## Stress every Widget Lab demo (default: 15m; override WIDGETLAB_STRESS_DURATION).
+	Scripts/kk-widgetlab-test.py stress --socket $(WIDGETLAB_TEST_SOCKET) --duration $(WIDGETLAB_STRESS_DURATION) $(WIDGETLAB_TEST_ARGS)
+
+mk2-widget-lab-soak: mk2-widget-lab-demo-build ## Soak every Widget Lab demo (default: 8h; override WIDGETLAB_SOAK_DURATION).
+	Scripts/kk-widgetlab-test.py soak --socket $(WIDGETLAB_TEST_SOCKET) --duration $(WIDGETLAB_SOAK_DURATION) $(WIDGETLAB_TEST_ARGS)
+
+mk2-widget-lab-compare: ## Compare adaptive and legacy reports (set ADAPTIVE_REPORT and LEGACY_REPORT).
+	@test -n "$(ADAPTIVE_REPORT)" -a -n "$(LEGACY_REPORT)" || { echo "Set ADAPTIVE_REPORT and LEGACY_REPORT to report.json paths." >&2; exit 2; }
+	Scripts/kk-widgetlab-test.py compare --adaptive-report "$(ADAPTIVE_REPORT)" --legacy-report "$(LEGACY_REPORT)"
 
 kk-input: ## Open the interactive automation-input REPL with automatic socket discovery.
 	Scripts/kk-input.py

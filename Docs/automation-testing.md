@@ -173,7 +173,95 @@ purely through synthetic hardware input, on an isolated socket pair.
 5. Clean up: quit Paulinche, quit KontrolSimulator (its spawned `ccd` child exits with it), and
    remove the `/tmp/kontrol-simulator*` socket/log files if you want a clean slate.
 
-## 4. Full loop against real hardware
+## 4. Complete Widget Lab smoke, stress, and soak tests
+
+`kk-widgetlab-test.py` launches its own `MK2WidgetLabDemo` client, drives actual hardware input
+through the daemon's automation socket, and reads the daemon's completed display shadow out of
+band. It never starts, stops, restarts, or reconfigures the daemon. The simulator daemon must
+already be running with automation enabled as described in section 3.
+
+First validate the catalogue without a daemon. This fails whenever a registered Widget Lab demo
+has no scenario, or the manifest references a removed demo:
+
+```bash
+make mk2-widget-lab-test-validate
+```
+
+Then run the normal-use sweep. Every demo is opened, allowed to present its baseline scene, driven
+through its real bindings, and checked pixel-for-pixel on both 480×272 displays:
+
+```bash
+make mk2-widget-lab-smoke
+# Equivalent:
+Scripts/kk-widgetlab-test.py smoke --socket /tmp/kontrol-simulator-daemon.sock
+```
+
+The more aggressive profiles remove the per-scene baseline barrier, accelerate actions, shuffle
+the demo order from a recorded seed, and take periodic snapshots:
+
+```bash
+make mk2-widget-lab-stress                    # 15 minutes
+make mk2-widget-lab-soak                      # 8 hours
+
+WIDGETLAB_STRESS_DURATION=30m make mk2-widget-lab-stress
+WIDGETLAB_SOAK_DURATION=24h make mk2-widget-lab-soak
+
+Scripts/kk-widgetlab-test.py stress --cycles 100 --burst 3 --seed 42
+Scripts/kk-widgetlab-test.py soak --duration 8h --snapshot-interval 1m --seed 42
+```
+
+`--burst` repeats the external input sequence for ordinary demos. The display benchmark remains
+one serialized scenario per catalogue pass because it already performs 12 alternating updates per
+fixture and temporarily owns the daemon-wide display-measurement session.
+
+Use `WIDGETLAB_TEST_SOCKET` to select another simulator daemon and `WIDGETLAB_TEST_ARGS` for
+additional CLI flags. Physical hardware is refused unless the direct CLI is given both its socket
+and `--hardware`; the Make targets intentionally default to the simulator socket.
+
+Each run writes `report.json`, the Widget Lab stderr log, expected PNG/RGB565 frames, and—on a
+mismatch—actual PNGs plus red diff images. Progress goes to stderr; `--json` emits the final report
+on stdout. Ctrl-C stops only the runner-owned Widget Lab process and leaves the daemon untouched.
+
+### Adaptive versus legacy
+
+For a transport comparison, run the same fixed workload twice. Restart the simulator-owned daemon
+between runs with the requested `KK_MK2_DISPLAY_ENCODING`; the test tool deliberately does not
+change that setting itself.
+
+```bash
+# Daemon currently started with adaptive encoding:
+Scripts/kk-widgetlab-test.py soak --cycles 1000 --burst 3 --seed 42 \
+  --output /tmp/widgetlab-adaptive
+
+# Restart the simulator daemon with legacy encoding, then run the identical workload:
+Scripts/kk-widgetlab-test.py soak --cycles 1000 --burst 3 --seed 42 \
+  --output /tmp/widgetlab-legacy
+
+make mk2-widget-lab-compare \
+  ADAPTIVE_REPORT=/tmp/widgetlab-adaptive/report.json \
+  LEGACY_REPORT=/tmp/widgetlab-legacy/report.json
+```
+
+The comparison requires matching seed, action count, and scenario count. Both runs must have zero
+snapshot and transport failures; adaptive must stay within the configured latency threshold and
+must not use more bytes than legacy. Use fixed `--cycles`, rather than equal wall-clock durations,
+when a byte-for-byte workload comparison matters.
+
+The exact live check compares the Widget Lab's logical RGB565 frame with the daemon shadow after a
+display barrier. This verifies client rendering, diffing, completed daemon writes, and transport
+health. It does not optically read back a physical OLED. On the simulator it also does not yet
+capture the panel's post-wire decoded pixels; codec round-trip tests remain the wire-decoder check
+until the simulator exposes a live decoded-panel snapshot endpoint.
+
+### Why the Widget Lab REPL remains
+
+The REPL remains the operator/fixture plane: it opens demos, establishes deterministic visual
+fixtures, runs the display benchmark, and overrides LEDs or the light guide. `kk-input` and the test
+runner use the actual input plane. `--control-stdin` is a JSON-Lines protocol used only for
+catalogue discovery, deterministic setup, state queries, and expected snapshots; it never injects
+user actions directly.
+
+## 5. Full loop against real hardware
 
 Only once the currently running long-term test daemon is intentionally stopped. Add
 `CCD_ENABLE_AUTOMATION=1` to whatever starts it:

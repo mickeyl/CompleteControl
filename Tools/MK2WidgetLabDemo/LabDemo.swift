@@ -106,6 +106,8 @@ protocol LabDemo: AnyObject, Sendable {
     func replCommands() -> [ReplCommand]
     /// Handle a REPL line; return false to fall through to the shell's error.
     func handleRepl(verb: String, rest: String, _ context: LabContext) -> Bool
+    /// Optional machine-readable state for long-running test activities.
+    func testState() -> String?
 }
 
 extension LabDemo {
@@ -113,4 +115,5 @@ extension LabDemo {
     func demoWillClose() {}
     func replCommands() -> [ReplCommand] { [] }
     func handleRepl(verb: String, rest: String, _ context: LabContext) -> Bool { false }
+    func testState() -> String? { nil }
 }

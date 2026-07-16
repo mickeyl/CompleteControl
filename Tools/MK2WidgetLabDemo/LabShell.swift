@@ -165,6 +165,32 @@ actor LabShell {
         await render()
     }
 
+    func controlStatus() -> (mode: String, demo: String?, state: String?) {
+        switch mode {
+            case .browser:
+                return ("browser", nil, nil)
+            case .demo:
+                return ("demo", activeDemo?.descriptor.id, activeDemo?.testState())
+        }
+    }
+
+    func controlOpenDemo(id: String) async -> Bool {
+        guard let demo = demoRegistry.first(where: { $0.descriptor.id == id.lowercased() }) else {
+            return false
+        }
+        await openDemo(demo)
+        return true
+    }
+
+    func controlPrepareSnapshot(variant: String) async -> String? {
+        guard let activeDemo else { return nil }
+        let allowed = [""] + activeDemo.descriptor.snapshotVariants
+        guard allowed.contains(variant) else { return nil }
+        activeDemo.prepareSnapshot(variant: variant)
+        await render()
+        return activeDemo.descriptor.id
+    }
+
     func applyLampOverrides(to lamps: inout [KKMK2ButtonLED: MK2LampState2]) {
         for (led, state) in lampOverrides {
             lamps[led] = state
@@ -300,6 +326,33 @@ actor LabShell {
     }
 
     private func snapshot(to path: String?, layer: SnapshotLayer = .base) async {
+        let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-snapshot.png"
+        do {
+            let written = try PixelSnapshot.write(snapshotFrames(layer: layer), to: target)
+            print("snapshot → \(written)")
+        } catch {
+            print("snapshot failed: \(error)")
+        }
+    }
+
+    func controlSnapshot(to directory: String, name: String) throws -> LabSnapshotArtifacts {
+        let stem = Self.snapshotSlug(name).isEmpty ? "widgetlab-control" : Self.snapshotSlug(name)
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let frames = snapshotFrames(layer: .base)
+        let pngPath = directoryURL.appendingPathComponent("\(stem).png").path
+        try PixelSnapshot.write(frames, to: pngPath)
+
+        var rawPaths: [String] = []
+        for (index, frame) in frames.enumerated() {
+            let path = directoryURL.appendingPathComponent("\(stem)-\(index).rgb565").path
+            try Self.rgb565BEData(frame).write(to: URL(fileURLWithPath: path))
+            rawPaths.append(path)
+        }
+        return LabSnapshotArtifacts(png: pngPath, screensRGB565BE: rawPaths)
+    }
+
+    private func snapshotFrames(layer: SnapshotLayer) -> [MK2PixelFrame] {
         let currentScene = scene()
         var displays = currentScene.displays
         if layer == .shift, let shift = currentScene.shift {
@@ -307,14 +360,18 @@ actor LabShell {
                 shift.displays.indices.contains(index) ? shift.displays[index] ?? base : base
             }
         }
-        let frames = displays.map { $0 ?? MK2PixelFrame() }
-        let target = path ?? FileManager.default.currentDirectoryPath + "/widgetlab-snapshot.png"
-        do {
-            let written = try PixelSnapshot.write(frames, to: target)
-            print("snapshot → \(written)")
-        } catch {
-            print("snapshot failed: \(error)")
+        return displays.map { $0 ?? MK2PixelFrame() }
+    }
+
+    private static func rgb565BEData(_ frame: MK2PixelFrame) -> Data {
+        var data = Data()
+        data.reserveCapacity(MK2PixelFrame.width * MK2PixelFrame.height * 2)
+        for pixel in frame.pixels {
+            let hostOrder = UInt16(bigEndian: pixel)
+            data.append(UInt8((hostOrder >> 8) & 0xff))
+            data.append(UInt8(hostOrder & 0xff))
         }
+        return data
     }
 
     private func handleGuideCommand(_ rest: String) async {

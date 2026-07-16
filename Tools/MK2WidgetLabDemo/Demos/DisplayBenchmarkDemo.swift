@@ -141,6 +141,15 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
         runTask?.cancel()
     }
 
+    func testState() -> String? {
+        switch state {
+            case .ready: "ready"
+            case .running: "running"
+            case .complete: "complete"
+            case .failed: "failed"
+        }
+    }
+
     func replCommands() -> [ReplCommand] {
         [
             ReplCommand(
@@ -168,11 +177,13 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
         }
     }
 
-    private func cancel(_ context: LabContext) {
+    private func cancel(_: LabContext) {
         guard let runTask else { return }
         runTask.cancel()
-        state = .ready
-        context.update {}
+        // `ready` is also the machine-control completion signal. Publish it only
+        // after `run` has closed the daemon measurement session; otherwise an
+        // external runner can start its next session while cancellation cleanup
+        // is still ending the previous one.
     }
 
     private func run(iterations: Int, _ context: LabContext) async {
@@ -223,7 +234,7 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
                 _ = try? await context.endDisplayMeasurements()
             }
             let message = String(describing: error)
-            print("BENCH display error=\(message.replacingOccurrences(of: " ", with: "_"))")
+            labDiagnostic("BENCH display error=\(message.replacingOccurrences(of: " ", with: "_"))")
             runTask = nil
             state = .failed(message)
             context.update {}
@@ -470,9 +481,9 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
     }
 
     private func printResults(encoding: String, iterations: Int, results: [Result]) {
-        print("BENCH display encoding=\(encoding) iterations=\(iterations) scenarios=\(results.count)")
+        labDiagnostic("BENCH display encoding=\(encoding) iterations=\(iterations) scenarios=\(results.count)")
         for result in results {
-            print(String(
+            labDiagnostic(String(
                 format: "BENCH display scenario=%@ count=%d logicalAvg=%.0f transportAvg=%.0f usbMedianMs=%.3f wallMedianMs=%.3f wallP90Ms=%.3f",
                 result.id,
                 result.samples.count,
@@ -485,7 +496,7 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
         }
         let samples = results.flatMap(\.samples)
         let total = Result(id: "total", title: "TOTAL", samples: samples)
-        print(String(
+        labDiagnostic(String(
             format: "BENCH display totalCount=%d logicalAvg=%.0f transportAvg=%.0f usbMedianMs=%.3f wallMedianMs=%.3f wallP90Ms=%.3f",
             samples.count,
             total.averageLogicalBytes,

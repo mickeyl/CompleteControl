@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "demo": "encoder-feel",
+      "actions": [
+        { "send": "encoder 1 8" },
+        { "send": "encoder 8 64" },
+        { "send": "encodertouch 1 on" },
+        { "send": "encodertouch 1 off" }
+      ]
+    },
+    {
+      "demo": "panorama",
+      "actions": [
+        { "send": "encoder 7 3" },
+        { "send": "encoder 8 -4" },
+        { "tap": "instance" }
+      ]
+    },
+    {
+      "demo": "type-specimen",
+      "actions": [
+        { "send": "encoder 5 4" },
+        { "send": "encoder 6 3" },
+        { "send": "encoder 7 2" },
+        { "send": "encoder 8 8" },
+        { "tap": "instance" }
+      ]
+    },
+    {
+      "demo": "icon-browser",
+      "actions": [
+        { "send": "fourdwheel 2" },
+        { "tap": "pageright" },
+        { "send": "encoder 4 6" },
+        { "send": "encoder 5 2" },
+        { "send": "encoder 8 3" }
+      ]
+    },
+    {
+      "demo": "chrome-slots",
+      "actions": [
+        { "tap": "instance" },
+        { "send": "encoder 5 3" },
+        { "send": "encoder 6 5" },
+        { "send": "encoder 7 2" },
+        { "send": "encoder 8 2" }
+      ]
+    },
+    {
+      "demo": "forms",
+      "actions": [
+        { "tap": "instance" },
+        { "tap": "function5" },
+        { "tap": "function6" }
+      ]
+    },
+    {
+      "demo": "selection-browser",
+      "actions": [
+        { "send": "fourdwheel 2" },
+        { "send": "fourd click" },
+        { "send": "fourd release" },
+        { "tap": "instance" },
+        { "send": "encoder 5 3" },
+        { "send": "encoder 6 3" }
+      ]
+    },
+    {
+      "demo": "meter",
+      "variant": "protracker-scrub",
+      "actions": [
+        { "send": "fourdwheel -5" },
+        { "send": "encoder 5 3" },
+        { "send": "button shift down" },
+        { "tap": "instance" },
+        { "send": "button shift up" }
+      ]
+    },
+    {
+      "demo": "waveform",
+      "actions": [
+        { "send": "fourdwheel 3" },
+        { "tap": "instance" },
+        { "send": "encoder 5 4" },
+        { "send": "encoder 6 -3" },
+        { "send": "encoder 7 2" },
+        { "send": "encoder 8 2" }
+      ]
+    },
+    {
+      "demo": "tracker-pattern",
+      "actions": [
+        { "send": "fourdwheel 2" },
+        { "send": "encoder 1 3" },
+        { "tap": "play" },
+        { "wait_ms": 150 },
+        { "tap": "stop" },
+        { "tap": "record" },
+        { "send": "button shift down" },
+        { "tap": "clear" },
+        { "send": "button shift up" },
+        { "send": "fourd right" },
+        { "send": "fourd release" },
+        { "send": "fourd click" },
+        { "send": "fourd release" }
+      ]
+    },
+    {
+      "demo": "modal-dialog",
+      "actions": [
+        { "send": "encoder 5 2" },
+        { "send": "encoder 6 2" },
+        { "tap": "function1" },
+        { "send": "fourd down" },
+        { "send": "fourd release" },
+        { "send": "fourd click" },
+        { "send": "fourd release" }
+      ]
+    },
+    {
+      "demo": "light-guide",
+      "actions": [
+        { "send": "encoder 5 3" },
+        { "send": "encoder 6 2" },
+        { "send": "encoder 7 4" },
+        { "send": "encoder 8 2" },
+        { "send": "fourdwheel 5" },
+        { "send": "fourd click" },
+        { "send": "fourd release" },
+        { "tap": "clear" }
+      ]
+    },
+    {
+      "demo": "display-benchmark",
+      "actions": [
+        { "tap": "play" },
+        { "wait_state": "complete", "timeout": 45 },
+        { "tap": "play" },
+        { "wait_ms": 300 },
+        { "tap": "stop" },
+        { "wait_state": "ready", "timeout": 10 }
+      ]
+    }
+  ]
+}

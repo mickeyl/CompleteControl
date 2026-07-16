@@ -1,6 +1,15 @@
 import Foundation
 import KontrolSurfaceKit2
 
+func labDiagnostic(_ message: String) {
+    if CommandLine.arguments.contains("--control-stdin") {
+        fputs(message + "\n", stderr)
+        fflush(stderr)
+    } else {
+        print(message)
+    }
+}
+
 /// Shared lab look: the palette every demo composes from, plus the small
 /// helpers demos share. Internal so per-demo files stay palette-consistent.
 enum Palette {

@@ -1933,7 +1933,11 @@ public enum KompleteKontrolLibUSBServer {
             )
             var shouldSchedule = false
             lock.lock()
-            pendingDisplayBlits[command.screen] = blit
+            if let pending = pendingDisplayBlits[command.screen] {
+                pendingDisplayBlits[command.screen] = coalesceDisplayBlits(pending, blit)
+            } else {
+                pendingDisplayBlits[command.screen] = blit
+            }
             if !displayDrainScheduled {
                 displayDrainScheduled = true
                 shouldSchedule = true
@@ -1945,6 +1949,43 @@ public enum KompleteKontrolLibUSBServer {
                 }
             }
             return 0
+        }
+
+        /// Preserve every not-yet-written pixel while keeping one pending transfer per screen.
+        /// A later small row band must not replace an earlier full/broad band: doing so leaves
+        /// the untouched part of the physical display at its old scene even though the client
+        /// reconciler has already advanced past it.
+        private func coalesceDisplayBlits(
+            _ older: PendingDisplayBlit,
+            _ newer: PendingDisplayBlit
+        ) -> PendingDisplayBlit {
+            guard older.screen == newer.screen, older.clientID == newer.clientID else {
+                return newer
+            }
+            let combined = DaemonDisplayBlitCoalescer.coalesce(
+                older: DaemonDisplayBlitRegion(
+                    x: Int(older.x), y: Int(older.y),
+                    width: Int(older.width), height: Int(older.height), pixels: older.pixels
+                ),
+                newer: DaemonDisplayBlitRegion(
+                    x: Int(newer.x), y: Int(newer.y),
+                    width: Int(newer.width), height: Int(newer.height), pixels: newer.pixels
+                ),
+                shadow: MK2DisplayShadow.shared.snapshot(screen: newer.screen),
+                screenWidth: MK2DisplayShadow.width,
+                screenHeight: MK2DisplayShadow.height
+            )
+            return PendingDisplayBlit(
+                sequence: newer.sequence,
+                clientID: newer.clientID,
+                screen: newer.screen,
+                x: UInt16(combined.x),
+                y: UInt16(combined.y),
+                width: UInt16(combined.width),
+                height: UInt16(combined.height),
+                timeoutMs: max(older.timeoutMs, newer.timeoutMs),
+                pixels: combined.pixels
+            )
         }
 
         private func drainDisplayBlits() {

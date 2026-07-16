@@ -127,6 +127,7 @@ let package = Package(
             name: "MK2WidgetLabDemo",
             dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
             path: "Tools/MK2WidgetLabDemo",
+            exclude: ["SmokeScenarios.json"],
             resources: [
                 .copy("PhosphorIcons.regular.json"),
                 .copy("AboutHero.png"),

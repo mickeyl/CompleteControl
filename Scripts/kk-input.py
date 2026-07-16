@@ -5,18 +5,29 @@ import argparse
 import difflib
 import importlib
 import os
-import socket
 import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+from kk_daemon import (  # noqa: E402
+    AutomationClient,
+    CLIError,
+    EXIT_COMMAND,
+    EXIT_CONNECTION,
+    EXIT_IO,
+    EXIT_USAGE,
+    HARDWARE_SOCKET,
+    SIMULATOR_SOCKET,
+    automation_path,
+    automation_socket_candidates,
+    resolve_automation_socket_path,
+    socket_is_reachable,
+)
 
 
 VERSION = "1.0.0"
-HARDWARE_SOCKET = "/var/run/kompletekontrol-libusb.sock"
-SIMULATOR_SOCKET = "/tmp/kontrol-simulator-daemon.sock"
-
-EXIT_COMMAND = 1
-EXIT_USAGE = 2
-EXIT_CONNECTION = 3
-EXIT_IO = 4
 
 REMOTE_COMMAND_USAGE = {
     "button": "button <name> down|up",
@@ -95,52 +106,6 @@ Use Tab for contextual completion and the arrow keys to browse history.
 """
 
 
-class CLIError(Exception):
-    def __init__(self, message, exit_code=EXIT_IO):
-        super().__init__(message)
-        self.exit_code = exit_code
-
-
-def automation_path(base_path):
-    return base_path if base_path.endswith(".automation") else base_path + ".automation"
-
-
-def automation_socket_candidates(explicit=None, environ=None):
-    if explicit:
-        return [automation_path(explicit)]
-    environ = os.environ if environ is None else environ
-    configured = environ.get("KK_DAEMON_SOCKET")
-    bases = [configured] if configured else [HARDWARE_SOCKET, SIMULATOR_SOCKET]
-    return [automation_path(path) for path in bases if path]
-
-
-def socket_is_reachable(path, timeout=0.5):
-    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    probe.settimeout(timeout)
-    try:
-        probe.connect(path)
-        return True
-    except OSError:
-        return False
-    finally:
-        probe.close()
-
-
-def resolve_automation_socket_path(explicit=None, environ=None, reachable=socket_is_reachable):
-    candidates = automation_socket_candidates(explicit, environ)
-    if explicit:
-        return candidates[0]
-    for path in candidates:
-        if os.path.exists(path) and reachable(path):
-            return path
-    raise CLIError(
-        "No reachable automation socket. Tried: %s\n"
-        "Start ccd with CCD_ENABLE_AUTOMATION=1, or pass --socket <path>."
-        % ", ".join(candidates),
-        EXIT_CONNECTION,
-    )
-
-
 def default_history_path(environ=None):
     environ = os.environ if environ is None else environ
     state_home = environ.get("XDG_STATE_HOME")
@@ -148,80 +113,6 @@ def default_history_path(environ=None):
         home = environ.get("HOME") or os.path.expanduser("~")
         state_home = os.path.join(home, ".local", "state")
     return os.path.join(state_home, "kk-input", "history")
-
-
-class AutomationClient:
-    def __init__(self, path, timeout=3.0):
-        self.path = path
-        self.timeout = timeout
-        self._socket = None
-        self._buffer = b""
-
-    @property
-    def connected(self):
-        return self._socket is not None
-
-    def connect(self):
-        self.close()
-        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        connection.settimeout(self.timeout)
-        try:
-            connection.connect(self.path)
-        except OSError as error:
-            connection.close()
-            raise CLIError(
-                "Can't connect to %s: %s\n"
-                "Check that ccd is running with CCD_ENABLE_AUTOMATION=1."
-                % (self.path, error.strerror or error),
-                EXIT_CONNECTION,
-            ) from error
-        self._socket = connection
-        self._buffer = b""
-
-    def close(self):
-        if self._socket is not None:
-            self._socket.close()
-        self._socket = None
-        self._buffer = b""
-
-    def send_line(self, line):
-        if self._socket is None:
-            raise CLIError("Not connected. Run 'reconnect' and try again.", EXIT_CONNECTION)
-        try:
-            self._socket.sendall((line + "\n").encode("utf-8"))
-            while b"\n" not in self._buffer:
-                chunk = self._socket.recv(4096)
-                if not chunk:
-                    self.close()
-                    raise CLIError(
-                        "The daemon closed the automation connection. Run 'reconnect' and try again.",
-                        EXIT_CONNECTION,
-                    )
-                self._buffer += chunk
-        except socket.timeout as error:
-            self.close()
-            raise CLIError(
-                "Timed out waiting for the daemon. The command may already have been delivered; "
-                "run 'reconnect' before continuing.",
-                EXIT_CONNECTION,
-            ) from error
-        except OSError as error:
-            self.close()
-            raise CLIError(
-                "Automation connection failed: %s. Run 'reconnect' and try again."
-                % (error.strerror or error),
-                EXIT_CONNECTION,
-            ) from error
-
-        response, self._buffer = self._buffer.split(b"\n", 1)
-        return response.decode("utf-8", "replace")
-
-    def __enter__(self):
-        self.connect()
-        return self
-
-    def __exit__(self, _error_type, _error, _traceback):
-        self.close()
 
 
 class CommandCompleter:
