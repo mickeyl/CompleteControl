@@ -14,6 +14,30 @@ struct DaemonBinaryProtocolTests {
         #expect(buffer.count == KKDaemonBinaryFrame.headerByteCount - 1)
     }
 
+    @Test("frame with a payload length above the max is rejected instead of waiting forever")
+    func oversizedPayloadIsRejected() {
+        var buffer: [UInt8] = []
+        buffer.appendUInt32LE(KKDaemonBinaryFrame.magic)
+        buffer.append(KKDaemonBinaryFrame.version)
+        buffer.append(KKDaemonBinaryChannel.control.rawValue)
+        buffer.appendUInt16LE(KKDaemonBinaryMessageType.displayBlit.rawValue)
+        buffer.appendUInt16LE(0) // flags
+        buffer.appendUInt16LE(0) // reserved
+        buffer.appendUInt32LE(42) // sequence
+        buffer.appendUInt32LE(UInt32(KKDaemonBinaryCodec.maxPayloadByteCount + 1)) // bogus length, no payload follows
+
+        var rejection: KKDaemonBinaryDecodeRejection?
+        let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer) { rejection = $0 }
+
+        #expect(frames == nil)
+        guard case let .payloadTooLarge(_, _, sequence, payloadCount) = rejection else {
+            Issue.record("expected a payloadTooLarge rejection, got \(String(describing: rejection))")
+            return
+        }
+        #expect(sequence == 42)
+        #expect(payloadCount == KKDaemonBinaryCodec.maxPayloadByteCount + 1)
+    }
+
     @Test("multiple frames decode in order")
     func multipleFramesDecodeInOrder() {
         let first = KKDaemonBinaryFrame(channel: .event, type: .input, sequence: 1, payload: [1, 2, 3])

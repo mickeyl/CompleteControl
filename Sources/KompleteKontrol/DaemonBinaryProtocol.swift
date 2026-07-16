@@ -148,19 +148,40 @@ public struct KKDaemonBinaryFrame: Sendable, Equatable {
     }
 }
 
+/// Reported to `decodeFrames`'s `onReject` closure so a caller can log which client/command
+/// triggered a decode failure. The largest legitimate frame (a full-screen display blit) is
+/// ~261 KB, so `maxPayloadByteCount` catches a corrupted/miscomputed length header without
+/// risking real traffic — without a bound, a bad length wedges the connection forever: the
+/// parser waits for bytes that will never complete the claimed frame, and every subsequent
+/// byte the client sends gets appended behind it instead of being recognized as its own frame.
+public enum KKDaemonBinaryDecodeRejection: Sendable {
+    case malformedHeader(headBytes: [UInt8])
+    case payloadTooLarge(channel: UInt8, type: UInt16, sequence: UInt32, payloadCount: Int)
+}
+
 public enum KKDaemonBinaryCodec {
-    public static func decodeFrames(from buffer: inout [UInt8]) -> [KKDaemonBinaryFrame]? {
+    public static let maxPayloadByteCount = 1_048_576
+
+    public static func decodeFrames(
+        from buffer: inout [UInt8],
+        onReject: ((KKDaemonBinaryDecodeRejection) -> Void)? = nil
+    ) -> [KKDaemonBinaryFrame]? {
         var frames: [KKDaemonBinaryFrame] = []
         while buffer.count >= KKDaemonBinaryFrame.headerByteCount {
             guard buffer.readUInt32LE(at: 0) == KKDaemonBinaryFrame.magic,
                   buffer[4] == KKDaemonBinaryFrame.version,
                   let channel = KKDaemonBinaryChannel(rawValue: buffer[5]),
                   let type = KKDaemonBinaryMessageType(rawValue: buffer.readUInt16LE(at: 6)) else {
+                onReject?(.malformedHeader(headBytes: Array(buffer.prefix(KKDaemonBinaryFrame.headerByteCount))))
                 return nil
             }
             let flags = buffer.readUInt16LE(at: 8)
             let sequence = buffer.readUInt32LE(at: 12)
             let payloadCount = Int(buffer.readUInt32LE(at: 16))
+            guard payloadCount <= maxPayloadByteCount else {
+                onReject?(.payloadTooLarge(channel: buffer[5], type: buffer.readUInt16LE(at: 6), sequence: sequence, payloadCount: payloadCount))
+                return nil
+            }
             let total = KKDaemonBinaryFrame.headerByteCount + payloadCount
             guard buffer.count >= total else { break }
             let payload = Array(buffer[KKDaemonBinaryFrame.headerByteCount..<total])

@@ -1007,7 +1007,14 @@ public enum KompleteKontrolLibUSBServer {
             hardware.markControlClientBinary(clientID: clientID)
         }
         if isBinaryConnection {
-            guard let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer) else {
+            guard let frames = KKDaemonBinaryCodec.decodeFrames(from: &buffer, onReject: { rejection in
+                switch rejection {
+                    case let .malformedHeader(headBytes):
+                        daemonLog("client \(clientID) binary frame rejected: malformed header bytes=\(KKTiming.short(headBytes))", group: "client", level: .error)
+                    case let .payloadTooLarge(rejectedChannel, type, sequence, payloadCount):
+                        daemonLog("client \(clientID) binary frame rejected: payload too large channel=\(rejectedChannel) type=\(type) sequence=\(sequence) payloadCount=\(payloadCount) max=\(KKDaemonBinaryCodec.maxPayloadByteCount)", group: "client", level: .error)
+                }
+            }) else {
                 writeBinaryFrame(
                     KKDaemonBinaryFrame(channel: channel, type: .ack, sequence: 0, payload: KKDaemonBinaryCodec.ackPayload(status: -1, message: "binary parse")),
                     to: fd
