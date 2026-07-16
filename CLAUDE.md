@@ -38,6 +38,30 @@ For a reusable Kit2 API, also realize it in `MK2WidgetLabDemo` and add focused
 or snapshot coverage. The simulator should remain wire-compatible with the
 hardware daemon.
 
+Validation is change-scoped. During implementation, use the narrowest build,
+focused test, snapshot, harness, simulator flow, or hardware smoke that can fail
+because of the change. Run daemon, USB, protocol, display, simulator, and
+real-device smokes only when their corresponding subsystem is affected; their
+existence does not make them mandatory for unrelated work. Documentation- and
+agent-rule-only changes require diff and command review, not product builds or
+smokes.
+
+Run typography or text-rendering smokes only after changes to rendered
+user-facing copy, localization, presentation formatting, font metrics, or text
+layout. Apply microtypography only to rendered user-facing text and deliberately
+published end-user content. In implementation source, comments, doc comments,
+logs, test diagnostics, identifiers, protocol strings, file names, and
+machine-readable data, use ordinary spaces and plain developer punctuation;
+never paste literal `U+00A0` or `U+202F` characters there. If source must emit
+one for user-facing output, use localization, a presentation formatter, or
+visible Unicode escape syntax instead of an invisible literal.
+
+Unless release, integration, broad shared-contract work, an explicit user
+request, or full-suite-only diagnosis requires otherwise, run the broad
+all-target/full suite at most once per local calendar day at the end of the
+substantive working session. A passing result covers only the revision and
+worktree state it actually tested; later changes still need focused validation.
+
 ## Daemon
 
 The normal hardware daemon is `ccd --kk-libusb-daemon [socket-path]`. It owns
