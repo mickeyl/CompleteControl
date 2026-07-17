@@ -66,13 +66,12 @@ struct PaulinchePatternRendererTests {
         #expect(rendered.bindings.buttonDown[.function5] == nil)
     }
 
-    @Test("Pattern edit screen draws the parameter page and no meters")
-    func patternEditScreenDrawsParameterPage() {
+    @Test("Pattern edit screen draws row information above the parameter page")
+    func patternEditScreenDrawsRowInformation() {
         let rendered = MK2PaulinchePatternRenderer.render(Self.fixture())
         let edit = rendered.right.screen.frame
         #expect(edit.countPixels(in: MK2PixelRect(x: 8, y: 215, width: 464, height: 57), notMatching: Self.background) > 300)
-        // The area between the status line and the parameter page stays empty (no meters, no hint text).
-        #expect(edit.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 130), notMatching: Self.background) == 0)
+        #expect(edit.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 145), notMatching: Self.background) > 300)
     }
 
     @Test("Pattern edit footer forwards encoder deltas and touches")
@@ -206,6 +205,26 @@ struct PaulinchePatternRendererTests {
                 MK2PaulinchePatternParameter(label: "INST", iconGlyph: MK2HIG.IconGlyph.pianoKeys, value: "04", isFocused: true),
                 MK2PaulinchePatternParameter(label: "VOL", iconGlyph: MK2HIG.IconGlyph.speakerHigh, value: "50"),
                 MK2PaulinchePatternParameter(label: "FX", iconGlyph: MK2HIG.IconGlyph.lightning, value: "F06"),
+            ],
+            rowInfo: [
+                MK2PaulinchePatternRowInfo(
+                    kind: .instrument,
+                    label: "INSTRUMENT",
+                    value: "04  Pulse Lead",
+                    detail: "Wavetable · pulse · 16x64 · chip"
+                ),
+                MK2PaulinchePatternRowInfo(
+                    kind: .volume,
+                    label: "VOLUME",
+                    value: "50 / 64",
+                    detail: "78% tracker level"
+                ),
+                MK2PaulinchePatternRowInfo(
+                    kind: .effect,
+                    label: "EFFECT",
+                    value: "F06  Set speed",
+                    detail: "6 ticks per row; song groove can override this"
+                ),
             ],
             softKeys: [
                 MK2PaulincheSoftKey(label: "Clear", commandID: "clearCell"),

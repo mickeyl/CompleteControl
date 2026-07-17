@@ -56,6 +56,26 @@ public struct MK2PaulinchePatternParameter: Sendable, Equatable {
     }
 }
 
+public enum MK2PaulinchePatternRowInfoKind: Sendable, Equatable {
+    case instrument
+    case volume
+    case effect
+}
+
+public struct MK2PaulinchePatternRowInfo: Sendable, Equatable {
+    public var kind: MK2PaulinchePatternRowInfoKind
+    public var label: String
+    public var value: String
+    public var detail: String
+
+    public init(kind: MK2PaulinchePatternRowInfoKind, label: String, value: String, detail: String) {
+        self.kind = kind
+        self.label = label
+        self.value = value
+        self.detail = detail
+    }
+}
+
 public struct MK2PaulincheSoftKey: Sendable, Equatable {
     public var label: String
     public var commandID: String?
@@ -87,6 +107,7 @@ public struct MK2PaulinchePatternScene: Sendable, Equatable {
     public var rowActivity: [Bool]
     public var channels: [MK2PaulinchePatternChannel]
     public var parameters: [MK2PaulinchePatternParameter]
+    public var rowInfo: [MK2PaulinchePatternRowInfo]
     public var softKeys: [MK2PaulincheSoftKey]
 
     public init(
@@ -104,6 +125,7 @@ public struct MK2PaulinchePatternScene: Sendable, Equatable {
         rowActivity: [Bool] = [],
         channels: [MK2PaulinchePatternChannel] = [],
         parameters: [MK2PaulinchePatternParameter],
+        rowInfo: [MK2PaulinchePatternRowInfo] = [],
         softKeys: [MK2PaulincheSoftKey] = []
     ) {
         self.title = title
@@ -120,6 +142,7 @@ public struct MK2PaulinchePatternScene: Sendable, Equatable {
         self.rowActivity = rowActivity
         self.channels = channels
         self.parameters = Array(parameters.prefix(8))
+        self.rowInfo = rowInfo
         self.softKeys = Array(softKeys.prefix(8))
     }
 }
@@ -243,15 +266,17 @@ public enum MK2PaulinchePatternRenderer {
         typealias Palette = MK2PaulincheRendererSupport.Palette
         let statusItems = [
             MK2StatusLineItem("EDIT", x: 8, color: Palette.blue),
-            MK2StatusLineItem("CH\(scene.selectedChannelIndex + 1)", x: 92, color: Palette.dim),
+            MK2StatusLineItem("ROW \(hex2(scene.selectedRowIndex))", x: 76, color: Palette.text, font: .gridBold),
+            MK2StatusLineItem("CH\(scene.selectedChannelIndex + 1)", x: 150, color: Palette.dim),
         ]
         let instrumentLabel = scene.instrumentLabel
 
         return MK2FullScreenDSL(background: Palette.background) {
             MK2StatusLineElement(y: 8, items: statusItems + [
-                MK2StatusLineItem(instrumentLabel, x: 158, color: Palette.instrument, maxWidth: 314),
+                MK2StatusLineItem(instrumentLabel, x: 206, color: Palette.instrument, maxWidth: 266),
             ], relativeToContent: false)
             MK2SeparatorElement(y: 55, style: .line(Palette.border), relativeToContent: false)
+            rowInspectorElements(scene.rowInfo)
             MK2ParameterPageElement(
                 slots: parameterSlots(scene.parameters),
                 rect: MK2PixelRect(x: 8, y: 215, width: 464, height: 57),
@@ -260,6 +285,110 @@ public enum MK2PaulinchePatternRenderer {
             )
             editEncoderBindings(scene.parameters, actions: actions)
         }.build(renderer: renderer)
+    }
+
+    private static func rowInspectorElements(
+        _ rowInfo: [MK2PaulinchePatternRowInfo]
+    ) -> [any MK2ScreenElement] {
+        typealias Palette = MK2PaulincheRendererSupport.Palette
+        guard !rowInfo.isEmpty else { return [] }
+        let instrument = rowInfo.first { $0.kind == .instrument }
+        let volume = rowInfo.first { $0.kind == .volume }
+        let effect = rowInfo.first { $0.kind == .effect }
+        var elements: [any MK2ScreenElement] = []
+
+        if let instrument {
+            elements.append(MK2ContentText(
+                instrument.label,
+                x: 8,
+                y: 66,
+                maxWidth: 288,
+                role: .custom(weight: .bold, pixelSize: 11),
+                color: Palette.instrument,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                instrument.value,
+                x: 8,
+                y: 84,
+                maxWidth: 288,
+                role: .custom(weight: .medium, pixelSize: 14),
+                color: Palette.text,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                instrument.detail,
+                x: 8,
+                y: 108,
+                maxWidth: 288,
+                role: .footnote,
+                color: Palette.dim,
+                relativeToContent: false
+            ))
+        }
+
+        if let volume {
+            elements.append(MK2ContentText(
+                volume.label,
+                x: 316,
+                y: 66,
+                maxWidth: 156,
+                role: .custom(weight: .bold, pixelSize: 11),
+                color: Palette.blue,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                volume.value,
+                x: 316,
+                y: 84,
+                maxWidth: 156,
+                role: .custom(weight: .medium, pixelSize: 14),
+                color: Palette.text,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                volume.detail,
+                x: 316,
+                y: 108,
+                maxWidth: 156,
+                role: .footnote,
+                color: Palette.dim,
+                relativeToContent: false
+            ))
+        }
+
+        if let effect {
+            elements.append(MK2SeparatorElement(y: 139, style: .line(Palette.border), relativeToContent: false))
+            elements.append(MK2ContentText(
+                effect.label,
+                x: 8,
+                y: 150,
+                maxWidth: 464,
+                role: .custom(weight: .bold, pixelSize: 11),
+                color: Palette.effect,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                effect.value,
+                x: 8,
+                y: 168,
+                maxWidth: 464,
+                role: .custom(weight: .medium, pixelSize: 14),
+                color: Palette.text,
+                relativeToContent: false
+            ))
+            elements.append(MK2ContentText(
+                effect.detail,
+                x: 8,
+                y: 191,
+                maxWidth: 464,
+                role: .footnote,
+                color: Palette.dim,
+                relativeToContent: false
+            ))
+        }
+
+        return elements
     }
 
     private static func parameterSlots(_ parameters: [MK2PaulinchePatternParameter]) -> [MK2ParameterPageSlot] {
