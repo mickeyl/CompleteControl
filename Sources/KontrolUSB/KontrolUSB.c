@@ -22,12 +22,16 @@ typedef struct {
     uint8_t claimInterface;
     uint8_t displayInterface;
     uint8_t displayOutputEndpointFallback;
+    uint8_t surfaceInterface;
+    uint8_t claimsMIDI;
+    uint16_t surfaceInputTransferSize;
 } KontrolDeviceDescriptor;
 
 static const KontrolDeviceDescriptor kKontrolDevices[] = {
-    {0x1610, "Komplete Kontrol S49 MK2", 49, 3, 3, 0x03},
-    {0x1620, "Komplete Kontrol S61 MK2", 61, 3, 3, 0x03},
-    {0x1630, "Komplete Kontrol S88 MK2", 88, 3, 3, 0x03},
+    {0x1610, "Komplete Kontrol S49 MK2", 49, 3, 3, 0x03, KONTROL_NO_INTERFACE, 1, 256},
+    {0x1620, "Komplete Kontrol S61 MK2", 61, 3, 3, 0x03, KONTROL_NO_INTERFACE, 1, 256},
+    {0x1630, "Komplete Kontrol S88 MK2", 88, 3, 3, 0x03, KONTROL_NO_INTERFACE, 1, 256},
+    {0x1600, "Maschine MK3", 0, 5, 5, 0x04, 4, 0, 64},
 };
 
 static const size_t kKontrolDeviceCount = sizeof(kKontrolDevices) / sizeof(kKontrolDevices[0]);
@@ -456,6 +460,7 @@ static void libusb_find_bulk_display_endpoint(libusb_device_handle *handle, cons
 }
 
 static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle,
+                                              const KontrolDeviceDescriptor *deviceProfile,
                                               uint8_t *interfaceOut,
                                               uint8_t *inputOut,
                                               uint8_t *outputOut,
@@ -509,6 +514,11 @@ static void libusb_find_hid_surface_endpoints(libusb_device_handle *handle,
                           alt->bInterfaceProtocol,
                           alt->bNumEndpoints);
             if (alt->bInterfaceClass != LIBUSB_CLASS_HID) {
+                continue;
+            }
+            if (deviceProfile != NULL
+                && deviceProfile->surfaceInterface != KONTROL_NO_INTERFACE
+                && alt->bInterfaceNumber != deviceProfile->surfaceInterface) {
                 continue;
             }
 
@@ -614,6 +624,7 @@ static int libusb_claim_hid_surface(KontrolLibUSBSession *session, KontrolUSBRes
 
     libusb_find_hid_surface_endpoints(
         session->handle,
+        session->device,
         &session->surfaceInterface,
         &session->inputEndpoint,
         &session->outputEndpoint,
@@ -645,7 +656,7 @@ static int libusb_claim_hid_surface(KontrolLibUSBSession *session, KontrolUSBRes
             if (status == 0) {
                 session->auxSurfaceClaimed = 1;
             } else {
-                result_append(result, "MK2 aux HID claim unavailable status=%d (%s); ",
+                result_append(result, "aux HID claim unavailable status=%d (%s); ",
                               status,
                               status < 0 ? libusb_error_name(status) : "OK");
                 session->auxInputEndpoint = 0;
@@ -851,15 +862,22 @@ KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, Kontr
     libusb_find_bulk_display_endpoint(session->handle, device, &session->displayOutputEndpoint, &result);
     int surfaceStatus = libusb_claim_hid_surface(session, &result);
     if (surfaceStatus != 0) {
-        result_append(&result, "MK2 HID surface claim unavailable status=%d (%s); ",
+        result_append(&result, "HID surface claim unavailable status=%d (%s); ",
                       surfaceStatus,
                       surfaceStatus < 0 ? libusb_error_name(surfaceStatus) : "OK");
     }
-    int midiStatus = libusb_claim_midi_streaming(session, &result);
-    if (midiStatus != 0 && midiStatus != LIBUSB_ERROR_NOT_FOUND) {
-        result_append(&result, "USB-MIDI claim unavailable status=%d (%s); ",
-                      midiStatus,
-                      midiStatus < 0 ? libusb_error_name(midiStatus) : "OK");
+    session->midiInterface = KONTROL_NO_INTERFACE;
+    session->midiInputEndpoint = KONTROL_NO_ENDPOINT;
+    session->midiClaimed = 0;
+    if (device != NULL && device->claimsMIDI) {
+        int midiStatus = libusb_claim_midi_streaming(session, &result);
+        if (midiStatus != 0 && midiStatus != LIBUSB_ERROR_NOT_FOUND) {
+            result_append(&result, "USB-MIDI claim unavailable status=%d (%s); ",
+                          midiStatus,
+                          midiStatus < 0 ? libusb_error_name(midiStatus) : "OK");
+        }
+    } else {
+        result_append(&result, "USB-MIDI claim disabled by device profile; ");
     }
     result.endpointAddress = session->outputEndpoint != 0 ? session->outputEndpoint : session->displayOutputEndpoint;
     *sessionOut = session;
@@ -1024,6 +1042,25 @@ KontrolUSBResult KontrolUSBLibUSBSessionWrite(KontrolUSBLibUSBSessionRef session
     result.opened = 1;
     result.pipeRef = 1;
     result.endpointAddress = session->outputEndpoint;
+    if (session->device != NULL && session->device->productID == 0x1600) {
+        uint32_t expectedPayloadLen = 0;
+        if (reportID == 0x80) {
+            expectedPayloadLen = 62;
+        } else if (reportID == 0x81) {
+            expectedPayloadLen = 41;
+        } else {
+            result_append(&result, "MASCHINE MK3 output report 0x%02x is not verified; ", reportID);
+            return result;
+        }
+        if (payloadLen != expectedPayloadLen) {
+            result_append(&result,
+                          "MASCHINE MK3 output report 0x%02x payload len%u expected%u; ",
+                          reportID,
+                          payloadLen,
+                          expectedPayloadLen);
+            return result;
+        }
+    }
     int status = 0;
     if (session->outputEndpoint != 0) {
         status = libusb_write_report(session->handle, session->outputEndpoint, reportID, payload, payloadLen, &result);
@@ -1585,11 +1622,17 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
             kk_usb_debug_log("usb-surface", "ERROR", "alloc transfer failed");
             return -1;
         }
+        size_t transferSize = session->device != NULL
+            ? session->device->surfaceInputTransferSize
+            : sizeof(session->inputBuffer);
+        if (transferSize == 0 || transferSize > sizeof(session->inputBuffer)) {
+            transferSize = sizeof(session->inputBuffer);
+        }
         libusb_fill_interrupt_transfer(session->inputTransfer,
                                        session->handle,
                                        session->inputEndpoint,
                                        session->inputBuffer,
-                                       sizeof(session->inputBuffer),
+                                       (int)transferSize,
                                        input_transfer_callback,
                                        session,
                                        0);
@@ -1600,9 +1643,9 @@ int KontrolUSBLibUSBSessionStartAsyncInput(KontrolUSBLibUSBSessionRef sessionRef
     session->inputTransferPending = status == 0;
     kk_usb_debug_log("usb-surface",
                      status == 0 ? "INFO" : "ERROR",
-                     "start async input endpoint=0x%02x buffer=%zu status=%d",
+                     "start async input endpoint=0x%02x buffer=%d status=%d",
                      session->inputEndpoint,
-                     sizeof(session->inputBuffer),
+                     session->inputTransfer != NULL ? session->inputTransfer->length : 0,
                      status);
 
     int auxStatus = 0;

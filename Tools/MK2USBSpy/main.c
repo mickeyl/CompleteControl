@@ -15,7 +15,8 @@
 #include "MK2DisplayCommandREPL.h"
 
 static const uint16_t kVendorNativeInstruments = 0x17cc;
-static const uint16_t kMK2PIDs[] = {0x1610, 0x1620, 0x1630};
+static const uint16_t kSupportedPIDs[] = {0x1610, 0x1620, 0x1630, 0x1600};
+static const uint16_t kMaschineMK3PID = 0x1600;
 
 static volatile sig_atomic_t g_shouldStop = 0;
 
@@ -28,6 +29,13 @@ typedef struct {
     int packetSize;
     uint64_t sequence;
 } EndpointWatch;
+
+typedef struct {
+    bool requested[256];
+    int count;
+} InterfaceSelection;
+
+static bool parse_u16(const char *text, uint16_t *valueOut);
 
 static void handle_signal(int signalNumber) {
     (void)signalNumber;
@@ -80,13 +88,35 @@ static const char *transfer_status_name(enum libusb_transfer_status status) {
     }
 }
 
-static bool is_mk2_pid(uint16_t productID) {
-    for (size_t index = 0; index < sizeof(kMK2PIDs) / sizeof(kMK2PIDs[0]); index++) {
-        if (kMK2PIDs[index] == productID) {
+static bool is_supported_pid(uint16_t productID) {
+    for (size_t index = 0; index < sizeof(kSupportedPIDs) / sizeof(kSupportedPIDs[0]); index++) {
+        if (kSupportedPIDs[index] == productID) {
             return true;
         }
     }
     return false;
+}
+
+static bool parse_interface_list(const char *text, InterfaceSelection *selection) {
+    if (text == NULL || text[0] == '\0' || text[0] == ',' || text[strlen(text) - 1] == ',' || strstr(text, ",,") != NULL) {
+        return false;
+    }
+    char *copy = strdup(text);
+    if (copy == NULL) {
+        return false;
+    }
+    char *save = NULL;
+    for (char *token = strtok_r(copy, ",", &save); token != NULL; token = strtok_r(NULL, ",", &save)) {
+        uint16_t value = 0;
+        if (!parse_u16(token, &value) || value > UINT8_MAX || selection->requested[value]) {
+            free(copy);
+            return false;
+        }
+        selection->requested[value] = true;
+        selection->count++;
+    }
+    free(copy);
+    return selection->count > 0;
 }
 
 static bool parse_u16(const char *text, uint16_t *valueOut) {
@@ -188,13 +218,14 @@ static void dump_descriptors(libusb_device *device, libusb_device_handle *handle
         return;
     }
 
-    printf("device bus=%u address=%u vid=0x%04x pid=0x%04x usb=%x.%02x class=0x%02x/%s configs=%u\n",
+    printf("device bus=%u address=%u vid=0x%04x pid=0x%04x usb=%x.%02x bcdDevice=0x%04x class=0x%02x/%s configs=%u\n",
            libusb_get_bus_number(device),
            libusb_get_device_address(device),
            descriptor.idVendor,
            descriptor.idProduct,
            descriptor.bcdUSB >> 8,
            descriptor.bcdUSB & 0xff,
+           descriptor.bcdDevice,
            descriptor.bDeviceClass,
            class_name(descriptor.bDeviceClass),
            descriptor.bNumConfigurations);
@@ -306,12 +337,34 @@ static void transfer_callback(struct libusb_transfer *transfer) {
     }
 }
 
-static int claim_all_interfaces(libusb_device_handle *handle, libusb_device *device, bool detachKernelDrivers) {
+static int claim_interfaces(libusb_device_handle *handle,
+                            libusb_device *device,
+                            bool detachKernelDrivers,
+                            const InterfaceSelection *selection,
+                            bool claimedInterfaces[256],
+                            bool detachedInterfaces[256]) {
     struct libusb_config_descriptor *config = NULL;
     int status = libusb_get_active_config_descriptor(device, &config);
     if (status != 0) {
         printf("libusb_get_active_config_descriptor -> %s\n", libusb_error_name(status));
         return status;
+    }
+
+    bool foundInterfaces[256] = {false};
+    for (uint8_t index = 0; index < config->bNumInterfaces; index++) {
+        const struct libusb_interface *interface = &config->interface[index];
+        if (interface->num_altsetting > 0) {
+            foundInterfaces[interface->altsetting[0].bInterfaceNumber] = true;
+        }
+    }
+    if (selection->count > 0) {
+        for (int interfaceNumber = 0; interfaceNumber <= UINT8_MAX; interfaceNumber++) {
+            if (selection->requested[interfaceNumber] && !foundInterfaces[interfaceNumber]) {
+                fprintf(stderr, "Interface %d is not present on the selected device. Run with --describe to inspect it.\n", interfaceNumber);
+                libusb_free_config_descriptor(config);
+                return LIBUSB_ERROR_NOT_FOUND;
+            }
+        }
     }
 
     int claimed = 0;
@@ -321,6 +374,10 @@ static int claim_all_interfaces(libusb_device_handle *handle, libusb_device *dev
             continue;
         }
         uint8_t interfaceNumber = interface->altsetting[0].bInterfaceNumber;
+        if (selection->count > 0 && !selection->requested[interfaceNumber]) {
+            continue;
+        }
+        bool detached = false;
         if (detachKernelDrivers) {
             int active = libusb_kernel_driver_active(handle, interfaceNumber);
             printf("claim if=%u kernel_driver_active -> %s\n",
@@ -329,19 +386,31 @@ static int claim_all_interfaces(libusb_device_handle *handle, libusb_device *dev
             if (active == 1) {
                 int detachStatus = libusb_detach_kernel_driver(handle, interfaceNumber);
                 printf("claim if=%u detach_kernel_driver -> %s\n", interfaceNumber, libusb_error_name(detachStatus));
+                detached = detachStatus == 0;
             }
         }
         status = libusb_claim_interface(handle, interfaceNumber);
         printf("claim if=%u -> %s\n", interfaceNumber, libusb_error_name(status));
         if (status == 0) {
+            claimedInterfaces[interfaceNumber] = true;
+            detachedInterfaces[interfaceNumber] = detached;
             claimed++;
+        } else if (detached) {
+            int attachStatus = libusb_attach_kernel_driver(handle, interfaceNumber);
+            printf("claim if=%u reattach_after_failure -> %s\n", interfaceNumber, libusb_error_name(attachStatus));
         }
     }
     libusb_free_config_descriptor(config);
+    if (selection->count > 0 && claimed != selection->count) {
+        return LIBUSB_ERROR_BUSY;
+    }
     return claimed > 0 ? 0 : LIBUSB_ERROR_BUSY;
 }
 
-static EndpointWatch *start_endpoint_watches(libusb_device_handle *handle, libusb_device *device, int *countOut) {
+static EndpointWatch *start_endpoint_watches(libusb_device_handle *handle,
+                                             libusb_device *device,
+                                             const bool claimedInterfaces[256],
+                                             int *countOut) {
     *countOut = 0;
     struct libusb_config_descriptor *config = NULL;
     int status = libusb_get_active_config_descriptor(device, &config);
@@ -355,6 +424,9 @@ static EndpointWatch *start_endpoint_watches(libusb_device_handle *handle, libus
         const struct libusb_interface *interface = &config->interface[interfaceIndex];
         for (int altIndex = 0; altIndex < interface->num_altsetting; altIndex++) {
             const struct libusb_interface_descriptor *alt = &interface->altsetting[altIndex];
+            if (!claimedInterfaces[alt->bInterfaceNumber]) {
+                continue;
+            }
             for (uint8_t endpointIndex = 0; endpointIndex < alt->bNumEndpoints; endpointIndex++) {
                 const struct libusb_endpoint_descriptor *endpoint = &alt->endpoint[endpointIndex];
                 uint8_t type = endpoint->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK;
@@ -377,6 +449,9 @@ static EndpointWatch *start_endpoint_watches(libusb_device_handle *handle, libus
         const struct libusb_interface *interface = &config->interface[interfaceIndex];
         for (int altIndex = 0; altIndex < interface->num_altsetting; altIndex++) {
             const struct libusb_interface_descriptor *alt = &interface->altsetting[altIndex];
+            if (!claimedInterfaces[alt->bInterfaceNumber]) {
+                continue;
+            }
             if (alt->bAlternateSetting != 0) {
                 int altStatus = libusb_set_interface_alt_setting(handle, alt->bInterfaceNumber, alt->bAlternateSetting);
                 printf("set alt if=%u alt=%u -> %s\n", alt->bInterfaceNumber, alt->bAlternateSetting, libusb_error_name(altStatus));
@@ -446,7 +521,10 @@ static void stop_endpoint_watches(EndpointWatch *watches, int count, libusb_cont
     free(watches);
 }
 
-static void release_all_interfaces(libusb_device_handle *handle, libusb_device *device) {
+static void release_claimed_interfaces(libusb_device_handle *handle,
+                                       libusb_device *device,
+                                       const bool claimedInterfaces[256],
+                                       const bool detachedInterfaces[256]) {
     struct libusb_config_descriptor *config = NULL;
     int status = libusb_get_active_config_descriptor(device, &config);
     if (status != 0) {
@@ -458,8 +536,15 @@ static void release_all_interfaces(libusb_device_handle *handle, libusb_device *
             continue;
         }
         uint8_t interfaceNumber = interface->altsetting[0].bInterfaceNumber;
+        if (!claimedInterfaces[interfaceNumber]) {
+            continue;
+        }
         status = libusb_release_interface(handle, interfaceNumber);
         printf("release if=%u -> %s\n", interfaceNumber, libusb_error_name(status));
+        if (detachedInterfaces[interfaceNumber]) {
+            status = libusb_attach_kernel_driver(handle, interfaceNumber);
+            printf("reattach if=%u -> %s\n", interfaceNumber, libusb_error_name(status));
+        }
     }
     libusb_free_config_descriptor(config);
 }
@@ -478,23 +563,29 @@ static bool parse_nonnegative_int(const char *text, int *valueOut) {
 static void usage(FILE *stream, const char *argv0) {
     fprintf(stream,
             "Examples:\n"
+            "  %s --pid 0x1600 --describe\n"
+            "  %s --pid 0x1600 --interfaces 4 --seconds 10\n"
             "  %s --seconds 10\n"
             "  %s --pid 0x1620 --display-repl\n"
             "  %s --display-command-self-test\n"
             "\n"
             "Usage: %s [options]\n"
             "\n"
-            "Inspect Komplete Kontrol MK2 USB traffic or interactively verify the\n"
-            "experimental 0x60 display command stream. Run with the daemon stopped,\n"
-            "usually through the corresponding Make target and with sudo.\n"
+            "Inspect supported Native Instruments USB devices or interactively verify\n"
+            "the colour-display command stream. Descriptor mode never claims an\n"
+            "interface. Capture mode must run with the daemon stopped and usually sudo.\n"
             "\n"
             "Options:\n"
+            "  --describe                   Print descriptors without claiming interfaces.\n"
+            "  --interfaces <list>          Claim only comma-separated interfaces, for example 4,5.\n"
             "  --display-repl               Claim only the display interface and open the REPL.\n"
             "  --display-command-self-test  Verify packet construction without USB hardware.\n"
-            "  --pid <value>                Select an MK2 product ID, for example 0x1620.\n"
+            "  --pid <value>                Select a supported product ID, for example 0x1600.\n"
             "  --seconds <count>            Stop packet capture after this many seconds.\n"
             "  --no-detach                  Do not detach kernel drivers before claiming USB.\n"
             "  -h, --help                   Show this help.\n",
+            argv0,
+            argv0,
             argv0,
             argv0,
             argv0,
@@ -507,6 +598,8 @@ int main(int argc, char **argv) {
     bool detachKernelDrivers = true;
     bool displayREPL = false;
     bool displayCommandSelfTest = false;
+    bool describeOnly = false;
+    InterfaceSelection interfaceSelection = {0};
 
     if (argc == 2 && strcmp(argv[1], "help") == 0) {
         usage(stdout, argv[0]);
@@ -520,6 +613,8 @@ int main(int argc, char **argv) {
         {"no-detach", no_argument, NULL, 1000},
         {"display-repl", no_argument, NULL, 1001},
         {"display-command-self-test", no_argument, NULL, 1002},
+        {"describe", no_argument, NULL, 1003},
+        {"interfaces", required_argument, NULL, 1004},
         {NULL, 0, NULL, 0},
     };
 
@@ -550,6 +645,15 @@ int main(int argc, char **argv) {
             case 1002:
                 displayCommandSelfTest = true;
                 break;
+            case 1003:
+                describeOnly = true;
+                break;
+            case 1004:
+                if (!parse_interface_list(optarg, &interfaceSelection)) {
+                    fprintf(stderr, "Invalid --interfaces value `%s`; expected unique interface numbers such as 4 or 4,5.\n", optarg);
+                    return 2;
+                }
+                break;
             default:
                 fprintf(stderr, "Run `%s --help` for usage.\n", argv[0]);
                 return 2;
@@ -560,8 +664,24 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Unexpected positional argument `%s`. Run `%s --help` for usage.\n", argv[optind], argv[0]);
         return 2;
     }
+    if (forcedPID != 0 && !is_supported_pid(forcedPID)) {
+        fprintf(stderr, "Unsupported --pid 0x%04x. Supported products are 0x1600, 0x1610, 0x1620, and 0x1630.\n", forcedPID);
+        return 2;
+    }
     if (displayREPL && seconds != 0) {
         fprintf(stderr, "--seconds cannot be combined with --display-repl; leave the REPL with `quit` or Ctrl-C.\n");
+        return 2;
+    }
+    if (describeOnly && (displayREPL || seconds != 0 || interfaceSelection.count != 0)) {
+        fprintf(stderr, "--describe cannot be combined with capture or display options. Use only --pid to select the device.\n");
+        return 2;
+    }
+    if (displayREPL && interfaceSelection.count != 0) {
+        fprintf(stderr, "--interfaces cannot be combined with --display-repl; the REPL selects its verified display interface.\n");
+        return 2;
+    }
+    if (forcedPID == kMaschineMK3PID && !describeOnly && !displayREPL && interfaceSelection.count == 0) {
+        fprintf(stderr, "Refusing to claim every MASCHINE MK3 interface. Pass --interfaces 4 for HID capture or use --describe.\n");
         return 2;
     }
     if (displayCommandSelfTest) {
@@ -596,7 +716,7 @@ int main(int argc, char **argv) {
         if (status != 0) {
             continue;
         }
-        bool pidMatches = forcedPID != 0 ? descriptor.idProduct == forcedPID : is_mk2_pid(descriptor.idProduct);
+        bool pidMatches = forcedPID != 0 ? descriptor.idProduct == forcedPID : is_supported_pid(descriptor.idProduct);
         if (descriptor.idVendor == kVendorNativeInstruments && pidMatches) {
             selected = devices[index];
             selectedDescriptor = descriptor;
@@ -607,7 +727,7 @@ int main(int argc, char **argv) {
     libusb_free_device_list(devices, 1);
 
     if (selected == NULL) {
-        fprintf(stderr, "no Komplete Kontrol MK2 device found");
+        fprintf(stderr, "no supported Native Instruments device found");
         if (forcedPID != 0) {
             fprintf(stderr, " for pid=0x%04x", forcedPID);
         }
@@ -628,14 +748,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    const char *mode = describeOnly ? "describe" : (displayREPL ? "display-repl" : "capture");
     printf("MK2USBSpy pid=0x%04x mode=%s seconds=%d detach=%s\n",
            selectedDescriptor.idProduct,
-           displayREPL ? "display-repl" : "capture",
+           mode,
            seconds,
            detachKernelDrivers ? "yes" : "no");
 
     if (displayREPL) {
-        if (!is_mk2_pid(selectedDescriptor.idProduct)) {
+        if (selectedDescriptor.idProduct == kMaschineMK3PID) {
             fprintf(stderr, "The display REPL only permits Komplete Kontrol S49/S61/S88 MK2 product IDs.\n");
             libusb_close(handle);
             libusb_unref_device(selected);
@@ -653,10 +774,25 @@ int main(int argc, char **argv) {
     }
 
     dump_descriptors(selected, handle);
-
-    status = claim_all_interfaces(handle, selected, detachKernelDrivers);
+    if (describeOnly) {
+        libusb_close(handle);
+        libusb_unref_device(selected);
+        libusb_exit(context);
+        return 0;
+    }
+    bool claimedInterfaces[256] = {false};
+    bool detachedInterfaces[256] = {false};
+    status = claim_interfaces(
+        handle,
+        selected,
+        detachKernelDrivers,
+        &interfaceSelection,
+        claimedInterfaces,
+        detachedInterfaces
+    );
     if (status != 0) {
         fprintf(stderr, "claim failed -> %s\n", libusb_error_name(status));
+        release_claimed_interfaces(handle, selected, claimedInterfaces, detachedInterfaces);
         libusb_close(handle);
         libusb_unref_device(selected);
         libusb_exit(context);
@@ -664,11 +800,11 @@ int main(int argc, char **argv) {
     }
 
     int watchCount = 0;
-    EndpointWatch *watches = start_endpoint_watches(handle, selected, &watchCount);
+    EndpointWatch *watches = start_endpoint_watches(handle, selected, claimedInterfaces, &watchCount);
     if (watches == NULL || watchCount == 0) {
         fprintf(stderr, "no readable IN endpoints found\n");
         free(watches);
-        release_all_interfaces(handle, selected);
+        release_claimed_interfaces(handle, selected, claimedInterfaces, detachedInterfaces);
         libusb_close(handle);
         libusb_unref_device(selected);
         libusb_exit(context);
@@ -693,7 +829,7 @@ int main(int argc, char **argv) {
 
     g_shouldStop = 1;
     stop_endpoint_watches(watches, watchCount, context);
-    release_all_interfaces(handle, selected);
+    release_claimed_interfaces(handle, selected, claimedInterfaces, detachedInterfaces);
     libusb_close(handle);
     libusb_unref_device(selected);
     libusb_exit(context);

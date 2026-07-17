@@ -1,27 +1,35 @@
 # CompleteControl
 
 CompleteControl is a Swift control-surface stack for Native Instruments Komplete
-Kontrol S-Series MK2 keyboards. It provides a privileged libusb daemon, a
-declarative pixel-display middleware, input decoding, LEDs and light guide
-control, USB-MIDI delivery, and a hardware-free simulator.
+Kontrol S-Series MK2 keyboards and MASCHINE MK3. It provides a privileged libusb
+daemon, declarative pixel-display middleware, input decoding, LED control,
+USB-MIDI delivery for S-Series, and a hardware-free simulator.
 
 This is an independent project and is not endorsed by Native Instruments.
 
 ## Supported Hardware
 
-| Model | VID | PID | Keys |
-| --- | --- | --- | ---: |
-| Komplete Kontrol S49 MK2 | `0x17cc` | `0x1610` | 49 |
-| Komplete Kontrol S61 MK2 | `0x17cc` | `0x1620` | 61 |
-| Komplete Kontrol S88 MK2 | `0x17cc` | `0x1630` | 88 |
+| Model | VID | PID | Controls | Status |
+| --- | --- | --- | --- | --- |
+| Komplete Kontrol S49 MK2 | `0x17cc` | `0x1610` | 49 keys | Production |
+| Komplete Kontrol S61 MK2 | `0x17cc` | `0x1620` | 61 keys | Production |
+| Komplete Kontrol S88 MK2 | `0x17cc` | `0x1630` | 88 keys | Production |
+| MASCHINE MK3 | `0x17cc` | `0x1600` | 16 pads | NO CLIENT bring-up |
 
-The supported surface includes:
+The S-Series MK2 surface includes:
 
 - two 480x272 RGB565 displays;
 - eight encoders plus touch, function/menu/transport buttons, and the 4-D encoder;
 - RGB palette button and ribbon LEDs;
 - palette light-guide LEDs;
 - raw ribbon input and USB-MIDI keybed/performance input.
+
+The MASCHINE MK3 bring-up path safely claims only HID interface 4 and display
+interface 5, leaving its audio, MIDI, and DFU functions untouched. It currently
+provides both displays, safe LED clearing, semantic button/encoder/pad activity,
+and touch-to-light hardware echo in NO CLIENT mode. The complete pad matrix and
+pad LED ordering are bench-verified on device revision `0x0146`; mappings that
+still come only from public protocol research remain explicitly labelled.
 
 The maintained protocol reference is
 [Docs/Komplete-Kontrol-Protocol-Guide.md](Docs/Komplete-Kontrol-Protocol-Guide.md).
@@ -46,7 +54,7 @@ swift test
 ## Architecture
 
 ```text
-MK2 USB composite device
+Supported NI USB composite device
         |
         v
 KontrolUSB + vendored libusb
@@ -115,10 +123,12 @@ The hardware socket defaults to:
 Set `KK_DAEMON_SOCKET` to connect clients to another endpoint.
 
 When no client is connected, the daemon displays its NO CLIENT diagnostic and
-acts as an I/O hardware test: controls illuminate their corresponding lamps,
-MIDI keys illuminate the light guide, and recent raw/event activity appears on
-the displays. On orderly shutdown the daemon restores the keyboard's standalone
-mapping-engine state and clears host-owned output.
+acts as an I/O hardware test. On S-Series MK2, controls illuminate their lamps
+and MIDI keys illuminate the light guide. On MASCHINE MK3, decoded surface and
+pad events appear on the displays while mapped buttons, pads, and ribbon input
+illuminate their corresponding LEDs.
+On orderly shutdown the daemon restores the MK2 keyboard's standalone mapping
+engine or clears MK3-owned lights, then clears both displays.
 
 See [Docs/daemon-usb-reactor.md](Docs/daemon-usb-reactor.md) before changing USB
 scheduling or callback behavior.

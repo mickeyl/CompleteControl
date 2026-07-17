@@ -1447,6 +1447,7 @@ public enum KompleteKontrolLibUSBServer {
         private var clientHandoffGeneration: UInt64 = 0
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
+        private var idleMaschinePreviousReports: [UInt8: [UInt8]] = [:]
         private var idleSurfaceSummary = "PRESS ANY SURFACE"
         private var idleMIDISummary = "OR MIDI KEY FOR TEST"
         private var idleHasReceivedInput = false
@@ -1458,11 +1459,17 @@ public enum KompleteKontrolLibUSBServer {
         private var idleMK2EventLog: [MK2IdleLogEntry] = []
         private var idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
         private var idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+        private var idleMaschineButtonLEDs = MaschineMK3Protocol.clearedButtonLEDPayload()
+        private var idleMaschineStripPadLEDs = MaschineMK3Protocol.clearedStripLEDPayload()
+        private var idleMaschineTouchPositions = [Int?](repeating: nil, count: 2)
+        private var idleMaschinePadState = MaschineMK3PadStateTracker()
         private var idleMK2JogTouched = false
         private var idleMK2JogActiveLEDs: Set<KKMK2ButtonLED> = []
         private var idleDiagnosticNeedsFlush = false
         private var idleDiagnosticNeedsLightGuideFlush = false
         private var idleDiagnosticNeedsButtonLEDFlush = false
+        private var idleDiagnosticDrainScheduled = false
+        private var idleDiagnosticDisplayScheduled = false
         private var idleDiagnosticFlushGate = DaemonIdleDiagnosticFlushGate()
 
         private enum MK2DaemonChrome {
@@ -1485,11 +1492,20 @@ public enum KompleteKontrolLibUSBServer {
             trackedLibusbFds.removeAll()
             lock.unlock()
             if let session {
-                restoreMK2StandaloneState(session)
+                restoreDeviceState(session)
                 daemonLog("hardware session closed for daemon shutdown", group: "usb")
                 session.close()
             }
             sessionIOLock.unlock()
+        }
+
+        private func restoreDeviceState(_ session: any KontrolDeviceSession) {
+            switch session.deviceProfile.family {
+                case .kompleteKontrolMK2:
+                    restoreMK2StandaloneState(session)
+                case .maschineMK3:
+                    clearMaschineMK3OwnedState(session)
+            }
         }
 
         // Called with sessionIOLock held exclusively (must not use writeReport, which re-locks).
@@ -1521,6 +1537,30 @@ public enum KompleteKontrolLibUSBServer {
                 )
             }
             daemonLog("MK2 handed back to standalone controller state", group: "mk2")
+        }
+
+        // Called with sessionIOLock held exclusively (must not use writeReport, which re-locks).
+        private func clearMaschineMK3OwnedState(_ session: any KontrolDeviceSession) {
+            _ = session.write(
+                reportID: MaschineMK3Protocol.buttonLEDReportID,
+                payload: MaschineMK3Protocol.clearedButtonLEDPayload()
+            )
+            _ = session.write(
+                reportID: MaschineMK3Protocol.stripLEDReportID,
+                payload: MaschineMK3Protocol.clearedStripLEDPayload()
+            )
+            for screen: UInt8 in [0, 1] {
+                _ = session.fillMK2Display(
+                    screen: screen,
+                    x: 0,
+                    y: 0,
+                    width: UInt16(MaschineMK3Protocol.displayWidth),
+                    height: UInt16(MaschineMK3Protocol.displayHeight),
+                    rgb565: 0x0000,
+                    timeoutMs: 1_000
+                )
+            }
+            daemonLog("MASCHINE MK3 host-owned output cleared", group: "maschine-mk3")
         }
 
         func handle(_ line: String, clientID: Int) -> String {
@@ -1780,7 +1820,11 @@ public enum KompleteKontrolLibUSBServer {
                     guard let session = ensureSession() else {
                         return ack(-2, "no session")
                     }
-                    return ack(0, "product=0x\(String(session.productID, radix: 16)) keys=\(session.keyCount)")
+                    let profile = session.deviceProfile
+                    return ack(
+                        0,
+                        "product=0x\(String(session.productID, radix: 16)) model=\(profile.family.rawValue) keys=\(profile.capabilities.keyCount) pads=\(profile.capabilities.padCount) screens=\(profile.capabilities.screenCount)"
+                    )
                 case .register:
                     guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
                         return ack(-1, "register parse")
@@ -1875,6 +1919,26 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         private func binaryWriteReport(reportID: UInt8, payload: [UInt8]) -> Int32 {
+            guard let session = ensureSession() else { return -1 }
+            if session.deviceProfile.family == .maschineMK3 {
+                let expectedPayloadCount: Int?
+                switch reportID {
+                    case MaschineMK3Protocol.buttonLEDReportID:
+                        expectedPayloadCount = MaschineMK3Protocol.buttonLEDPayloadSize
+                    case MaschineMK3Protocol.stripLEDReportID:
+                        expectedPayloadCount = MaschineMK3Protocol.stripLEDPayloadSize
+                    default:
+                        expectedPayloadCount = nil
+                }
+                guard expectedPayloadCount == payload.count else {
+                    daemonLog(
+                        "rejected unverified MASCHINE MK3 output report=0x\(KKHex.byte(reportID)) bytes=\(payload.count)",
+                        group: "maschine-mk3",
+                        level: .error
+                    )
+                    return -2
+                }
+            }
             // Full-state maps at animation rate go through their own async output worker
             // (latest-wins per report), on a queue separate from display blits: a
             // synchronous write here would wait on sessionIOLock behind an in-flight
@@ -1899,7 +1963,6 @@ public enum KompleteKontrolLibUSBServer {
                 }
                 return 0
             }
-            guard let session = ensureSession() else { return -1 }
             sessionIOLock.lockShared()
             lock.lock()
             let isCurrent = libusbSession === session
@@ -2357,7 +2420,11 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
             sessionIOLock.unlock()
 
-            daemonLog("MK2 session ready: persistent libusb display + surface + MIDI", group: "mk2")
+            let profile = session.deviceProfile
+            daemonLog(
+                "device session ready model=\(profile.family.rawValue) product=0x\(String(profile.productID, radix: 16)) midi=\(profile.capabilities.claimsUSBMIDI ? "claimed" : "not-claimed")",
+                group: "usb"
+            )
             startAsyncTransfersIfNeeded(session)
             return session
         }
@@ -2440,7 +2507,7 @@ public enum KompleteKontrolLibUSBServer {
         private func restoreHardwareAfterReconnect(forceOpen: Bool = false) -> Bool {
             guard let session = ensureSession(forceOpen: forceOpen) else { return false }
             daemonLog("hardware session reconnected", group: "usb")
-            configureMK2HostControl(session: session)
+            configureDeviceHostControl(session: session)
             notifyDeviceReconnected()
             if shouldDaemonShowIdleSurface() {
                 showNoClient()
@@ -2513,7 +2580,28 @@ public enum KompleteKontrolLibUSBServer {
 
         private func runStartupAnimation() {
             guard let session = ensureSession() else { return }
-            prepareMK2IdleSurface(session: session)
+            prepareIdleSurface(session: session)
+        }
+
+        private func configureDeviceHostControl(session: any KontrolDeviceSession) {
+            switch session.deviceProfile.family {
+                case .kompleteKontrolMK2:
+                    configureMK2HostControl(session: session)
+                case .maschineMK3:
+                    break
+            }
+        }
+
+        private func prepareIdleSurface(session: any KontrolDeviceSession) {
+            switch session.deviceProfile.family {
+                case .kompleteKontrolMK2:
+                    prepareMK2IdleSurface(session: session)
+                case .maschineMK3:
+                    daemonLog("MASCHINE MK3 idle surface prepare", group: "maschine-mk3")
+                    clearMaschineMK3SurfaceLights(session: session)
+                    resetIdleDiagnosticState()
+                    writeMK2NoClientDiagnostic(session: session)
+            }
         }
 
         // Host-control mode: all LEDs (function buttons + ribbon included) belong to the
@@ -2534,6 +2622,28 @@ public enum KompleteKontrolLibUSBServer {
         private func clearMK2SurfaceLights(session: any KontrolDeviceSession) {
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: mk2ButtonLEDPayload(fill: 0x00))
             writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: mk2LightGuidePayload(fill: 0x00))
+        }
+
+        private func clearMaschineMK3SurfaceLights(session: any KontrolDeviceSession) {
+            writeReport(
+                session: session,
+                reportID: MaschineMK3Protocol.buttonLEDReportID,
+                payload: MaschineMK3Protocol.clearedButtonLEDPayload()
+            )
+            writeReport(
+                session: session,
+                reportID: MaschineMK3Protocol.stripLEDReportID,
+                payload: MaschineMK3Protocol.clearedStripLEDPayload()
+            )
+        }
+
+        private func clearDeviceSurfaceLights(session: any KontrolDeviceSession) {
+            switch session.deviceProfile.family {
+                case .kompleteKontrolMK2:
+                    clearMK2SurfaceLights(session: session)
+                case .maschineMK3:
+                    clearMaschineMK3SurfaceLights(session: session)
+            }
         }
 
         private func mk2ButtonLEDPayload(fill: UInt8) -> [UInt8] {
@@ -2645,13 +2755,24 @@ public enum KompleteKontrolLibUSBServer {
             let log = idleMK2EventLog
             lock.unlock()
 
+            let isMaschineMK3 = session.deviceProfile.family == .maschineMK3
+            let title = isMaschineMK3
+                ? "MASCHINE MK3 NO CLIENT"
+                : "NO CLIENT"
             let left = makeMK2IdleStatusFrame(
                 hasInput: hasInput,
                 surfaceSummary: surfaceSummary,
                 midiSummary: midiSummary,
-                rawLines: rawLines
+                rawLines: rawLines,
+                title: title
             )
-            let right = makeMK2IdleLogFrame(log, hasInput: hasInput)
+            let right = makeMK2IdleLogFrame(
+                log,
+                hasInput: hasInput,
+                waitingHint: isMaschineMK3
+                    ? "PRESS CONTROLS OR PADS; RAW MODE"
+                    : "CMD-CLICK ENCODERS FOR TOUCH ONLY"
+            )
             writeMK2Frame(session: session, screen: 0, pixels: left)
             writeMK2Frame(session: session, screen: 1, pixels: right)
         }
@@ -2851,7 +2972,8 @@ public enum KompleteKontrolLibUSBServer {
             )
             fillMK2Rect(x: 0, y: height - 10, width: width, height: 10, color: MK2DaemonChrome.footer, pixels: &pixels)
 
-            drawMK2Text(title, x: 28, y: 24, scale: 3, color: 0xffff, maxWidth: 420, pixels: &pixels)
+            let titleScale = title.count > 18 ? 2 : 3
+            drawMK2Text(title, x: 28, y: 24, scale: titleScale, color: 0xffff, maxWidth: 420, pixels: &pixels)
             drawMK2Text("CCD \(KompleteKontrolLibUSBServer.daemonVersion)", x: 28, y: 62, scale: 2, color: 0x8410, pixels: &pixels)
             drawMK2Text("GIT \(idleRevisionSummary.hash)\(idleRevisionSummary.dirtySuffix)", x: 28, y: 84, scale: 2, color: 0x8410, maxWidth: 420, pixels: &pixels)
 
@@ -2872,7 +2994,11 @@ public enum KompleteKontrolLibUSBServer {
             return pixels
         }
 
-        private func makeMK2IdleLogFrame(_ log: [MK2IdleLogEntry], hasInput: Bool) -> [UInt16] {
+        private func makeMK2IdleLogFrame(
+            _ log: [MK2IdleLogEntry],
+            hasInput: Bool,
+            waitingHint: String = "CMD-CLICK ENCODERS FOR TOUCH ONLY"
+        ) -> [UInt16] {
             let width = KompleteKontrolMK2Protocol.displayWidth
             let height = KompleteKontrolMK2Protocol.displayHeight
             var pixels = [UInt16](repeating: 0x0000, count: width * height)
@@ -2886,7 +3012,7 @@ public enum KompleteKontrolLibUSBServer {
             let visible = Array(log.suffix(19))
             if visible.isEmpty {
                 drawMK2Text("WAITING FOR EVENTS", x: 32, y: 116, scale: 2, color: 0x8410, pixels: &pixels)
-                drawMK2Text("CMD-CLICK ENCODERS FOR TOUCH ONLY", x: 32, y: 146, scale: 1, color: 0x8410, pixels: &pixels)
+                drawMK2Text(waitingHint, x: 32, y: 146, scale: 1, color: 0x8410, pixels: &pixels)
                 return pixels
             }
 
@@ -3125,13 +3251,15 @@ public enum KompleteKontrolLibUSBServer {
             guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
             writeMK2ConnectedClientTitle(session: session, client: client)
-            beginMK2ClientHandoffPause()
+            if session.deviceProfile.capabilities.hasLightGuide {
+                beginMK2ClientHandoffPause()
+            }
         }
 
         private func showNoClient() {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            clearMK2SurfaceLights(session: session)
+            clearDeviceSurfaceLights(session: session)
             resetIdleDiagnosticState()
             writeMK2NoClientDiagnostic(session: session)
         }
@@ -3145,11 +3273,18 @@ public enum KompleteKontrolLibUSBServer {
         private func resetIdleDiagnosticState() {
             lock.lock()
             idleSurfacePreviousReport = nil
+            idleMaschinePreviousReports.removeAll(keepingCapacity: true)
             idleSurfaceSummary = "PRESS ANY SURFACE"
-            idleMIDISummary = "OR MIDI KEY FOR TEST"
+            idleMIDISummary = libusbSession?.deviceProfile.capabilities.claimsUSBMIDI == true
+                ? "OR MIDI KEY FOR TEST"
+                : "NOT CLAIMED"
             idleHasReceivedInput = false
             idleMK2ButtonLEDs = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
             idleMK2LightGuide = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
+            idleMaschineButtonLEDs = MaschineMK3Protocol.clearedButtonLEDPayload()
+            idleMaschineStripPadLEDs = MaschineMK3Protocol.clearedStripLEDPayload()
+            idleMaschineTouchPositions = [Int?](repeating: nil, count: 2)
+            idleMaschinePadState = MaschineMK3PadStateTracker()
             idleMK2JogTouched = false
             idleMK2JogActiveLEDs = []
             idleRawSurfaceLines = []
@@ -3162,13 +3297,157 @@ public enum KompleteKontrolLibUSBServer {
             idleDiagnosticNeedsFlush = false
             idleDiagnosticNeedsLightGuideFlush = false
             idleDiagnosticNeedsButtonLEDFlush = false
+            idleDiagnosticDrainScheduled = false
+            idleDiagnosticDisplayScheduled = false
             idleDiagnosticFlushGate.reset()
             lock.unlock()
         }
 
         private func acknowledgeIdleSurfaceInput(_ bytes: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
-            acknowledgeIdleMK2SurfaceInput(bytes)
+            lock.lock()
+            let family = libusbSession?.deviceProfile.family
+            lock.unlock()
+            switch family {
+                case .kompleteKontrolMK2:
+                    acknowledgeIdleMK2SurfaceInput(bytes)
+                case .maschineMK3:
+                    acknowledgeIdleMaschineMK3SurfaceInput(bytes)
+                case nil:
+                    break
+            }
+        }
+
+        private func acknowledgeIdleMaschineMK3SurfaceInput(_ bytes: [UInt8]) {
+            let timestamp = KKTiming.now()
+            let reportID = bytes.first
+
+            lock.lock()
+            let previous = reportID.flatMap { idleMaschinePreviousReports[$0] }
+            if let reportID {
+                idleMaschinePreviousReports[reportID] = bytes
+            }
+            if previous == bytes {
+                lock.unlock()
+                return
+            }
+
+            let observation = MaschineMK3InputReportDecoder.observe(previous: previous, current: bytes)
+            let surfaceEvents = observation.kind == .surface
+                ? MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: bytes)
+                : []
+            let padSamples = observation.kind == .pads
+                ? MaschineMK3InputReportDecoder.padSamples(in: bytes)
+                : []
+            let padEvents = observation.kind == .pads
+                ? idleMaschinePadState.events(for: padSamples)
+                : []
+            let reportName = observation.kind.rawValue.uppercased()
+            let summary: String
+            let logMessages: [String]
+            if let expectedLength = observation.expectedLength,
+               expectedLength != observation.actualLength {
+                summary = "\(reportName) LEN \(observation.actualLength)/\(expectedLength)"
+                logMessages = [summary]
+            } else if observation.kind == .pads {
+                let records = MaschineMK3InputReportDecoder.padRecords(in: bytes)
+                let undecodedRecords = records.filter {
+                    !$0.isKnownNeutralSentinel && !$0.isSourceEncodedPadSample
+                }
+                if let event = padEvents.first {
+                    summary = event.description.uppercased()
+                    logMessages = padEvents.prefix(8).map { $0.description.uppercased() }
+                } else if padSamples.isEmpty, !undecodedRecords.isEmpty {
+                    let preview = undecodedRecords.prefix(3).map { record in
+                        record.bytes.map(KKHex.byte).joined(separator: "/")
+                    }.joined(separator: " ")
+                    summary = "PADS RAW \(preview)"
+                    logMessages = [summary]
+                } else {
+                    lock.unlock()
+                    return
+                }
+            } else if let event = surfaceEvents.first {
+                summary = event.description.uppercased()
+                logMessages = surfaceEvents.map { $0.description.uppercased() }
+            } else if observation.changedIndices.isEmpty {
+                summary = "\(reportName) SNAPSHOT \(observation.actualLength)B"
+                logMessages = [summary]
+            } else {
+                let changed = observation.changedIndices.prefix(8).map(String.init).joined(separator: ",")
+                let suffix = observation.changedIndices.count > 8 ? ",..." : ""
+                summary = "\(reportName) CHG \(changed)\(suffix)"
+                logMessages = [summary]
+            }
+
+            idleHasReceivedInput = true
+            idleSurfaceSummary = summary
+            idleRawSurfaceLines.append(mk2IdleRawLine(bytes))
+            if idleRawSurfaceLines.count > 3 {
+                idleRawSurfaceLines.removeFirst(idleRawSurfaceLines.count - 3)
+            }
+            for event in surfaceEvents {
+                updateIdleMaschineMK3LEDs(for: event)
+            }
+            for event in padEvents {
+                updateIdleMaschineMK3PadLED(for: event)
+            }
+            appendMK2IdleLogLocked(timestamp: timestamp, messages: logMessages)
+            idleDiagnosticNeedsFlush = true
+            lock.unlock()
+        }
+
+        /// Called with `lock` held. NO CLIENT deliberately mirrors only controls
+        /// whose output slot is documented; ambiguous input bits are log-only.
+        private func updateIdleMaschineMK3LEDs(for event: MaschineMK3SurfaceEvent) {
+            switch event {
+                case let .button(button, pressed):
+                    guard let led = button.led else { return }
+                    let index = led.rawValue
+                    guard idleMaschineButtonLEDs.indices.contains(index) else { return }
+                    let value = pressed ? led.pressedEchoValue : 0
+                    guard idleMaschineButtonLEDs[index] != value else { return }
+                    idleMaschineButtonLEDs[index] = value
+                    idleDiagnosticNeedsButtonLEDFlush = true
+                case let .touchStrip(finger, position):
+                    let fingerIndex = finger - 1
+                    guard idleMaschineTouchPositions.indices.contains(fingerIndex) else { return }
+                    idleMaschineTouchPositions[fingerIndex] = position
+                    renderIdleMaschineMK3StripLEDs()
+                case .encoder, .encoderTouch, .analog, .rawChanged:
+                    break
+            }
+        }
+
+        /// Called with `lock` held. The hardware-index-to-LED ordering is
+        /// bench-verified; the reference pressure threshold remains source-derived.
+        private func updateIdleMaschineMK3PadLED(for event: MaschineMK3PadEvent) {
+            let sample = event.sample
+            guard let led = MaschineMK3PadLED(hardwareIndex: sample.hardwareIndex) else { return }
+            let index = led.rawValue
+            guard idleMaschineStripPadLEDs.indices.contains(index) else { return }
+            let value = sample.pressure > MaschineMK3Protocol.padPressedReferenceThreshold
+                ? MaschineMK3Protocol.whiteColorLEDValue
+                : 0
+            guard idleMaschineStripPadLEDs[index] != value else { return }
+            idleMaschineStripPadLEDs[index] = value
+            idleDiagnosticNeedsLightGuideFlush = true
+        }
+
+        /// Called with `lock` held. Both source-documented finger fields are
+        /// retained so two simultaneous contacts can light two ribbon positions.
+        private func renderIdleMaschineMK3StripLEDs() {
+            var next = idleMaschineStripPadLEDs
+            for index in 0..<MaschineMK3Protocol.stripLEDCount {
+                next[index] = 0
+            }
+            for position in idleMaschineTouchPositions.compactMap({ $0 }) {
+                guard let index = MaschineMK3Protocol.stripLEDIndex(for: position) else { continue }
+                next[index] = MaschineMK3Protocol.whiteColorLEDValue
+            }
+            guard next != idleMaschineStripPadLEDs else { return }
+            idleMaschineStripPadLEDs = next
+            idleDiagnosticNeedsLightGuideFlush = true
         }
 
         private func currentMK2LightGuideNoteOffset() -> Int? {
@@ -3221,6 +3500,10 @@ public enum KompleteKontrolLibUSBServer {
 
         private func acknowledgeIdleMIDIInput(_ bytes: [UInt8], timestamp: UInt64) {
             guard shouldDaemonShowIdleSurface() else { return }
+            lock.lock()
+            let hasLightGuide = libusbSession?.deviceProfile.capabilities.hasLightGuide == true
+            lock.unlock()
+            guard hasLightGuide else { return }
             let lightGuideNoteOffset = currentMK2LightGuideNoteOffset()
             let events = KKUSBMIDIParser.events(bytes, receptionTimestamp: timestamp)
             guard !events.isEmpty || !bytes.isEmpty else { return }
@@ -3373,15 +3656,53 @@ public enum KompleteKontrolLibUSBServer {
             writeMK2NoClientDiagnostic(session: session)
         }
 
+        private func scheduleIdleDiagnosticFlush() {
+            var shouldSchedule = false
+            lock.lock()
+            let hasPendingState = idleDiagnosticNeedsFlush
+                || idleDiagnosticNeedsLightGuideFlush
+                || idleDiagnosticNeedsButtonLEDFlush
+            if hasPendingState, !idleDiagnosticDrainScheduled {
+                idleDiagnosticDrainScheduled = true
+                shouldSchedule = true
+            }
+            lock.unlock()
+            guard shouldSchedule else { return }
+            stateReportQueue.async { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                self.idleDiagnosticDrainScheduled = false
+                self.lock.unlock()
+                self.flushIdleDiagnosticIfNeeded()
+            }
+        }
+
+        private func scheduleIdleDiagnosticSurfaceWrite() {
+            displayQueue.async { [weak self] in
+                guard let self else { return }
+                self.writeIdleDiagnosticSurface()
+                self.lock.lock()
+                self.idleDiagnosticDisplayScheduled = false
+                self.lock.unlock()
+                // A display transfer may dispatch a surface callback reentrantly
+                // and consume the libusb readiness edge. Explicitly drain any
+                // state that callback left pending instead of awaiting another edge.
+                self.scheduleIdleDiagnosticFlush()
+            }
+        }
+
         private func flushIdleDiagnosticIfNeeded() {
             // Synchronous libusb writes can dispatch async MIDI/surface callbacks reentrantly.
             // Drain any idle state those callbacks mark pending before the reactor sleeps again.
             while true {
                 guard shouldDaemonShowIdleSurface() else { return }
                 let now = KKTiming.now()
-                let mk2ButtonLEDs: [UInt8]
-                let mk2LightGuide: [UInt8]
+                let buttonLEDs: [UInt8]
+                let secondaryLEDs: [UInt8]
+                let buttonLEDReportID: UInt8
+                let secondaryLEDReportID: UInt8
                 let needsButtonLEDs: Bool
+                let shouldScheduleDisplay: Bool
                 let decision: DaemonIdleDiagnosticFlushDecision
 
                 lock.lock()
@@ -3391,18 +3712,33 @@ public enum KompleteKontrolLibUSBServer {
                 }
                 decision = idleDiagnosticFlushGate.decide(
                     now: now,
-                    needsDisplay: idleDiagnosticNeedsFlush,
+                    needsDisplay: idleDiagnosticNeedsFlush && !idleDiagnosticDisplayScheduled,
                     needsLightGuide: idleDiagnosticNeedsLightGuideFlush
                 )
                 needsButtonLEDs = idleDiagnosticNeedsButtonLEDFlush
-                guard decision.writeDisplay || decision.writeLightGuide || needsButtonLEDs else {
+                shouldScheduleDisplay = decision.writeDisplay
+                guard shouldScheduleDisplay || decision.writeLightGuide || needsButtonLEDs else {
                     lock.unlock()
                     return
                 }
-                mk2ButtonLEDs = idleMK2ButtonLEDs
-                mk2LightGuide = idleMK2LightGuide
-                if decision.writeDisplay {
+                switch libusbSession?.deviceProfile.family {
+                    case .kompleteKontrolMK2:
+                        buttonLEDs = idleMK2ButtonLEDs
+                        secondaryLEDs = idleMK2LightGuide
+                        buttonLEDReportID = KompleteKontrolMK2Protocol.buttonLEDReportID
+                        secondaryLEDReportID = KompleteKontrolMK2Protocol.lightGuideReportID
+                    case .maschineMK3:
+                        buttonLEDs = idleMaschineButtonLEDs
+                        secondaryLEDs = idleMaschineStripPadLEDs
+                        buttonLEDReportID = MaschineMK3Protocol.buttonLEDReportID
+                        secondaryLEDReportID = MaschineMK3Protocol.stripLEDReportID
+                    case nil:
+                        lock.unlock()
+                        return
+                }
+                if shouldScheduleDisplay {
                     idleDiagnosticNeedsFlush = false
+                    idleDiagnosticDisplayScheduled = true
                 }
                 if decision.writeLightGuide {
                     idleDiagnosticNeedsLightGuideFlush = false
@@ -3413,27 +3749,21 @@ public enum KompleteKontrolLibUSBServer {
                 lock.unlock()
 
                 if decision.writeLightGuide {
-                    writeIdleDiagnosticMK2LightGuide(mk2LightGuide)
+                    writeIdleDiagnosticLEDReport(reportID: secondaryLEDReportID, payload: secondaryLEDs)
                 }
                 if needsButtonLEDs {
-                    writeIdleDiagnosticButtonLEDs(mk2ButtonLEDs)
+                    writeIdleDiagnosticLEDReport(reportID: buttonLEDReportID, payload: buttonLEDs)
                 }
-                if decision.writeDisplay {
-                    writeIdleDiagnosticSurface()
+                if shouldScheduleDisplay {
+                    scheduleIdleDiagnosticSurfaceWrite()
                 }
             }
         }
 
-        private func writeIdleDiagnosticMK2LightGuide(_ lightGuide: [UInt8]) {
+        private func writeIdleDiagnosticLEDReport(reportID: UInt8, payload: [UInt8]) {
             guard shouldDaemonShowIdleSurface() else { return }
             guard let session = ensureSession() else { return }
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.lightGuideReportID, payload: lightGuide)
-        }
-
-        private func writeIdleDiagnosticButtonLEDs(_ buttonLEDs: [UInt8]) {
-            guard shouldDaemonShowIdleSurface() else { return }
-            guard let session = ensureSession() else { return }
-            writeReport(session: session, reportID: KompleteKontrolMK2Protocol.buttonLEDReportID, payload: buttonLEDs)
+            writeReport(session: session, reportID: reportID, payload: payload)
         }
 
         private func writeReport(session: any KontrolDeviceSession, reportID: UInt8, payload: [UInt8]) {
@@ -3574,15 +3904,17 @@ public enum KompleteKontrolLibUSBServer {
             let inputStatus = session.startAsyncInput { [weak self] data, length in
                 self?.pushInputToClients(data, length: length)
             }
-            let midiStatus = session.startAsyncMIDI { [weak self] data, length in
-                self?.pushMidiToClients(data, length: length)
-            }
+            let midiStatus: Int32? = session.deviceProfile.capabilities.claimsUSBMIDI
+                ? session.startAsyncMIDI { [weak self] data, length in
+                    self?.pushMidiToClients(data, length: length)
+                }
+                : nil
             sessionIOLock.unlock()
 
             lock.lock()
             asyncTransfersStarted = inputStatus == 0 || midiStatus == 0
             lock.unlock()
-            daemonLog("async transfers started input=\(inputStatus) midi=\(midiStatus)", group: "usb")
+            daemonLog("async transfers started input=\(inputStatus) midi=\(midiStatus.map(String.init) ?? "disabled")", group: "usb")
         }
 
         func handleUsbEvents(timeoutMs: Int) {
@@ -3599,7 +3931,7 @@ public enum KompleteKontrolLibUSBServer {
             session.handleEvents(timeoutMs: timeoutMs)
             sessionIOLock.unlock()
             daemonTraceLog("handle_events end timeoutMs=\(timeoutMs)", group: "usb")
-            flushIdleDiagnosticIfNeeded()
+            scheduleIdleDiagnosticFlush()
         }
 
         func currentLibusbPollFds() -> [KontrolUSBPollFd] {
@@ -3641,6 +3973,7 @@ public enum KompleteKontrolLibUSBServer {
             )
             daemonDebugLog("async input len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "surface", level: .info)
             acknowledgeIdleSurfaceInput(bytes)
+            scheduleIdleDiagnosticFlush()
             pushToClients("in @\(String(timestamp, radix: 16)) \(hex)", kind: .input)
         }
 
@@ -3656,6 +3989,7 @@ public enum KompleteKontrolLibUSBServer {
             )
             daemonDebugLog("async midi len=\(length) head=\((0..<min(Int(length), 12)).map { KKHex.byte(data[$0]) }.joined(separator: " "))", group: "midi", level: .info)
             acknowledgeIdleMIDIInput(bytes, timestamp: timestamp)
+            scheduleIdleDiagnosticFlush()
             pushToClients("midi @\(String(timestamp, radix: 16)) \(hex)", kind: .midi)
         }
 

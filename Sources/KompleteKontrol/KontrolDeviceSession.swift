@@ -12,6 +12,7 @@ import KontrolUSB
 protocol KontrolDeviceSession: AnyObject {
     var productID: UInt16 { get }
     var keyCount: UInt8 { get }
+    var deviceProfile: KontrolDeviceProfile { get }
     var isDeviceLost: Bool { get }
     var status: KontrolUSBResult { get }
     var health: KontrolUSBResult { get }
@@ -65,6 +66,12 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { KontrolUSBLibUSBSessionProductID(ref) }
     var keyCount: UInt8 { KontrolUSBLibUSBSessionKeyCount(ref) }
+    var deviceProfile: KontrolDeviceProfile {
+        guard let profile = KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount) else {
+            preconditionFailure("KontrolUSB opened an unsupported product 0x\(String(productID, radix: 16))")
+        }
+        return profile
+    }
     var isDeviceLost: Bool { KontrolUSBLibUSBSessionDeviceLost(ref) != 0 }
     var status: KontrolUSBResult { KontrolUSBLibUSBSessionStatus(ref) }
     var health: KontrolUSBResult { KontrolUSBLibUSBSessionHealth(ref) }

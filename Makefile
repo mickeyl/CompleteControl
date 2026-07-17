@@ -17,7 +17,8 @@ MK2_WIDGET_LAB_DEMO_RELEASE := .build/release/MK2WidgetLabDemo
 MK2_USB_SPY := .build/debug/MK2USBSpy
 MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
-MK2_USB_SPY_ARGS := $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
+MK2_USB_SPY_ARGS = $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
+MASCHINE_MK3_INPUT_SPY_SECONDS ?= 10
 WIDGETLAB_TEST_SOCKET ?= /tmp/kontrol-simulator-daemon.sock
 WIDGETLAB_STRESS_DURATION ?= 15m
 WIDGETLAB_SOAK_DURATION ?= 8h
@@ -25,10 +26,10 @@ WIDGETLAB_TEST_ARGS ?=
 ADAPTIVE_REPORT ?=
 LEGACY_REPORT ?=
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "KompleteKontrol-Swift developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -76,6 +77,14 @@ mk2-usb-spy: mk2-usb-spy-build ## Stop daemon and run MK2 USB descriptor/input s
 
 mk2-usb-spy-display-repl: MK2_USB_SPY_ARGS += --display-repl
 mk2-usb-spy-display-repl: mk2-usb-spy ## Stop daemon and run the interactive MK2 display-command verifier.
+
+maschine-mk3-probe: mk2-usb-spy-build ## Print read-only MASCHINE MK3 USB descriptors without claiming interfaces.
+	"$$(pwd)/$(MK2_USB_SPY)" --pid 0x1600 --describe
+
+maschine-mk3-input-spy: MK2_USB_SPY_PID = 0x1600
+maschine-mk3-input-spy: MK2_USB_SPY_SECONDS = $(MASCHINE_MK3_INPUT_SPY_SECONDS)
+maschine-mk3-input-spy: MK2_USB_SPY_ARGS += --interfaces 4
+maschine-mk3-input-spy: mk2-usb-spy ## Capture only the MASCHINE MK3 HID interface 4 (requires sudo).
 
 daemon-preflight: ## Refuse stale or duplicate daemon state (queries the installed daemon's embedded revision; no local build needed). Caveat: two dirty builds of the same commit compare equal.
 	@simulator_socket="/tmp/kontrol-simulator-daemon.sock"; \

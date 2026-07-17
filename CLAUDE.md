@@ -1,9 +1,9 @@
 # CompleteControl Agent Handover
 
-CompleteControl is the MK2 hardware and middleware stack for Native Instruments
-Komplete Kontrol S49/S61/S88 MK2 keyboards. The repository no longer contains a
-legacy-generation driver, middleware target, daemon branch, diagnostic tool, or
-device descriptor.
+CompleteControl is the hardware and middleware stack for Native Instruments
+Komplete Kontrol S49/S61/S88 MK2 keyboards and the MASCHINE MK3 bring-up path.
+The repository no longer contains a legacy-generation driver, middleware
+target, daemon branch, diagnostic tool, or device descriptor.
 
 ## Documentation Policy
 
@@ -17,14 +17,14 @@ change as the implementation. Keep `README.md` user-facing and
 | Product | Purpose |
 | --- | --- |
 | `KompleteKontrol` | Protocol types, input decoding, daemon clients, and `ccd` server implementation |
-| `KontrolUSB` | Persistent MK2 libusb session and USB endpoint handling |
+| `KontrolUSB` | Persistent profile-driven libusb session and USB endpoint handling |
 | `KontrolSurfaceKit2` | Declarative two-screen surface middleware |
 | `PaulincheSurfaceKit` | Paulinche-specific Kit2 renderers |
 | `ccd` | Privileged hardware/simulator daemon |
 | `MK2SurfaceDemo` | Compact hardware feature demo |
 | `MK2WidgetLabDemo` | Kit2 demo browser (Calibration, Look & Feel, Kit Catalogue, Diagnostics): per-file `LabDemo`s, snapshot harness, LED/light-guide REPL |
 | `KontrolSimulator` | S61 MK2 panel and simulator-daemon host |
-| `MK2USBSpy` | Direct descriptor/input diagnostic |
+| `MK2USBSpy` | Direct descriptor/input diagnostic with safe per-interface MK3 capture |
 
 ## Build And Test
 
@@ -65,8 +65,8 @@ worktree state it actually tested; later changes still need focused validation.
 ## Daemon
 
 The normal hardware daemon is `ccd --kk-libusb-daemon [socket-path]`. It owns
-one persistent MK2 libusb session and exposes independent control, event, and
-display channels to clients.
+one persistent profile-driven libusb session and exposes independent control,
+event, and display channels to clients.
 
 Adaptive MK2 display encoding is the production default. The device-session
 backend owns its successfully-written framebuffer shadow and chooses the smallest
@@ -83,8 +83,12 @@ Key invariants:
 - keep display blits and small state reports on separate serial queues;
 - session lifetime, reconnect, poll-fd registration, sleep/wake, and shutdown have
   one owner;
-- on shutdown, restore mapping-engine standalone mode and clear host-owned output;
-- only S49/S61/S88 MK2 product IDs may be opened by `KontrolUSB`.
+- on shutdown, restore MK2 mapping-engine standalone mode or clear MK3-owned
+  lights, then clear host-owned displays;
+- only S49/S61/S88 MK2 and MASCHINE MK3 product IDs may be opened by
+  `KontrolUSB`;
+- MASCHINE MK3 may claim only HID interface 4 and display interface 5; never
+  claim or detach its audio interfaces 0-2, MIDI interface 3, or DFU interface 6.
 
 Read `Docs/daemon-usb-reactor.md` before changing scheduling.
 
@@ -101,6 +105,14 @@ lamps, MIDI keys drive the light guide, and both displays show decoded and raw
 activity. It is also the stress case for MIDI chord release and callback
 reentrancy.
 
+For MASCHINE MK3, NO CLIENT shows semantic events plus raw evidence and mirrors
+bench-verified buttons, pads, and ribbon input to their LEDs. The fixed pad
+record-slot-3 triplet `0d 40 00` is a neutral sentinel, not a Pad 13 release;
+emit pad-up only after prior non-zero pressure for that hardware index. Pad
+hardware indices 0-15 map directly to `0x81` payload offsets 25-40. Use
+`make maschine-mk3-probe` for a read-only descriptor dump and
+`make maschine-mk3-input-spy` for an explicitly bounded HID-interface capture.
+
 ## MK2 Protocol Essentials
 
 - VID `0x17cc`; PIDs `0x1610`, `0x1620`, `0x1630`.
@@ -116,6 +128,22 @@ reentrancy.
 
 Do not infer mappings from similar devices. Record captures, hardware model, and
 firmware context for new findings.
+
+## MASCHINE MK3 Protocol Essentials
+
+- VID/PID `0x17cc:0x1600`; bench unit revision `bcdDevice 0x0146`.
+- HID surface: interface 4, interrupt OUT `0x03`, interrupt IN `0x83`.
+- Displays: interface 5, bulk OUT `0x04`, two 480x272 RGB565 panels.
+- Surface input `0x01`: 42 bytes total; pad input `0x02`: 64 bytes total.
+- Button/pad LED output `0x80`: 62-byte payload; touch-strip output `0x81`:
+  41-byte payload.
+- Pad input matrix is bottom-up by row: indices 12-15 are Pads 1-4 and indices
+  0-3 are Pads 13-16; pad LED payload offsets are the direct index plus 25.
+- Keep LED/state writes on the state-report queue, independent from MK3 OLED
+  transfers; full MK3 display frames take tens of milliseconds and must not gate
+  feel-critical output.
+- Audio interfaces 0-2, MIDI interface 3, and DFU interface 6 stay unclaimed.
+- Do not reuse MK2 `0xA0` mapping-engine setup or MK2 USB-MIDI claiming on MK3.
 
 ## KontrolSurfaceKit2
 

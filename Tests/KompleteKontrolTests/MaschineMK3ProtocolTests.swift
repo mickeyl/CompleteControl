@@ -1,0 +1,251 @@
+import KompleteKontrol
+import Testing
+
+@Suite("MASCHINE MK3 protocol")
+struct MaschineMK3ProtocolTests {
+    @Test("device profile exposes the safe first-class capability boundary")
+    func deviceProfile() throws {
+        let profile = try #require(KontrolDeviceProfile.productID(MaschineMK3Protocol.productID))
+
+        #expect(profile.family == .maschineMK3)
+        #expect(profile.name == "MASCHINE MK3")
+        #expect(profile.capabilities.screenCount == 2)
+        #expect(profile.capabilities.keyCount == 0)
+        #expect(profile.capabilities.padCount == 16)
+        #expect(!profile.capabilities.hasLightGuide)
+        #expect(profile.capabilities.hasTouchStrip)
+        #expect(!profile.capabilities.claimsUSBMIDI)
+    }
+
+    @Test("verified HID report lengths are classified")
+    func reportLengths() {
+        let surface = MaschineMK3InputReportDecoder.observe(
+            previous: nil,
+            current: [MaschineMK3Protocol.surfaceReportID]
+                + [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize - 1)
+        )
+        let pads = MaschineMK3InputReportDecoder.observe(
+            previous: nil,
+            current: [MaschineMK3Protocol.padReportID]
+                + [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize - 1)
+        )
+
+        #expect(surface.kind == .surface)
+        #expect(surface.hasValidLength)
+        #expect(surface.changedIndices.isEmpty)
+        #expect(pads.kind == .pads)
+        #expect(pads.hasValidLength)
+        #expect(pads.changedIndices.isEmpty)
+    }
+
+    @Test("successive reports expose only changed byte indices")
+    func reportDiff() {
+        let previous = [MaschineMK3Protocol.surfaceReportID]
+            + [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize - 1)
+        var current = previous
+        current[7] = 0x12
+        current[41] = 0xff
+
+        let observation = MaschineMK3InputReportDecoder.observe(previous: previous, current: current)
+
+        #expect(observation.changedIndices == [7, 41])
+    }
+
+    @Test("malformed and unknown reports remain observable")
+    func malformedReports() {
+        let shortSurface = MaschineMK3InputReportDecoder.observe(
+            previous: nil,
+            current: [MaschineMK3Protocol.surfaceReportID, 0]
+        )
+        let unknown = MaschineMK3InputReportDecoder.observe(previous: nil, current: [0x7f])
+        let empty = MaschineMK3InputReportDecoder.observe(previous: nil, current: [])
+
+        #expect(!shortSurface.hasValidLength)
+        #expect(unknown.kind == .unknown)
+        #expect(unknown.expectedLength == nil)
+        #expect(empty.reportID == nil)
+        #expect(empty.actualLength == 0)
+    }
+
+    @Test("pad payload is exposed as 21 neutral three-byte record slots")
+    func padRecordSlots() {
+        var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        report[0] = MaschineMK3Protocol.padReportID
+        report[1] = 0x0c
+        report[2] = 0x40
+        report[3] = 0x85
+        report[61] = 0x0f
+        report[62] = 0x20
+        report[63] = 0x00
+
+        let records = MaschineMK3InputReportDecoder.padRecords(in: report)
+
+        #expect(records == [
+            MaschineMK3PadRecord(slotIndex: 0, byte0: 0x0c, byte1: 0x40, byte2: 0x85),
+            MaschineMK3PadRecord(slotIndex: 20, byte0: 0x0f, byte1: 0x20, byte2: 0x00),
+        ])
+        #expect(MaschineMK3InputReportDecoder.padRecords(in: [0x02, 0x01]).isEmpty)
+    }
+
+    @Test("source-derived pad samples preserve hardware index and 12-bit pressure")
+    func padSamples() {
+        var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        report[0] = MaschineMK3Protocol.padReportID
+        report[1] = 0x00
+        report[2] = 0x40
+        report[3] = 0x85
+        report[4] = 0x0c
+        report[5] = 0x4f
+        report[6] = 0xfd
+        report[7] = 0x10
+        report[8] = 0x40
+        report[9] = 0x01
+
+        #expect(MaschineMK3InputReportDecoder.padSamples(in: report) == [
+            MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 0, pressure: 0x085, encodedValue: 0x4085),
+            MaschineMK3PadSample(slotIndex: 1, hardwareIndex: 12, pressure: 0xffd, encodedValue: 0x4ffd),
+        ])
+    }
+
+    @Test("bench sentinel is excluded while the real index-13 stream remains available")
+    func padSentinel() {
+        var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        report[0] = MaschineMK3Protocol.padReportID
+        report[1] = 0x0d
+        report[2] = 0x43
+        report[3] = 0x21
+        report[10] = 0x0d
+        report[11] = 0x40
+        report[12] = 0x00
+
+        let records = MaschineMK3InputReportDecoder.padRecords(in: report)
+
+        #expect(records.count == 2)
+        #expect(!records[0].isKnownNeutralSentinel)
+        #expect(records[1].isKnownNeutralSentinel)
+        #expect(MaschineMK3InputReportDecoder.padSamples(in: report) == [
+            MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 0x321, encodedValue: 0x4321),
+        ])
+    }
+
+    @Test("pad tracker suppresses idle zeroes but preserves down pressure and up")
+    func padStateTracker() {
+        var tracker = MaschineMK3PadStateTracker()
+        let zero = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 0, encodedValue: 0x4000)
+        let down = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 100, encodedValue: 0x4064)
+        let pressure = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 900, encodedValue: 0x4384)
+
+        #expect(tracker.events(for: [zero]).isEmpty)
+        #expect(tracker.events(for: [down]) == [
+            MaschineMK3PadEvent(sample: down, phase: .down),
+        ])
+        #expect(down.physicalPadNumber == 2)
+        #expect(tracker.events(for: [down]).isEmpty)
+        #expect(tracker.events(for: [pressure]) == [
+            MaschineMK3PadEvent(sample: pressure, phase: .pressure),
+        ])
+        #expect(tracker.events(for: [zero]) == [
+            MaschineMK3PadEvent(sample: zero, phase: .up),
+        ])
+        #expect(tracker.events(for: [zero]).isEmpty)
+    }
+
+    @Test("button bitfields decode to semantic press and touch events")
+    func surfaceButtonsAndTouches() {
+        var previous = [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize)
+        previous[0] = MaschineMK3Protocol.surfaceReportID
+        var current = previous
+        current[1] = 0x80
+        current[2] = 0x04
+        current[6] = 0x20
+        current[9] = 0x80
+        current[10] = 0x80
+
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: current) == [
+            .button(button: .displayButton8, pressed: true),
+            .button(button: .groupC, pressed: true),
+            .button(button: .play, pressed: true),
+            .encoderTouch(index: 0, touched: true),
+            .encoderTouch(index: 1, touched: true),
+        ])
+    }
+
+    @Test("main and display encoders decode across their source-documented wraps")
+    func surfaceEncoders() {
+        var previous = [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize)
+        previous[0] = MaschineMK3Protocol.surfaceReportID
+        previous[11] = 0x0f
+        previous[12] = 0xe7
+        previous[13] = 0x03
+        var current = previous
+        current[11] = 0
+        current[12] = 0
+        current[13] = 0
+
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: current) == [
+            .encoder(index: 0, delta: 1, value: 0),
+            .encoder(index: 1, delta: 1, value: 0),
+        ])
+    }
+
+    @Test("touch strip and audio controls decode while ambiguous bits stay raw")
+    func surfaceAnalogValues() {
+        var previous = [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize)
+        previous[0] = MaschineMK3Protocol.surfaceReportID
+        var current = previous
+        current[3] = 0x40
+        current[30] = 0x00
+        current[31] = 0x02
+        current[36] = 0x34
+        current[37] = 0x12
+
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: current) == [
+            .touchStrip(finger: 1, position: 512),
+            .analog(control: .microphoneGain, value: 0x1234),
+            .rawChanged(indices: [3]),
+        ])
+    }
+
+    @Test("LED enums cover the complete verified output payload maps")
+    func ledMaps() {
+        #expect(MaschineMK3ButtonLED.allCases.count == MaschineMK3Protocol.buttonLEDPayloadSize)
+        #expect(MaschineMK3ButtonLED.play.rawValue == 41)
+        #expect(MaschineMK3ButtonLED.record.rawValue == 42)
+        #expect(MaschineMK3ButtonLED.mainEncoderDown.rawValue == 61)
+        #expect(MaschineMK3PadLED.allCases.count == 16)
+        #expect(MaschineMK3PadLED.pad13.rawValue == 25)
+        #expect(MaschineMK3PadLED.pad4.rawValue == 40)
+    }
+
+    @Test("NO CLIENT echo maps documented controls to verified pad LED slots")
+    func ledEchoMappings() {
+        #expect(MaschineMK3Button.allCases.filter { $0.led == nil } == [.mainEncoderPress])
+        #expect(MaschineMK3Button.play.led == .play)
+        #expect(MaschineMK3Button.displayButton8.led == .displayButton8)
+        #expect(MaschineMK3ButtonLED.play.pressedEchoValue == MaschineMK3Protocol.monochromePressedLEDValue)
+        #expect(MaschineMK3ButtonLED.groupA.pressedEchoValue == MaschineMK3Protocol.whiteColorLEDValue)
+        #expect(MaschineMK3ButtonLED.mainEncoderRight.usesColorEncoding)
+
+        #expect(MaschineMK3PadLED(hardwareIndex: 0) == .pad13)
+        #expect(MaschineMK3PadLED(hardwareIndex: 2) == .pad15)
+        #expect(MaschineMK3PadLED(hardwareIndex: 13) == .pad2)
+        #expect(MaschineMK3PadLED(hardwareIndex: 15) == .pad4)
+        #expect(MaschineMK3PadLED(hardwareIndex: 2)?.rawValue == 27)
+        #expect(MaschineMK3PadLED(hardwareIndex: 13)?.rawValue == 38)
+        #expect(MaschineMK3PadLED(hardwareIndex: -1) == nil)
+        #expect(MaschineMK3PadLED(hardwareIndex: 16) == nil)
+
+        #expect(MaschineMK3Protocol.stripLEDIndex(for: 0) == nil)
+        #expect(MaschineMK3Protocol.stripLEDIndex(for: 1) == 0)
+        #expect(MaschineMK3Protocol.stripLEDIndex(for: 512) == 12)
+        #expect(MaschineMK3Protocol.stripLEDIndex(for: 1023) == 24)
+    }
+
+    @Test("clear output payloads match the verified HID descriptors")
+    func clearedOutputPayloads() {
+        #expect(MaschineMK3Protocol.clearedButtonLEDPayload().count == 62)
+        #expect(MaschineMK3Protocol.clearedButtonLEDPayload().allSatisfy { $0 == 0 })
+        #expect(MaschineMK3Protocol.clearedStripLEDPayload().count == 41)
+        #expect(MaschineMK3Protocol.clearedStripLEDPayload().allSatisfy { $0 == 0 })
+    }
+}

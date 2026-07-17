@@ -1,9 +1,12 @@
-# Komplete Kontrol S-Series MK2 Protocol Guide
+# CompleteControl Native Instruments Protocol Guide
 
-This is the maintained protocol reference for the Native Instruments Komplete
-Kontrol S-Series MK2 path implemented by CompleteControl. The supported models
-are S49, S61, and S88 MK2. Other hardware generations are outside this
-repository's device, daemon, protocol, middleware, and simulator scope.
+This is the maintained protocol reference for the Native Instruments devices
+implemented by CompleteControl. The production path supports Komplete Kontrol
+S49/S61/S88 MK2. MASCHINE MK3 is an active bring-up target with a first-class
+device profile, safe daemon ownership, two displays, and a semantic NO CLIENT
+decoder. Pad input, pressure state, and pad LED ordering are bench-verified on
+the unit identified below; remaining source-derived surface details stay
+labelled until their focused bench passes are recorded.
 
 Unless stated otherwise, findings were bench-verified on an S61 MK2 and are
 encoded in `KompleteKontrolMK2.swift`, `KontrolUSB.c`, and their tests. Values
@@ -18,6 +21,170 @@ custom tracker surface:
 - standard USB-MIDI for the keybed and performance controls.
 
 ![Komplete Kontrol S61 MK2 running a custom tracker UI on its two displays](images/mk2-hardware-tracker.jpg)
+
+## MASCHINE MK3 bench profile
+
+The following transport facts were read directly from a connected MASCHINE MK3
+on 2026-07-17. The tested unit reports firmware/device revision `bcdDevice
+0x0146`, USB VID/PID `0x17cc:0x1600`, and a maximum bus current of 480 mA.
+
+| Interface | Function | Endpoints | CompleteControl ownership |
+| ---: | --- | --- | --- |
+| 0 | USB Audio control | none | Never claimed; left to macOS audio |
+| 1 | USB Audio streaming output | isochronous OUT `0x01` | Never claimed; left to macOS audio |
+| 2 | USB Audio streaming input | isochronous IN `0x81` | Never claimed; left to macOS audio |
+| 3 | USB-MIDI streaming | bulk OUT `0x02`, bulk IN `0x82` | Not claimed during MK3 bring-up |
+| 4 | HID surface | interrupt OUT `0x03`, interrupt IN `0x83`, 64-byte maximum packets | Claimed by the daemon |
+| 5 | Colour displays | bulk OUT `0x04`, 512-byte maximum packets | Claimed by the daemon |
+| 6 | Device firmware upgrade | none | Never claimed |
+
+This ownership boundary is deliberate. The daemon must not detach or disturb
+interfaces 0-2, so MASCHINE MK3 remains available as a 48 kHz, two-input,
+four-output Core Audio device while CompleteControl owns the surface. Interface
+3 remains unclaimed until its intended DIN/USB-MIDI role is established.
+
+The HID report descriptor provides these exact wire sizes, including the report
+ID byte:
+
+| Direction | Report ID | Total/payload size | Bring-up role |
+| --- | --- | ---: | --- |
+| IN | `0x01` | 42 bytes total | Surface buttons, encoders, touch strip, pedal |
+| IN | `0x02` | 64 bytes total | Pad pressure samples |
+| OUT | `0x80` | 62-byte payload | Button, group, and main-encoder LEDs |
+| OUT | `0x81` | 41-byte payload | Touch-strip and pad LEDs |
+
+The 64-byte pad report corrects an earlier research-note assumption based on a
+public implementation's 128-byte receive buffer. Bench captures show that its
+63-byte payload partitions exactly into 21 three-byte record slots; unused slots
+are zero, and one report can carry records for several pads. Public sources agree
+that a record is `(hardware pad index, encoded high byte, encoded low byte)`, with
+a `0x4xxx` marker and a 12-bit pressure value in the low bits. CompleteControl
+decodes that source-confirmed shape while retaining every raw record.
+
+A controlled physical Pad 1...16 pass verified the input matrix on bcdDevice
+`0x0146`: hardware indices 12-15 are Pads 1-4, 8-11 are Pads 5-8, 4-7 are Pads
+9-12, and 0-3 are Pads 13-16. Record slot 3 also carries the fixed neutral
+triplet `0d 40 00` throughout unrelated pad activity. It is padding/sentinel
+state, not a Pad 13 release or evidence of a faulty pressure sensor: a genuine
+hardware-index 13 pressure stream appears independently in slot 0 when physical
+Pad 2 is moved. The decoder filters only that exact slot/triplet combination,
+and the state tracker emits a release only after the same hardware index has
+previously reported non-zero pressure.
+
+On macOS, a 256-byte libusb transfer buffer was observed coalescing four logical
+64-byte pad reports into one callback. The MK3 device profile therefore sizes
+the interrupt transfer to the endpoint's 64-byte maximum packet size; each
+callback delivered upstream is one logical HID report.
+
+### MK3 source hierarchy
+
+Protocol facts are accepted in this order:
+
+1. the connected unit's USB/HID descriptors and controlled CompleteControl
+   bench captures;
+2. agreement between the
+   [cabl MK3 documents](https://github.com/Drachenkaetzchen/cabl/tree/develop/doc/hardware/maschine-mk3),
+   [ktemkin's reverse-engineering notes](https://gist.github.com/ktemkin/89253ecf10c5078f47607776564de83b),
+   and the
+   [openAV-Ctlra MK3 driver](https://github.com/RufusIbiza/openAV-Ctlra/blob/feature/maschine-mk3-support/ctlra/devices/ni_maschine_mk3.c);
+3. a single public implementation, kept source-derived until a bench capture
+   confirms it.
+
+`qKontrol` and `SynthesiaKontrol` corroborate the S-Series MK2 host-control,
+mapping, and light-guide families but do not decode MASCHINE MK3. The old cabl
+C++ implementation also contains prototype-era PID/report values (`0x1601`,
+`0x20`, and incompatible LED report partitions); those values are deliberately
+excluded. cabl's later protocol documents are used only where they agree with
+the descriptor, ktemkin, openAV-Ctlra, or the bench unit.
+
+### MK3 report `0x01`: semantic surface candidates
+
+Offsets include the report ID at byte 0:
+
+| Byte(s) | Source-derived content |
+| --- | --- |
+| 1 | Main encoder press/up/right/down/left, Shift, display button 8; bit 1 remains ambiguous/pedal-related |
+| 2 | Group A-H |
+| 3 | Notes, Volume, Swing, Tempo, Note Repeat, Lock; bits 6-7 remain pedal-related candidates |
+| 4 | Pad Mode, Keyboard, Chords, Step, Fixed Velocity, Scene, Pattern, Events |
+| 5 | Variation, Duplicate, Select, Solo, Mute, Pitch, Mod; bit 0 is microphone-presence related |
+| 6 | Perform, Restart, Erase, Tap, Follow, Play, Record, Stop |
+| 7 | Macro, Settings, Arrow Right, Sampling, Mixer, Plug-in |
+| 8 | Channel, Arranger, Browser, Arrow Left, File, Auto |
+| 9 | Display buttons 1-7 and main-encoder touch |
+| 10 | Encoder touches 1-8, bit 7 through bit 0 |
+| 11 low nibble | Main encoder counter, modulo 16 |
+| 12-27 | Eight little-endian 10-bit encoder counters; source implementations treat the wrap as modulo 1000 |
+| 28-35 | Two four-byte touch-strip/finger groups; positions are read at 30-31 and 34-35 |
+| 36-41 | Microphone gain, headphone volume, and master volume as little-endian 16-bit values |
+
+The decoder emits named button edges, encoder deltas/touches, touch-strip
+positions, and the three analogue controls. Changes to ambiguous bits are never
+dropped: they appear as `rawChanged` events in NO CLIENT so a focused capture can
+promote them later.
+
+### MK3 reports `0x80` and `0x81`: LED indices
+
+The output lengths come from the HID descriptor; public tables occasionally
+count the report ID as payload and are off by one. CompleteControl always uses a
+62-byte payload for `0x80` and a 41-byte payload for `0x81`.
+
+| Report/range | Assignment |
+| --- | --- |
+| `0x80` 0-11 | Channel, Plug-in, Arranger, Mixer, Browser, Sampling, arrows, File, Settings, Auto, Macro |
+| `0x80` 12-19 | Display buttons 1-8 |
+| `0x80` 20-28 | Volume, Swing, Note Repeat, Tempo, Lock, Pitch, Mod, Perform, Notes |
+| `0x80` 29-36 | Group A-H |
+| `0x80` 37-57 | Restart through Mute in the documented panel order |
+| `0x80` 58-61 | Main encoder Up, Left, Right, Down LEDs |
+| `0x81` 0-24 | 25 touch-strip LEDs, left to right |
+| `0x81` 25-40 | Pads 13-16, 9-12, 5-8, 1-4 |
+
+These indices are represented by `MaschineMK3ButtonLED` and
+`MaschineMK3PadLED`. NO CLIENT uses them as an intentionally simple hardware
+echo: a documented button edge switches its matching lamp on/off, pad pressure
+above the source-derived reference threshold of 128 switches the candidate pad
+slot on/off, and each reported touch position selects one of the 25 strip LEDs.
+Monochrome button slots use brightness `0x07`; Group A-H, the main-encoder
+direction lamps, pads, and strip use the white palette value `0x4e`. Main
+encoder press and ambiguous input bits are not animated because no matching
+lamp is established for them.
+
+The pad hardware-index-to-LED mapping follows openAV-Ctlra directly and is now
+bench-verified: hardware indices 0-15 write payload offsets 25-40. Pads 15 and 2
+are the useful cross-check for the bottom-up matrix: physical Pad 15 arrives as
+hardware index 2 and lights payload slot 27; physical Pad 2 arrives as index 13
+and lights slot 38. The simple NO CLIENT on/off threshold of 128 remains a
+source-derived diagnostic choice rather than part of the semantic pad contract.
+
+The first NO CLIENT implementation serialized pad-driven OLED redraws and LED
+writes. On the MK3, two approximately 40-50 ms full-frame display transfers then
+delayed LED feedback: a 32-edge trace measured 44 ms median, 50 ms P95, and 51 ms
+maximum from input callback to LED-write start. State reports now drain on their
+own serial queue while OLED bulk transfers run independently. A repeat hardware
+pass across all pads paired 104 LED on/off edges at 1 ms trace resolution:
+0 ms median and 2 ms maximum, while concurrent OLED frames still took 40-47 ms.
+This is daemon callback-to-USB-write-start evidence; it does not claim optical
+or finger-to-device latency below the trace resolution.
+
+The two panels are 480x272 RGB565 and use display interface 5/endpoint `0x04`.
+CompleteControl initially reuses the S-Series `0x84` display command family and
+the existing renderer/diffing stack. Exact command-dialect compatibility is a
+bench-test result, not inferred from the shared resolution.
+
+Safe diagnostics:
+
+```bash
+make maschine-mk3-probe
+make maschine-mk3-input-spy MASCHINE_MK3_INPUT_SPY_SECONDS=10
+make daemon-debug
+```
+
+The first command only reads descriptors and claims no interfaces. The second
+stops the daemon and claims only HID interface 4. `MK2USBSpy` refuses an MK3
+capture without an explicit interface selection before initializing libusb.
+The third starts the normal daemon; with no client connected, its displays show
+decoded events and the LEDs perform the input/output echo described above.
 
 ## MK2 device identity and transport
 
@@ -732,5 +899,5 @@ coverage. The physical display timing, endpoint behaviour, lamp colour limits,
 and mode transitions were bench-verified on S61 MK2 hardware.
 
 Hardware-sensitive claims should always name the tested model and firmware when
-new evidence is added. Do not expand this guide with speculative MK1/MK3 reverse
-engineering; keep it centred on the supported MK2 contract.
+new evidence is added. Unverified MK3 mappings must remain labelled until a
+controlled bench capture promotes them to the supported contract.

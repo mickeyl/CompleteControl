@@ -77,6 +77,9 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { Self.s61MK2ProductID }
     var keyCount: UInt8 { Self.s61MK2KeyCount }
+    var deviceProfile: KontrolDeviceProfile {
+        KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount)!
+    }
     var isDeviceLost: Bool { lock.lock(); defer { lock.unlock() }; return lostFlag }
     var status: KontrolUSBResult { Self.makeResult(status: isDeviceLost ? -4 : 0, "simulator") }
     var health: KontrolUSBResult { status }

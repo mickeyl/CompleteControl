@@ -38,11 +38,14 @@ Keep libusb callback paths small:
 - parse/copy the input bytes
 - update daemon state
 - enqueue or push client messages
-- set pending output flags
+- set pending output flags and enqueue the independent output drain
 
 Do not write display, button LED, or light-guide reports directly from completion
-callbacks. Output writes belong in the reactor-adjacent drain paths, after the
-callback has returned.
+callbacks. In particular, never make the callback wait for a synchronous output
+transfer. Output writes belong on the independent display/state-report queues.
+Their workers may run concurrently with the callback and event pump: libusb is
+thread-safe and `SessionUseLock` deliberately grants shared access for transfers,
+while close/reopen takes exclusive access.
 
 ## Scheduling discipline
 
@@ -53,8 +56,12 @@ When adding USB device communication:
 - do not depend on a future kqueue wake after a synchronous libusb transfer
 - if code snapshots and clears pending flags before an output transfer, re-check
   pending state after the transfer path returns
-- keep display blits and small state reports separate where possible; their timing
-  requirements differ even when they share one libusb device handle
+- keep display blits and small state reports on separate serial queues; their
+  timing requirements differ even when they share one libusb device handle
+- enqueue the idle state-report drain directly when a callback changes an LED;
+  a callback dispatched reentrantly inside a long display transfer may consume
+  the only readiness edge, and waiting for that display to return adds its full
+  transfer time to input feedback
 
 ## Regression cases
 
@@ -74,3 +81,9 @@ KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE .build/debug/ccd --kk-libusb-dae
 Then inspect for `push midi`, `push surface`, `write report`, and `MK2 display frame`
 ordering. Seeing a callback interleaved with an output write is valid; stale output
 after that callback is not.
+
+The MASCHINE MK3 NO CLIENT pad echo is the strongest regression workload because
+one full screen takes roughly 40-50 ms on the bcdDevice `0x0146` bench unit. A
+2026-07-17 pass paired 104 pad LED edges at 1 ms log resolution after splitting
+the queues: median 0 ms and maximum 2 ms from input callback to state-report write
+start, even while OLED writes were active.

@@ -1,9 +1,12 @@
 # MASCHINE Studio and MK3 Protocol Compatibility and Porting Effort
 
-Status: research note, 2026-07-14. Neither a MASCHINE Studio nor a MASCHINE MK3
-was connected for this analysis, so every device-specific transport detail
-still requires bench validation before it becomes a supported CompleteControl
-protocol fact.
+Status: research note, started 2026-07-14. MASCHINE Studio remains unverified.
+A MASCHINE MK3 was connected on 2026-07-17; its identity, interface/endpoints,
+HID report sizes, and macOS audio ownership were bench-verified and promoted to
+the canonical protocol guide. Its NO CLIENT surface decoder and input-to-LED
+echo are implemented; the pad matrix, neutral sentinel, LED slots, and latency
+behaviour have controlled captures. Remaining source-derived controls still need
+focused captures before becoming a client-facing contract.
 
 ## Decision
 
@@ -182,10 +185,10 @@ captures.
 | Display USB profile | Device-specific: interface 5, bulk OUT endpoint `0x04` in openAV-Ctlra |
 | Surface USB profile | Device-specific: HID interface 4, interrupt IN `0x83`, interrupt OUT `0x03` in openAV-Ctlra |
 | Inputs | Public mappings exist for buttons, eight screen encoders, main encoder, touch, touchstrip, and pedal |
-| Pads | Public 128-byte pressure-report decoder exists, but its timing behaviour still requires careful reimplementation and hardware tests |
+| Pads | HID report `0x02` is 64 bytes total and its payload is 21 three-byte record slots; physical 1-16 ordering, the slot-3 neutral sentinel, state edges, LED slots, and callback-to-write timing are bench-verified on bcdDevice `0x0146` |
 | LEDs | Public mappings exist for normal lamps, groups, pads, and the 25-segment touchstrip using output reports `0x80` and `0x81` |
 | Audio/MIDI | Composite USB device; control/display support must not disturb OS-owned audio interfaces. MIDI/DIN handling needs a separate capability decision |
-| Drop-in support in CompleteControl today | No; device discovery, model assumptions, report codecs, capabilities, and simulator are S-Series MK2-specific |
+| Drop-in support in CompleteControl today | Device discovery, capability profile, safe interface ownership, displays, output clearing, semantic NO CLIENT decoding, and input-to-LED echo are implemented; a stable client-facing surface contract and simulator coverage remain |
 
 ### Public implementation evidence
 
@@ -199,15 +202,19 @@ implementation rather than only an identification table. It documents:
   commit/end footer used by the minimal colour-display stream;
 - a 42-byte surface report containing buttons, eight screen encoders, the main
   encoder, touchstrip, and pedal state;
-- a 128-byte pad report containing two interleaved 64-byte sample sets;
+- a pad decoder described as double-pumped, implemented around a 128-byte receive
+  buffer; the connected device's HID descriptor and captures establish a
+  64-byte report containing 21 three-byte record slots instead;
 - button, group, pad, and touchstrip LED output;
 - explicit cleanup that clears lamps and both displays on disconnect.
 
-The pad detail matters. openAV describes the report as “double-pumped”: both
-halves may contain pad press or release transitions, so decoding only the first
-half drops events during fast or busy playing. CompleteControl should preserve
-both samples in order, timestamp them near the USB callback seam, and move any
-velocity/pressure curve processing off the callback without allocating.
+The pad detail matters. On macOS a 256-byte libusb buffer coalesced four complete
+64-byte reports into one callback, while a 64-byte transfer delivered one report
+per callback. Each logical report can itself carry several non-zero three-byte
+records. CompleteControl must preserve those records in order, timestamp them
+near the USB callback seam, and move velocity/pressure curve processing off the
+callback without allocating. The public “double-pumped” wording must not be
+encoded as two 64-byte halves.
 
 [Rebellion][rebellion-readme] independently describes MASCHINE MK3 and Komplete
 Kontrol MK2 as its two automatically discovered, tested, working, and completely
