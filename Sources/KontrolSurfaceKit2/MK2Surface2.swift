@@ -698,12 +698,18 @@ public actor MK2Surface2 {
         )
     }
 
+    // A slow reply is not a dead daemon — same reasoning as handleWriteTimeout's probe,
+    // and the same 1s ceiling: brief system contention right after launch (a sandbox
+    // permission prompt's XPC round trip, Spotlight, another app starting) can delay a
+    // reply well past 50ms without the daemon being unhealthy. A tight timeout here was
+    // observed tearing down and reconnecting an otherwise-fine session during exactly
+    // that kind of startup contention.
     private func maybeCheckIdleDaemon(now: UInt64) {
         guard case .connected = connectionState else { return }
         guard now &- lastDaemonCommunicationNanos >= Self.daemonHeartbeatIdleNanos else { return }
         guard now &- lastDaemonHeartbeatNanos >= Self.daemonHeartbeatIdleNanos else { return }
         lastDaemonHeartbeatNanos = now
-        let response = controlClient?.request(type: .version, timeoutUsec: 50_000)
+        let response = controlClient?.request(type: .version, timeoutUsec: 1_000_000)
         guard KompleteKontrolLibUSBServer.isCurrentProtocolMessage(response?.message) else {
             handleDaemonFailure("daemon idle heartbeat failed")
             return
