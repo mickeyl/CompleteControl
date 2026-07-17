@@ -340,6 +340,14 @@ private enum KKStderrLog {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+    // Opened once and kept for the process lifetime: reopening per line (fopen+fclose)
+    // under a burst of TRACE traffic made the background queue itself the bottleneck,
+    // which back-dated each line's timestamp to whenever the queue finally got to it —
+    // a real multi-second logging lag that read as a reactor stall during diagnosis.
+    private static let logFile: UnsafeMutablePointer<FILE>? = {
+        guard let path = ProcessInfo.processInfo.environment["KK_DAEMON_LOG_FILE"] else { return nil }
+        return fopen(path, "a")
+    }()
 
     static func write(group: String, level: KKStderrLogLevel, _ message: String) {
         lock.lock()
@@ -370,10 +378,9 @@ private enum KKStderrLog {
             let line = "timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n"
             fputs(line, stderr)
             fflush(stderr)
-            if let path = ProcessInfo.processInfo.environment["KK_DAEMON_LOG_FILE"],
-               let file = fopen(path, "a") {
-                fputs(line, file)
-                fclose(file)
+            if let logFile {
+                fputs(line, logFile)
+                fflush(logFile)
             }
 
             lock.lock()
