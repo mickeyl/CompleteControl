@@ -1,6 +1,7 @@
 # Shift Layer for the Kit2 Screen DSL — Implementation Plan
 
-> **Status: implemented** (all seven steps, 2026-07). One deviation: the
+> **Status: implemented** (all seven steps, 2026-07; exclusive button-layer
+> policy added 2026-07-17). One deviation: the
 > parameter-page shift variant lives on the element (`MK2ParameterPageElement`
 > `shiftSlots:`), not on the slot — Swift rejects the recursive
 > `MK2ParameterPageSlot.shift: MK2ParameterPageSlot?` value type, and the
@@ -48,13 +49,16 @@ public struct MK2SurfaceScene2 {
     public var shift: ShiftLayer?
 
     public struct ShiftLayer: Sendable {
+        /// `.fallback` merges button lamps/bindings over the base;
+        /// `.exclusive` makes the layer the complete button plane.
+        public var buttonPolicy: ButtonPolicy
         /// Per-screen replacement frames; nil keeps the base frame visible.
         public var displays: [MK2PixelFrame?]
-        /// Merged over base lamps while held.
+        /// Merged over base lamps under `.fallback`; replaces them under `.exclusive`.
         public var lamps: [KKMK2ButtonLED: MK2LampState2]
         /// Merged over base key colors while held.
         public var keyColors: [Int: KKRGB]
-        /// Consulted first while held; unbound controls fall back to base bindings.
+        /// Consulted first while held; button fallback follows `buttonPolicy`.
         public var bindings: MK2InputBindings2
     }
 }
@@ -63,12 +67,12 @@ public struct MK2SurfaceScene2 {
 Semantics while SHIFT is physically held **and** `scene.shift != nil`:
 
 1. **Displays** — the reconciler targets `shift.displays[i] ?? displays[i]`.
-2. **Bindings** — dispatch consults the layer first, then falls back to the base
-   scene. This fallback is what makes encoder modifiers work without adding a
-   modifier key to every input dictionary: an element that declares a shift
-   variant registers its alternate handler in the layer; every other encoder,
-   jog, and button keeps working through the base bindings.
-3. **Lamps / key colors** — layer entries merge over base entries.
+2. **Bindings** — dispatch consults the layer first. With `.fallback`, unbound
+   buttons continue into the base scene; with `.exclusive`, unbound buttons are
+   consumed. Encoder, jog, touch, and strip fallback stays independent so the
+   policy remains specifically about the illuminated button plane.
+3. **Lamps / key colors** — button lamps merge under `.fallback` and are
+   replaced by the layer under `.exclusive`; key colors continue to merge.
 
 Why a layer instead of extending `ModifierRequirement` to encoders et al.:
 the layer solves display *and* input variance with one concept, keeps
@@ -91,8 +95,9 @@ while shift held" case wrong unless every client handles it.
 - `reconcileDisplays` and `reconcileLamps`/`reconcileKeys` read through a small
   `activeFrames`/`activeLamps`/`activeKeyColors` accessor that applies the layer.
 - Dispatch order for buttons while held: `shift.bindings` (press/release/hold
-  dicts, `.any` requirement) → existing `modifiedButton*` `.shift` entries →
-  base `.any` entries. Encoders/jog/touch/strip: `shift.bindings.X ?? bindings.X`.
+  dicts, `.any` requirement), then — only for `.fallback` — existing
+  `modifiedButton*` `.shift` entries and base `.any` entries.
+  Encoders/jog/touch/strip remain `shift.bindings.X ?? bindings.X`.
 - **Press/release pairing**: capture, per LED, which binding set resolved the
   press, and resolve the release from the same set. Today a press with shift
   held followed by shift-release-then-button-release resolves the release

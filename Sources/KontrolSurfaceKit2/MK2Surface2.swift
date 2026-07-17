@@ -550,9 +550,14 @@ public actor MK2Surface2 {
     private static let shiftHeldLamp: MK2LampState2 = .white
 
     private var activeLamps: [KKMK2ButtonLED: MK2LampState2] {
-        var lamps = scene.lamps
-        if let layer = activeShiftLayer {
-            lamps.merge(layer.lamps) { _, next in next }
+        var lamps: [KKMK2ButtonLED: MK2LampState2]
+        if let layer = activeShiftLayer, layer.buttonPolicy == .exclusive {
+            lamps = layer.lamps
+        } else {
+            lamps = scene.lamps
+            if let layer = activeShiftLayer {
+                lamps.merge(layer.lamps) { _, next in next }
+            }
         }
         if scene.shift != nil, scene.lamps[.shift] == nil, scene.shift?.lamps[.shift] == nil {
             lamps[.shift] = pressedButtons.contains(.shift) ? Self.shiftHeldLamp : Self.shiftAvailableLamp
@@ -894,6 +899,7 @@ public actor MK2Surface2 {
     private struct ButtonResolution {
         var viaShiftLayer: Bool
         var requirement: MK2InputBindings2.ModifierRequirement
+        var allowsBaseFallback: Bool
     }
 
     /// The shift layer of the current scene, but only while SHIFT is physically held.
@@ -904,9 +910,11 @@ public actor MK2Surface2 {
 
     private func buttonResolution(for led: KKMK2ButtonLED) -> ButtonResolution {
         let shiftHeld = led != .shift && pressedButtons.contains(.shift)
+        let layer = shiftHeld ? scene.shift : nil
         return ButtonResolution(
-            viaShiftLayer: shiftHeld && scene.shift != nil,
-            requirement: shiftHeld ? .shift : .unmodified
+            viaShiftLayer: layer != nil,
+            requirement: shiftHeld ? .shift : .unmodified,
+            allowsBaseFallback: layer?.buttonPolicy != .exclusive
         )
     }
 
@@ -920,6 +928,7 @@ public actor MK2Surface2 {
            let handler = Self.buttonHandler(in: layer.bindings, led: led, key: key, event: event) {
             return handler
         }
+        guard resolution.allowsBaseFallback else { return nil }
         return Self.buttonHandler(in: scene.bindings, led: led, key: key, event: event)
     }
 

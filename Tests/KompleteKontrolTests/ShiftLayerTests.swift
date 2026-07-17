@@ -123,6 +123,38 @@ struct ShiftLayerTests {
         #expect(box.shiftPresses == 1)
     }
 
+    @Test("Exclusive shift layers swallow unbound base buttons")
+    func exclusiveLayerBlocksBaseButtons() async {
+        let box = ShiftLayerBox()
+        var base = MK2InputBindings2()
+        base.onPress(.function5) { box.basePresses += 1 }
+        base.onRelease(.function5) { box.baseReleases += 1 }
+        base.onPress(.clear, modifiers: .shift) { box.basePresses += 1 }
+        var layer = MK2InputBindings2()
+        layer.onPress(.function6) { box.shiftPresses += 1 }
+
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            bindings: base,
+            shift: MK2SurfaceScene2.ShiftLayer(
+                bindings: layer,
+                buttonPolicy: .exclusive
+            )
+        ))
+
+        await surface.handleForTesting([.button(led: .shift, pressed: true)])
+        await surface.handleForTesting([.button(led: .function5, pressed: true)])
+        await surface.handleForTesting([.button(led: .function5, pressed: false)])
+        await surface.handleForTesting([.button(led: .clear, pressed: true)])
+        await surface.handleForTesting([.button(led: .clear, pressed: false)])
+        await surface.handleForTesting([.button(led: .function6, pressed: true)])
+        await surface.handleForTesting([.button(led: .function6, pressed: false)])
+
+        #expect(box.basePresses == 0)
+        #expect(box.baseReleases == 0)
+        #expect(box.shiftPresses == 1)
+    }
+
     @Test("Displays swap to layer frames while shift is held")
     func displaysSwapWhileHeld() async {
         let baseLeft = MK2PixelFrame(fill: 0x1111)
@@ -133,7 +165,10 @@ struct ShiftLayerTests {
         await surface.present(MK2SurfaceScene2(
             left: baseLeft,
             right: baseRight,
-            shift: MK2SurfaceScene2.ShiftLayer(right: shiftRight)
+            shift: MK2SurfaceScene2.ShiftLayer(
+                right: shiftRight,
+                buttonPolicy: .exclusive
+            )
         ))
 
         var displays = await surface.activeDisplaysForTesting()
@@ -238,6 +273,30 @@ struct ShiftLayerTests {
         #expect(keys[10] == green)
         #expect(keys[11] == green)
         await surface.handleForTesting([.button(led: .shift, pressed: false)])
+    }
+
+    @Test("Exclusive layer lamps replace base lamps while overlays stay authoritative")
+    func exclusiveLayerLampsReplaceBase() async {
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            lamps: [.play: .green, .stop: .red],
+            shift: MK2SurfaceScene2.ShiftLayer(
+                lamps: [.record: .amber],
+                buttonPolicy: .exclusive
+            )
+        ))
+
+        await surface.handleForTesting([.button(led: .shift, pressed: true)])
+        var lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.play] == nil)
+        #expect(lamps[.stop] == nil)
+        #expect(lamps[.record] == .amber)
+        #expect(lamps[.shift] == .white)
+
+        await surface.presentLampOverlay([.play: .white])
+        lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.play] == .white)
+        #expect(lamps[.record] == .amber)
     }
 }
 

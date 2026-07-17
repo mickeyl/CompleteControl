@@ -142,27 +142,38 @@ public struct MK2SurfaceScene2: Sendable {
     /// Alternate surface state active while the hardware SHIFT button is held.
     ///
     /// The layer is an overlay, not a second scene: per-screen frames replace the
-    /// base frames (`nil` keeps the base visible), lamps and key colors merge over
-    /// the base, and bindings are consulted before the base bindings. Controls the
-    /// layer leaves unbound keep working through the base scene, so a layer only
-    /// declares what actually changes under shift.
+    /// base frames (`nil` keeps the base visible), and key colors merge over the
+    /// base. `buttonPolicy` decides whether button lamps/bindings fall back to the
+    /// base or form an exclusive, complete layer.
     public struct ShiftLayer: Sendable {
+        public enum ButtonPolicy: Sendable, Equatable {
+            /// Layer entries override the base; unbound buttons and unmentioned
+            /// lamps continue to use the base scene.
+            case fallback
+            /// Only layer button bindings and lamps are active while held.
+            /// Clients must repeat every intentional passthrough in the layer.
+            case exclusive
+        }
+
         public var displays: [MK2PixelFrame?]
         public var lamps: [KKMK2ButtonLED: MK2LampState2]
         public var keyColors: [Int: KKRGB]
         public var bindings: MK2InputBindings2
+        public var buttonPolicy: ButtonPolicy
 
         public init(
             left: MK2PixelFrame? = nil,
             right: MK2PixelFrame? = nil,
             lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
             keyColors: [Int: KKRGB] = [:],
-            bindings: MK2InputBindings2 = MK2InputBindings2()
+            bindings: MK2InputBindings2 = MK2InputBindings2(),
+            buttonPolicy: ButtonPolicy = .fallback
         ) {
             displays = [left, right]
             self.lamps = lamps
             self.keyColors = keyColors
             self.bindings = bindings
+            self.buttonPolicy = buttonPolicy
         }
     }
 

@@ -176,8 +176,14 @@ Interaction and rendering rules:
 - SHIFT is the only first-class modifier and is scene-owned: screens declare a
   shift layer in the DSL (`MK2ShiftBranch`, `MK2FunctionKeyBarElement`
   `shiftSlots`/`onShiftPress`, `MK2ParameterPageElement.shiftSlots`); never
-  re-present scenes on shift transitions or hand-roll chord handling. While
-  held, layer bindings dispatch first with fallback to the base scene. Shift
+  re-present scenes on shift transitions or hand-roll chord handling.
+  `MK2SurfaceScene2.ShiftLayer.buttonPolicy` chooses `.fallback` (the
+  compatibility default: layer button bindings/lamps override the base) or
+  `.exclusive` (only layer buttons/lamps remain active; every intended
+  passthrough must be repeated explicitly in both bindings and lamps). Display
+  fallback and continuous-control fallback remain independent: a nil shift
+  frame keeps the base OLED visible, and unmodified encoders/jog/strip remain
+  available unless the layer replaces them. Shift
   reveals rarer alternates related to the base action in the same physical
   slot (base CUT → shift TRIM); it never relocates a frequent action.
   Shift-layer function labels render in `MK2HIG.Chrome.shiftAccent`; the shift
