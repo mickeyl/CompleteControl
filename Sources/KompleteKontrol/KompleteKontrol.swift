@@ -2202,14 +2202,18 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
+            // No display channel left to paint anything real — a connected-client banner
+            // here would just freeze on stale/misleading content forever once its one-shot
+            // paint completes, so this takes priority over the failover above: a banner for
+            // a client with no way to reach the screen is worse than the idle diagnostic.
+            shouldShowNoClient = displayClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) registration removed on disconnect")
-            if shouldShowConnectedClient, let nextClient {
-                showConnectedClient(nextClient)
-            } else if shouldShowNoClient {
+            if shouldShowNoClient {
                 showNoClient()
+            } else if shouldShowConnectedClient, let nextClient {
+                showConnectedClient(nextClient)
             }
         }
 
@@ -2258,14 +2262,17 @@ public enum KompleteKontrolLibUSBServer {
                 nextClient = nil
                 shouldShowConnectedClient = false
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
+            // See the matching comment in disconnect(clientID:): no display channel means
+            // no way to paint anything real, so fall back to the idle diagnostic rather
+            // than a connected-client banner that would freeze on stale content forever.
+            shouldShowNoClient = displayClientFDs.isEmpty
             lock.unlock()
 
             daemonLog("client \(clientID) unregistered name=\(client.name) pid=\(client.pid)")
-            if shouldShowConnectedClient, let nextClient {
-                showConnectedClient(nextClient)
-            } else if shouldShowNoClient {
+            if shouldShowNoClient {
                 showNoClient()
+            } else if shouldShowConnectedClient, let nextClient {
+                showConnectedClient(nextClient)
             }
             return "ok unregistered"
         }
@@ -3526,7 +3533,9 @@ public enum KompleteKontrolLibUSBServer {
                 displayTransportMetricsEnabled = false
                 displayTransportMetrics = MK2DisplayTransportMetrics()
             }
-            shouldShowNoClient = registeredClients.isEmpty && clientFDs.isEmpty && eventClientFDs.isEmpty && displayClientFDs.isEmpty
+            // No display channel means no way to paint anything real — see the matching
+            // comment in disconnect(clientID:).
+            shouldShowNoClient = displayClientFDs.isEmpty
             lock.unlock()
             if shouldShowNoClient {
                 showNoClient()
