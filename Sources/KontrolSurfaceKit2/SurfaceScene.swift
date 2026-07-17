@@ -138,6 +138,20 @@ public struct MK2InputBindings2: Sendable {
     }
 }
 
+public struct MK2LightGuideColor: Equatable, Sendable {
+    public var color: KKRGB
+    public var intensity: UInt8
+
+    public init(color: KKRGB, intensity: UInt8 = 3) {
+        self.color = color
+        self.intensity = min(3, intensity)
+    }
+
+    public var paletteCode: UInt8 {
+        KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
+    }
+}
+
 public struct MK2SurfaceScene2: Sendable {
     /// Alternate surface state active while the hardware SHIFT button is held.
     ///
@@ -158,6 +172,7 @@ public struct MK2SurfaceScene2: Sendable {
         public var displays: [MK2PixelFrame?]
         public var lamps: [KKMK2ButtonLED: MK2LampState2]
         public var keyColors: [Int: KKRGB]
+        public var keyIntensities: [Int: UInt8]
         public var bindings: MK2InputBindings2
         public var buttonPolicy: ButtonPolicy
 
@@ -166,12 +181,14 @@ public struct MK2SurfaceScene2: Sendable {
             right: MK2PixelFrame? = nil,
             lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
             keyColors: [Int: KKRGB] = [:],
+            keyIntensities: [Int: UInt8] = [:],
             bindings: MK2InputBindings2 = MK2InputBindings2(),
             buttonPolicy: ButtonPolicy = .fallback
         ) {
             displays = [left, right]
             self.lamps = lamps
             self.keyColors = keyColors
+            self.keyIntensities = keyIntensities.mapValues { min(3, $0) }
             self.bindings = bindings
             self.buttonPolicy = buttonPolicy
         }
@@ -180,6 +197,7 @@ public struct MK2SurfaceScene2: Sendable {
     public var displays: [MK2PixelFrame?]
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
     public var keyColors: [Int: KKRGB]
+    public var keyIntensities: [Int: UInt8]
     public var bindings: MK2InputBindings2
     public var shift: ShiftLayer?
     /// Prepared touch highlights of encoder-bound slots, keyed by encoder;
@@ -192,6 +210,7 @@ public struct MK2SurfaceScene2: Sendable {
         right: MK2PixelFrame? = nil,
         lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
         keyColors: [Int: KKRGB] = [:],
+        keyIntensities: [Int: UInt8] = [:],
         bindings: MK2InputBindings2 = MK2InputBindings2(),
         shift: ShiftLayer? = nil,
         encoderTouchOverlays: [Int: MK2EncoderTouchOverlay] = [:]
@@ -199,6 +218,7 @@ public struct MK2SurfaceScene2: Sendable {
         displays = [left, right]
         self.lamps = lamps
         self.keyColors = keyColors
+        self.keyIntensities = keyIntensities.mapValues { min(3, $0) }
         self.bindings = bindings
         self.shift = shift
         self.encoderTouchOverlays = encoderTouchOverlays

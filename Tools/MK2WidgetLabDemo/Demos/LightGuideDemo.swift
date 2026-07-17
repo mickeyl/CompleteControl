@@ -14,11 +14,11 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         category: .diagnostics,
         summary: "Paint light-guide keys and button LEDs",
         detail: "Scene-driven light-guide painting with an on-screen mirror to compare against the hardware. E5 pattern, E6 colour, E7 key span, E8 mirrors the colour onto the F-key LEDs; 4-D moves the cursor, press paints.",
-        snapshotVariants: ["rainbow", "solid"]
+        snapshotVariants: ["rainbow", "solid", "instruments64"]
     )
 
     private enum GuidePattern: Int, CaseIterable {
-        case off, solid, octaves, rainbow
+        case off, solid, octaves, rainbow, instruments64
 
         var title: String {
             switch self {
@@ -26,6 +26,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 case .solid: "SOLID"
                 case .octaves: "OCTAVES"
                 case .rainbow: "RAINBOW"
+                case .instruments64: "64 INST"
             }
         }
     }
@@ -40,6 +41,24 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         ("MAGENTA", KKRGB(red: 0xff, green: 0x00, blue: 0xff)),
     ]
     private static let spans = [49, 61, 88]
+    private static let instrumentHues: [KKRGB] = [
+        KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+        KKRGB(red: 0x00, green: 0xff, blue: 0xff),
+        KKRGB(red: 0xff, green: 0xff, blue: 0x00),
+        KKRGB(red: 0x00, green: 0x00, blue: 0xff),
+        KKRGB(red: 0x00, green: 0xff, blue: 0x00),
+        KKRGB(red: 0xff, green: 0x00, blue: 0xff),
+        KKRGB(red: 0xff, green: 0x7f, blue: 0x00),
+        KKRGB(red: 0x00, green: 0x7f, blue: 0xff),
+        KKRGB(red: 0x7f, green: 0xff, blue: 0x00),
+        KKRGB(red: 0x7f, green: 0x00, blue: 0xff),
+        KKRGB(red: 0xff, green: 0xcf, blue: 0x00),
+        KKRGB(red: 0x3f, green: 0x00, blue: 0xff),
+        KKRGB(red: 0x00, green: 0xff, blue: 0x7f),
+        KKRGB(red: 0xff, green: 0x00, blue: 0x7f),
+        KKRGB(red: 0xff, green: 0x3f, blue: 0x00),
+        KKRGB(red: 0xff, green: 0x00, blue: 0x3f),
+    ]
     private static let functionLEDs: [KKMK2ButtonLED] = [
         .function1, .function2, .function3, .function4,
         .function5, .function6, .function7, .function8,
@@ -58,6 +77,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
         let keyColors = guideColors()
+        let keyIntensities = guideIntensities()
         var lamps: [KKMK2ButtonLED: MK2LampState2] = [:]
         if mirrorLEDs {
             for led in Self.functionLEDs {
@@ -72,7 +92,8 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
             left: mirrorScreen(context).screen.frame,
             right: controlScreen(context).screen.frame,
             lamps: lamps,
-            keyColors: keyColors
+            keyColors: keyColors,
+            keyIntensities: keyIntensities
         )
         scene.bindings.jogScroll = { [weak self] delta, _ in
             context.update {
@@ -103,6 +124,9 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         switch variant {
             case "rainbow": pattern = .rainbow
             case "solid": pattern = .solid
+            case "instruments64":
+                pattern = .instruments64
+                spanIndex = 2
             default: pattern = .octaves
         }
     }
@@ -132,9 +156,26 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 for key in 0..<span {
                     colors[key] = Self.rainbow(Double(key) / Double(max(1, span - 1)))
                 }
+            case .instruments64:
+                for key in 0..<min(64, span) {
+                    colors[key] = Self.instrumentHues[key % Self.instrumentHues.count]
+                }
         }
         colors.merge(painted) { _, override in override }
         return colors
+    }
+
+    private func guideIntensities() -> [Int: UInt8] {
+        var intensities: [Int: UInt8] = [:]
+        if pattern == .instruments64 {
+            for key in 0..<min(64, span) {
+                intensities[key] = UInt8(3 - key / Self.instrumentHues.count)
+            }
+        }
+        for key in painted.keys {
+            intensities[key] = 3
+        }
+        return intensities
     }
 
     private func clearAllKeys() {
@@ -165,6 +206,7 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
 
     private func mirrorScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         let keyColors = guideColors()
+        let keyIntensities = guideIntensities()
         let span = span
         let cursor = cursor
         let paintedCount = painted.count
@@ -183,14 +225,14 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
                 lineSpacing: 2
             )
             MK2AnyScreenElement { frame, _, _ in
-                Self.drawGuideMirror(into: &frame, keyColors: keyColors, span: span, cursor: cursor, rect: MK2PixelRect(x: 8, y: 148, width: 464, height: 56))
+                Self.drawGuideMirror(into: &frame, keyColors: keyColors, keyIntensities: keyIntensities, span: span, cursor: cursor, rect: MK2PixelRect(x: 8, y: 148, width: 464, height: 56))
                 BitmapLabel("KEY \(cursor)", font: .gridBold, color: Palette.text).draw(into: &frame, x: 8, y: 218)
                 BitmapLabel("PAINTED \(paintedCount)", font: .grid, color: paintedCount > 0 ? Palette.accent : Palette.empty).draw(into: &frame, x: 120, y: 218)
             }
         }.build(renderer: context.renderer)
     }
 
-    private static func drawGuideMirror(into frame: inout MK2PixelFrame, keyColors: [Int: KKRGB], span: Int, cursor: Int, rect: MK2PixelRect) {
+    private static func drawGuideMirror(into frame: inout MK2PixelFrame, keyColors: [Int: KKRGB], keyIntensities: [Int: UInt8], span: Int, cursor: Int, rect: MK2PixelRect) {
         let blackNoteClasses: Set<Int> = [1, 3, 6, 8, 10]
         let lowNoteClass = span == 88 ? 9 : 0
         for key in 0..<span {
@@ -202,7 +244,9 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
             let base: UInt16 = isBlackKey ? 0x2104 : 0x39e7
             frame.fill(keyRect, base)
             if let color = keyColors[key] {
-                frame.fill(MK2PixelRect(x: x0, y: keyRect.y + keyRect.height - 8, width: width, height: 8), rgb565(color))
+                let light = MK2LightGuideColor(color: color, intensity: keyIntensities[key] ?? 3)
+                let displayedColor = KompleteKontrolSSeriesMK2.paletteColor(forCode: light.paletteCode)
+                frame.fill(MK2PixelRect(x: x0, y: keyRect.y + keyRect.height - 8, width: width, height: 8), rgb565(displayedColor))
             }
             if key == cursor {
                 frame.fill(MK2PixelRect(x: x0, y: rect.y + rect.height + 4, width: width, height: 3), Palette.text)

@@ -99,8 +99,11 @@ public actor MK2Surface2 {
     /// Dynamic lamps that change independently of the rendered scene, such as
     /// realtime meters. Empty restores the scene-owned lamp state immediately.
     private var lampOverlay: [KKMK2ButtonLED: MK2LampState2] = [:]
+    /// Nil restores scene-owned colors. A non-nil overlay, including an empty
+    /// dictionary, fully owns the guide while realtime playback is active.
+    private var keyOverlay: [Int: MK2LightGuideColor]?
     private var lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
-    private var lastKeyColors: [KKRGB] = []
+    private var lastKeyCodes: [UInt8] = []
     private var controlClient: KompleteKontrolDaemonBinaryClient?
     private var eventClient: KompleteKontrolDaemonBinaryClient?
     private var displayClient: KompleteKontrolDaemonBinaryClient?
@@ -185,6 +188,7 @@ public actor MK2Surface2 {
         latchedEncoder = nil
         scene = MK2SurfaceScene2()
         lampOverlay = [:]
+        keyOverlay = nil
         displayReconciler.reset()
         publish(.stopped)
     }
@@ -264,6 +268,12 @@ public actor MK2Surface2 {
     /// replacing scene bindings. Overlay lamps win over base and shift-layer lamps.
     public func presentLampOverlay(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
         lampOverlay = lamps
+    }
+
+    /// Updates the complete light guide independently of display scenes and
+    /// input bindings. Nil restores scene colors; an empty overlay darkens it.
+    public func presentKeyOverlay(_ keys: [Int: MK2LightGuideColor]?) {
+        keyOverlay = keys
     }
 
     public func present(_ screen: MK2DoubleScreenDSL) {
@@ -494,7 +504,7 @@ public actor MK2Surface2 {
     private func replaySurfaceState() {
         guard running else { return }
         lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
-        lastKeyColors = []
+        lastKeyCodes = []
         displayReconciler.reset()
         guard configureHostControl() else {
             handleDaemonFailure("daemon reconnect replay failed")
@@ -566,11 +576,27 @@ public actor MK2Surface2 {
         return lamps
     }
 
-    private var activeKeyColors: [Int: KKRGB] {
-        guard let layer = activeShiftLayer, !layer.keyColors.isEmpty else { return scene.keyColors }
-        var colors = scene.keyColors
-        colors.merge(layer.keyColors) { _, next in next }
-        return colors
+    private var activeKeyLights: [Int: MK2LightGuideColor] {
+        if let keyOverlay { return keyOverlay }
+        var lights = scene.keyColors.mapValues { MK2LightGuideColor(color: $0) }
+        for (index, intensity) in scene.keyIntensities {
+            guard var light = lights[index] else { continue }
+            light.intensity = min(3, intensity)
+            lights[index] = light
+        }
+        guard let layer = activeShiftLayer else { return lights }
+        for (index, color) in layer.keyColors {
+            lights[index] = MK2LightGuideColor(
+                color: color,
+                intensity: layer.keyIntensities[index] ?? 3
+            )
+        }
+        for (index, intensity) in layer.keyIntensities where layer.keyColors[index] == nil {
+            guard var light = lights[index] else { continue }
+            light.intensity = min(3, intensity)
+            lights[index] = light
+        }
+        return lights
     }
 
     private var activeDisplays: [MK2PixelFrame?] {
@@ -635,14 +661,14 @@ public actor MK2Surface2 {
 
     private func reconcileKeys() {
         let keyCount = 88
-        var colors = Array(repeating: KKRGB.off, count: keyCount)
-        for (index, color) in activeKeyColors where colors.indices.contains(index) {
-            colors[index] = color
+        var codes = [UInt8](repeating: 0, count: keyCount)
+        for (index, light) in activeKeyLights where codes.indices.contains(index) {
+            codes[index] = light.paletteCode
         }
-        guard colors != lastKeyColors else { return }
+        guard codes != lastKeyCodes else { return }
         var payload = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.lightGuideKeyMapSize)
-        for (index, color) in colors.enumerated() where payload.indices.contains(index) {
-            payload[index] = KompleteKontrolSSeriesMK2.paletteCode(for: color)
+        for (index, code) in codes.enumerated() where payload.indices.contains(index) {
+            payload[index] = code
         }
         let response = writeReport(KompleteKontrolMK2Protocol.lightGuideReportID, payload)
         guard response == "ok" else {
@@ -653,7 +679,7 @@ public actor MK2Surface2 {
             }
             return
         }
-        lastKeyColors = colors
+        lastKeyCodes = codes
     }
 
     private struct DisplayReconciliation {
@@ -783,7 +809,7 @@ public actor MK2Surface2 {
         previousSurfaceReport = nil
         lastDaemonHeartbeatNanos = 0
         lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
-        lastKeyColors = []
+        lastKeyCodes = []
         displayReconciler.reset()
         cancelButtonHolds()
     }
@@ -804,7 +830,8 @@ public actor MK2Surface2 {
 
     func activeDisplaysForTesting() -> [MK2PixelFrame?] { activeDisplays }
     func activeLampsForTesting() -> [KKMK2ButtonLED: MK2LampState2] { activeLamps }
-    func activeKeyColorsForTesting() -> [Int: KKRGB] { activeKeyColors }
+    func activeKeyColorsForTesting() -> [Int: KKRGB] { activeKeyLights.mapValues(\.color) }
+    func activeKeyLightsForTesting() -> [Int: MK2LightGuideColor] { activeKeyLights }
 
     private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {

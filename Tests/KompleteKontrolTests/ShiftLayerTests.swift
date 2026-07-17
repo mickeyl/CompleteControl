@@ -245,6 +245,50 @@ struct ShiftLayerTests {
         #expect(lamps[.play] == .green)
     }
 
+    @Test("Key overlay replaces the full guide and nil restores the scene")
+    func keyOverlayRestoresSceneGuide() async {
+        let red = KKRGB(red: 0xff, green: 0x00, blue: 0x00)
+        let cyan = KKRGB(red: 0x00, green: 0xff, blue: 0xff)
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(keyColors: [10: red, 11: red]))
+
+        await surface.presentKeyOverlay([10: MK2LightGuideColor(color: cyan, intensity: 1)])
+        var lights = await surface.activeKeyLightsForTesting()
+        #expect(lights == [10: MK2LightGuideColor(color: cyan, intensity: 1)])
+
+        await surface.presentKeyOverlay([:])
+        lights = await surface.activeKeyLightsForTesting()
+        #expect(lights.isEmpty)
+
+        await surface.presentKeyOverlay(nil)
+        lights = await surface.activeKeyLightsForTesting()
+        #expect(lights[10] == MK2LightGuideColor(color: red, intensity: 3))
+        #expect(lights[11] == MK2LightGuideColor(color: red, intensity: 3))
+    }
+
+    @Test("Scene and shift guide intensities remain exact")
+    func keyIntensitiesSurviveShiftMerging() async {
+        let red = KKRGB(red: 0xff, green: 0x00, blue: 0x00)
+        let green = KKRGB(red: 0x00, green: 0xff, blue: 0x00)
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            keyColors: [10: red],
+            keyIntensities: [10: 0],
+            shift: MK2SurfaceScene2.ShiftLayer(
+                keyColors: [10: green],
+                keyIntensities: [10: 2]
+            )
+        ))
+
+        var lights = await surface.activeKeyLightsForTesting()
+        #expect(lights[10] == MK2LightGuideColor(color: red, intensity: 0))
+
+        await surface.handleForTesting([.button(led: .shift, pressed: true)])
+        lights = await surface.activeKeyLightsForTesting()
+        #expect(lights[10] == MK2LightGuideColor(color: green, intensity: 2))
+        await surface.handleForTesting([.button(led: .shift, pressed: false)])
+    }
+
     @Test("Layer lamps and key colors merge over the base while held")
     func layerLampsAndKeyColorsMerge() async {
         let red = KKRGB(red: 0xff, green: 0x00, blue: 0x00)
