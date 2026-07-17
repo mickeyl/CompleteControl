@@ -374,6 +374,17 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer: [UInt8] = []
     private var nextSequence: UInt32 = 0
+    private var desynced = false
+
+    /// Set once a send times out after already writing some bytes to the socket: the frame
+    /// boundary is corrupted for every send from that point on (this connection has no way
+    /// to un-write what it already put on the wire), so a caller must close and reconnect
+    /// rather than treat this like an ordinary slow-ack timeout.
+    public var isDesynced: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return desynced
+    }
 
     public init?(
         channel: KKDaemonBinaryChannel,
@@ -550,6 +561,10 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
         return .timeout
     }
 
+    // Any early exit below with written > 0 but < bytes.count leaves a real prefix of this
+    // frame already on the wire with no way to take it back — request()'s caller sees a
+    // clean "false" and moves on to its next frame, so without desynced, that abandoned
+    // prefix would silently corrupt every frame boundary from here on.
     private func send(_ bytes: [UInt8], timeoutUsec: useconds_t) -> Bool {
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
         var written = 0
@@ -561,16 +576,18 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
                 written += count
                 continue
             }
-            if count == 0 {
-                return false
-            }
+            if count == 0 { break }
             if errno == EAGAIN || errno == EWOULDBLOCK {
-                guard waitForWritable(until: deadline) else { return false }
+                guard waitForWritable(until: deadline) else { break }
                 continue
             }
             if errno == EINTR {
                 continue
             }
+            break
+        }
+        guard written == bytes.count else {
+            if written > 0 { desynced = true }
             return false
         }
         return true

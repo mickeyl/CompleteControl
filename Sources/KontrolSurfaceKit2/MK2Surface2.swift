@@ -621,7 +621,7 @@ public actor MK2Surface2 {
             if let response {
                 handleDaemonFailure(response)
             } else {
-                handleWriteTimeout("button LED write timed out")
+                handleWriteTimeout("button LED write timed out", client: controlClient)
             }
             return
         }
@@ -644,7 +644,7 @@ public actor MK2Surface2 {
             if let response {
                 handleDaemonFailure(response)
             } else {
-                handleWriteTimeout("light guide write timed out")
+                handleWriteTimeout("light guide write timed out", client: controlClient)
             }
             return
         }
@@ -682,7 +682,7 @@ public actor MK2Surface2 {
                     // The reconciler already advanced its last-sent state, so force a
                     // clean resend on the next tick before the soft retry.
                     displayReconciler.reset()
-                    handleWriteTimeout("display blit timed out")
+                    handleWriteTimeout("display blit timed out", client: displayClient)
                 }
                 return DisplayReconciliation(
                     blitCount: blits.count,
@@ -727,7 +727,18 @@ public actor MK2Surface2 {
     /// failed probe kills the session, otherwise the write retries on the next tick
     /// because the reconcile caches stay unchanged (a late ack for the timed-out
     /// write is discarded by the sequence check in the binary client).
-    private func handleWriteTimeout(_ reason: String) {
+    ///
+    /// `client` is the connection the timed-out write actually happened on (control for
+    /// LED/light-guide reports, display for blits) — probing a *different* channel proves
+    /// nothing here: a desynced display connection looks perfectly healthy over control.
+    /// If that specific connection wrote a partial frame before timing out, its byte stream
+    /// is permanently corrupted from that point on and no amount of waiting fixes it, so skip
+    /// the probe and reconnect immediately.
+    private func handleWriteTimeout(_ reason: String, client: KompleteKontrolDaemonBinaryClient?) {
+        if client?.isDesynced == true {
+            handleDaemonFailure(reason)
+            return
+        }
         let probe = controlClient?.request(type: .version, timeoutUsec: 1_000_000)
         guard KompleteKontrolLibUSBServer.isCurrentProtocolMessage(probe?.message) else {
             handleDaemonFailure(reason)
