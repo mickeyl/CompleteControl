@@ -104,6 +104,30 @@ struct DaemonBinaryProtocolTests {
         #expect(delta.failureCount == 0)
         #expect(earlier.metrics.subtracting(later.metrics) == nil)
     }
+
+    @Test("device info round-trips through its wire message, including a spaced name")
+    func deviceInfoRoundTrips() {
+        let info = KKDeviceInfo(
+            productID: 0x1600,
+            name: "MASCHINE MK3",
+            family: .maschineMK3,
+            keyCount: 0,
+            padCount: 16,
+            screenCount: 2,
+            firmwareVersionRaw: 0x0146
+        )
+
+        #expect(info.firmwareVersionString == "1.4.6")
+        #expect(KKDeviceInfo.parse(info.message) == info)
+        #expect(KKDeviceInfo.parse("no session") == nil)
+    }
+
+    @Test("firmware version decodes bcdDevice as BCD major.minor.patch")
+    func formatsBCDVersion() {
+        #expect(KKDeviceInfo.formatBCDVersion(0x0146) == "1.4.6")
+        #expect(KKDeviceInfo.formatBCDVersion(0x0100) == "1.0.0")
+        #expect(KKDeviceInfo.formatBCDVersion(0x0000) == "0.0.0")
+    }
 }
 
 @Suite("Daemon session policy")

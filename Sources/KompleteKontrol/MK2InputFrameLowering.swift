@@ -65,8 +65,8 @@ public enum MK2InputFrameLowering {
                 let position = (UInt16(frame.payload[0]) << 8) | UInt16(frame.payload[1])
                 let time = (UInt16(frame.payload[2]) << 8) | UInt16(frame.payload[3])
                 emitStripReport(position: position, time: time, emitInput: emitInput)
-            case .hello, .displayBlit, .displayPacket, .report:
-                break // hello reserved; output frame types are never lowered
+            case .hello, .identity, .displayBlit, .displayPacket, .report:
+                break // hello reserved; identity is handled by SimulatorDeviceSession itself; output frame types are never lowered
         }
     }
 

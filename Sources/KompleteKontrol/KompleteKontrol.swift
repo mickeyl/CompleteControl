@@ -1821,10 +1821,16 @@ public enum KompleteKontrolLibUSBServer {
                         return ack(-2, "no session")
                     }
                     let profile = session.deviceProfile
-                    return ack(
-                        0,
-                        "product=0x\(String(session.productID, radix: 16)) model=\(profile.family.rawValue) keys=\(profile.capabilities.keyCount) pads=\(profile.capabilities.padCount) screens=\(profile.capabilities.screenCount)"
+                    let info = KKDeviceInfo(
+                        productID: session.productID,
+                        name: profile.name,
+                        family: profile.family,
+                        keyCount: profile.capabilities.keyCount,
+                        padCount: profile.capabilities.padCount,
+                        screenCount: profile.capabilities.screenCount,
+                        firmwareVersionRaw: session.firmwareVersion
                     )
+                    return ack(0, info.message)
                 case .register:
                     guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
                         return ack(-1, "register parse")

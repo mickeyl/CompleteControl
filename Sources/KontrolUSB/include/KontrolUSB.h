@@ -24,6 +24,11 @@ KontrolUSBResult KontrolUSBLibUSBSessionOpen(KontrolUSBLibUSBSessionRef *session
 KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, KontrolUSBLibUSBSessionRef *sessionOut);
 uint16_t KontrolUSBLibUSBSessionProductID(KontrolUSBLibUSBSessionRef session);
 uint8_t KontrolUSBLibUSBSessionKeyCount(KontrolUSBLibUSBSessionRef session);
+/* Raw bcdDevice from the USB device descriptor. This is the same field Native
+ * Instruments' own firmware updater reads (via IOUSBDeviceInterface's
+ * GetDeviceReleaseNumber) to show a "major.minor.patch" version string, so no
+ * vendor-specific query is needed to reproduce it. */
+uint16_t KontrolUSBLibUSBSessionFirmwareVersion(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionStatus(KontrolUSBLibUSBSessionRef session);
 KontrolUSBResult KontrolUSBLibUSBSessionHealth(KontrolUSBLibUSBSessionRef session);
 int KontrolUSBLibUSBSessionDeviceLost(KontrolUSBLibUSBSessionRef session);

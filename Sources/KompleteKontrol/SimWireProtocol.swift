@@ -17,6 +17,10 @@ public enum SimEndpoint {
 public enum SimFrameType: UInt8, Sendable {
     // sim → ccd
     case hello = 0x00           // {u16be productID, u8 keyCount}
+    /// Overrides what `deviceInfo` reports for this session — the simulator's "Device
+    /// Identity…" settings dialog. Unlike `hello`, may be resent at any time (e.g. the
+    /// dialog is edited while a daemon is already connected), not just right after accept.
+    case identity = 0x01        // {u16be firmwareVersion, u8 nameLength, nameOverride UTF-8…}
     case button = 0x10          // {u8 buttonLEDRawValue, u8 pressed}
     case encoder = 0x11         // {u8 index 1…8, i8 delta}
     case encoderTouch = 0x12    // {u8 index 1…8, u8 touched}
@@ -80,6 +84,15 @@ public enum SimWireCodec {
 public extension SimFrame {
     static func hello(productID: UInt16, keyCount: UInt8) -> SimFrame {
         SimFrame(type: .hello, payload: [UInt8(productID >> 8), UInt8(productID & 0xff), keyCount])
+    }
+
+    /// `nameOverride` empty means "use the real model name"; truncated to 255 UTF-8 bytes.
+    static func identity(firmwareVersion: UInt16, nameOverride: String) -> SimFrame {
+        var payload: [UInt8] = [UInt8(firmwareVersion >> 8), UInt8(firmwareVersion & 0xff)]
+        let nameBytes = Array(nameOverride.utf8.prefix(255))
+        payload.append(UInt8(nameBytes.count))
+        payload.append(contentsOf: nameBytes)
+        return SimFrame(type: .identity, payload: payload)
     }
 
     static func button(led: KKMK2ButtonLED, pressed: Bool) -> SimFrame {

@@ -24,10 +24,16 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     private let fd: Int32
     private let displayPacketEncoder: MK2DisplayPacketEncoder?
-    private let lock = NSLock()          // guards `lost`
+    private let lock = NSLock()          // guards `lost` and the identity override below
     private let sendLock = NSLock()      // serializes frames from display/state queues
     private let displayPacketLock = NSLock()
     private var lostFlag = false
+
+    // Overridden by an `.identity` frame from the simulator's "Device Identity…" settings
+    // dialog. No bench-verified S61 MK2 bcdDevice is on record (only MASCHINE MK3's 0x0146
+    // is), so 0x0100 is a stable placeholder rather than a captured value until overridden.
+    private var firmwareVersionOverride: UInt16 = 0x0100
+    private var nameOverride: String?
 
     // Reactor-thread only (handleEvents): the running input state + partial read buffer.
     private var builder = MK2InputReportBuilder()
@@ -77,8 +83,12 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { Self.s61MK2ProductID }
     var keyCount: UInt8 { Self.s61MK2KeyCount }
+    var firmwareVersion: UInt16 { lock.lock(); defer { lock.unlock() }; return firmwareVersionOverride }
     var deviceProfile: KontrolDeviceProfile {
-        KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount)!
+        var profile = KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount)!
+        lock.lock(); let override = nameOverride; lock.unlock()
+        if let override { profile.name = override }
+        return profile
     }
     var isDeviceLost: Bool { lock.lock(); defer { lock.unlock() }; return lostFlag }
     var status: KontrolUSBResult { Self.makeResult(status: isDeviceLost ? -4 : 0, "simulator") }
@@ -214,14 +224,31 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     // Lower one semantic input frame into a state change and emit the updated raw report.
     // The actual byte-level lowering is shared with the daemon's automation-socket handler —
-    // see MK2InputFrameLowering.
+    // see MK2InputFrameLowering. `.identity` is session-local state (what deviceInfo reports),
+    // not an input gesture, so it's handled here rather than in the shared lowering.
     private func apply(_ frame: SimFrame) {
+        if frame.type == .identity {
+            applyIdentity(frame.payload)
+            return
+        }
         MK2InputFrameLowering.apply(
             frame,
             builder: &builder,
             emitInput: { data, length in self.inputSink?(data, length) },
             emitMIDI: { data, length in self.midiSink?(data, length) }
         )
+    }
+
+    private func applyIdentity(_ payload: [UInt8]) {
+        guard payload.count >= 3 else { return }
+        let firmwareVersion = (UInt16(payload[0]) << 8) | UInt16(payload[1])
+        let nameLength = Int(payload[2])
+        guard payload.count >= 3 + nameLength else { return }
+        let name = String(bytes: payload[3..<(3 + nameLength)], encoding: .utf8) ?? ""
+        lock.lock()
+        firmwareVersionOverride = firmwareVersion
+        nameOverride = name.isEmpty ? nil : name
+        lock.unlock()
     }
 
     @discardableResult

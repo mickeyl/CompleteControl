@@ -22,7 +22,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         static let cheatSheetVisible = "KontrolSimulator.cheatSheet.visible"
         static let daemonAutostart = "KontrolSimulator.daemon.autostart"
         static let daemonAutomationEnabled = "KontrolSimulator.daemon.automationEnabled"
+        static let deviceFirmwareVersion = "KontrolSimulator.deviceIdentity.firmwareVersion"
+        static let deviceNameOverride = "KontrolSimulator.deviceIdentity.nameOverride"
     }
+
+    // No bench-verified S61 MK2 bcdDevice is on record — matches SimulatorDeviceSession's
+    // own placeholder default so an untouched dialog shows what the daemon already reports.
+    private static let defaultFirmwareVersion: UInt16 = 0x0100
 
     private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
     private let displayPacketDecoder = MK2DisplayPacketDecoder()
@@ -132,6 +138,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         link.onConnect = { [weak self] in
             self?.daemonConnected = true
             self?.refreshDaemonStatusPresentation()
+            self?.sendDeviceIdentity()
         }
         link.onDisconnect = { [weak self] in
             self?.panel.clearAll()
@@ -246,6 +253,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         daemonAutomationItem = add(to: daemonMenu, "Enable Test-Automation Socket", #selector(toggleDaemonAutomation), "")
         daemonMenu.addItem(.separator())
         add(to: daemonMenu, "Copy Client Environment", #selector(copyClientEnvironment), "")
+        daemonMenu.addItem(.separator())
+        add(to: daemonMenu, "Device Identity…", #selector(showDeviceIdentitySettings), "")
 
         let viewItem = NSMenuItem()
         mainMenu.addItem(viewItem)
@@ -388,6 +397,66 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString("KK_DAEMON_SOCKET=\(Self.simulatorDaemonSocketPath)", forType: .string)
+    }
+
+    /// Overrides what the connected daemon reports through `deviceInfo` (firmware version and
+    /// display name) — lets a client's about panel be exercised without real hardware. The
+    /// simulated product ID/key count stay the real S61 MK2's; only the identity strings a
+    /// client reads are overridable.
+    @objc private func showDeviceIdentitySettings() {
+        let defaults = UserDefaults.standard
+        let currentFirmwareVersion = defaults.object(forKey: DefaultsKey.deviceFirmwareVersion) != nil
+            ? UInt16(defaults.integer(forKey: DefaultsKey.deviceFirmwareVersion))
+            : Self.defaultFirmwareVersion
+
+        let alert = NSAlert()
+        alert.messageText = "Simulated Device Identity"
+        alert.informativeText = "Overrides what the daemon reports to clients via deviceInfo. Leave the name empty to report the real model name."
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
+        let firmwareLabel = NSTextField(labelWithString: "Firmware version:")
+        firmwareLabel.frame = NSRect(x: 0, y: 32, width: 130, height: 18)
+        container.addSubview(firmwareLabel)
+        let firmwareField = NSTextField(frame: NSRect(x: 134, y: 30, width: 150, height: 22))
+        firmwareField.placeholderString = "1.0.0"
+        firmwareField.stringValue = KKDeviceInfo.formatBCDVersion(currentFirmwareVersion)
+        container.addSubview(firmwareField)
+
+        let nameLabel = NSTextField(labelWithString: "Reported name:")
+        nameLabel.frame = NSRect(x: 0, y: 4, width: 130, height: 18)
+        container.addSubview(nameLabel)
+        let nameField = NSTextField(frame: NSRect(x: 134, y: 2, width: 150, height: 22))
+        nameField.placeholderString = "(default)"
+        nameField.stringValue = defaults.string(forKey: DefaultsKey.deviceNameOverride) ?? ""
+        container.addSubview(nameField)
+
+        alert.accessoryView = container
+        alert.window.initialFirstResponder = firmwareField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        guard let firmwareVersion = KKDeviceInfo.parseBCDVersion(firmwareField.stringValue) else {
+            let error = NSAlert()
+            error.messageText = "Invalid firmware version"
+            error.informativeText = "Use major.minor.patch, e.g. 1.4.6 (minor and patch each 0–15)."
+            error.runModal()
+            return
+        }
+
+        defaults.set(Int(firmwareVersion), forKey: DefaultsKey.deviceFirmwareVersion)
+        defaults.set(nameField.stringValue, forKey: DefaultsKey.deviceNameOverride)
+        sendDeviceIdentity()
+    }
+
+    private func sendDeviceIdentity() {
+        let defaults = UserDefaults.standard
+        let firmwareVersion = defaults.object(forKey: DefaultsKey.deviceFirmwareVersion) != nil
+            ? UInt16(defaults.integer(forKey: DefaultsKey.deviceFirmwareVersion))
+            : Self.defaultFirmwareVersion
+        let nameOverride = defaults.string(forKey: DefaultsKey.deviceNameOverride) ?? ""
+        link.send(.identity(firmwareVersion: firmwareVersion, nameOverride: nameOverride))
     }
 
     private func refreshDaemonStatusPresentation() {

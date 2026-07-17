@@ -12,6 +12,8 @@ import KontrolUSB
 protocol KontrolDeviceSession: AnyObject {
     var productID: UInt16 { get }
     var keyCount: UInt8 { get }
+    /// Raw `bcdDevice` from the USB device descriptor — see `KKDeviceInfo.formatBCDVersion`.
+    var firmwareVersion: UInt16 { get }
     var deviceProfile: KontrolDeviceProfile { get }
     var isDeviceLost: Bool { get }
     var status: KontrolUSBResult { get }
@@ -66,6 +68,7 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     var productID: UInt16 { KontrolUSBLibUSBSessionProductID(ref) }
     var keyCount: UInt8 { KontrolUSBLibUSBSessionKeyCount(ref) }
+    var firmwareVersion: UInt16 { KontrolUSBLibUSBSessionFirmwareVersion(ref) }
     var deviceProfile: KontrolDeviceProfile {
         guard let profile = KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount) else {
             preconditionFailure("KontrolUSB opened an unsupported product 0x\(String(productID, radix: 16))")

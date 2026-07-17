@@ -107,6 +107,100 @@ public struct MK2DisplayTransportSnapshot: Sendable, Equatable {
     }
 }
 
+/// Structured form of the `deviceInfo` ack message — the API a client (e.g. Paulinche's
+/// about panel) uses to show which controller is connected and its firmware revision
+/// without hand-parsing the wire string itself.
+public struct KKDeviceInfo: Sendable, Equatable {
+    public var productID: UInt16
+    public var name: String
+    public var family: KontrolDeviceFamily
+    public var keyCount: Int
+    public var padCount: Int
+    public var screenCount: Int
+    /// Raw `bcdDevice` from the USB device descriptor (BCD-encoded: high byte is major,
+    /// low byte's nibbles are minor/patch) — the same field Native Instruments' own
+    /// firmware updater reads via `IOUSBDeviceInterface.GetDeviceReleaseNumber` to show a
+    /// "major.minor.patch" version string. No vendor-specific query is involved.
+    public var firmwareVersionRaw: UInt16
+
+    public init(
+        productID: UInt16,
+        name: String,
+        family: KontrolDeviceFamily,
+        keyCount: Int,
+        padCount: Int,
+        screenCount: Int,
+        firmwareVersionRaw: UInt16
+    ) {
+        self.productID = productID
+        self.name = name
+        self.family = family
+        self.keyCount = keyCount
+        self.padCount = padCount
+        self.screenCount = screenCount
+        self.firmwareVersionRaw = firmwareVersionRaw
+    }
+
+    public var firmwareVersionString: String { Self.formatBCDVersion(firmwareVersionRaw) }
+
+    public static func formatBCDVersion(_ value: UInt16) -> String {
+        let major = (value >> 8) & 0xff
+        let minor = (value & 0xf0) >> 4
+        let patch = value & 0xf
+        return "\(major).\(minor).\(patch)"
+    }
+
+    /// Inverse of `formatBCDVersion`: `"1.4.6"` → `0x0146`. `nil` for anything that
+    /// wouldn't round-trip (wrong shape, or minor/patch outside the 0-15 nibble it encodes to).
+    public static func parseBCDVersion(_ string: String) -> UInt16? {
+        let parts = string.split(separator: ".").map(String.init)
+        guard parts.count == 3,
+              let major = UInt16(parts[0]), major <= 0xff,
+              let minor = UInt16(parts[1]), minor <= 0xf,
+              let patch = UInt16(parts[2]), patch <= 0xf else {
+            return nil
+        }
+        return (major << 8) | (minor << 4) | patch
+    }
+
+    /// Wire form of a `deviceInfo` ack message. Spaces in `name` are escaped as `_` since the
+    /// message is a space-separated `key=value` list; device names never contain underscores.
+    public var message: String {
+        "product=0x\(String(productID, radix: 16)) name=\(name.replacingOccurrences(of: " ", with: "_")) model=\(family.rawValue) keys=\(keyCount) pads=\(padCount) screens=\(screenCount) firmware=\(firmwareVersionString)"
+    }
+
+    public static func parse(_ message: String) -> Self? {
+        var fields: [String: String] = [:]
+        for token in message.split(separator: " ") {
+            let parts = token.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                fields[parts[0]] = parts[1]
+            }
+        }
+        guard let productHex = fields["product"], productHex.hasPrefix("0x"),
+              let productID = UInt16(productHex.dropFirst(2), radix: 16),
+              let name = fields["name"]?.replacingOccurrences(of: "_", with: " "),
+              let familyRaw = fields["model"],
+              let family = KontrolDeviceFamily(rawValue: familyRaw),
+              let keyCount = fields["keys"].flatMap(Int.init),
+              let padCount = fields["pads"].flatMap(Int.init),
+              let screenCount = fields["screens"].flatMap(Int.init),
+              let firmwareString = fields["firmware"],
+              let firmwareVersionRaw = parseBCDVersion(firmwareString) else {
+            return nil
+        }
+        return Self(
+            productID: productID,
+            name: name,
+            family: family,
+            keyCount: keyCount,
+            padCount: padCount,
+            screenCount: screenCount,
+            firmwareVersionRaw: firmwareVersionRaw
+        )
+    }
+}
+
 public struct KKDaemonBinaryFrame: Sendable, Equatable {
     public static let magic: UInt32 = 0x00324b4b // "KK2\0", little endian in byte stream.
     public static let version: UInt8 = 1
@@ -440,6 +534,16 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    /// Identity and firmware revision of the currently connected controller — the API a host
+    /// app (e.g. Paulinche's about panel) uses to show what it's talking to. `nil` when no
+    /// device session is open or the daemon isn't reachable.
+    public func deviceInfo(timeoutUsec: useconds_t = 250_000) -> KKDeviceInfo? {
+        guard let response = request(type: .deviceInfo, timeoutUsec: timeoutUsec), response.status == 0 else {
+            return nil
+        }
+        return KKDeviceInfo.parse(response.message)
     }
 
     public func sendDisplayBlit(

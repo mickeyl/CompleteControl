@@ -236,6 +236,28 @@ struct SimulatorDeviceSessionTests {
         #expect(decoded.pixelsBE == pixels)
     }
 
+    @Test("An identity frame overrides the reported firmware version and name")
+    func identityOverridesDeviceInfo() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+
+        // Untouched default: matches the daemon's own placeholder, real model name.
+        #expect(session.firmwareVersion == 0x0100)
+        #expect(session.deviceProfile.name == "KOMPLETE KONTROL S61 MK2")
+
+        send(.identity(firmwareVersion: 0x0146, nameOverride: "Test Rig"), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(session.firmwareVersion == 0x0146)
+        #expect(session.deviceProfile.name == "Test Rig")
+
+        // An empty override reverts to the real model name rather than reporting "".
+        send(.identity(firmwareVersion: 0x0200, nameOverride: ""), to: sim)
+        session.handleEvents(timeoutMs: 0)
+        #expect(session.firmwareVersion == 0x0200)
+        #expect(session.deviceProfile.name == "KOMPLETE KONTROL S61 MK2")
+    }
+
     @Test("Socket EOF marks the session device-lost (window closed = unplug)")
     func deviceLoss() {
         let (daemon, sim) = makePair()

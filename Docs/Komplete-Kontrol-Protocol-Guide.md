@@ -28,6 +28,15 @@ The following transport facts were read directly from a connected MASCHINE MK3
 on 2026-07-17. The tested unit reports firmware/device revision `bcdDevice
 0x0146`, USB VID/PID `0x17cc:0x1600`, and a maximum bus current of 480 mA.
 
+Native Instruments' own `MC3Updater` derives the version string it displays
+("1.4.6") from this same standard `bcdDevice` field — read via the generic
+`IOUSBDeviceInterface.GetDeviceReleaseNumber()` call, immediately after the
+equally generic `GetDeviceVendor`/`GetDeviceProduct` — and formats it as BCD
+nibbles: high byte is major, the low byte's high nibble is minor, its low
+nibble is patch. No vendor-specific query is involved, so the daemon's
+`deviceInfo` message reports it the same way (`KKDeviceInfo` in
+`DaemonBinaryProtocol.swift`).
+
 | Interface | Function | Endpoints | CompleteControl ownership |
 | ---: | --- | --- | --- |
 | 0 | USB Audio control | none | Never claimed; left to macOS audio |
