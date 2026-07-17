@@ -2761,10 +2761,12 @@ public enum KompleteKontrolLibUSBServer {
             let log = idleMK2EventLog
             lock.unlock()
 
-            let isMaschineMK3 = session.deviceProfile.family == .maschineMK3
-            let title = isMaschineMK3
-                ? "MASCHINE MK3 NO CLIENT"
-                : "NO CLIENT"
+            let profile = session.deviceProfile
+            let isMaschineMK3 = profile.family == .maschineMK3
+            // A client that connects takes the display over immediately, so idle is the only
+            // time this screen is free to show identity instead of "NO CLIENT" — the firmware
+            // revision a client would otherwise have to ask for via deviceInfo.
+            let title = "\(profile.name) \(KKDeviceInfo.formatBCDVersion(session.firmwareVersion))"
             let left = makeMK2IdleStatusFrame(
                 hasInput: hasInput,
                 surfaceSummary: surfaceSummary,
@@ -2946,6 +2948,55 @@ public enum KompleteKontrolLibUSBServer {
                 let index = head - offset
                 guard (0..<keyCount).contains(index), payload.indices.contains(index) else { continue }
                 payload[index] = color
+            }
+            return payload
+        }
+
+        /// Physical Pad 1...16 reading order, expressed as MK3 hardware indices — the
+        /// bench-verified mapping also encoded in `MaschineMK3PadLED`: Pads 1-4 are hardware
+        /// indices 12-15, 5-8 are 8-11, 9-12 are 4-7, 13-16 are 0-3.
+        private static let mk3PhysicalPadHardwareIndexOrder: [Int] = [
+            12, 13, 14, 15,
+            8, 9, 10, 11,
+            4, 5, 6, 7,
+            0, 1, 2, 3,
+        ]
+
+        private func beginMK3ClientHandoffPause() {
+            let generation: UInt64
+            lock.lock()
+            clientHandoffGeneration &+= 1
+            generation = clientHandoffGeneration
+            clientHandoffUntilNs = KKTiming.now() &+ clientHandoffPauseNs
+            lock.unlock()
+
+            stateReportQueue.async { [weak self] in
+                self?.runMK3ClientHandoffPadChase(generation: generation)
+            }
+        }
+
+        private func runMK3ClientHandoffPadChase(generation: UInt64) {
+            let order = Self.mk3PhysicalPadHardwareIndexOrder
+            let sleepUsec = useconds_t(max(1, clientHandoffPauseNs / UInt64(order.count) / 1_000))
+            for hardwareIndex in order {
+                guard isCurrentClientHandoff(generation: generation) else { return }
+                performStateReportWrite(
+                    reportID: MaschineMK3Protocol.stripLEDReportID,
+                    payload: mk3ClientHandoffPadLEDPayload(litHardwareIndex: hardwareIndex)
+                )
+                usleep(sleepUsec)
+            }
+            guard isCurrentClientHandoff(generation: generation) else { return }
+            performStateReportWrite(
+                reportID: MaschineMK3Protocol.stripLEDReportID,
+                payload: MaschineMK3Protocol.clearedStripLEDPayload()
+            )
+        }
+
+        private func mk3ClientHandoffPadLEDPayload(litHardwareIndex: Int) -> [UInt8] {
+            var payload = MaschineMK3Protocol.clearedStripLEDPayload()
+            if let led = MaschineMK3PadLED(hardwareIndex: litHardwareIndex), payload.indices.contains(led.rawValue) {
+                payload[led.rawValue] = MaschineMK3Protocol.whiteColorLEDValue
             }
             return payload
         }
@@ -3259,6 +3310,10 @@ public enum KompleteKontrolLibUSBServer {
             writeMK2ConnectedClientTitle(session: session, client: client)
             if session.deviceProfile.capabilities.hasLightGuide {
                 beginMK2ClientHandoffPause()
+            } else if session.deviceProfile.family == .maschineMK3 {
+                // MK3 has no light guide to sweep, so the equivalent handoff greeting is a
+                // one-shot chase across the pad LEDs instead.
+                beginMK3ClientHandoffPause()
             }
         }
 
