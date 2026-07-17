@@ -151,6 +151,15 @@ Applications should express hardware output as `MK2SurfaceScene2` state and
 semantic bindings. Keep application-specific state outside Kit2; Paulinche
 integration belongs behind the narrow `PaulincheSurfaceKit` adapter.
 
+`MK2Surface2` is also the compatibility runtime for MASCHINE MK3. It selects
+the native device adapter from `KKDeviceInfo`, while existing scenes retain the
+current MK2-named semantic vocabulary. Keep input lowering and reverse lamp
+mapping in the single `SurfaceDeviceCompatibility.swift` mapping table; never
+synthesize fake MK2 USB reports and never create a parallel MK3 scene runtime.
+Unsupported capabilities such as the MK3 light guide are skipped rather than
+treated as connection failures. Pads stay outside the button compatibility map
+until their HID-to-MIDI velocity and poly-pressure contract is implemented.
+
 Layout rules:
 
 - left display is typically the dense tracker/pattern view;

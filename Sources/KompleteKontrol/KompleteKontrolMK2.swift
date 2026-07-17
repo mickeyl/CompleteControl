@@ -159,6 +159,9 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     case jogLeft = 10, jogUp, jogDown, jogRight, shift
     case scaleEdit = 15, arpEdit, scene, undoRedo, quantize, auto, pattern, presetUp, track, loop, metro, tempo, presetDown, keyMode, play, record, stop, pageLeft, pageRight, clear, browser, plugin, mixer, instance, midi, setup, fixedVel, octaveDown, octaveUp
     case strip1 = 44, strip2, strip3, strip4, strip5, strip6, strip7, strip8, strip9, strip10, strip11, strip12, strip13, strip14, strip15, strip16, strip17, strip18, strip19, strip20, strip21, strip22, strip23, strip24, strip25
+    /// A logical MK3-only control. Its value lies beyond the MK2 report's
+    /// 79-byte LED map, so it never becomes an invalid MK2 USB write.
+    case variation = 79
 
     public var protocolName: String {
         switch self {
@@ -234,6 +237,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .strip23: "strip23"
             case .strip24: "strip24"
             case .strip25: "strip25"
+            case .variation: "variation"
         }
     }
 

@@ -24,6 +24,14 @@
 
 ## Simulator
 
+- Add a MASCHINE MK3 device profile to the existing simulator wire/session
+  before considering a separate visual app. First acceptance is headless:
+  native MK3 surface reports lower through the production compatibility adapter
+  and the unchanged Widget Lab behaves like hardware. A later visual MK3 panel
+  should reuse the existing display, button, encoder, and lamp components. It
+  can validate mappings and workflows, but USB timing and physical colour remain
+  hardware-only evidence.
+
 - Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation
   arrives as bare wire deltas, so acceleration/detent tuning gives almost no
   insight there and every judgement waits for hardware. Wanted: surface the
@@ -71,6 +79,15 @@
   and ownership boundaries are understood.
 
 ## KontrolSurfaceKit2
+
+- Add MK3 pads as synthesized MIDI input without claiming the controller's USB
+  MIDI interface 3. Proposed baseline: physical Pads 1-16 to notes 36-51 on
+  channel 1, note-off velocity zero, and continuous per-pad pressure as MIDI
+  polyphonic key pressure (which requires extending `KKMIDIEvent.Kind`). Do not
+  derive note-on velocity from the first pressure sample: capture controlled
+  strikes and establish a short, allocation-conscious velocity estimator first.
+  Fixed Velocity may select a configured constant velocity. Keep `padCount = 16`
+  and `keyCount = 0` in the device profile.
 
 - **Formalize a semantic warning color in `MK2HIG` (priority: medium-high,
   noted 2026-07-15).** Driven by the MK2 Wavetable-Editor Phase 2 concept

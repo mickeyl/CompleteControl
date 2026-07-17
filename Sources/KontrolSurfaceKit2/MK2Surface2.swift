@@ -88,9 +88,14 @@ public actor MK2Surface2 {
 
     private let options: Options
     private var scene = MK2SurfaceScene2()
-    /// The connected device's identity, queried from the daemon at session
-    /// setup. Nil while disconnected or against a daemon predating deviceInfo.
+    /// Compatibility view retained for existing keyboard clients. Nil for
+    /// MASCHINE hardware, while `deviceInfo` and `deviceProfile` stay available.
     public private(set) var deviceModel: KompleteKontrolDeviceModel?
+    /// Structured identity reported by the daemon. Nil while disconnected or
+    /// when talking to a daemon predating the device-info request.
+    public private(set) var deviceInfo: KKDeviceInfo?
+    /// Hardware-neutral capabilities for the connected controller.
+    public private(set) var deviceProfile: KontrolDeviceProfile?
     private var displayReconciler = PixelDisplayReconciler2()
     private var timer: DispatchSourceTimer?
     private var running = false
@@ -102,14 +107,14 @@ public actor MK2Surface2 {
     /// Nil restores scene-owned colors. A non-nil overlay, including an empty
     /// dictionary, fully owns the guide while realtime playback is active.
     private var keyOverlay: [Int: MK2LightGuideColor]?
-    private var lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+    private var lastLampReports: [UInt8: [UInt8]] = [:]
     private var lastKeyCodes: [UInt8] = []
     private var controlClient: KompleteKontrolDaemonBinaryClient?
     private var eventClient: KompleteKontrolDaemonBinaryClient?
     private var displayClient: KompleteKontrolDaemonBinaryClient?
     private var displayMeasurementSessionActive = false
     private var daemonThread: Thread?
-    private var previousSurfaceReport: [UInt8]?
+    private var inputAdapter = KontrolSurfaceInputAdapter()
     private var connectionState: MK2SurfaceConnection2 = .stopped
     private let connectionStream: AsyncStream<MK2SurfaceConnection2>
     private var connectionContinuation: AsyncStream<MK2SurfaceConnection2>.Continuation?
@@ -173,13 +178,17 @@ public actor MK2Surface2 {
         displayClient = nil
         displayMeasurementSessionActive = false
         deviceModel = nil
+        deviceInfo = nil
+        deviceProfile = nil
         daemonThread?.cancel()
         daemonThread = nil
         eventContinuation?.finish()
         eventContinuation = nil
         eventTask?.cancel()
         eventTask = nil
-        previousSurfaceReport = nil
+        inputAdapter.select(family: .kompleteKontrolMK2)
+        lastLampReports.removeAll(keepingCapacity: true)
+        lastKeyCodes = []
         lastDaemonCommunicationNanos = DispatchTime.now().uptimeNanoseconds
         lastDaemonHeartbeatNanos = 0
         lastDaemonStartAttemptNanos = 0
@@ -459,7 +468,12 @@ public actor MK2Surface2 {
         eventContinuation = nil
         eventTask?.cancel()
         eventTask = nil
-        previousSurfaceReport = nil
+        deviceModel = nil
+        deviceInfo = nil
+        deviceProfile = nil
+        inputAdapter.select(family: .kompleteKontrolMK2)
+        lastLampReports.removeAll(keepingCapacity: true)
+        lastKeyCodes = []
         displayReconciler.reset()
         publish(.evicted)
     }
@@ -486,11 +500,7 @@ public actor MK2Surface2 {
             return
         }
         recordDaemonCommunication()
-        // Best effort: an older daemon answers "unexpected type" (status != 0)
-        // and the model stays unknown — clients keep their fallback mapping.
-        if let info = control.request(type: .deviceInfo, timeoutUsec: 500_000), info.status == 0 {
-            deviceModel = KompleteKontrolDeviceModel.parse(deviceInfoMessage: info.message)
-        }
+        refreshDeviceIdentity()
         guard configureHostControl() else {
             handleDaemonFailure("daemon host-control setup failed")
             return
@@ -498,12 +508,13 @@ public actor MK2Surface2 {
         tick(forceDisplay: true)
         preferredDaemonSocketPath = socketPath
         lastFailedDaemonSocketPath = nil
-        publish(.connected("MK2 client registered with \(daemonConnectionDescription(socketPath: socketPath))"))
+        publish(.connected("surface client registered with \(daemonConnectionDescription(socketPath: socketPath))"))
     }
 
     private func replaySurfaceState() {
         guard running else { return }
-        lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        refreshDeviceIdentity()
+        lastLampReports.removeAll(keepingCapacity: true)
         lastKeyCodes = []
         displayReconciler.reset()
         guard configureHostControl() else {
@@ -511,7 +522,7 @@ public actor MK2Surface2 {
             return
         }
         tick(forceDisplay: true)
-        publish(.connected("MK2 device reconnected; state replayed via \(daemonConnectionDescription(socketPath: activeDaemonSocketPath))"))
+        publish(.connected("surface device reconnected; state replayed via \(daemonConnectionDescription(socketPath: activeDaemonSocketPath))"))
     }
 
     private func unregisterDaemonClient() {
@@ -521,9 +532,35 @@ public actor MK2Surface2 {
     }
 
     private func configureHostControl() -> Bool {
-        writeReport(KompleteKontrolMK2Protocol.initReportID, KompleteKontrolMK2Protocol.initModeHostControl) == "ok"
-            && writeReport(KompleteKontrolMK2Protocol.wheelStripMapReportID, KompleteKontrolMK2Protocol.wheelStripMapPayload(strip: .cc(number: 11))) == "ok"
-            && writeReport(KompleteKontrolMK2Protocol.mapCommitReportID, KompleteKontrolMK2Protocol.mapCommitPayload) == "ok"
+        for report in KontrolSurfaceDeviceCompatibility.hostControlReports(for: activeDeviceFamily) {
+            guard writeReport(report.reportID, report.payload) == "ok" else { return false }
+        }
+        return true
+    }
+
+    private var activeDeviceFamily: KontrolDeviceFamily {
+        deviceInfo?.family ?? .kompleteKontrolMK2
+    }
+
+    private func refreshDeviceIdentity() {
+        // Best effort: an older daemon has no device-info request. Falling back
+        // to MK2 preserves the behavior Kit2 had before device profiles existed.
+        guard let info = controlClient?.deviceInfo(timeoutUsec: 500_000) else {
+            deviceModel = nil
+            deviceInfo = nil
+            deviceProfile = nil
+            inputAdapter.select(family: .kompleteKontrolMK2)
+            return
+        }
+        deviceInfo = info
+        deviceProfile = KontrolDeviceProfile.productID(
+            info.productID,
+            reportedKeyCount: UInt8(clamping: info.keyCount)
+        )
+        deviceModel = info.family.rawValue == KontrolDeviceFamily.kompleteKontrolMK2.rawValue
+            ? KompleteKontrolDeviceModel.productID(Int(info.productID))
+            : nil
+        inputAdapter.select(family: info.family)
     }
 
     private func publish(_ state: MK2SurfaceConnection2) {
@@ -642,24 +679,34 @@ public actor MK2Surface2 {
     }
 
     private func reconcileLamps(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
-        var bytes = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
-        for (led, state) in lamps where bytes.indices.contains(led.rawValue) {
-            bytes[led.rawValue] = paletteByte(for: state, led: led)
-        }
-        guard bytes != lastLampBytes else { return }
-        let response = writeReport(KompleteKontrolMK2Protocol.buttonLEDReportID, bytes)
-        guard response == "ok" else {
-            if let response {
-                handleDaemonFailure(response)
-            } else {
-                handleWriteTimeout("button LED write timed out", client: controlClient)
+        var resolved: [KKMK2ButtonLED: KontrolSurfaceLampValue] = [:]
+        resolved.reserveCapacity(lamps.count)
+        for (led, state) in lamps {
+            if let value = lampValue(for: state, led: led) {
+                resolved[led] = value
             }
-            return
         }
-        lastLampBytes = bytes
+        let reports = KontrolSurfaceDeviceCompatibility.lampReports(
+            for: activeDeviceFamily,
+            lamps: resolved
+        )
+        for report in reports {
+            guard lastLampReports[report.reportID] != report.payload else { continue }
+            let response = writeReport(report.reportID, report.payload)
+            guard response == "ok" else {
+                if let response {
+                    handleDaemonFailure(response)
+                } else {
+                    handleWriteTimeout("button LED write timed out", client: controlClient)
+                }
+                return
+            }
+            lastLampReports[report.reportID] = report.payload
+        }
     }
 
     private func reconcileKeys() {
+        guard deviceProfile?.capabilities.hasLightGuide ?? true else { return }
         let keyCount = 88
         var codes = [UInt8](repeating: 0, count: keyCount)
         for (index, light) in activeKeyLights where codes.indices.contains(index) {
@@ -799,6 +846,8 @@ public actor MK2Surface2 {
         displayClient = nil
         displayMeasurementSessionActive = false
         deviceModel = nil
+        deviceInfo = nil
+        deviceProfile = nil
         activeDaemonSocketPath = nil
         daemonThread?.cancel()
         daemonThread = nil
@@ -806,9 +855,9 @@ public actor MK2Surface2 {
         eventContinuation = nil
         eventTask?.cancel()
         eventTask = nil
-        previousSurfaceReport = nil
+        inputAdapter.select(family: .kompleteKontrolMK2)
         lastDaemonHeartbeatNanos = 0
-        lastLampBytes = [UInt8](repeating: 0xff, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
+        lastLampReports.removeAll(keepingCapacity: true)
         lastKeyCodes = []
         displayReconciler.reset()
         cancelButtonHolds()
@@ -816,11 +865,7 @@ public actor MK2Surface2 {
 
     private func handleSurfacePush(_ payload: [UInt8]) {
         guard let event = KKDaemonBinaryCodec.parseEventPayload(payload), !event.bytes.isEmpty else { return }
-        let previous = previousSurfaceReport
-        let events = KKMK2InputReportDecoder.eventsForReport(previous: previous, current: event.bytes)
-        if event.bytes.first == UInt8(KompleteKontrolMK2Protocol.inputReportID) {
-            previousSurfaceReport = event.bytes
-        }
+        let events = inputAdapter.events(for: event.bytes, timestampNanos: event.timestamp)
         handle(events, timestampNanos: event.timestamp)
     }
 
@@ -1019,26 +1064,27 @@ public actor MK2Surface2 {
         }
     }
 
-    private func paletteByte(for state: MK2LampState2, led: KKMK2ButtonLED) -> UInt8 {
+    private func lampValue(
+        for state: MK2LampState2,
+        led: KKMK2ButtonLED?
+    ) -> KontrolSurfaceLampValue? {
         switch state {
             case .off:
-                return 0
+                return nil
             case let .on(color, intensity):
-                return led.ledByte(for: color, intensity: intensity)
+                guard color != .off, intensity > 0 else { return nil }
+                return KontrolSurfaceLampValue(color: color, intensity: min(intensity, 3))
             case let .blink(color, _, intensity):
+                guard let led else { return nil }
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
-                return phase < 0.5 ? led.ledByte(for: color, intensity: intensity) : 0
+                guard phase < 0.5, color != .off, intensity > 0 else { return nil }
+                return KontrolSurfaceLampValue(color: color, intensity: min(intensity, 3))
             case let .pulse(color, _):
+                guard let led, color != .off else { return nil }
                 let phase = lampPhase[led, default: 0].truncatingRemainder(dividingBy: 1)
                 let triangle = phase < 0.5 ? phase * 2 : 2 - phase * 2
                 let intensity = UInt8(max(1, min(3, Int((triangle * 3).rounded()))))
-                if led.isRGBBacklit {
-                    return KompleteKontrolSSeriesMK2.paletteCode(for: color, intensity: intensity)
-                }
-                return KompleteKontrolSSeriesMK2.paletteCode(
-                    for: led.fixedMonochromeBacklightColor,
-                    intensity: intensity
-                )
+                return KontrolSurfaceLampValue(color: color, intensity: intensity)
         }
     }
 

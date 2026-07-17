@@ -81,6 +81,7 @@ actor LabShell {
     private var activeDemo: (any LabDemo)?
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
+    private var deviceFamily: KontrolDeviceFamily = .kompleteKontrolMK2
     private static let availableIntensity: UInt8 = 0x01
     static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
 
@@ -90,6 +91,9 @@ actor LabShell {
     }
 
     func render() async {
+        if let profile = await surface.deviceProfile {
+            deviceFamily = profile.family
+        }
         await surface.present(scene())
     }
 
@@ -140,6 +144,12 @@ actor LabShell {
 
     private func demoScene(_ demo: any LabDemo) -> MK2SurfaceScene2 {
         var scene = demo.buildScene(labContext())
+        if deviceFamily == .maschineMK3 {
+            // INSTANCE has no physical MK3 peer. The direct VARIATION button
+            // is a clear, unmodified substitute for the Widget Lab's local
+            // sub-demo switcher; leave the kit's Shift layer untouched.
+            Self.moveSubdemoSwitcher(in: &scene, from: .instance, to: .variation)
+        }
         // The one control a demo never owns: SCENE always exits to the browser.
         scene.lamps[.scene] = Self.availableLamp(Self.actionWhite)
         scene.bindings.onPress(.scene) { [weak self] in
@@ -148,6 +158,60 @@ actor LabShell {
         applyLampOverrides(to: &scene.lamps)
         applyGuideOverrides(to: &scene.keyColors)
         return scene
+    }
+
+    private static func moveSubdemoSwitcher(
+        in scene: inout MK2SurfaceScene2,
+        from source: KKMK2ButtonLED,
+        to target: KKMK2ButtonLED
+    ) {
+        moveLamp(in: &scene.lamps, from: source, to: target)
+        moveBindings(in: &scene.bindings, from: source, to: target)
+        if var shift = scene.shift {
+            moveLamp(in: &shift.lamps, from: source, to: target)
+            moveBindings(in: &shift.bindings, from: source, to: target)
+            scene.shift = shift
+        }
+    }
+
+    private static func moveLamp(
+        in lamps: inout [KKMK2ButtonLED: MK2LampState2],
+        from source: KKMK2ButtonLED,
+        to target: KKMK2ButtonLED
+    ) {
+        guard let lamp = lamps.removeValue(forKey: source) else { return }
+        lamps[target] = lamp
+    }
+
+    private static func moveBindings(
+        in bindings: inout MK2InputBindings2,
+        from source: KKMK2ButtonLED,
+        to target: KKMK2ButtonLED
+    ) {
+        if let handler = bindings.buttonDown.removeValue(forKey: source) {
+            bindings.buttonDown[target] = handler
+        }
+        if let handler = bindings.buttonUp.removeValue(forKey: source) {
+            bindings.buttonUp[target] = handler
+        }
+        if let handler = bindings.buttonHold.removeValue(forKey: source) {
+            bindings.buttonHold[target] = handler
+        }
+        moveModifiedBindings(in: &bindings.modifiedButtonDown, from: source, to: target)
+        moveModifiedBindings(in: &bindings.modifiedButtonUp, from: source, to: target)
+        moveModifiedBindings(in: &bindings.modifiedButtonHold, from: source, to: target)
+    }
+
+    private static func moveModifiedBindings(
+        in bindings: inout [MK2InputBindings2.ModifiedButton: @Sendable () -> Void],
+        from source: KKMK2ButtonLED,
+        to target: KKMK2ButtonLED
+    ) {
+        let sourceBindings = bindings.filter { $0.key.led == source }
+        for (key, handler) in sourceBindings {
+            bindings.removeValue(forKey: key)
+            bindings[MK2InputBindings2.ModifiedButton(target, key.requirement)] = handler
+        }
     }
 
     func showBrowser() async {

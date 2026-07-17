@@ -14,7 +14,7 @@ This is an independent project and is not endorsed by Native Instruments.
 | Komplete Kontrol S49 MK2 | `0x17cc` | `0x1610` | 49 keys | Production |
 | Komplete Kontrol S61 MK2 | `0x17cc` | `0x1620` | 61 keys | Production |
 | Komplete Kontrol S88 MK2 | `0x17cc` | `0x1630` | 88 keys | Production |
-| MASCHINE MK3 | `0x17cc` | `0x1600` | 16 pads | NO CLIENT bring-up |
+| MASCHINE MK3 | `0x17cc` | `0x1600` | 16 pads | Shared Kit2 controls verified |
 
 The S-Series MK2 surface includes:
 
@@ -24,12 +24,14 @@ The S-Series MK2 surface includes:
 - palette light-guide LEDs;
 - raw ribbon input and USB-MIDI keybed/performance input.
 
-The MASCHINE MK3 bring-up path safely claims only HID interface 4 and display
-interface 5, leaving its audio, MIDI, and DFU functions untouched. It currently
-provides both displays, safe LED clearing, semantic button/encoder/pad activity,
-and touch-to-light hardware echo in NO CLIENT mode. The complete pad matrix and
-pad LED ordering are bench-verified on device revision `0x0146`; mappings that
-still come only from public protocol research remain explicitly labelled.
+The MASCHINE MK3 path safely claims only HID interface 4 and display interface
+5, leaving its audio, MIDI, and DFU functions untouched. It provides both
+displays, semantic input decoding, native LED output, and a Kit2 compatibility
+adapter so existing scenes can use shared buttons, eight encoders, the main 4-D
+encoder, and the touch strip without source changes. The Widget Lab hardware
+pass verified those shared inputs plus visible SCENE and VARIATION lamps on
+device revision `0x0146`. The complete pad matrix and pad LED ordering are also
+bench-verified; HID-to-MIDI pad delivery is a later milestone.
 
 The maintained protocol reference is
 [Docs/Komplete-Kontrol-Protocol-Guide.md](Docs/Komplete-Kontrol-Protocol-Guide.md).
@@ -171,7 +173,8 @@ Add the package products needed by an application:
 
 `KontrolSurfaceKit2` provides:
 
-- `MK2Surface2` scene reconciliation and daemon reconnect handling;
+- `MK2Surface2` scene reconciliation, daemon reconnect handling, and automatic
+  MK2/MASCHINE MK3 adapter selection through `deviceInfo`/`deviceProfile`;
 - `MK2ScreenDSL` regular, full-screen, and double-screen layouts;
 - parameter pages, value cells, meters, status lines, selection and modal widgets;
 - FreeType/HarfBuzz text plus fixed-pitch tracker rendering;

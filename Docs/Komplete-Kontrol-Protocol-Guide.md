@@ -2,11 +2,12 @@
 
 This is the maintained protocol reference for the Native Instruments devices
 implemented by CompleteControl. The production path supports Komplete Kontrol
-S49/S61/S88 MK2. MASCHINE MK3 is an active bring-up target with a first-class
-device profile, safe daemon ownership, two displays, and a semantic NO CLIENT
-decoder. Pad input, pressure state, and pad LED ordering are bench-verified on
-the unit identified below; remaining source-derived surface details stay
-labelled until their focused bench passes are recorded.
+S49/S61/S88 MK2. MASCHINE MK3 has a first-class device profile, safe daemon
+ownership, two displays, a semantic NO CLIENT decoder, and a focused
+hardware-verified Kit2 compatibility adapter. Pad input, pressure state, and
+pad LED ordering are bench-verified on the unit identified below; remaining
+source-derived surface details stay labelled until their focused bench passes
+are recorded.
 
 Unless stated otherwise, findings were bench-verified on an S61 MK2 and are
 encoded in `KompleteKontrolMK2.swift`, `KontrolUSB.c`, and their tests. Values
@@ -131,6 +132,62 @@ The decoder emits named button edges, encoder deltas/touches, touch-strip
 positions, and the three analogue controls. Changes to ambiguous bits are never
 dropped: they appear as `rawChanged` events in NO CLIENT so a focused capture can
 promote them later.
+
+### Kit2 compatibility adapter
+
+`MK2Surface2` now selects a device adapter from the daemon's structured
+`KKDeviceInfo`. Existing scenes and applications retain their current
+`KKMK2InputEvent`/`KKMK2ButtonLED` vocabulary: the adapter lowers native MK3
+input directly into that compatibility vocabulary and encodes the same scene
+lamp state back into native MK3 reports. It never constructs a fake MK2 USB
+report, so MK3 input stays on the same actor and scheduling path used by MK2.
+
+The source-derived compatibility policy implemented for the first hardware pass
+is intentionally one-to-one:
+
+| Existing Kit2 meaning | MK3 control |
+| --- | --- |
+| Function 1-8 | Display buttons 1-8 |
+| Encoder 1-8 turn/touch | Display encoders 1-8 turn/touch |
+| 4-D turn/touch/confirm/directions | Main encoder turn/touch/release-confirm/directions |
+| Ribbon | Touch strip, with deterministic primary-contact lowering |
+| Shift, Scene, Pattern, Variation, Auto, Tempo | Same-labelled MK3 buttons |
+| Play, Record, Stop | Same-labelled MK3 transport buttons |
+| Browser, Plug-in, Mixer | Same-labelled MK3 mode buttons |
+| Mute, Solo, Fixed Velocity | Mute, Solo, Fixed Velocity |
+| Setup, Clear | Settings, Erase |
+| Page Left/Right | Arrow Left/Right |
+| Track, Key Mode | Channel, Keyboard |
+
+The touch-strip adapter retains both native finger positions. Finger 1 is the
+primary compatibility contact while present; if it leaves while finger 2
+remains, the stream hands over to finger 2 without a false release. A release is
+emitted only after the final contact leaves. The MK2-style millisecond field is
+synthesized from the daemon's monotonic input timestamp. Existing Strip 1-25
+lamp state maps to MK3 report `0x81` slots 0-24.
+
+`MK2WidgetLabDemo` uses the direct MK3 **Variation** control as its local
+sub-demo switcher. On MK2 it continues to use **Instance**. `Variation` is a
+logical MK3-only Kit2 control (outside the MK2 LED report range), so the
+projection does not create an invalid MK2 USB write. This is a Widget-Lab-only
+projection; the Kit2 Shift layer stays entirely unchanged.
+For MK3 monochrome panel LEDs, every nonzero Kit2 intensity currently lowers to
+the hardware-verified visible value `0x07`. This deliberately prioritizes a
+discoverable available action such as the reserved SCENE return over an
+unverified dimming curve.
+
+Misleading aliases are deliberately absent: Restart is not Loop, Tap is not
+Metronome, Note Repeat is not Arp, Chords is not Scale, Duplicate is not
+Undo/Redo, and the arrow buttons are not Preset Up/Down. MK3-only controls remain
+available to the native decoder but do not impersonate an existing Kit2 action.
+The 16 pads remain outside this compatibility adapter until the separate
+HID-to-MIDI velocity/pressure contract is implemented.
+
+The Widget Lab hardware pass on 2026-07-17 verified the shared input map,
+including first-event main-encoder delivery, and the visible `0x07`
+monochrome lamp state for the reserved SCENE return and the MK3 VARIATION
+sub-demo switcher. RGB palette translation and a dimmer monochrome curve remain
+source-derived pending a focused colour-calibration pass.
 
 ### MK3 reports `0x80` and `0x81`: LED indices
 
