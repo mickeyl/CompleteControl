@@ -188,12 +188,25 @@ Undo/Redo, and the arrow buttons are not Preset Up/Down. MK3-only controls remai
 available to the native decoder but do not impersonate an existing Kit2 action.
 The 16 pads remain outside the MK2 button compatibility map. Kit2 exposes their
 timed native touch, strike, pressure, and release stream as
-`KontrolSurfacePadEvent`. The Widget Lab independently calibrates linear
-12-bit-strike-to-MIDI-velocity
-and 12-bit-pressure-to-poly-pressure mappings without yet committing them to a
-MIDI note layout. Every received strike maps to velocity `1...127`, since a MIDI
-Note On with velocity zero means Note Off; pressure retains its full `0...127`
-range. The final MIDI emission contract remains a separate step.
+`KontrolSurfacePadEvent` for calibration and diagnostics. In parallel,
+`KontrolPadMIDISynthesizer` translates triggered pads into the ordinary Kit2
+MIDI route used by MK2 USB-MIDI: physical Pads 1-16 map to notes 36-51 on MIDI
+channel 1, a strike emits Note On, held pressure emits MIDI polyphonic key
+pressure, and release emits Note Off with velocity zero. Every received strike
+maps to velocity `1...127`, since a MIDI Note On with velocity zero means Note
+Off; pressure retains its full `0...127` range. Touches that never cross the
+hardware strike threshold produce no MIDI note. The mapping, independent linear
+calibration ranges, optional fixed velocity, and pressure emission policy are
+configurable through `MK2Surface2.Options.padMIDIMapping`.
+
+The daemon does not synthesize those notes and still does not claim the MK3's
+USB-MIDI interface 3. It forwards timestamped native pad reports; Kit2 performs
+the musical policy transformation on the same ordered actor path and feeds the
+result into `MK2InputBindings2.midiFocus` or `midi`. Consequently existing Kit2
+clients such as Paulinche receive MK3 pad notes through the same binding as MK2
+keybed notes, while low-level daemon clients continue to see the native surface
+stream. `MK2WidgetLabDemo`'s hardware-neutral MIDI Monitor makes held notes,
+chords, velocities, and pressure visible for both device families.
 
 The Widget Lab hardware passes on 2026-07-17 and 2026-07-18 verified the shared
 input map, including first-event main-encoder delivery, and calibrated both LED

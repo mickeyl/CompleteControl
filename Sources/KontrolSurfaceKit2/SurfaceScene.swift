@@ -130,8 +130,9 @@ public struct MK2InputBindings2: Sendable {
     public var jogScroll: (@Sendable (_ delta: Int, _ value: Int) -> Void)?
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?
     public var strip: (@Sendable (_ position: Int?, _ time: Int) -> Void)?
-    /// Native pad pressure with daemon reception timestamps. This calibration
-    /// seam precedes the planned HID-to-MIDI velocity/aftertouch translation.
+    /// Native pad input with daemon reception timestamps. Kit2 also translates
+    /// triggered MK3 pads into the shared MIDI binding; this raw seam remains
+    /// available for calibration and hardware diagnostics.
     public var pad: (@Sendable (_ event: KontrolSurfacePadEvent) -> Void)?
     public var midi: (@Sendable (_ event: KKMIDIEvent) -> Void)?
     /// If present, MIDI is routed to this focused element instead of the legacy global

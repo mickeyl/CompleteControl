@@ -101,6 +101,7 @@ public struct KKMIDIEvent: Sendable, Equatable {
     public enum Kind: Sendable {
         case noteOn
         case noteOff
+        case polyphonicPressure
         case controlChange
         case channelPressure
         case pitchBend
@@ -128,6 +129,14 @@ public struct KKMIDIEvent: Sendable, Equatable {
         self.receptionTimestamp = receptionTimestamp
     }
 
+    public init(polyphonicPressure pressure: UInt8, note: UInt8, channel: UInt8, receptionTimestamp: UInt64 = 0) {
+        self.kind = .polyphonicPressure
+        self.channel = channel
+        self.data1 = note
+        self.data2 = pressure
+        self.receptionTimestamp = receptionTimestamp
+    }
+
     public init(pitchBendLSB: UInt8, msb: UInt8, channel: UInt8, receptionTimestamp: UInt64 = 0) {
         self.kind = .pitchBend
         self.channel = channel
@@ -148,7 +157,7 @@ public struct KKMIDIEvent: Sendable, Equatable {
     public var velocity: UInt8 { data2 }
     public var control: UInt8 { data1 }
     public var controlValue: UInt8 { data2 }
-    public var pressure: UInt8 { data1 }
+    public var pressure: UInt8 { kind == .polyphonicPressure ? data2 : data1 }
     public var pitchBendValue: Int { Int(data1) | (Int(data2) << 7) }
     public var pitchBendCentered: Int { pitchBendValue - 8192 }
 
@@ -158,6 +167,8 @@ public struct KKMIDIEvent: Sendable, Equatable {
                 "note on ch \(channel + 1) note \(note) velocity \(velocity)"
             case .noteOff:
                 "note off ch \(channel + 1) note \(note) velocity \(velocity)"
+            case .polyphonicPressure:
+                "poly pressure ch \(channel + 1) note \(note) pressure \(pressure)"
             case .controlChange:
                 "cc ch \(channel + 1) \(control)=\(controlValue)"
             case .channelPressure:
@@ -405,6 +416,8 @@ enum KKUSBMIDIParser {
                     events.append(KKMIDIEvent(kind: .noteOn, channel: channel, note: data1, velocity: data2, receptionTimestamp: receptionTimestamp))
                 case 0x90, 0x80:
                     events.append(KKMIDIEvent(kind: .noteOff, channel: channel, note: data1, velocity: data2, receptionTimestamp: receptionTimestamp))
+                case 0xa0:
+                    events.append(KKMIDIEvent(polyphonicPressure: data2, note: data1, channel: channel, receptionTimestamp: receptionTimestamp))
                 case 0xb0:
                     events.append(KKMIDIEvent(control: data1, value: data2, channel: channel, receptionTimestamp: receptionTimestamp))
                 case 0xd0:
@@ -3621,6 +3634,8 @@ public enum KompleteKontrolLibUSBServer {
                     return "ON \(idleNoteName(event.note)) V\(event.velocity)"
                 case .noteOff:
                     return "OFF \(idleNoteName(event.note))"
+                case .polyphonicPressure:
+                    return "POLY \(idleNoteName(event.note)) \(event.pressure)"
                 case .controlChange:
                     return "CC \(event.control) \(event.controlValue)"
                 case .channelPressure:

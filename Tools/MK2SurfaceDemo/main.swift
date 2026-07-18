@@ -401,6 +401,8 @@ private actor MK2FeatureDemo {
             case .noteOff:
                 notes.removeValue(forKey: event.data1)
                 lastEvent = "NOTE OFF \(event.data1)"
+            case .polyphonicPressure:
+                lastEvent = "POLY \(event.note) \(event.pressure)"
             case .controlChange:
                 lastEvent = "CC \(event.data1) \(event.data2)"
             case .channelPressure:

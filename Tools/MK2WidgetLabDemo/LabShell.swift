@@ -30,6 +30,7 @@ let labDemos: [any LabDemo] = [
     TrackerPatternDemo(),
     ModalDialogDemo(),
     LightGuideDemo(),
+    MIDIMonitorDemo(),
     DisplayBenchmarkDemo(),
 ]
 

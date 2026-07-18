@@ -31,7 +31,9 @@ adapter so existing scenes can use shared buttons, eight encoders, the main 4-D
 encoder, and the touch strip without source changes. The Widget Lab hardware
 pass verified those shared inputs plus visible SCENE and VARIATION lamps on
 device revision `0x0146`. The complete pad matrix and pad LED ordering are also
-bench-verified; HID-to-MIDI pad delivery is a later milestone.
+bench-verified. Kit2 translates triggered pads into the same MIDI binding used
+by the MK2 keybed, including calibrated strike velocity, held polyphonic
+pressure, and Note Off; the daemon leaves the MK3 USB-MIDI interface unclaimed.
 
 The maintained protocol reference is
 [Docs/Komplete-Kontrol-Protocol-Guide.md](Docs/Komplete-Kontrol-Protocol-Guide.md).

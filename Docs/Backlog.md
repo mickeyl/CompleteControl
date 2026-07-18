@@ -80,15 +80,11 @@
 
 ## KontrolSurfaceKit2
 
-- Add MK3 pads as synthesized MIDI input without claiming the controller's USB
-  MIDI interface 3. Proposed baseline: physical Pads 1-16 to notes 36-51 on
-  channel 1, note-off velocity zero, and continuous per-pad pressure as MIDI
-  polyphonic key pressure (which requires extending `KKMIDIEvent.Kind`). Use the
-  bench-verified native 12-bit strike word for note-on velocity and the separate
-  12-bit held-pressure stream for poly pressure; finalize their independent
-  linear calibration ranges from the Widget Lab hardware pass first.
-  Fixed Velocity may select a configured constant velocity. Keep `padCount = 16`
-  and `keyCount = 0` in the device profile.
+- Connect the MK3 Fixed Velocity button to an application-owned pad setting.
+  `KontrolPadMIDIMapping.fixedVelocity` already supports a configured constant;
+  the remaining decision is whether the hardware button toggles a persisted
+  client preference or only reflects a scene-owned state. Do not introduce a
+  hidden global layer in Kit2.
 
 - **Formalize a semantic warning color in `MK2HIG` (priority: medium-high,
   noted 2026-07-15).** Driven by the MK2 Wavetable-Editor Phase 2 concept

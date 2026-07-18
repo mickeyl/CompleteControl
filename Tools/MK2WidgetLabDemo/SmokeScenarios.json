@@ -156,6 +156,18 @@
       ]
     },
     {
+      "demo": "midi-monitor",
+      "actions": [
+        { "send": "note 60 82 on" },
+        { "send": "note 64 104 on" },
+        { "send": "note 67 118 on" },
+        { "send": "midi a0 40 49" },
+        { "send": "note 60 0 off" },
+        { "send": "note 64 0 off" },
+        { "send": "note 67 0 off" }
+      ]
+    },
+    {
       "demo": "display-benchmark",
       "actions": [
         { "tap": "play" },

@@ -78,11 +78,18 @@ public actor MK2Surface2 {
         public var tickHz: Int
         public var displayTimeoutMs: UInt32
         public var buttonHoldDelay: TimeInterval
+        public var padMIDIMapping: KontrolPadMIDIMapping
 
-        public init(tickHz: Int = 30, displayTimeoutMs: UInt32 = 1_000, buttonHoldDelay: TimeInterval = 1.0) {
+        public init(
+            tickHz: Int = 30,
+            displayTimeoutMs: UInt32 = 1_000,
+            buttonHoldDelay: TimeInterval = 1.0,
+            padMIDIMapping: KontrolPadMIDIMapping = KontrolPadMIDIMapping()
+        ) {
             self.tickHz = tickHz
             self.displayTimeoutMs = displayTimeoutMs
             self.buttonHoldDelay = buttonHoldDelay
+            self.padMIDIMapping = padMIDIMapping
         }
     }
 
@@ -115,6 +122,7 @@ public actor MK2Surface2 {
     private var displayMeasurementSessionActive = false
     private var daemonThread: Thread?
     private var inputAdapter = KontrolSurfaceInputAdapter()
+    private var padMIDISynthesizer: KontrolPadMIDISynthesizer
     private var connectionState: MK2SurfaceConnection2 = .stopped
     private let connectionStream: AsyncStream<MK2SurfaceConnection2>
     private var connectionContinuation: AsyncStream<MK2SurfaceConnection2>.Continuation?
@@ -152,6 +160,7 @@ public actor MK2Surface2 {
     public init(device: KompleteKontrolSSeriesMK2 = KompleteKontrolSSeriesMK2(seizeHID: false), options: Options = Options()) {
         _ = device
         self.options = options
+        padMIDISynthesizer = KontrolPadMIDISynthesizer(mapping: options.padMIDIMapping)
         var continuation: AsyncStream<MK2SurfaceConnection2>.Continuation!
         connectionStream = AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation = $0 }
         connectionContinuation = continuation
@@ -187,6 +196,7 @@ public actor MK2Surface2 {
         eventTask?.cancel()
         eventTask = nil
         inputAdapter.select(family: .kompleteKontrolMK2)
+        padMIDISynthesizer.reset()
         lastLampReports.removeAll(keepingCapacity: true)
         lastKeyCodes = []
         lastDaemonCommunicationNanos = DispatchTime.now().uptimeNanoseconds
@@ -472,6 +482,7 @@ public actor MK2Surface2 {
         deviceInfo = nil
         deviceProfile = nil
         inputAdapter.select(family: .kompleteKontrolMK2)
+        padMIDISynthesizer.reset()
         lastLampReports.removeAll(keepingCapacity: true)
         lastKeyCodes = []
         displayReconciler.reset()
@@ -554,6 +565,7 @@ public actor MK2Surface2 {
             deviceInfo = nil
             deviceProfile = nil
             inputAdapter.select(family: .kompleteKontrolMK2)
+            padMIDISynthesizer.reset()
             return
         }
         deviceInfo = info
@@ -565,6 +577,7 @@ public actor MK2Surface2 {
             ? KompleteKontrolDeviceModel.productID(Int(info.productID))
             : nil
         inputAdapter.select(family: info.family)
+        padMIDISynthesizer.reset()
     }
 
     private func publish(_ state: MK2SurfaceConnection2) {
@@ -861,6 +874,7 @@ public actor MK2Surface2 {
         eventTask?.cancel()
         eventTask = nil
         inputAdapter.select(family: .kompleteKontrolMK2)
+        padMIDISynthesizer.reset()
         lastDaemonHeartbeatNanos = 0
         lastLampReports.removeAll(keepingCapacity: true)
         lastKeyCodes = []
@@ -957,6 +971,9 @@ public actor MK2Surface2 {
     private func handle(_ events: [KontrolSurfacePadEvent]) {
         for event in events {
             (activeShiftLayer?.bindings.pad ?? scene.bindings.pad)?(event)
+            for midiEvent in padMIDISynthesizer.receive(event) {
+                handle(midi: midiEvent)
+            }
         }
     }
 
@@ -1162,6 +1179,8 @@ public actor MK2Surface2 {
                     events.append(KKMIDIEvent(kind: .noteOff, channel: channel, note: data1, velocity: data2, receptionTimestamp: timestamp))
                 case 0x90:
                     events.append(KKMIDIEvent(kind: data2 == 0 ? .noteOff : .noteOn, channel: channel, note: data1, velocity: data2, receptionTimestamp: timestamp))
+                case 0xa0:
+                    events.append(KKMIDIEvent(polyphonicPressure: data2, note: data1, channel: channel, receptionTimestamp: timestamp))
                 case 0xb0:
                     events.append(KKMIDIEvent(control: data1, value: data2, channel: channel, receptionTimestamp: timestamp))
                 case 0xd0:
