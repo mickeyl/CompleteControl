@@ -47,6 +47,16 @@ struct MaschineMK3CompatibilityMapping: Equatable, Sendable {
 /// The one-to-one compatibility vocabulary shared by MK3 input and lamp output.
 /// Controls without an honest MK2 equivalent deliberately do not appear here.
 enum KontrolSurfaceDeviceCompatibility {
+    /// MK3 LED payload order is row-major from the bottom-right, while Kit2 pad
+    /// indices follow the printed panel numbers. Keep this explicit so neither
+    /// callers nor MIDI mappings need to know about the wire layout.
+    static let maschineMK3PerformancePadLEDs: [MaschineMK3PadLED] = [
+        .pad1, .pad2, .pad3, .pad4,
+        .pad5, .pad6, .pad7, .pad8,
+        .pad9, .pad10, .pad11, .pad12,
+        .pad13, .pad14, .pad15, .pad16,
+    ]
+
     static let maschineMK3Mappings: [MaschineMK3CompatibilityMapping] = [
         MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderPress, input: .jogCenterOnRelease),
         MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderUp, input: .jog(direction: "up", lamp: .jogUp)),
@@ -54,6 +64,14 @@ enum KontrolSurfaceDeviceCompatibility {
         MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderDown, input: .jog(direction: "down", lamp: .jogDown)),
         MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderLeft, input: .jog(direction: "left", lamp: .jogLeft)),
         MaschineMK3CompatibilityMapping(physicalButton: .shift, input: .button(.shift)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupA, input: .button(.instrument1)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupB, input: .button(.instrument2)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupC, input: .button(.instrument3)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupD, input: .button(.instrument4)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupE, input: .button(.instrument5)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupF, input: .button(.instrument6)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupG, input: .button(.instrument7)),
+        MaschineMK3CompatibilityMapping(physicalButton: .groupH, input: .button(.instrument8)),
         MaschineMK3CompatibilityMapping(physicalButton: .tempo, input: .button(.tempo)),
         MaschineMK3CompatibilityMapping(physicalButton: .keyboard, input: .button(.keyMode)),
         MaschineMK3CompatibilityMapping(physicalButton: .fixedVelocity, input: .button(.fixedVel)),
@@ -119,6 +137,7 @@ enum KontrolSurfaceDeviceCompatibility {
     static func lampReports(
         for family: KontrolDeviceFamily,
         lamps: [KKMK2ButtonLED: KontrolSurfaceLampValue],
+        performancePads: [Int: KontrolSurfaceLampValue] = [:],
         diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8] = [:]
     ) -> [KontrolSurfaceOutputReport] {
         switch family {
@@ -149,6 +168,12 @@ enum KontrolSurfaceDeviceCompatibility {
                         rawValue: KKMK2ButtonLED.strip1.rawValue + logicalIndex
                     ), let value = lamps[logicalLamp] else { continue }
                     stripAndPads[logicalIndex] = maschineMK3ColorByte(for: value)
+                }
+
+                for (panelIndex, value) in performancePads {
+                    guard maschineMK3PerformancePadLEDs.indices.contains(panelIndex) else { continue }
+                    let physicalLamp = maschineMK3PerformancePadLEDs[panelIndex]
+                    stripAndPads[physicalLamp.rawValue] = maschineMK3PerformancePadByte(for: value)
                 }
 
                 // Diagnostic bytes deliberately win over semantic lowering so
@@ -211,6 +236,18 @@ enum KontrolSurfaceDeviceCompatibility {
             ? maschineMK3MonochromeByte(for: intensity) & 0x03
             : intensity
         return (hue &<< 2) | brightnessBits
+    }
+
+    /// Performance pads expose four visible brightness levels numbered 0...3;
+    /// byte zero remains the separate off state when no color is present.
+    static func maschineMK3PerformancePadByte(for value: KontrolSurfaceLampValue) -> UInt8 {
+        if let rawByte = value.rawByte { return rawByte }
+        guard value.color != .off else { return 0 }
+        let intensity = min(value.intensity, 3)
+        let mk2Code = KompleteKontrolSSeriesMK2.paletteCode(for: value.color, intensity: intensity)
+        let paletteIndex = mk2Code >> 2
+        let hue: UInt8 = paletteIndex == 17 ? 0xff : paletteIndex
+        return (hue &<< 2) | intensity
     }
 }
 

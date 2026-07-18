@@ -12,6 +12,8 @@ struct SurfaceDeviceCompatibilityTests {
         let expectedLogicalLamps: Set<KKMK2ButtonLED> = [
             .jogLeft, .jogUp, .jogDown, .jogRight,
             .shift, .tempo, .keyMode, .fixedVel, .scene, .pattern, .variation, .s, .m,
+            .instrument1, .instrument2, .instrument3, .instrument4,
+            .instrument5, .instrument6, .instrument7, .instrument8,
             .clear, .play, .record, .stop, .setup, .pageRight, .mixer,
             .plugin, .track, .browser, .pageLeft, .auto,
             .function1, .function2, .function3, .function4,
@@ -28,12 +30,29 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .channel)?.input == .button(.track))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard)?.input == .button(.keyMode))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .variation)?.input == .button(.variation))
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupA)?.input == .button(.instrument1))
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupH)?.input == .button(.instrument8))
 
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .restart) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .tap) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .noteRepeat) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .chords) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .duplicate) == nil)
+    }
+
+    @Test("MK3 Group A-H lower to hardware-independent instrument shortcuts")
+    func instrumentShortcutInputLowering() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        let baseline = surfaceReport()
+        #expect(adapter.events(for: baseline, timestampNanos: 0).isEmpty)
+
+        var current = baseline
+        current[2] = 0x81
+
+        #expect(adapter.events(for: current, timestampNanos: 1) == [
+            .button(led: .instrument1, pressed: true),
+            .button(led: .instrument8, pressed: true),
+        ])
     }
 
     @Test("host-control setup is emitted only for the keyboard family")
@@ -292,6 +311,42 @@ struct SurfaceDeviceCompatibilityTests {
         ) == 0xfd)
     }
 
+    @Test("MK3 performance pads lower in printed panel order with four visible levels")
+    func maschinePerformancePadOutput() throws {
+        let red = KKRGB(red: 0xff, green: 0, blue: 0)
+        let cyan = KKRGB(red: 0, green: 0xff, blue: 0xff)
+        let reports = KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .maschineMK3,
+            lamps: [:],
+            performancePads: [
+                0: KontrolSurfaceLampValue(color: red, intensity: 0),
+                1: KontrolSurfaceLampValue(color: red, intensity: 3),
+                14: KontrolSurfaceLampValue(color: cyan, intensity: 1),
+                15: KontrolSurfaceLampValue(color: .off, intensity: 3),
+            ]
+        )
+        let pads = try #require(reports.first { $0.reportID == MaschineMK3Protocol.stripLEDReportID })
+
+        #expect(pads.payload[MaschineMK3PadLED.pad1.rawValue] == 0x04)
+        #expect(pads.payload[MaschineMK3PadLED.pad2.rawValue] == 0x07)
+        #expect(pads.payload[MaschineMK3PadLED.pad15.rawValue] == 0x25)
+        #expect(pads.payload[MaschineMK3PadLED.pad16.rawValue] == 0)
+    }
+
+    @Test("Performance pads are ignored by keyboard-family reports")
+    func keyboardIgnoresPerformancePads() throws {
+        let report = try #require(KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .kompleteKontrolMK2,
+            lamps: [:],
+            performancePads: [0: KontrolSurfaceLampValue(
+                color: KKRGB(red: 0xff, green: 0, blue: 0),
+                intensity: 3
+            )]
+        ).first)
+
+        #expect(report.payload.allSatisfy { $0 == 0 })
+    }
+
     @Test("keyboard lamp output remains byte-for-byte compatible")
     func keyboardLampOutput() throws {
         let color = KKRGB(red: 0xff, green: 0, blue: 0)
@@ -305,6 +360,37 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(report.payload.count == KompleteKontrolMK2Protocol.buttonLEDMapSize)
         #expect(report.payload[KKMK2ButtonLED.function1.rawValue] == KKMK2ButtonLED.function1.ledByte(for: color, intensity: 2))
         #expect(report.payload[KKMK2ButtonLED.play.rawValue] == KKMK2ButtonLED.play.ledByte(for: color, intensity: 2))
+    }
+
+    @Test("instrument shortcut lamps lower to MK3 Group A-H only")
+    func instrumentShortcutLampOutput() throws {
+        let red = KKRGB(red: 0xff, green: 0, blue: 0)
+        let blue = KKRGB(red: 0, green: 0, blue: 0xff)
+        let reports = KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .maschineMK3,
+            lamps: [
+                .instrument1: KontrolSurfaceLampValue(color: red, intensity: 1),
+                .instrument8: KontrolSurfaceLampValue(color: blue, intensity: 3),
+            ]
+        )
+        let buttons = try #require(reports.first {
+            $0.reportID == MaschineMK3Protocol.buttonLEDReportID
+        })
+
+        #expect(buttons.payload[MaschineMK3ButtonLED.groupA.rawValue]
+            == KontrolSurfaceDeviceCompatibility.maschineMK3ColorByte(
+                for: KontrolSurfaceLampValue(color: red, intensity: 1)
+            ))
+        #expect(buttons.payload[MaschineMK3ButtonLED.groupH.rawValue]
+            == KontrolSurfaceDeviceCompatibility.maschineMK3ColorByte(
+                for: KontrolSurfaceLampValue(color: blue, intensity: 3)
+            ))
+
+        let mk2 = try #require(KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .kompleteKontrolMK2,
+            lamps: [.instrument1: KontrolSurfaceLampValue(color: red, intensity: 3)]
+        ).first)
+        #expect(mk2.payload.allSatisfy { $0 == 0 })
     }
 
     @Test("literal calibration bytes pass through both output maps")
@@ -338,6 +424,10 @@ struct SurfaceDeviceCompatibilityTests {
                 .function1: KontrolSurfaceLampValue(rawByte: 0x07),
                 .jogUp: KontrolSurfaceLampValue(rawByte: 0x11),
             ],
+            performancePads: [0: KontrolSurfaceLampValue(
+                color: KKRGB(red: 0xff, green: 0, blue: 0),
+                intensity: 3
+            )],
             diagnosticLEDBytes: [
                 .maschineMK3Button(.displayButton1): 0x21,
                 .maschineMK3Button(.groupA): 0x22,

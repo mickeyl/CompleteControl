@@ -269,6 +269,10 @@ public struct MK2SurfaceScene2: Sendable {
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
     public var keyColors: [Int: KKRGB]
     public var keyIntensities: [Int: UInt8]
+    /// Performance-pad colors in physical panel order (`0` is Pad 1).
+    /// Controllers without illuminated performance pads ignore this state.
+    public var padColors: [Int: KKRGB]
+    public var padIntensities: [Int: UInt8]
     public var bindings: MK2InputBindings2
     public var shift: ShiftLayer?
     /// Literal native LED bytes applied after semantic lamp lowering.
@@ -285,6 +289,8 @@ public struct MK2SurfaceScene2: Sendable {
         lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
         keyColors: [Int: KKRGB] = [:],
         keyIntensities: [Int: UInt8] = [:],
+        padColors: [Int: KKRGB] = [:],
+        padIntensities: [Int: UInt8] = [:],
         bindings: MK2InputBindings2 = MK2InputBindings2(),
         shift: ShiftLayer? = nil,
         diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8] = [:],
@@ -294,6 +300,8 @@ public struct MK2SurfaceScene2: Sendable {
         self.lamps = lamps
         self.keyColors = keyColors
         self.keyIntensities = keyIntensities.mapValues { min(3, $0) }
+        self.padColors = padColors
+        self.padIntensities = padIntensities.mapValues { min(3, $0) }
         self.bindings = bindings
         self.shift = shift
         self.diagnosticLEDBytes = diagnosticLEDBytes

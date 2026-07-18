@@ -245,6 +245,28 @@ struct ShiftLayerTests {
         #expect(lamps[.play] == .green)
     }
 
+    @Test("Lamp overlay can present separate base and Shift activity")
+    func shiftedLampOverlayTracksHeldLayer() async {
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            lamps: [.instrument1: .amber],
+            shift: MK2SurfaceScene2.ShiftLayer(lamps: [.instrument1: .blue])
+        ))
+        await surface.presentLampOverlay(
+            [.instrument1: .red],
+            shift: [.instrument1: .green]
+        )
+
+        var lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.instrument1] == .red)
+        await surface.handleForTesting([.button(led: .shift, pressed: true)])
+        lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.instrument1] == .green)
+        await surface.handleForTesting([.button(led: .shift, pressed: false)])
+        lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.instrument1] == .red)
+    }
+
     @Test("Key overlay replaces the full guide and nil restores the scene")
     func keyOverlayRestoresSceneGuide() async {
         let red = KKRGB(red: 0xff, green: 0x00, blue: 0x00)
@@ -264,6 +286,30 @@ struct ShiftLayerTests {
         lights = await surface.activeKeyLightsForTesting()
         #expect(lights[10] == MK2LightGuideColor(color: red, intensity: 3))
         #expect(lights[11] == MK2LightGuideColor(color: red, intensity: 3))
+    }
+
+    @Test("Pad overlay replaces the full guide and nil restores the scene")
+    func padOverlayRestoresSceneGuide() async {
+        let red = KKRGB(red: 0xff, green: 0, blue: 0)
+        let cyan = KKRGB(red: 0, green: 0xff, blue: 0xff)
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            padColors: [0: red, 15: red],
+            padIntensities: [0: 0, 15: 2]
+        ))
+
+        await surface.presentPadOverlay([7: MK2LightGuideColor(color: cyan, intensity: 3)])
+        var lights = await surface.activePadLightsForTesting()
+        #expect(lights == [7: MK2LightGuideColor(color: cyan, intensity: 3)])
+
+        await surface.presentPadOverlay([:])
+        lights = await surface.activePadLightsForTesting()
+        #expect(lights.isEmpty)
+
+        await surface.presentPadOverlay(nil)
+        lights = await surface.activePadLightsForTesting()
+        #expect(lights[0] == MK2LightGuideColor(color: red, intensity: 0))
+        #expect(lights[15] == MK2LightGuideColor(color: red, intensity: 2))
     }
 
     @Test("Scene and shift guide intensities remain exact")

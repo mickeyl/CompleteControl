@@ -162,6 +162,10 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     /// A logical MK3-only control. Its value lies beyond the MK2 report's
     /// 79-byte LED map, so it never becomes an invalid MK2 USB write.
     case variation = 79
+    /// Hardware-independent instrument shortcuts. MASCHINE MK3 lowers these
+    /// to Group A-H; MK2 has no matching controls and safely ignores them.
+    case instrument1 = 80, instrument2, instrument3, instrument4
+    case instrument5 = 84, instrument6, instrument7, instrument8
 
     public var protocolName: String {
         switch self {
@@ -238,6 +242,14 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .strip24: "strip24"
             case .strip25: "strip25"
             case .variation: "variation"
+            case .instrument1: "instrument1"
+            case .instrument2: "instrument2"
+            case .instrument3: "instrument3"
+            case .instrument4: "instrument4"
+            case .instrument5: "instrument5"
+            case .instrument6: "instrument6"
+            case .instrument7: "instrument7"
+            case .instrument8: "instrument8"
         }
     }
 
@@ -260,7 +272,9 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
                  .strip6, .strip7, .strip8, .strip9, .strip10,
                  .strip11, .strip12, .strip13, .strip14, .strip15,
                  .strip16, .strip17, .strip18, .strip19, .strip20,
-                 .strip21, .strip22, .strip23, .strip24, .strip25:
+                 .strip21, .strip22, .strip23, .strip24, .strip25,
+                 .instrument1, .instrument2, .instrument3, .instrument4,
+                 .instrument5, .instrument6, .instrument7, .instrument8:
                 true
             default:
                 false

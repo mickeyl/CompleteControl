@@ -111,9 +111,15 @@ public actor MK2Surface2 {
     /// Dynamic lamps that change independently of the rendered scene, such as
     /// realtime meters. Empty restores the scene-owned lamp state immediately.
     private var lampOverlay: [KKMK2ButtonLED: MK2LampState2] = [:]
+    /// Optional alternate realtime lamps selected while SHIFT is held. Nil uses
+    /// the base overlay, preserving existing meter behavior in shifted scenes.
+    private var shiftLampOverlay: [KKMK2ButtonLED: MK2LampState2]?
     /// Nil restores scene-owned colors. A non-nil overlay, including an empty
     /// dictionary, fully owns the guide while realtime playback is active.
     private var keyOverlay: [Int: MK2LightGuideColor]?
+    /// Nil restores scene-owned performance-pad colors; an empty overlay turns
+    /// all pads off while realtime feedback owns them.
+    private var padOverlay: [Int: MK2LightGuideColor]?
     private var lastLampReports: [UInt8: [UInt8]] = [:]
     private var lastKeyCodes: [UInt8] = []
     private var controlClient: KompleteKontrolDaemonBinaryClient?
@@ -207,7 +213,9 @@ public actor MK2Surface2 {
         latchedEncoder = nil
         scene = MK2SurfaceScene2()
         lampOverlay = [:]
+        shiftLampOverlay = nil
         keyOverlay = nil
+        padOverlay = nil
         displayReconciler.reset()
         publish(.stopped)
     }
@@ -285,14 +293,24 @@ public actor MK2Surface2 {
 
     /// Updates high-frequency lamp feedback without rebuilding display frames or
     /// replacing scene bindings. Overlay lamps win over base and shift-layer lamps.
-    public func presentLampOverlay(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
+    public func presentLampOverlay(
+        _ lamps: [KKMK2ButtonLED: MK2LampState2],
+        shift shiftLamps: [KKMK2ButtonLED: MK2LampState2]? = nil
+    ) {
         lampOverlay = lamps
+        shiftLampOverlay = shiftLamps
     }
 
     /// Updates the complete light guide independently of display scenes and
     /// input bindings. Nil restores scene colors; an empty overlay darkens it.
     public func presentKeyOverlay(_ keys: [Int: MK2LightGuideColor]?) {
         keyOverlay = keys
+    }
+
+    /// Updates the complete performance-pad guide independently of scenes and
+    /// bindings. Nil restores scene colors; an empty overlay darkens all pads.
+    public func presentPadOverlay(_ pads: [Int: MK2LightGuideColor]?) {
+        padOverlay = pads
     }
 
     public func present(_ screen: MK2DoubleScreenDSL) {
@@ -602,7 +620,7 @@ public actor MK2Surface2 {
         lastTick = now
         let lamps = activeLamps
         advanceLamps(dt: dt, lamps: lamps)
-        reconcileLamps(lamps)
+        reconcileLamps(lamps, performancePads: activePadLights)
         reconcileKeys()
         reconcileDisplays(force: forceDisplay)
         maybeCheckIdleDaemon(now: now)
@@ -626,7 +644,8 @@ public actor MK2Surface2 {
         if scene.shift != nil, scene.lamps[.shift] == nil, scene.shift?.lamps[.shift] == nil {
             lamps[.shift] = pressedButtons.contains(.shift) ? Self.shiftHeldLamp : Self.shiftAvailableLamp
         }
-        lamps.merge(lampOverlay) { _, overlay in overlay }
+        let overlay = activeShiftLayer == nil ? lampOverlay : shiftLampOverlay ?? lampOverlay
+        lamps.merge(overlay) { _, overlay in overlay }
         return lamps
     }
 
@@ -646,6 +665,17 @@ public actor MK2Surface2 {
             )
         }
         for (index, intensity) in layer.keyIntensities where layer.keyColors[index] == nil {
+            guard var light = lights[index] else { continue }
+            light.intensity = min(3, intensity)
+            lights[index] = light
+        }
+        return lights
+    }
+
+    private var activePadLights: [Int: MK2LightGuideColor] {
+        if let padOverlay { return padOverlay }
+        var lights = scene.padColors.mapValues { MK2LightGuideColor(color: $0) }
+        for (index, intensity) in scene.padIntensities {
             guard var light = lights[index] else { continue }
             light.intensity = min(3, intensity)
             lights[index] = light
@@ -695,7 +725,10 @@ public actor MK2Surface2 {
         }
     }
 
-    private func reconcileLamps(_ lamps: [KKMK2ButtonLED: MK2LampState2]) {
+    private func reconcileLamps(
+        _ lamps: [KKMK2ButtonLED: MK2LampState2],
+        performancePads: [Int: MK2LightGuideColor]
+    ) {
         var resolved: [KKMK2ButtonLED: KontrolSurfaceLampValue] = [:]
         resolved.reserveCapacity(lamps.count)
         for (led, state) in lamps {
@@ -706,6 +739,9 @@ public actor MK2Surface2 {
         let reports = KontrolSurfaceDeviceCompatibility.lampReports(
             for: activeDeviceFamily,
             lamps: resolved,
+            performancePads: performancePads.mapValues {
+                KontrolSurfaceLampValue(color: $0.color, intensity: $0.intensity)
+            },
             diagnosticLEDBytes: scene.diagnosticLEDBytes
         )
         for report in reports {
@@ -902,6 +938,7 @@ public actor MK2Surface2 {
     func activeLampsForTesting() -> [KKMK2ButtonLED: MK2LampState2] { activeLamps }
     func activeKeyColorsForTesting() -> [Int: KKRGB] { activeKeyLights.mapValues(\.color) }
     func activeKeyLightsForTesting() -> [Int: MK2LightGuideColor] { activeKeyLights }
+    func activePadLightsForTesting() -> [Int: MK2LightGuideColor] { activePadLights }
 
     private func handle(_ events: [KKMK2InputEvent], timestampNanos: UInt64) {
         for event in events {

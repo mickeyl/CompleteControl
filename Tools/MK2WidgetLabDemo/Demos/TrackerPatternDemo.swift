@@ -13,8 +13,9 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         id: "tracker-pattern",
         title: "Tracker Pattern",
         category: .catalogue,
-        summary: "Pattern grid, transport, shift layer",
-        detail: "The hand-built tracker grid with playhead, transport and channel toggles, the parameter page with shift slots, and the clear-pattern dialog via SHIFT+CLEAR."
+        summary: "Pattern grid, instrument banks, transport",
+        detail: "The hand-built tracker grid with playhead, A-H instrument shortcuts and their SHIFT bank, moving MK3 performance-pad feedback during playback, transport and channel toggles, the parameter page with shift slots, and the clear-pattern dialog via SHIFT+CLEAR.",
+        snapshotVariants: ["bank-2"]
     )
 
     private var context: LabContext?
@@ -41,6 +42,28 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
     private static let actionRed = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
     private static let soloColor = KKRGB(red: 0x00, green: 0x7f, blue: 0xff)
     private static let muteColor = KKRGB(red: 0xff, green: 0x18, blue: 0x18)
+    private static let instrumentButtons: [KKMK2ButtonLED] = [
+        .instrument1, .instrument2, .instrument3, .instrument4,
+        .instrument5, .instrument6, .instrument7, .instrument8,
+    ]
+    private static let instrumentColors: [KKRGB] = [
+        KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+        KKRGB(red: 0x00, green: 0xff, blue: 0xff),
+        KKRGB(red: 0xff, green: 0xff, blue: 0x00),
+        KKRGB(red: 0x00, green: 0x00, blue: 0xff),
+        KKRGB(red: 0x00, green: 0xff, blue: 0x00),
+        KKRGB(red: 0xff, green: 0x00, blue: 0xff),
+        KKRGB(red: 0xff, green: 0x7f, blue: 0x00),
+        KKRGB(red: 0x00, green: 0x7f, blue: 0xff),
+        KKRGB(red: 0x7f, green: 0xff, blue: 0x00),
+        KKRGB(red: 0x7f, green: 0x00, blue: 0xff),
+        KKRGB(red: 0xff, green: 0xcf, blue: 0x00),
+        KKRGB(red: 0x3f, green: 0x00, blue: 0xff),
+        KKRGB(red: 0x00, green: 0xff, blue: 0x7f),
+        KKRGB(red: 0xff, green: 0x00, blue: 0x7f),
+        KKRGB(red: 0xff, green: 0x3f, blue: 0x00),
+        KKRGB(red: 0xff, green: 0x00, blue: 0x3f),
+    ]
     private static let demoInstruments = [
         DemoInstrument(number: "01", name: "Kick Resin"),
         DemoInstrument(number: "02", name: "Snare Alloy"),
@@ -147,6 +170,17 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         bindings.onPress(.pageRight) { [weak self] in
             context.update { self?.moveFocusedChannel(1) }
         }
+        for (slot, button) in Self.instrumentButtons.enumerated() {
+            let instrumentIndex = slot
+            let color = Self.instrumentColors[instrumentIndex]
+            lamps[button] = instrumentIndex == selectedInstrumentIndex
+                ? Self.activeLamp(color)
+                : Self.availableLamp(color)
+            bindings.onPress(button) { [weak self] in
+                guard let demo = self else { return }
+                context.update { demo.setSelectedInstrumentIndex(instrumentIndex) }
+            }
+        }
 
         MK2ButtonToggle(
             button: .metro,
@@ -193,13 +227,30 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
 
         var keyColors = leftResult.keyColors
         keyColors.merge(rightResult.keyColors) { _, next in next }
+        var shift = MK2SurfaceScene2.ShiftLayer(left: leftResult, right: rightResult)
+            ?? MK2SurfaceScene2.ShiftLayer()
+        for (slot, button) in Self.instrumentButtons.enumerated() {
+            let instrumentIndex = slot + Self.instrumentButtons.count
+            let color = Self.instrumentColors[instrumentIndex]
+            shift.lamps[button] = instrumentIndex == selectedInstrumentIndex
+                ? Self.activeLamp(color)
+                : Self.availableLamp(color)
+            shift.bindings.onPress(button) { [weak self] in
+                guard let demo = self else { return }
+                context.update { demo.setSelectedInstrumentIndex(instrumentIndex) }
+            }
+        }
         return MK2SurfaceScene2(
             left: leftResult.screen.frame,
             right: rightResult.screen.frame,
             lamps: lamps,
             keyColors: keyColors,
+            padColors: isPlaying ? [
+                playheadRow % 16: Self.instrumentColors[selectedInstrumentIndex],
+            ] : [:],
+            padIntensities: isPlaying ? [playheadRow % 16: 3] : [:],
             bindings: bindings,
-            shift: MK2SurfaceScene2.ShiftLayer(left: leftResult, right: rightResult)
+            shift: shift
         )
     }
 
@@ -207,6 +258,10 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         isPlaying = false
         playbackTimer?.cancel()
         playbackTimer = nil
+    }
+
+    func prepareSnapshot(variant: String) {
+        selectedInstrumentIndex = variant == "bank-2" ? 10 : 0
     }
 
     private func modalScene(_ modalDialog: ActiveModalDialog, _ context: LabContext) -> MK2SurfaceScene2 {
