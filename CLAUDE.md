@@ -83,6 +83,11 @@ Key invariants:
 - keep display blits and small state reports on separate serial queues;
 - session lifetime, reconnect, poll-fd registration, sleep/wake, and shutdown have
   one owner;
+- a reconnect must fully re-register poll fds rather than diff against what was
+  previously tracked: closing the old session's fds makes kqueue silently drop
+  their registrations, and the OS is likely to hand the new session the same fd
+  numbers back, so a stale diff sees "no change" and leaves input dead — see
+  `Docs/daemon-usb-reactor.md`;
 - on shutdown, restore MK2 mapping-engine standalone mode or clear MK3-owned
   lights, then clear host-owned displays;
 - only S49/S61/S88 MK2 and MASCHINE MK3 product IDs may be opened by

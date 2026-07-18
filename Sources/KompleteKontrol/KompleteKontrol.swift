@@ -815,6 +815,16 @@ public enum KompleteKontrolLibUSBServer {
         func runReconnect(reason: String, forceOpen: Bool) {
             daemonDebugLog("reconnect attempt reason=\(reason) force=\(forceOpen ? 1 : 0)", group: "reactor")
             let connected = hardware.maintainConnection(forceOpen: forceOpen)
+            // maintainConnection may have closed the old session's fds and opened a new one.
+            // BSD kqueue silently drops a fd's registrations when it's closed, and the OS is
+            // very likely to hand the new session back the same fd numbers (routine fd reuse
+            // after close). A plain diff against the stale trackedUsbRegistrations would then
+            // see "no change" for those recycled numbers and skip re-issuing EV_ADD — the
+            // kqueue never gets re-armed even though the daemon still thinks it's watching
+            // that fd, so surface/MIDI input goes silently dead after a real unplug/replug.
+            // Forgetting everything tracked here forces every current fd to be re-added
+            // unconditionally, regardless of whether its number happens to be a repeat.
+            trackedUsbRegistrations = []
             syncLibUSBRegistrations()
             if connected {
                 cancelReconnectTimer()

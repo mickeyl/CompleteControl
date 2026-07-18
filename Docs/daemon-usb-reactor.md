@@ -53,6 +53,16 @@ When adding USB device communication:
 
 - preserve a single clear owner for session lifetime, close/reopen, and poll-fd
   registration
+- on reconnect, forget every previously tracked poll-fd registration before
+  re-syncing rather than diffing against it: closing the old session's fds makes
+  kqueue silently drop their registrations (BSD semantics), and the OS is very
+  likely to hand the new libusb context the same fd numbers back (routine fd
+  reuse). A diff against the stale set sees those recycled numbers as "no
+  change" and skips `EV_ADD`, so the kqueue never gets re-armed even though the
+  daemon still believes it's watching that fd — surface/MIDI input then goes
+  silently dead after a real unplug/replug while displays, which write
+  synchronously, keep working. `runReconnect` resets `trackedUsbRegistrations`
+  to force an unconditional full re-add for exactly this reason
 - do not depend on a future kqueue wake after a synchronous libusb transfer
 - if code snapshots and clears pending flags before an output transfer, re-check
   pending state after the transfer path returns
@@ -71,6 +81,13 @@ Exercise bursty input while output is active:
 - press/release surface controls while the idle display is writing frames
 - connect a client during idle diagnostics and verify handoff does not leave stale
   LEDs or light-guide state
+- physically power-cycle the device while the daemon is running and confirm
+  surface/MIDI input resumes after reconnect, not just displays — a 2026-07-18
+  regression on a MASCHINE MK3 bench unit showed a real replug reconnecting
+  cleanly (open, claim, `async transfers started input=0`) while the reactor's
+  kqueue silently never woke for the resubmitted transfer again, because the OS
+  reused the old session's fd number and a plain diff against the previously
+  tracked registrations skipped re-registering it
 
 Useful command shape:
 

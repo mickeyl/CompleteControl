@@ -124,11 +124,15 @@ The hardware socket defaults to:
 
 Set `KK_DAEMON_SOCKET` to connect clients to another endpoint.
 
-When no client is connected, the daemon displays its NO CLIENT diagnostic and
-acts as an I/O hardware test. On S-Series MK2, controls illuminate their lamps
-and MIDI keys illuminate the light guide. On MASCHINE MK3, decoded surface and
-pad events appear on the displays while mapped buttons, pads, and ribbon input
-illuminate their corresponding LEDs.
+When no client is connected, the daemon displays its idle diagnostic — the
+connected controller's model name and firmware version instead of a bare
+"NO CLIENT" — and acts as an I/O hardware test. On S-Series MK2, controls
+illuminate their lamps and MIDI keys illuminate the light guide. On MASCHINE
+MK3, decoded surface and pad events appear on the displays while mapped
+buttons, pads, and ribbon input illuminate their corresponding LEDs. When a
+client connects, S-Series MK2 gets a light-guide comet sweep and MASCHINE MK3
+(which has no light guide) gets an equivalent one-shot chase across its pad
+LEDs before handing the surface over.
 On orderly shutdown the daemon restores the MK2 keyboard's standalone mapping
 engine or clears MK3-owned lights, then clears both displays.
 
@@ -175,6 +179,8 @@ Add the package products needed by an application:
 
 - `MK2Surface2` scene reconciliation, daemon reconnect handling, and automatic
   MK2/MASCHINE MK3 adapter selection through `deviceInfo`/`deviceProfile`;
+  `KompleteKontrolDaemonBinaryClient.deviceInfo()` also returns the connected
+  controller's model name and firmware version (e.g. for an about panel);
 - `MK2ScreenDSL` regular, full-screen, and double-screen layouts;
 - parameter pages, value cells, meters, status lines, selection and modal widgets;
 - FreeType/HarfBuzz text plus fixed-pitch tracker rendering;
@@ -199,7 +205,9 @@ make display-codec-benchmark
 - `MK2WidgetLabDemo` exercises the production Kit2 widgets and includes a REPL
   for palette LEDs and light-guide control.
 - `KontrolSimulator` emulates the S61 MK2 panel and can start a user-level
-  simulator daemon from its Daemon menu.
+  simulator daemon from its Daemon menu, which also has a "Device Identity…"
+  dialog to override the firmware version and name it reports through
+  `deviceInfo` — useful for exercising a client's about panel without hardware.
 - `MK2USBSpy` inspects low-level descriptors and input traffic without the
   normal daemon. Its display REPL claims only USB interface 3 and sends no
   display data until an explicit command is entered. The Make target stops the
