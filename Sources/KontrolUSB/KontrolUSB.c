@@ -27,6 +27,8 @@ typedef struct {
     uint16_t surfaceInputTransferSize;
 } KontrolDeviceDescriptor;
 
+typedef struct KontrolTrackedOutput KontrolTrackedOutput;
+
 static const KontrolDeviceDescriptor kKontrolDevices[] = {
     {0x1610, "Komplete Kontrol S49 MK2", 49, 3, 3, 0x03, KONTROL_NO_INTERFACE, 1, 256},
     {0x1620, "Komplete Kontrol S61 MK2", 61, 3, 3, 0x03, KONTROL_NO_INTERFACE, 1, 256},
@@ -77,10 +79,18 @@ typedef struct {
     int auxInputTransferPending;
     int midiTransferPending;
     int closing;
+    pthread_mutex_t outputTransferMutex;
+    KontrolTrackedOutput *outputTransfers;
     uint8_t inputBuffer[256];
     uint8_t auxInputBuffer[256];
     uint8_t midiBuffer[512];
 } KontrolLibUSBSession;
+
+struct KontrolTrackedOutput {
+    struct libusb_transfer *transfer;
+    KontrolTrackedOutput *next;
+    int completed;
+};
 
 #ifdef KK_DEBUG
 #define KK_USB_LOG_QUEUE_CAPACITY 1024
@@ -291,6 +301,100 @@ static int libusb_async_status_to_error(int status) {
         default:
             return LIBUSB_ERROR_OTHER;
     }
+}
+
+static void tracked_output_callback(struct libusb_transfer *transfer) {
+    KontrolTrackedOutput *output = (KontrolTrackedOutput *)transfer->user_data;
+    if (output != NULL) {
+        output->completed = 1;
+    }
+}
+
+static void remove_tracked_output_locked(KontrolLibUSBSession *session,
+                                         KontrolTrackedOutput *output) {
+    KontrolTrackedOutput **cursor = &session->outputTransfers;
+    while (*cursor != NULL) {
+        if (*cursor == output) {
+            *cursor = output->next;
+            return;
+        }
+        cursor = &(*cursor)->next;
+    }
+}
+
+/* libusb's synchronous transfer helpers keep their internal transfer opaque, which means
+ * a session teardown cannot cancel a write that stopped completing during device loss.
+ * Keep output transfers visible to the session while retaining the same blocking API for
+ * Swift callers. The daemon can then cancel every active output before it waits for those
+ * callers to release their session read leases. */
+static int libusb_tracked_output_transfer(KontrolLibUSBSession *session,
+                                          uint8_t endpoint,
+                                          uint8_t *buffer,
+                                          int length,
+                                          int *transferred,
+                                          uint32_t timeout,
+                                          int transferType) {
+    if (session == NULL || session->ctx == NULL || session->handle == NULL) {
+        return LIBUSB_ERROR_NO_DEVICE;
+    }
+
+    struct libusb_transfer *transfer = libusb_alloc_transfer(0);
+    if (transfer == NULL) {
+        return LIBUSB_ERROR_NO_MEM;
+    }
+
+    KontrolTrackedOutput output = {
+        .transfer = transfer,
+        .next = NULL,
+        .completed = 0,
+    };
+    if (transferType == LIBUSB_TRANSFER_TYPE_INTERRUPT) {
+        libusb_fill_interrupt_transfer(transfer,
+                                       session->handle,
+                                       endpoint,
+                                       buffer,
+                                       length,
+                                       tracked_output_callback,
+                                       &output,
+                                       timeout);
+    } else {
+        libusb_fill_bulk_transfer(transfer,
+                                  session->handle,
+                                  endpoint,
+                                  buffer,
+                                  length,
+                                  tracked_output_callback,
+                                  &output,
+                                  timeout);
+    }
+
+    pthread_mutex_lock(&session->outputTransferMutex);
+    output.next = session->outputTransfers;
+    session->outputTransfers = &output;
+    pthread_mutex_unlock(&session->outputTransferMutex);
+
+    int status = libusb_submit_transfer(transfer);
+    if (status == 0) {
+        while (!output.completed) {
+            int eventStatus = libusb_handle_events_completed(session->ctx, &output.completed);
+            if (eventStatus == LIBUSB_ERROR_INTERRUPTED) {
+                continue;
+            }
+            if (eventStatus < 0) {
+                libusb_cancel_transfer(transfer);
+            }
+        }
+        status = libusb_async_status_to_error(transfer->status);
+    }
+
+    if (transferred != NULL) {
+        *transferred = transfer->actual_length;
+    }
+    pthread_mutex_lock(&session->outputTransferMutex);
+    remove_tracked_output_locked(session, &output);
+    pthread_mutex_unlock(&session->outputTransferMutex);
+    libusb_free_transfer(transfer);
+    return status;
 }
 
 static libusb_device_handle *libusb_open_known_device(libusb_context *ctx, uint16_t requestedProductID, const KontrolDeviceDescriptor **deviceOut, KontrolUSBResult *result) {
@@ -749,7 +853,7 @@ static int libusb_claim_midi_streaming(KontrolLibUSBSession *session, KontrolUSB
     return status;
 }
 
-static int libusb_write_report(libusb_device_handle *handle, uint8_t endpoint, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen, KontrolUSBResult *result) {
+static int libusb_write_report(KontrolLibUSBSession *session, uint8_t endpoint, uint8_t reportID, const uint8_t *payload, uint32_t payloadLen, KontrolUSBResult *result) {
     uint8_t buffer[256] = {0};
     uint32_t totalLen = payloadLen + 1;
     if (totalLen > sizeof(buffer)) {
@@ -767,7 +871,13 @@ static int libusb_write_report(libusb_device_handle *handle, uint8_t endpoint, u
     }
 
     int transferred = 0;
-    int status = libusb_interrupt_transfer(handle, endpoint, buffer, (int)totalLen, &transferred, 50);
+    int status = libusb_tracked_output_transfer(session,
+                                                endpoint,
+                                                buffer,
+                                                (int)totalLen,
+                                                &transferred,
+                                                50,
+                                                LIBUSB_TRANSFER_TYPE_INTERRUPT);
     result_append(result, "interrupt_transfer ep0x%02x report0x%02x len%u -> %d (%s) transferred=%d; ",
                   endpoint, reportID, totalLen, status, status < 0 ? libusb_error_name(status) : "OK", transferred);
     return status;
@@ -836,6 +946,12 @@ KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, Kontr
         result.status = LIBUSB_ERROR_NO_MEM;
         return result;
     }
+    if (pthread_mutex_init(&session->outputTransferMutex, NULL) != 0) {
+        free(session);
+        result.status = LIBUSB_ERROR_OTHER;
+        result_append(&result, "output transfer mutex init failed; ");
+        return result;
+    }
 
     const KontrolDeviceDescriptor *device = NULL;
     int status = libusb_open_claim_device(productID, &session->ctx, &session->handle, &device, &result);
@@ -844,6 +960,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionOpenForProduct(uint16_t productID, Kontr
             uint8_t claimedInterface = device != NULL ? device->claimInterface : KONTROL_NO_INTERFACE;
             libusb_close_claim_interface(session->ctx, session->handle, claimedInterface, &result);
         }
+        pthread_mutex_destroy(&session->outputTransferMutex);
         free(session);
         result.status = status;
         return result;
@@ -1079,7 +1196,7 @@ KontrolUSBResult KontrolUSBLibUSBSessionWrite(KontrolUSBLibUSBSessionRef session
     }
     int status = 0;
     if (session->outputEndpoint != 0) {
-        status = libusb_write_report(session->handle, session->outputEndpoint, reportID, payload, payloadLen, &result);
+        status = libusb_write_report(session, session->outputEndpoint, reportID, payload, payloadLen, &result);
     } else if (session->surfaceClaimed && session->surfaceInterface != 0xff) {
         result.endpointAddress = 0;
         status = libusb_write_hid_report_control(session->handle, session->surfaceInterface, reportID, payload, payloadLen, &result);
@@ -1123,12 +1240,13 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayPacket(KontrolUSBLibUSBSe
 
     int transferred = 0;
     uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
-    int status = libusb_bulk_transfer(session->handle,
-                                      session->displayOutputEndpoint,
-                                      (uint8_t *)packet,
-                                      (int)byteCount,
-                                      &transferred,
-                                      timeout);
+    int status = libusb_tracked_output_transfer(session,
+                                                session->displayOutputEndpoint,
+                                                (uint8_t *)packet,
+                                                (int)byteCount,
+                                                &transferred,
+                                                timeout,
+                                                LIBUSB_TRANSFER_TYPE_BULK);
     if (status == 0 && transferred != (int)byteCount) {
         status = LIBUSB_ERROR_IO;
     }
@@ -1236,7 +1354,13 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2Display(KontrolUSBLibUSBSessionR
 
     int transferred = 0;
     uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
-    int status = libusb_bulk_transfer(session->handle, session->displayOutputEndpoint, buffer, (int)offset, &transferred, timeout);
+    int status = libusb_tracked_output_transfer(session,
+                                                session->displayOutputEndpoint,
+                                                buffer,
+                                                (int)offset,
+                                                &transferred,
+                                                timeout,
+                                                LIBUSB_TRANSFER_TYPE_BULK);
     result.transferredBytes = transferred > 0 ? (uint32_t)transferred : 0;
     result_append(&result, "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u bytes=%zu -> %d (%s) transferred=%d; ",
                   session->displayOutputEndpoint,
@@ -1341,7 +1465,13 @@ KontrolUSBResult KontrolUSBLibUSBSessionWriteMK2DisplayBytes(KontrolUSBLibUSBSes
 
     int transferred = 0;
     uint32_t timeout = timeoutMs == 0 ? 1000 : timeoutMs;
-    int status = libusb_bulk_transfer(session->handle, session->displayOutputEndpoint, buffer, (int)offset, &transferred, timeout);
+    int status = libusb_tracked_output_transfer(session,
+                                                session->displayOutputEndpoint,
+                                                buffer,
+                                                (int)offset,
+                                                &transferred,
+                                                timeout,
+                                                LIBUSB_TRANSFER_TYPE_BULK);
     result.transferredBytes = transferred > 0 ? (uint32_t)transferred : 0;
     result_append(&result, "mk2 bulk_transfer ep0x%02x screen=%u rect=%u,%u %ux%u bytes=%zu -> %d (%s) transferred=%d; ",
                   session->displayOutputEndpoint,
@@ -1486,6 +1616,7 @@ void KontrolUSBLibUSBSessionClose(KontrolUSBLibUSBSessionRef sessionRef) {
     memset(&result, 0, sizeof(result));
     result.pipeRef = session->handle != NULL ? 1 : 0;
     libusb_close_claim_interface(session->ctx, session->handle, session->claimedInterface, &result);
+    pthread_mutex_destroy(&session->outputTransferMutex);
     free(session);
 }
 
@@ -1743,6 +1874,34 @@ int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef sessionRef,
                      sizeof(session->midiBuffer),
                      status);
     return status;
+}
+
+int KontrolUSBLibUSBSessionCancelPendingOutput(KontrolUSBLibUSBSessionRef sessionRef) {
+    KontrolLibUSBSession *session = (KontrolLibUSBSession *)sessionRef;
+    if (session == NULL) {
+        return 0;
+    }
+
+    int cancelled = 0;
+    pthread_mutex_lock(&session->outputTransferMutex);
+    for (KontrolTrackedOutput *output = session->outputTransfers;
+         output != NULL;
+         output = output->next) {
+        if (output->transfer == NULL) {
+            continue;
+        }
+        int status = libusb_cancel_transfer(output->transfer);
+        if (status == 0) {
+            cancelled++;
+        }
+        kk_usb_debug_log("usb-out",
+                         status == 0 ? "DEBUG" : "ERROR",
+                         "cancel pending transfer endpoint=0x%02x status=%d",
+                         output->transfer->endpoint,
+                         status);
+    }
+    pthread_mutex_unlock(&session->outputTransferMutex);
+    return cancelled;
 }
 
 void KontrolUSBLibUSBSessionStopAsync(KontrolUSBLibUSBSessionRef sessionRef) {

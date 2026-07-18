@@ -40,6 +40,7 @@ protocol KontrolDeviceSession: AnyObject {
 
     func pollFds() -> [KontrolUSBPollFd]
     func handleEvents(timeoutMs: Int)
+    @discardableResult func cancelPendingOutput() -> Int32
     func close()
 }
 
@@ -282,6 +283,11 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
 
     func handleEvents(timeoutMs: Int) {
         KontrolUSBLibUSBHandleEventsTimeout(ref, Int32(timeoutMs))
+    }
+
+    @discardableResult
+    func cancelPendingOutput() -> Int32 {
+        Int32(KontrolUSBLibUSBSessionCancelPendingOutput(ref))
     }
 
     func close() {

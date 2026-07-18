@@ -23,6 +23,39 @@ struct DaemonReactorSchedulingTests {
         #expect(DaemonReactorScheduler.shouldInvalidateSessionOnSystemWake())
     }
 
+    @Test("Session teardown gates late readers before cancelling active output")
+    func sessionTeardownGatesLateReadersBeforeCancellation() {
+        let lock = KompleteKontrolLibUSBServer.SessionUseLock()
+        let cancellationStarted = DispatchSemaphore(value: 0)
+        let writerAcquired = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let lateReaderAcquired = DispatchSemaphore(value: 0)
+
+        lock.lockShared()
+        DispatchQueue.global().async {
+            lock.lockExclusive {
+                cancellationStarted.signal()
+            }
+            writerAcquired.signal()
+            releaseWriter.wait()
+            lock.unlock()
+        }
+        #expect(cancellationStarted.wait(timeout: .now() + 1) == .success)
+        #expect(lock.isWritePending)
+
+        DispatchQueue.global().async {
+            lock.lockShared()
+            lateReaderAcquired.signal()
+            lock.unlock()
+        }
+
+        lock.unlock()
+        #expect(writerAcquired.wait(timeout: .now() + 1) == .success)
+        #expect(lateReaderAcquired.wait(timeout: .now() + 0.05) == .timedOut)
+        releaseWriter.signal()
+        #expect(lateReaderAcquired.wait(timeout: .now() + 1) == .success)
+    }
+
     @Test("Daemon human version does not replace protocol compatibility")
     func daemonHumanVersionDoesNotReplaceProtocolCompatibility() {
         #expect(KompleteKontrolLibUSBServer.daemonVersion.hasPrefix("0.9."))

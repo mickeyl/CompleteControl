@@ -508,15 +508,13 @@ public enum KompleteKontrolLibUSBServer {
     }
 
     private final class DaemonPowerObserver: @unchecked Sendable {
-        private let hardware: DaemonHardware
         private let controlWriteFD: Int32
         private let queue = DispatchQueue(label: "media.vanille.kompletekontrol.power")
         private var notifyPort: IONotificationPortRef?
         private var notifier: io_object_t = 0
         private var rootPort: io_connect_t = 0
 
-        init(hardware: DaemonHardware, controlWriteFD: Int32) {
-            self.hardware = hardware
+        init(controlWriteFD: Int32) {
             self.controlWriteFD = controlWriteFD
         }
 
@@ -562,8 +560,7 @@ public enum KompleteKontrolLibUSBServer {
                     daemonDebugLog("system can sleep", group: "power")
                     allowPowerChange(notificationID)
                 case IOPowerMessage.systemWillSleep:
-                    daemonLog("system will sleep; closing hardware session", group: "power")
-                    hardware.prepareForSystemSleep()
+                    daemonLog("system will sleep; notifying hardware reactor", group: "power")
                     writeControlEvent(.systemSleep)
                     allowPowerChange(notificationID)
                 case IOPowerMessage.systemWillNotSleep:
@@ -571,8 +568,7 @@ public enum KompleteKontrolLibUSBServer {
                 case IOPowerMessage.systemWillPowerOn:
                     daemonDebugLog("system will power on", group: "power")
                 case IOPowerMessage.systemHasPoweredOn:
-                    daemonLog("system has powered on; scheduling hardware reconnect", group: "power")
-                    hardware.noteSystemWake()
+                    daemonLog("system has powered on; notifying hardware reactor", group: "power")
                     writeControlEvent(.systemWake)
                 default:
                     daemonTraceLog("power message type=0x\(String(messageType, radix: 16))", group: "power")
@@ -744,7 +740,7 @@ public enum KompleteKontrolLibUSBServer {
         kevent(kq, &controlKev, 1, nil, 0, nil)
         daemonDebugLog("register control fd=\(controlPipe[0]) filter=\(EVFILT_READ)", group: "reactor")
 
-        let powerObserver = DaemonPowerObserver(hardware: hardware, controlWriteFD: controlPipe[1])
+        let powerObserver = DaemonPowerObserver(controlWriteFD: controlPipe[1])
         powerObserver.start()
 
         // Register libusb poll fds
@@ -938,9 +934,12 @@ public enum KompleteKontrolLibUSBServer {
                         switch controlEvent {
                             case .systemSleep:
                                 daemonDebugLog("reactor received system sleep", group: "reactor")
+                                cancelReconnectTimer()
+                                hardware.prepareForSystemSleep()
                                 syncLibUSBRegistrations()
                             case .systemWake:
                                 daemonDebugLog("reactor received system wake", group: "reactor")
+                                hardware.noteSystemWake()
                                 syncLibUSBRegistrations()
                                 armReconnectTimer(afterNs: 750_000_000)
                         }
@@ -1364,27 +1363,66 @@ public enum KompleteKontrolLibUSBServer {
     // close/reopen must exclude every user (exclusive access). A plain mutex here
     // serialized the reactor's event pump behind 10-20 ms display blits, so input
     // events arrived in bursts aligned to blit completions.
-    private final class SessionUseLock: @unchecked Sendable {
-        private var rwlock = pthread_rwlock_t()
+    final class SessionUseLock: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var activeReaders = 0
+        private var writerActive = false
+        private var waitingWriters = 0
 
-        init() {
-            pthread_rwlock_init(&rwlock, nil)
-        }
-
-        deinit {
-            pthread_rwlock_destroy(&rwlock)
+        var isWritePending: Bool {
+            condition.lock()
+            defer { condition.unlock() }
+            return writerActive || waitingWriters > 0
         }
 
         func lockShared() {
-            pthread_rwlock_rdlock(&rwlock)
+            condition.lock()
+            while writerActive || waitingWriters > 0 {
+                condition.wait()
+            }
+            activeReaders += 1
+            condition.unlock()
         }
 
         func lockExclusive() {
-            pthread_rwlock_wrlock(&rwlock)
+            lockExclusive(preparing: {})
+        }
+
+        /// Announces the writer before running preparation, preventing any late reader from
+        /// entering while preparation cancels already-active I/O. The writer can then wait
+        /// for those cancelled readers to unwind without the device-loss reactor deadlocking.
+        func lockExclusive(preparing: () -> Void) {
+            condition.lock()
+            waitingWriters += 1
+            condition.unlock()
+
+            preparing()
+
+            condition.lock()
+            while writerActive || activeReaders > 0 {
+                condition.wait()
+            }
+            waitingWriters -= 1
+            writerActive = true
+            condition.unlock()
         }
 
         func unlock() {
-            pthread_rwlock_unlock(&rwlock)
+            condition.lock()
+            if writerActive {
+                writerActive = false
+                condition.broadcast()
+            } else {
+                precondition(activeReaders > 0, "unbalanced shared session unlock")
+                activeReaders -= 1
+                if activeReaders == 0, waitingWriters > 0 {
+                    // Readers and writers share one condition. Wake everybody so a writer
+                    // is guaranteed to observe the transition; late readers remain gated by
+                    // waitingWriters until that writer has completed.
+                    condition.broadcast()
+                }
+            }
+            condition.unlock()
         }
     }
 
@@ -1507,8 +1545,23 @@ public enum KompleteKontrolLibUSBServer {
             shutdown()
         }
 
+        private func cancelPendingOutput(_ session: any KontrolDeviceSession, reason: String) {
+            let cancelled = session.cancelPendingOutput()
+            daemonDebugLog(
+                "pending output cancellation reason=\(reason) accepted=\(cancelled)",
+                group: "usb"
+            )
+        }
+
         func shutdown() {
-            sessionIOLock.lockExclusive()
+            sessionIOLock.lockExclusive { [self] in
+                lock.lock()
+                let session = libusbSession
+                lock.unlock()
+                if let session {
+                    cancelPendingOutput(session, reason: "shutdown")
+                }
+            }
             lock.lock()
             let session = libusbSession
             libusbSession = nil
@@ -2214,6 +2267,10 @@ public enum KompleteKontrolLibUSBServer {
         private func performStateReportWrite(reportID: UInt8, payload: [UInt8]) {
             guard let session = ensureSession() else { return }
             let start = KKTiming.now()
+            daemonTraceLog(
+                "state report worker begin report=0x\(KKHex.byte(reportID)) bytes=\(payload.count)",
+                group: "mk2"
+            )
             sessionIOLock.lockShared()
             lock.lock()
             let isCurrent = libusbSession === session
@@ -2239,6 +2296,10 @@ public enum KompleteKontrolLibUSBServer {
                 return
             }
             let start = KKTiming.now()
+            daemonTraceLog(
+                "display worker begin client=\(blit.clientID) seq=\(blit.sequence) screen=\(blit.screen) rect=\(blit.x),\(blit.y) \(blit.width)x\(blit.height) bytes=\(blit.pixels.count) timeoutMs=\(blit.timeoutMs)",
+                group: "mk2"
+            )
             sessionIOLock.lockShared()
             lock.lock()
             let isCurrent = libusbSession === session
@@ -2500,7 +2561,11 @@ public enum KompleteKontrolLibUSBServer {
         @discardableResult
         private func dropSession(_ session: any KontrolDeviceSession, after response: String) -> Bool {
             guard shouldDropSession(after: response) else { return false }
-            sessionIOLock.lockExclusive()
+            daemonDebugLog("hardware session drop waiting for exclusive access", group: "usb")
+            sessionIOLock.lockExclusive { [self] in
+                cancelPendingOutput(session, reason: "device-lost")
+            }
+            daemonDebugLog("hardware session drop acquired exclusive access", group: "usb")
             lock.lock()
             let shouldClose = libusbSession === session
             if shouldClose {
@@ -2512,6 +2577,7 @@ public enum KompleteKontrolLibUSBServer {
                 session.close()
             }
             sessionIOLock.unlock()
+            daemonDebugLog("hardware session drop complete closed=\(shouldClose ? 1 : 0)", group: "usb")
             return shouldClose
         }
 
@@ -2568,7 +2634,14 @@ public enum KompleteKontrolLibUSBServer {
         }
 
         func prepareForSystemSleep() {
-            sessionIOLock.lockExclusive()
+            sessionIOLock.lockExclusive { [self] in
+                lock.lock()
+                let session = libusbSession
+                lock.unlock()
+                if let session {
+                    cancelPendingOutput(session, reason: "system-sleep")
+                }
+            }
             lock.lock()
             systemSleeping = true
             nextSessionOpenAttemptAt = 0
@@ -2588,7 +2661,15 @@ public enum KompleteKontrolLibUSBServer {
 
         func noteSystemWake() {
             let shouldInvalidateSession = DaemonReactorScheduler.shouldInvalidateSessionOnSystemWake()
-            sessionIOLock.lockExclusive()
+            sessionIOLock.lockExclusive { [self] in
+                guard shouldInvalidateSession else { return }
+                lock.lock()
+                let session = libusbSession
+                lock.unlock()
+                if let session {
+                    cancelPendingOutput(session, reason: "system-wake")
+                }
+            }
             lock.lock()
             systemSleeping = false
             nextSessionOpenAttemptAt = 0

@@ -72,6 +72,11 @@ int KontrolUSBLibUSBSessionStartAsyncMIDI(KontrolUSBLibUSBSessionRef session,
                                            KontrolUSBInputCallback callback,
                                            void *userData);
 
+/* Cancel synchronous output transfers currently waiting for completion. Returns the
+ * number of cancellation requests accepted by libusb. Used before session teardown so
+ * a vanished device cannot leave close/reconnect waiting behind a blocked writer. */
+int KontrolUSBLibUSBSessionCancelPendingOutput(KontrolUSBLibUSBSessionRef session);
+
 /* Cancel async transfers (e.g. before close). */
 void KontrolUSBLibUSBSessionStopAsync(KontrolUSBLibUSBSessionRef session);
 

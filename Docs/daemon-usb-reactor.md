@@ -53,6 +53,11 @@ When adding USB device communication:
 
 - preserve a single clear owner for session lifetime, close/reopen, and poll-fd
   registration
+- keep IOKit power callbacks out of session lifetime work: they enqueue sleep and
+  wake bytes only; the kqueue reactor performs close/invalidate/reconnect in order
+- gate late session readers before teardown cancels in-flight display/LED output;
+  otherwise a vanished device can leave close/reopen waiting forever behind a
+  synchronous transfer whose completion never reaches its worker
 - on reconnect, forget every previously tracked poll-fd registration before
   re-syncing rather than diffing against it: closing the old session's fds makes
   kqueue silently drop their registrations (BSD semantics), and the OS is very

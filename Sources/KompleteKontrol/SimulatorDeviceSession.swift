@@ -199,6 +199,9 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
         for frame in frames { apply(frame) }
     }
 
+    @discardableResult
+    func cancelPendingOutput() -> Int32 { 0 }
+
     func close() {
         Darwin.close(fd)
     }
