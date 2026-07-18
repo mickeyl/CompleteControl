@@ -13,6 +13,9 @@ SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
 DEBUG_DAEMON="${KK_INSTALL_DEBUG_DAEMON:-0}"
 BUILD_CONFIGURATION="${KK_INSTALL_DAEMON_CONFIGURATION:-release}"
 EXECUTABLE_PATH="${KK_INSTALL_DAEMON_EXECUTABLE:-$SCRIPT_DIR/.build/release/ccd}"
+RESOURCE_BUNDLE_NAME="CompleteControl_KompleteKontrol.bundle"
+RESOURCE_BUNDLE_PATH="${KK_INSTALL_DAEMON_RESOURCE_BUNDLE:-$(dirname "$EXECUTABLE_PATH")/$RESOURCE_BUNDLE_NAME}"
+INSTALLED_RESOURCE_BUNDLE="/usr/local/bin/$RESOURCE_BUNDLE_NAME"
 DISPLAY_ENCODING="${KK_INSTALL_MK2_DISPLAY_ENCODING:-adaptive}"
 
 # Colors for output
@@ -29,6 +32,7 @@ else
     echo "Mode: normal release daemon"
 fi
 echo "Executable: $EXECUTABLE_PATH"
+echo "Resources: $RESOURCE_BUNDLE_PATH"
 case "$DISPLAY_ENCODING" in
     legacy|adaptive) ;;
     *)
@@ -57,6 +61,11 @@ if [ ! -f "$EXECUTABLE_PATH" ]; then
     fi
 fi
 
+if [ ! -d "$RESOURCE_BUNDLE_PATH" ]; then
+    echo -e "${RED}Error: Resource bundle not found at $RESOURCE_BUNDLE_PATH${NC}"
+    exit 1
+fi
+
 # Stop any existing daemon
 echo "Stopping any existing daemon..."
 launchctl bootout system "$LAUNCHD_PLIST" 2>/dev/null || true
@@ -83,6 +92,9 @@ rm -f "$SOCKET_PATH" /var/run/kompletekontrol-libusb.lock
 echo "Installing ccd to /usr/local/bin..."
 cp "$EXECUTABLE_PATH" /usr/local/bin/ccd
 chmod +x /usr/local/bin/ccd
+echo "Installing ccd resources..."
+ditto "$RESOURCE_BUNDLE_PATH" "$INSTALLED_RESOURCE_BUNDLE"
+chmod -R a+rX "$INSTALLED_RESOURCE_BUNDLE"
 
 # Update plist with correct executable path
 echo "Installing launchd plist..."

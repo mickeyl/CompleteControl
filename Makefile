@@ -182,6 +182,7 @@ uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	-sudo launchctl unload /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo rm -f /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
 	-sudo rm -f /usr/local/bin/ccd
+	-sudo rm -rf /usr/local/bin/CompleteControl_KompleteKontrol.bundle
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	-sudo rm -f /tmp/media.vanille.kompletekontrol-libusb.stdout.log /tmp/media.vanille.kompletekontrol-libusb.stderr.log

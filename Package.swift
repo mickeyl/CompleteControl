@@ -65,6 +65,9 @@ let package = Package(
             name: "KompleteKontrol",
             dependencies: ["KontrolUSB"],
             path: "Sources/KompleteKontrol",
+            resources: [
+                .copy("Resources/buddies.png"),
+            ],
             swiftSettings: [
                 .define("KK_DEBUG", .when(configuration: .debug)),
                 .swiftLanguageMode(.v5),

@@ -1507,6 +1507,7 @@ public enum KompleteKontrolLibUSBServer {
         private let clientHandoffPauseNs: UInt64 = 1_000_000_000
         private var clientHandoffUntilNs: UInt64 = 0
         private var clientHandoffGeneration: UInt64 = 0
+        private let idleRightArtworkFrame = MK2IdleArtwork.bundledFrame
         private let idleRevisionSummary = KKBuildInfo.gitRevisionSummary()
         private var idleSurfacePreviousReport: [UInt8]?
         private var idleMaschinePreviousReports: [UInt8: [UInt8]] = [:]
@@ -2897,7 +2898,10 @@ public enum KompleteKontrolLibUSBServer {
                 rawLines: rawLines,
                 title: title
             )
-            let right = makeMK2IdleLogFrame(
+            let right = MK2IdleArtwork.frameBeforeFirstEvent(
+                idleRightArtworkFrame,
+                eventCount: log.count
+            ) ?? makeMK2IdleLogFrame(
                 log,
                 hasInput: hasInput,
                 waitingHint: isMaschineMK3

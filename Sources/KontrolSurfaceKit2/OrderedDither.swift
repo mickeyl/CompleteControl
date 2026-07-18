@@ -1,56 +1,29 @@
-import Foundation
+import KompleteKontrol
 
 /// Ordered (Bayer 4×4) dithering for RGB565 quantization. Dark gradients and
 /// brightness-scaled imagery otherwise collapse onto the few remaining 5/6-bit
 /// levels and the OLED shows every level as a visible band; adding the positional
 /// threshold before truncation trades the bands for an imperceptible pattern.
 public enum MK2OrderedDither {
-    private static let thresholds: [Double] = [
-        0, 8, 2, 10,
-        12, 4, 14, 6,
-        3, 11, 1, 9,
-        15, 7, 13, 5,
-    ].map { ($0 + 0.5) / 16.0 }
-
     public static func threshold(x: Int, y: Int) -> Double {
-        thresholds[((y & 3) << 2) | (x & 3)]
+        KKRGB565OrderedDither.threshold(x: x, y: y)
     }
 
     /// Quantizes fractional RGB565 components (r/b in 0…31, g in 0…63) with the
     /// positional dither threshold applied before truncation.
     public static func rgb565(r: Double, g: Double, b: Double, x: Int, y: Int) -> UInt16 {
-        let t = threshold(x: x, y: y)
-        let rq = UInt16(min(31, max(0, Int(r + t))))
-        let gq = UInt16(min(63, max(0, Int(g + t))))
-        let bq = UInt16(min(31, max(0, Int(b + t))))
-        return (rq << 11) | (gq << 5) | bq
+        KKRGB565OrderedDither.rgb565(r: r, g: g, b: b, x: x, y: y)
     }
 
     /// Interpolates between two RGB565 colors at `t` with dithered quantization —
     /// the building block for band-free gradient ramps in any direction. Exact
     /// endpoints stay exact: integer channel values survive the threshold.
     public static func lerp(_ from: UInt16, _ to: UInt16, t: Double, x: Int, y: Int) -> UInt16 {
-        let t = min(1, max(0, t))
-        func mix(_ a: UInt16, _ b: UInt16) -> Double {
-            Double(a) + (Double(b) - Double(a)) * t
-        }
-        return rgb565(
-            r: mix((from >> 11) & 0x1f, (to >> 11) & 0x1f),
-            g: mix((from >> 5) & 0x3f, (to >> 5) & 0x3f),
-            b: mix(from & 0x1f, to & 0x1f),
-            x: x,
-            y: y
-        )
+        KKRGB565OrderedDither.lerp(from, to, t: t, x: x, y: y)
     }
 
     /// Scales an RGB565 pixel by `factor` with dithered quantization.
     public static func scaled(_ pixel: UInt16, by factor: Double, x: Int, y: Int) -> UInt16 {
-        rgb565(
-            r: Double((pixel >> 11) & 0x1f) * factor,
-            g: Double((pixel >> 5) & 0x3f) * factor,
-            b: Double(pixel & 0x1f) * factor,
-            x: x,
-            y: y
-        )
+        KKRGB565OrderedDither.scaled(pixel, by: factor, x: x, y: y)
     }
 }
