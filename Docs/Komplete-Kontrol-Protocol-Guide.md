@@ -171,10 +171,6 @@ sub-demo switcher. On MK2 it continues to use **Instance**. `Variation` is a
 logical MK3-only Kit2 control (outside the MK2 LED report range), so the
 projection does not create an invalid MK2 USB write. This is a Widget-Lab-only
 projection; the Kit2 Shift layer stays entirely unchanged.
-For MK3 monochrome panel LEDs, every nonzero Kit2 intensity currently lowers to
-the hardware-verified visible value `0x07`. This deliberately prioritizes a
-discoverable available action such as the reserved SCENE return over an
-unverified dimming curve.
 
 Misleading aliases are deliberately absent: Restart is not Loop, Tap is not
 Metronome, Note Repeat is not Arp, Chords is not Scale, Duplicate is not
