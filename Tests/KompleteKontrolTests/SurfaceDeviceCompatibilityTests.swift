@@ -76,6 +76,66 @@ struct SurfaceDeviceCompatibilityTests {
         ])
     }
 
+    @Test("MK3 pad reports lower native strike, pressure, and release with daemon timestamps")
+    func padInputLowering() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x002c),
+            timestampNanos: 1_000_000
+        ) == [KontrolSurfacePadEvent(
+            index: 0,
+            phase: .touch,
+            pressure: 44,
+            maximumPressure: MaschineMK3Protocol.padMaximumPressure,
+            maximumStrikeVelocity: MaschineMK3Protocol.padMaximumStrikeVelocity,
+            timestampNanos: 1_000_000
+        )])
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x2000),
+            timestampNanos: 2_000_000
+        ).first?.phase == .up)
+
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x16ce),
+            timestampNanos: 3_000_000
+        ) == [KontrolSurfacePadEvent(
+            index: 0,
+            phase: .down,
+            pressure: 0,
+            maximumPressure: MaschineMK3Protocol.padMaximumPressure,
+            strikeVelocity: 0x6ce,
+            maximumStrikeVelocity: MaschineMK3Protocol.padMaximumStrikeVelocity,
+            timestampNanos: 3_000_000
+        )])
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x4384),
+            timestampNanos: 5_000_000
+        ) == [KontrolSurfacePadEvent(
+            index: 0,
+            phase: .pressure,
+            pressure: 900,
+            maximumPressure: MaschineMK3Protocol.padMaximumPressure,
+            maximumStrikeVelocity: MaschineMK3Protocol.padMaximumStrikeVelocity,
+            timestampNanos: 5_000_000
+        )])
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x3000),
+            timestampNanos: 8_000_000
+        ) == [KontrolSurfacePadEvent(
+            index: 0,
+            phase: .up,
+            pressure: 0,
+            maximumPressure: MaschineMK3Protocol.padMaximumPressure,
+            maximumStrikeVelocity: MaschineMK3Protocol.padMaximumStrikeVelocity,
+            timestampNanos: 8_000_000
+        )])
+        #expect(adapter.padEvents(
+            for: padReport(hardwareIndex: 12, encodedValue: 0x4000),
+            timestampNanos: 9_000_000
+        ).isEmpty)
+    }
+
     @Test("MK3 VARIATION lowers directly without involving Shift")
     func variationInput() {
         var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
@@ -311,6 +371,15 @@ struct SurfaceDeviceCompatibilityTests {
     private func surfaceReport() -> [UInt8] {
         [MaschineMK3Protocol.surfaceReportID]
             + [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize - 1)
+    }
+
+    private func padReport(hardwareIndex: Int, encodedValue: Int) -> [UInt8] {
+        var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        report[0] = MaschineMK3Protocol.padReportID
+        report[1] = UInt8(hardwareIndex & 0x0f)
+        report[2] = UInt8((encodedValue >> 8) & 0xff)
+        report[3] = UInt8(encodedValue & 0xff)
+        return report
     }
 
     private func setWord(_ value: Int, at offset: Int, in report: inout [UInt8]) {

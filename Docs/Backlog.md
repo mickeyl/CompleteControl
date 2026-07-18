@@ -83,9 +83,10 @@
 - Add MK3 pads as synthesized MIDI input without claiming the controller's USB
   MIDI interface 3. Proposed baseline: physical Pads 1-16 to notes 36-51 on
   channel 1, note-off velocity zero, and continuous per-pad pressure as MIDI
-  polyphonic key pressure (which requires extending `KKMIDIEvent.Kind`). Do not
-  derive note-on velocity from the first pressure sample: capture controlled
-  strikes and establish a short, allocation-conscious velocity estimator first.
+  polyphonic key pressure (which requires extending `KKMIDIEvent.Kind`). Use the
+  bench-verified native 12-bit strike word for note-on velocity and the separate
+  12-bit held-pressure stream for poly pressure; finalize their independent
+  linear calibration ranges from the Widget Lab hardware pass first.
   Fixed Velocity may select a configured constant velocity. Keep `padCount = 16`
   and `keyCount = 0` in the device profile.
 

@@ -25,7 +25,7 @@ class ScenarioTests(unittest.TestCase):
     def test_checked_in_manifest_covers_unique_demo_ids(self):
         scenarios = widgetlab.load_scenarios(widgetlab.DEFAULT_SCENARIOS)
         ids = [scenario["demo"] for scenario in scenarios]
-        self.assertEqual(len(ids), 14)
+        self.assertEqual(len(ids), 15)
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_coverage_reports_missing_and_unknown_demos(self):

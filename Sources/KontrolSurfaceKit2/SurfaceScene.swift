@@ -36,6 +36,57 @@ public struct MIDIFocus: Sendable {
     }
 }
 
+/// Hardware-neutral pad input before it is translated into MIDI.
+///
+/// `index` follows panel order (`0` is physical Pad 1). MK3 distinguishes a
+/// below-threshold `.touch` from a triggered `.down`; only `.down` carries the
+/// native 12-bit strike value. The following pressure stream is independent.
+public struct KontrolSurfacePadEvent: Equatable, Sendable {
+    public enum Phase: Equatable, Sendable {
+        case touch
+        case down
+        case pressure
+        case up
+    }
+
+    public var index: Int
+    public var phase: Phase
+    public var pressure: Int
+    public var maximumPressure: Int
+    public var strikeVelocity: Int?
+    public var maximumStrikeVelocity: Int
+    public var timestampNanos: UInt64
+
+    public init(
+        index: Int,
+        phase: Phase,
+        pressure: Int,
+        maximumPressure: Int,
+        strikeVelocity: Int? = nil,
+        maximumStrikeVelocity: Int = 1,
+        timestampNanos: UInt64
+    ) {
+        self.index = index
+        self.phase = phase
+        self.maximumPressure = max(1, maximumPressure)
+        self.pressure = max(0, min(self.maximumPressure, pressure))
+        let clampedMaximumStrikeVelocity = max(1, maximumStrikeVelocity)
+        self.maximumStrikeVelocity = clampedMaximumStrikeVelocity
+        self.strikeVelocity = strikeVelocity.map {
+            max(0, min(clampedMaximumStrikeVelocity, $0))
+        }
+        self.timestampNanos = timestampNanos
+    }
+
+    public var number: Int { index + 1 }
+    public var normalizedPressure: Double {
+        Double(pressure) / Double(maximumPressure)
+    }
+    public var normalizedStrikeVelocity: Double? {
+        strikeVelocity.map { Double($0) / Double(maximumStrikeVelocity) }
+    }
+}
+
 /// A held hardware key that modifies the surface. Shift is the only first-class
 /// modifier; the set shape keeps the door open for other held-button layers
 /// without another API change.
@@ -79,6 +130,9 @@ public struct MK2InputBindings2: Sendable {
     public var jogScroll: (@Sendable (_ delta: Int, _ value: Int) -> Void)?
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?
     public var strip: (@Sendable (_ position: Int?, _ time: Int) -> Void)?
+    /// Native pad pressure with daemon reception timestamps. This calibration
+    /// seam precedes the planned HID-to-MIDI velocity/aftertouch translation.
+    public var pad: (@Sendable (_ event: KontrolSurfacePadEvent) -> Void)?
     public var midi: (@Sendable (_ event: KKMIDIEvent) -> Void)?
     /// If present, MIDI is routed to this focused element instead of the legacy global
     /// MIDI handler. Use this for tracker channels, instrument editors, and similar
@@ -138,6 +192,7 @@ public struct MK2InputBindings2: Sendable {
         if let jogScroll = other.jogScroll { self.jogScroll = jogScroll }
         if let jogTouch = other.jogTouch { self.jogTouch = jogTouch }
         if let strip = other.strip { self.strip = strip }
+        if let pad = other.pad { self.pad = pad }
         if let midi = other.midi { self.midi = midi }
         if let midiFocus = other.midiFocus { self.midiFocus = midiFocus }
     }

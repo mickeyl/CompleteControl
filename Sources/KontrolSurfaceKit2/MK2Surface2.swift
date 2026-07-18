@@ -870,12 +870,18 @@ public actor MK2Surface2 {
 
     private func handleSurfacePush(_ payload: [UInt8]) {
         guard let event = KKDaemonBinaryCodec.parseEventPayload(payload), !event.bytes.isEmpty else { return }
+        let padEvents = inputAdapter.padEvents(for: event.bytes, timestampNanos: event.timestamp)
         let events = inputAdapter.events(for: event.bytes, timestampNanos: event.timestamp)
         handle(events, timestampNanos: event.timestamp)
+        handle(padEvents)
     }
 
     func handleForTesting(_ events: [KKMK2InputEvent], timestampNanos: UInt64 = 0) {
         handle(events, timestampNanos: timestampNanos)
+    }
+
+    func handlePadForTesting(_ events: [KontrolSurfacePadEvent]) {
+        handle(events)
     }
 
     func activeDisplaysForTesting() -> [MK2PixelFrame?] { activeDisplays }
@@ -945,6 +951,12 @@ public actor MK2Surface2 {
                 case .rawChanged:
                     break
             }
+        }
+    }
+
+    private func handle(_ events: [KontrolSurfacePadEvent]) {
+        for event in events {
+            (activeShiftLayer?.bindings.pad ?? scene.bindings.pad)?(event)
         }
     }
 

@@ -113,7 +113,8 @@ reentrancy.
 For MASCHINE MK3, NO CLIENT shows semantic events plus raw evidence and mirrors
 bench-verified buttons, pads, and ribbon input to their LEDs. The fixed pad
 record-slot-3 triplet `0d 40 00` is a neutral sentinel, not a Pad 13 release;
-emit pad-up only after prior non-zero pressure for that hardware index. Pad
+pad input distinguishes below-trigger touch, a 12-bit strike word, 12-bit
+held-pressure words, and explicit touch/strike release markers. Pad
 hardware indices 0-15 map directly to `0x81` payload offsets 25-40. Use
 `make maschine-mk3-probe` for a read-only descriptor dump and
 `make maschine-mk3-input-spy` for an explicitly bounded HID-interface capture.

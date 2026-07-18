@@ -30,6 +30,18 @@
       ]
     },
     {
+      "demo": "mk3-pad-calibration",
+      "variant": "strike",
+      "actions": [
+        { "send": "encoder 5 24" },
+        { "send": "encoder 6 32" },
+        { "send": "encoder 7 -32" },
+        { "send": "encoder 8 24" },
+        { "send": "encodertouch 5 on" },
+        { "send": "encodertouch 5 off" }
+      ]
+    },
+    {
       "demo": "type-specimen",
       "actions": [
         { "send": "encoder 5 4" },

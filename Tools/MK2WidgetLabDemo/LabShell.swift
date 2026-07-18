@@ -19,6 +19,7 @@ let labDemos: [any LabDemo] = [
     EncoderFeelDemo(),
     PanoramaDemo(),
     MK3LEDCalibrationDemo(),
+    MK3PadCalibrationDemo(),
     TypeSpecimenDemo(),
     IconBrowserDemo(),
     ChromeSlotsDemo(),

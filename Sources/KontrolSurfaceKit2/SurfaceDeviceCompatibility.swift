@@ -218,6 +218,7 @@ struct KontrolSurfaceInputAdapter: Sendable {
     private(set) var family: KontrolDeviceFamily
     private var previousReports: [UInt8: [UInt8]] = [:]
     private var maschineTouchPositions: [Int?] = [nil, nil]
+    private var maschinePadState = MaschineMK3PadStateTracker()
 
     init(family: KontrolDeviceFamily = .kompleteKontrolMK2) {
         self.family = family
@@ -235,6 +236,7 @@ struct KontrolSurfaceInputAdapter: Sendable {
     mutating func reset() {
         previousReports.removeAll(keepingCapacity: true)
         maschineTouchPositions = [nil, nil]
+        maschinePadState = MaschineMK3PadStateTracker()
     }
 
     /// Installs a daemon-provided state snapshot without emitting an input
@@ -287,6 +289,34 @@ struct KontrolSurfaceInputAdapter: Sendable {
                     previousReports[reportID] = bytes
                 }
                 return lowerMaschineMK3(nativeEvents, timestampNanos: timestampNanos)
+        }
+    }
+
+    mutating func padEvents(
+        for bytes: [UInt8],
+        timestampNanos: UInt64
+    ) -> [KontrolSurfacePadEvent] {
+        guard family == .maschineMK3,
+              bytes.first == MaschineMK3Protocol.padReportID else { return [] }
+        return maschinePadState.events(
+            for: MaschineMK3InputReportDecoder.padInputs(in: bytes)
+        ).map { event in
+            let phase: KontrolSurfacePadEvent.Phase
+            switch event.phase {
+                case .touch: phase = .touch
+                case .down: phase = .down
+                case .pressure: phase = .pressure
+                case .up: phase = .up
+            }
+            return KontrolSurfacePadEvent(
+                index: event.physicalPadNumber - 1,
+                phase: phase,
+                pressure: event.pressure,
+                maximumPressure: MaschineMK3Protocol.padMaximumPressure,
+                strikeVelocity: event.strikeVelocity,
+                maximumStrikeVelocity: MaschineMK3Protocol.padMaximumStrikeVelocity,
+                timestampNanos: timestampNanos
+            )
         }
     }
 

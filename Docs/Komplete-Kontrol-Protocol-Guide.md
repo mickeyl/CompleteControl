@@ -71,6 +71,16 @@ that a record is `(hardware pad index, encoded high byte, encoded low byte)`, wi
 a `0x4xxx` marker and a 12-bit pressure value in the low bits. CompleteControl
 decodes that source-confirmed shape while retaining every raw record.
 
+A controlled live trace on 2026-07-18 established the parts the public notes
+discarded. A below-trigger contact emits `0x0xxx` and ends with `0x2xxx`; a
+triggered strike emits `0x1xxx` and ends with `0x3xxx`. The lower 12 bits carry
+the contact/strike magnitude. Zero or more `0x4xxx` words carry independent
+12-bit pressure while held. CompleteControl therefore exposes touch-only,
+strike velocity (`0...4095`), pressure (`0...4095`), and release separately.
+This also explains why simply discarding every non-`0x4xxx` slot loses the
+hardware's lowest-latency onset signal, while treating `0x0xxx` as a note strike
+creates impossible velocity-zero notes from light touches.
+
 A controlled physical Pad 1...16 pass verified the input matrix on bcdDevice
 `0x0146`: hardware indices 12-15 are Pads 1-4, 8-11 are Pads 5-8, 4-7 are Pads
 9-12, and 0-3 are Pads 13-16. Record slot 3 also carries the fixed neutral
@@ -79,7 +89,7 @@ state, not a Pad 13 release or evidence of a faulty pressure sensor: a genuine
 hardware-index 13 pressure stream appears independently in slot 0 when physical
 Pad 2 is moved. The decoder filters only that exact slot/triplet combination,
 and the state tracker emits a release only after the same hardware index has
-previously reported non-zero pressure.
+previously reported a touch or strike.
 
 On macOS, a 256-byte libusb transfer buffer was observed coalescing four logical
 64-byte pad reports into one callback. The MK3 device profile therefore sizes
@@ -176,8 +186,14 @@ Misleading aliases are deliberately absent: Restart is not Loop, Tap is not
 Metronome, Note Repeat is not Arp, Chords is not Scale, Duplicate is not
 Undo/Redo, and the arrow buttons are not Preset Up/Down. MK3-only controls remain
 available to the native decoder but do not impersonate an existing Kit2 action.
-The 16 pads remain outside this compatibility adapter until the separate
-HID-to-MIDI velocity/pressure contract is implemented.
+The 16 pads remain outside the MK2 button compatibility map. Kit2 exposes their
+timed native touch, strike, pressure, and release stream as
+`KontrolSurfacePadEvent`. The Widget Lab independently calibrates linear
+12-bit-strike-to-MIDI-velocity
+and 12-bit-pressure-to-poly-pressure mappings without yet committing them to a
+MIDI note layout. Every received strike maps to velocity `1...127`, since a MIDI
+Note On with velocity zero means Note Off; pressure retains its full `0...127`
+range. The final MIDI emission contract remains a separate step.
 
 The Widget Lab hardware passes on 2026-07-17 and 2026-07-18 verified the shared
 input map, including first-event main-encoder delivery, and calibrated both LED

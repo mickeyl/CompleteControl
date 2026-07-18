@@ -14,6 +14,8 @@ public enum MaschineMK3Protocol {
     public static let stripLEDReportID: UInt8 = 0x81
     public static let stripLEDPayloadSize = 41
     public static let stripLEDCount = 25
+    public static let padMaximumStrikeVelocity = 4095
+    public static let padMaximumPressure = 4095
 
     /// Hardware-calibrated monochrome values. The low two bits are deliberately
     /// non-linear: `0x05` is almost dark, `0x04` is a useful soft state,
@@ -320,6 +322,22 @@ public struct MaschineMK3PadRecord: Sendable, Equatable {
         byte0 < 16 && byte1 & 0xf0 == 0x40
     }
 
+    /// Bench-observed semantic value. The older public notes document only
+    /// `0x4xxx` pressure; a controlled trace on bcdDevice 0x0146 additionally
+    /// establishes touch/strike words followed by matching release markers.
+    public var inputValue: MaschineMK3PadInputValue? {
+        guard byte0 < 16 else { return nil }
+        let encoded = Int(byte1) << 8 | Int(byte2)
+        switch encoded & 0xf000 {
+            case 0x0000: return .touch(encoded & 0x0fff)
+            case 0x1000: return .strikeVelocity(encoded & 0x0fff)
+            case 0x2000: return .touchRelease
+            case 0x3000: return .release
+            case 0x4000: return .pressure(encoded & 0x0fff)
+            default: return nil
+        }
+    }
+
     /// Bench-verified neutral record emitted by bcdDevice 0x0146 while other
     /// pads move. It is distinct from the real index-13 stream in slot 0.
     public var isKnownNeutralSentinel: Bool {
@@ -334,6 +352,42 @@ public struct MaschineMK3PadRecord: Sendable, Equatable {
     }
 }
 
+public enum MaschineMK3PadInputValue: Sendable, Equatable {
+    /// Contact below the hardware's strike threshold (`0x0xxx`).
+    case touch(Int)
+    /// Native 12-bit hit-strength value, observed as `0x1xxx`.
+    case strikeVelocity(Int)
+    /// Release after a touch-only contact (`0x2xxx`).
+    case touchRelease
+    /// Release after a triggered strike (`0x3xxx`).
+    case release
+    /// Native 12-bit held-pressure value, observed as `0x4000...0x4fff`.
+    case pressure(Int)
+}
+
+public struct MaschineMK3PadInput: Sendable, Equatable {
+    public var slotIndex: Int
+    public var hardwareIndex: Int
+    public var value: MaschineMK3PadInputValue
+    public var encodedValue: Int
+
+    public var physicalPadNumber: Int {
+        (3 - hardwareIndex / 4) * 4 + hardwareIndex % 4 + 1
+    }
+
+    public init(
+        slotIndex: Int,
+        hardwareIndex: Int,
+        value: MaschineMK3PadInputValue,
+        encodedValue: Int
+    ) {
+        self.slotIndex = slotIndex
+        self.hardwareIndex = hardwareIndex
+        self.value = value
+        self.encodedValue = encodedValue
+    }
+}
+
 /// Interpretation of one MK3 pad record. `hardwareIndex` and `pressure` follow
 /// cabl, ktemkin, and openAV-Ctlra; the physical 4x4 ordering was subsequently
 /// verified with a controlled Pad 1...16 pass on bcdDevice 0x0146.
@@ -344,7 +398,7 @@ public struct MaschineMK3PadSample: Sendable, Equatable {
     public var encodedValue: Int
 
     public var normalizedPressure: Double {
-        Double(pressure) / 4095.0
+        Double(pressure) / Double(MaschineMK3Protocol.padMaximumPressure)
     }
 
     /// Physical panel number verified by a controlled Pad 1...16 pass.
@@ -361,58 +415,148 @@ public struct MaschineMK3PadSample: Sendable, Equatable {
 }
 
 public enum MaschineMK3PadEventPhase: String, Sendable {
+    case touch
     case down
     case pressure
     case up
 }
 
 public struct MaschineMK3PadEvent: Sendable, Equatable, CustomStringConvertible {
-    public var sample: MaschineMK3PadSample
+    public var hardwareIndex: Int
     public var phase: MaschineMK3PadEventPhase
+    public var pressure: Int
+    public var strikeVelocity: Int?
+    public var encodedValue: Int
+
+    public var physicalPadNumber: Int {
+        (3 - hardwareIndex / 4) * 4 + hardwareIndex % 4 + 1
+    }
 
     public var description: String {
         switch phase {
+            case .touch:
+                "pad \(physicalPadNumber) touch pressure=\(pressure)"
             case .down:
-                "pad \(sample.physicalPadNumber) down pressure=\(sample.pressure)"
+                if let strikeVelocity {
+                    "pad \(physicalPadNumber) down velocity=\(strikeVelocity)"
+                } else {
+                    "pad \(physicalPadNumber) down pressure=\(pressure)"
+                }
             case .pressure:
-                "pad \(sample.physicalPadNumber) pressure=\(sample.pressure)"
+                "pad \(physicalPadNumber) pressure=\(pressure)"
             case .up:
-                "pad \(sample.physicalPadNumber) up"
+                "pad \(physicalPadNumber) up"
         }
     }
 
-    public init(sample: MaschineMK3PadSample, phase: MaschineMK3PadEventPhase) {
-        self.sample = sample
+    public init(
+        hardwareIndex: Int,
+        phase: MaschineMK3PadEventPhase,
+        pressure: Int,
+        strikeVelocity: Int? = nil,
+        encodedValue: Int
+    ) {
+        self.hardwareIndex = hardwareIndex
         self.phase = phase
+        self.pressure = pressure
+        self.strikeVelocity = strikeVelocity
+        self.encodedValue = encodedValue
     }
 }
 
-/// Stateful edge/pressure decoder for sparse MK3 pad reports. A zero sample is
-/// only an event after that hardware index has reported non-zero pressure.
+/// Stateful strike/pressure/release decoder for sparse MK3 pad reports. It also
+/// accepts pressure-only streams so older firmware/captures cannot leave a pad
+/// stuck when an explicit strike or release word is absent.
 public struct MaschineMK3PadStateTracker: Sendable {
     public private(set) var pressures: [Int]
+    public private(set) var heldPads: [Bool]
 
     public init() {
         pressures = [Int](repeating: 0, count: 16)
+        heldPads = [Bool](repeating: false, count: 16)
     }
 
-    public mutating func events(for samples: [MaschineMK3PadSample]) -> [MaschineMK3PadEvent] {
+    public mutating func events(for inputs: [MaschineMK3PadInput]) -> [MaschineMK3PadEvent] {
         var events: [MaschineMK3PadEvent] = []
-        for sample in samples {
-            guard pressures.indices.contains(sample.hardwareIndex) else { continue }
-            let previous = pressures[sample.hardwareIndex]
-            guard previous != sample.pressure else { continue }
-            pressures[sample.hardwareIndex] = sample.pressure
+        for input in inputs {
+            let index = input.hardwareIndex
+            guard pressures.indices.contains(index) else { continue }
+            switch input.value {
+                case let .touch(pressure):
+                    heldPads[index] = true
+                    pressures[index] = pressure
+                    events.append(MaschineMK3PadEvent(
+                        hardwareIndex: index,
+                        phase: .touch,
+                        pressure: pressure,
+                        encodedValue: input.encodedValue
+                    ))
 
-            if previous == 0, sample.pressure > 0 {
-                events.append(MaschineMK3PadEvent(sample: sample, phase: .down))
-            } else if previous > 0, sample.pressure == 0 {
-                events.append(MaschineMK3PadEvent(sample: sample, phase: .up))
-            } else if sample.pressure > 0 {
-                events.append(MaschineMK3PadEvent(sample: sample, phase: .pressure))
+                case let .strikeVelocity(rawVelocity):
+                    heldPads[index] = true
+                    pressures[index] = 0
+                    events.append(MaschineMK3PadEvent(
+                        hardwareIndex: index,
+                        phase: .down,
+                        pressure: 0,
+                        strikeVelocity: rawVelocity,
+                        encodedValue: input.encodedValue
+                    ))
+
+                case let .pressure(pressure):
+                    let previous = pressures[index]
+                    guard previous != pressure else { continue }
+                    pressures[index] = pressure
+                    if pressure > 0, !heldPads[index] {
+                        heldPads[index] = true
+                        events.append(MaschineMK3PadEvent(
+                            hardwareIndex: index,
+                            phase: .down,
+                            pressure: pressure,
+                            encodedValue: input.encodedValue
+                        ))
+                    } else if pressure == 0, heldPads[index] {
+                        heldPads[index] = false
+                        events.append(MaschineMK3PadEvent(
+                            hardwareIndex: index,
+                            phase: .up,
+                            pressure: 0,
+                            encodedValue: input.encodedValue
+                        ))
+                    } else if pressure > 0 {
+                        events.append(MaschineMK3PadEvent(
+                            hardwareIndex: index,
+                            phase: .pressure,
+                            pressure: pressure,
+                            encodedValue: input.encodedValue
+                        ))
+                    }
+
+                case .touchRelease, .release:
+                    guard heldPads[index] else { continue }
+                    heldPads[index] = false
+                    pressures[index] = 0
+                    events.append(MaschineMK3PadEvent(
+                        hardwareIndex: index,
+                        phase: .up,
+                        pressure: 0,
+                        encodedValue: input.encodedValue
+                    ))
             }
         }
         return events
+    }
+
+    /// Compatibility entry point for pressure-only source fixtures.
+    public mutating func events(for samples: [MaschineMK3PadSample]) -> [MaschineMK3PadEvent] {
+        events(for: samples.map {
+            MaschineMK3PadInput(
+                slotIndex: $0.slotIndex,
+                hardwareIndex: $0.hardwareIndex,
+                value: .pressure($0.pressure),
+                encodedValue: $0.encodedValue
+            )
+        })
     }
 }
 
@@ -546,6 +690,21 @@ public enum MaschineMK3InputReportDecoder {
                 byte2: report[offset + 2]
             )
             return record.bytes.allSatisfy { $0 == 0 } ? nil : record
+        }
+    }
+
+    /// Decodes the complete bench-observed pad lifecycle: touch or 12-bit
+    /// strike, zero or more 12-bit pressure values, and a matching release.
+    public static func padInputs(in report: [UInt8]) -> [MaschineMK3PadInput] {
+        padRecords(in: report).compactMap { record in
+            guard !record.isKnownNeutralSentinel,
+                  let value = record.inputValue else { return nil }
+            return MaschineMK3PadInput(
+                slotIndex: record.slotIndex,
+                hardwareIndex: Int(record.byte0),
+                value: value,
+                encodedValue: Int(record.byte1) << 8 | Int(record.byte2)
+            )
         }
     }
 

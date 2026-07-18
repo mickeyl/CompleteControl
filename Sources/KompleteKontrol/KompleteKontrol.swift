@@ -3426,11 +3426,11 @@ public enum KompleteKontrolLibUSBServer {
             let surfaceEvents = observation.kind == .surface
                 ? MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: bytes)
                 : []
-            let padSamples = observation.kind == .pads
-                ? MaschineMK3InputReportDecoder.padSamples(in: bytes)
+            let padInputs = observation.kind == .pads
+                ? MaschineMK3InputReportDecoder.padInputs(in: bytes)
                 : []
             let padEvents = observation.kind == .pads
-                ? idleMaschinePadState.events(for: padSamples)
+                ? idleMaschinePadState.events(for: padInputs)
                 : []
             let reportName = observation.kind.rawValue.uppercased()
             let summary: String
@@ -3442,12 +3442,12 @@ public enum KompleteKontrolLibUSBServer {
             } else if observation.kind == .pads {
                 let records = MaschineMK3InputReportDecoder.padRecords(in: bytes)
                 let undecodedRecords = records.filter {
-                    !$0.isKnownNeutralSentinel && !$0.isSourceEncodedPadSample
+                    !$0.isKnownNeutralSentinel && $0.inputValue == nil
                 }
                 if let event = padEvents.first {
                     summary = event.description.uppercased()
                     logMessages = padEvents.prefix(8).map { $0.description.uppercased() }
-                } else if padSamples.isEmpty, !undecodedRecords.isEmpty {
+                } else if padInputs.isEmpty, !undecodedRecords.isEmpty {
                     let preview = undecodedRecords.prefix(3).map { record in
                         record.bytes.map(KKHex.byte).joined(separator: "/")
                     }.joined(separator: " ")
@@ -3509,14 +3509,13 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        /// Called with `lock` held. The hardware-index-to-LED ordering is
-        /// bench-verified; the reference pressure threshold remains source-derived.
+        /// Called with `lock` held. The hardware-index-to-LED ordering and the
+        /// explicit strike/release lifecycle are bench-verified.
         private func updateIdleMaschineMK3PadLED(for event: MaschineMK3PadEvent) {
-            let sample = event.sample
-            guard let led = MaschineMK3PadLED(hardwareIndex: sample.hardwareIndex) else { return }
+            guard let led = MaschineMK3PadLED(hardwareIndex: event.hardwareIndex) else { return }
             let index = led.rawValue
             guard idleMaschineStripPadLEDs.indices.contains(index) else { return }
-            let value = sample.pressure > MaschineMK3Protocol.padPressedReferenceThreshold
+            let value = event.phase != .up
                 ? MaschineMK3Protocol.whiteColorLEDValue
                 : 0
             guard idleMaschineStripPadLEDs[index] != value else { return }

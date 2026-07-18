@@ -107,6 +107,25 @@ struct MaschineMK3ProtocolTests {
         ])
     }
 
+    @Test("bench pad words distinguish touch, 12-bit strike, pressure, and releases")
+    func padInputs() {
+        var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        report[0] = MaschineMK3Protocol.padReportID
+        report[1...12] = [
+            0x0b, 0x00, 0x2c,
+            0x0c, 0x16, 0xce,
+            0x0c, 0x42, 0x77,
+            0x0c, 0x30, 0x00,
+        ]
+
+        #expect(MaschineMK3InputReportDecoder.padInputs(in: report) == [
+            MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 11, value: .touch(0x02c), encodedValue: 0x002c),
+            MaschineMK3PadInput(slotIndex: 1, hardwareIndex: 12, value: .strikeVelocity(0x6ce), encodedValue: 0x16ce),
+            MaschineMK3PadInput(slotIndex: 2, hardwareIndex: 12, value: .pressure(0x277), encodedValue: 0x4277),
+            MaschineMK3PadInput(slotIndex: 3, hardwareIndex: 12, value: .release, encodedValue: 0x3000),
+        ])
+    }
+
     @Test("bench sentinel is excluded while the real index-13 stream remains available")
     func padSentinel() {
         var report = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
@@ -128,24 +147,23 @@ struct MaschineMK3ProtocolTests {
         ])
     }
 
-    @Test("pad tracker suppresses idle zeroes but preserves down pressure and up")
+    @Test("pad tracker preserves native strike velocity, pressure, and release")
     func padStateTracker() {
         var tracker = MaschineMK3PadStateTracker()
-        let zero = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 0, encodedValue: 0x4000)
-        let down = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 100, encodedValue: 0x4064)
-        let pressure = MaschineMK3PadSample(slotIndex: 0, hardwareIndex: 13, pressure: 900, encodedValue: 0x4384)
+        let strike = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 13, value: .strikeVelocity(0x151), encodedValue: 0x1151)
+        let pressure = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 13, value: .pressure(900), encodedValue: 0x4384)
+        let release = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 13, value: .release, encodedValue: 0x3000)
+        let zero = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 13, value: .pressure(0), encodedValue: 0x4000)
 
-        #expect(tracker.events(for: [zero]).isEmpty)
-        #expect(tracker.events(for: [down]) == [
-            MaschineMK3PadEvent(sample: down, phase: .down),
+        #expect(tracker.events(for: [strike]) == [
+            MaschineMK3PadEvent(hardwareIndex: 13, phase: .down, pressure: 0, strikeVelocity: 0x151, encodedValue: 0x1151),
         ])
-        #expect(down.physicalPadNumber == 2)
-        #expect(tracker.events(for: [down]).isEmpty)
+        #expect(strike.physicalPadNumber == 2)
         #expect(tracker.events(for: [pressure]) == [
-            MaschineMK3PadEvent(sample: pressure, phase: .pressure),
+            MaschineMK3PadEvent(hardwareIndex: 13, phase: .pressure, pressure: 900, encodedValue: 0x4384),
         ])
-        #expect(tracker.events(for: [zero]) == [
-            MaschineMK3PadEvent(sample: zero, phase: .up),
+        #expect(tracker.events(for: [release]) == [
+            MaschineMK3PadEvent(hardwareIndex: 13, phase: .up, pressure: 0, encodedValue: 0x3000),
         ])
         #expect(tracker.events(for: [zero]).isEmpty)
     }
