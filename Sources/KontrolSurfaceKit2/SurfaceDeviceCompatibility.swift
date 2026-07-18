@@ -9,6 +9,19 @@ struct KontrolSurfaceOutputReport: Equatable, Sendable {
 struct KontrolSurfaceLampValue: Equatable, Sendable {
     var color: KKRGB
     var intensity: UInt8
+    var rawByte: UInt8?
+
+    init(color: KKRGB, intensity: UInt8) {
+        self.color = color
+        self.intensity = intensity
+        rawByte = nil
+    }
+
+    init(rawByte: UInt8) {
+        color = .off
+        intensity = 0
+        self.rawByte = rawByte
+    }
 }
 
 enum MaschineMK3CompatibilityInput: Equatable, Sendable {
@@ -111,7 +124,8 @@ enum KontrolSurfaceDeviceCompatibility {
             case .kompleteKontrolMK2:
                 var payload = [UInt8](repeating: 0, count: KompleteKontrolMK2Protocol.buttonLEDMapSize)
                 for (lamp, value) in lamps where payload.indices.contains(lamp.rawValue) {
-                    payload[lamp.rawValue] = lamp.ledByte(for: value.color, intensity: value.intensity)
+                    payload[lamp.rawValue] = value.rawByte
+                        ?? lamp.ledByte(for: value.color, intensity: value.intensity)
                 }
                 return [KontrolSurfaceOutputReport(
                     reportID: KompleteKontrolMK2Protocol.buttonLEDReportID,
@@ -147,6 +161,7 @@ enum KontrolSurfaceDeviceCompatibility {
         for value: KontrolSurfaceLampValue,
         lamp: MaschineMK3ButtonLED
     ) -> UInt8 {
+        if let rawByte = value.rawByte { return rawByte }
         guard value.color != .off, value.intensity > 0 else { return 0 }
         if lamp.usesColorEncoding {
             return maschineMK3ColorByte(for: value)
@@ -161,6 +176,7 @@ enum KontrolSurfaceDeviceCompatibility {
     /// white as hue 0xff. Reusing the existing nearest-colour quantizer keeps
     /// client colours stable while emitting the MK3's native byte format.
     private static func maschineMK3ColorByte(for value: KontrolSurfaceLampValue) -> UInt8 {
+        if let rawByte = value.rawByte { return rawByte }
         guard value.color != .off, value.intensity > 0 else { return 0 }
         let intensity = min(value.intensity, 3)
         let mk2Code = KompleteKontrolSSeriesMK2.paletteCode(for: value.color, intensity: intensity)

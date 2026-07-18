@@ -18,6 +18,7 @@ let guideCompletionValues = ["all", "keys", "off"] + namedLEDColors.keys.sorted(
 let labDemos: [any LabDemo] = [
     EncoderFeelDemo(),
     PanoramaDemo(),
+    MK3LEDCalibrationDemo(),
     TypeSpecimenDemo(),
     IconBrowserDemo(),
     ChromeSlotsDemo(),
@@ -659,6 +660,8 @@ actor LabShell {
                 return "blink \(String(format: "#%02x%02x%02x", color.red, color.green, color.blue)) @ \(intensity)"
             case let .pulse(color, _):
                 return "pulse \(String(format: "#%02x%02x%02x", color.red, color.green, color.blue))"
+            case let .rawOutput(byte):
+                return String(format: "raw 0x%02x", byte)
         }
     }
 

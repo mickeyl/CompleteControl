@@ -192,6 +192,29 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(report.payload[KKMK2ButtonLED.play.rawValue] == KKMK2ButtonLED.play.ledByte(for: color, intensity: 2))
     }
 
+    @Test("literal calibration bytes pass through both output maps")
+    func literalCalibrationLampOutput() throws {
+        let mk3Reports = KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .maschineMK3,
+            lamps: [
+                .function1: KontrolSurfaceLampValue(rawByte: 0x05),
+                .jogRight: KontrolSurfaceLampValue(rawByte: 0x4e),
+                .strip1: KontrolSurfaceLampValue(rawByte: 0xfa),
+            ]
+        )
+        let mk3Buttons = try #require(mk3Reports.first { $0.reportID == MaschineMK3Protocol.buttonLEDReportID })
+        let mk3Secondary = try #require(mk3Reports.first { $0.reportID == MaschineMK3Protocol.stripLEDReportID })
+        #expect(mk3Buttons.payload[MaschineMK3ButtonLED.displayButton1.rawValue] == 0x05)
+        #expect(mk3Buttons.payload[MaschineMK3ButtonLED.mainEncoderRight.rawValue] == 0x4e)
+        #expect(mk3Secondary.payload[0] == 0xfa)
+
+        let mk2 = try #require(KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .kompleteKontrolMK2,
+            lamps: [.function1: KontrolSurfaceLampValue(rawByte: 0xab)]
+        ).first)
+        #expect(mk2.payload[KKMK2ButtonLED.function1.rawValue] == 0xab)
+    }
+
     @Test("MK3-only VARIATION never writes past the MK2 LED map")
     func variationDoesNotWriteMK2LEDMap() throws {
         let report = try #require(KontrolSurfaceDeviceCompatibility.lampReports(

@@ -672,7 +672,7 @@ public actor MK2Surface2 {
                     if period > 0 {
                         lampPhase[led, default: 0] += dt / period
                     }
-                case .off, .on:
+                case .off, .on, .rawOutput:
                     lampPhase[led] = 0
             }
         }
@@ -1071,6 +1071,8 @@ public actor MK2Surface2 {
         switch state {
             case .off:
                 return nil
+            case let .rawOutput(byte):
+                return KontrolSurfaceLampValue(rawByte: byte)
             case let .on(color, intensity):
                 guard color != .off, intensity > 0 else { return nil }
                 return KontrolSurfaceLampValue(color: color, intensity: min(intensity, 3))

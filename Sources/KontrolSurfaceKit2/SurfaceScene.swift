@@ -6,6 +6,11 @@ public enum MK2LampState2: Sendable, Equatable {
     case on(KKRGB, intensity: UInt8 = 0x03)
     case blink(KKRGB, period: Double, intensity: UInt8 = 0x03)
     case pulse(KKRGB, period: Double)
+    /// A literal device LED byte for protocol diagnostics and calibration.
+    ///
+    /// This deliberately bypasses semantic colour/intensity lowering. Product
+    /// scenes should use `.on`, `.blink`, or `.pulse` instead.
+    case rawOutput(UInt8)
 
     public static var white: MK2LampState2 { .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff)) }
     public static var amber: MK2LampState2 { .on(KKRGB(red: 0xff, green: 0x7f, blue: 0x00)) }
