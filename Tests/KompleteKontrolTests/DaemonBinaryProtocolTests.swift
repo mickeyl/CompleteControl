@@ -122,6 +122,22 @@ struct DaemonBinaryProtocolTests {
         #expect(KKDeviceInfo.parse("no session") == nil)
     }
 
+    @Test("event registration carries a lossless input-state snapshot")
+    func registrationInputSnapshotRoundTrips() {
+        let message = KKDaemonBinaryCodec.registrationAckMessage(
+            inputSnapshotTimestamp: 0x0123_4567_89ab_cdef,
+            bytes: [0x01, 0x00, 0x7f, 0x80, 0xff]
+        )
+
+        let snapshot = KKDaemonBinaryCodec.parseRegistrationInputSnapshot(message)
+
+        #expect(snapshot?.timestamp == 0x0123_4567_89ab_cdef)
+        #expect(snapshot?.bytes == [0x01, 0x00, 0x7f, 0x80, 0xff])
+        #expect(KKDaemonBinaryCodec.parseRegistrationInputSnapshot("registered") == nil)
+        #expect(KKDaemonBinaryCodec.parseRegistrationInputSnapshot("registered input-snapshot=xyz:01") == nil)
+        #expect(KKDaemonBinaryCodec.parseRegistrationInputSnapshot("registered input-snapshot=1:0") == nil)
+    }
+
     @Test("firmware version decodes bcdDevice as BCD major.minor.patch")
     func formatsBCDVersion() {
         #expect(KKDeviceInfo.formatBCDVersion(0x0146) == "1.4.6")

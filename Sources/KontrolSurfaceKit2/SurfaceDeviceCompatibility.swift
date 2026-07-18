@@ -118,7 +118,8 @@ enum KontrolSurfaceDeviceCompatibility {
 
     static func lampReports(
         for family: KontrolDeviceFamily,
-        lamps: [KKMK2ButtonLED: KontrolSurfaceLampValue]
+        lamps: [KKMK2ButtonLED: KontrolSurfaceLampValue],
+        diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8] = [:]
     ) -> [KontrolSurfaceOutputReport] {
         switch family {
             case .kompleteKontrolMK2:
@@ -150,6 +151,18 @@ enum KontrolSurfaceDeviceCompatibility {
                     stripAndPads[logicalIndex] = maschineMK3ColorByte(for: value)
                 }
 
+                // Diagnostic bytes deliberately win over semantic lowering so
+                // a calibration scene can compare physical LED classes using
+                // the exact same wire value.
+                for (target, byte) in diagnosticLEDBytes {
+                    switch target {
+                        case let .maschineMK3Button(led):
+                            buttons[led.rawValue] = byte
+                        case let .maschineMK3Pad(led):
+                            stripAndPads[led.rawValue] = byte
+                    }
+                }
+
                 return [
                     KontrolSurfaceOutputReport(reportID: MaschineMK3Protocol.buttonLEDReportID, payload: buttons),
                     KontrolSurfaceOutputReport(reportID: MaschineMK3Protocol.stripLEDReportID, payload: stripAndPads),
@@ -157,32 +170,47 @@ enum KontrolSurfaceDeviceCompatibility {
         }
     }
 
-    private static func maschineMK3ButtonByte(
+    static func maschineMK3ButtonByte(
         for value: KontrolSurfaceLampValue,
         lamp: MaschineMK3ButtonLED
     ) -> UInt8 {
         if let rawByte = value.rawByte { return rawByte }
         guard value.color != .off, value.intensity > 0 else { return 0 }
         if lamp.usesColorEncoding {
-            return maschineMK3ColorByte(for: value)
+            return maschineMK3ColorByte(
+                for: value,
+                monochromeWhiteCurve: lamp.usesMonochromeWhiteCurve
+            )
         }
-        // `0x07` is the sole hardware-verified visible monochrome value from
-        // NO CLIENT. Do not infer a dimming curve from undocumented values:
-        // a Kit2 "available" action such as SCENE must be discoverable.
-        return MaschineMK3Protocol.monochromePressedLEDValue
+        return maschineMK3MonochromeByte(for: value.intensity)
+    }
+
+    static func maschineMK3MonochromeByte(for intensity: UInt8) -> UInt8 {
+        switch min(intensity, 3) {
+            case 0: 0
+            case 1: MaschineMK3Protocol.monochromeDimLEDValue
+            case 2: MaschineMK3Protocol.monochromeBrightLEDValue
+            default: MaschineMK3Protocol.monochromePressedLEDValue
+        }
     }
 
     /// MK3 RGB slots use the same 16 hue sectors as the MK2 palette but encode
-    /// white as hue 0xff. Reusing the existing nearest-colour quantizer keeps
-    /// client colours stable while emitting the MK3's native byte format.
-    private static func maschineMK3ColorByte(for value: KontrolSurfaceLampValue) -> UInt8 {
+    /// white as hue 0xff. Sampling alone routes white through the non-linear
+    /// monochrome curve; its coloured palette entries remain linear like pads.
+    static func maschineMK3ColorByte(
+        for value: KontrolSurfaceLampValue,
+        monochromeWhiteCurve: Bool = false
+    ) -> UInt8 {
         if let rawByte = value.rawByte { return rawByte }
         guard value.color != .off, value.intensity > 0 else { return 0 }
         let intensity = min(value.intensity, 3)
         let mk2Code = KompleteKontrolSSeriesMK2.paletteCode(for: value.color, intensity: intensity)
         let paletteIndex = mk2Code >> 2
         let hue: UInt8 = paletteIndex == 17 ? 0xff : paletteIndex
-        return (hue &<< 2) | intensity
+        let brightnessBits = monochromeWhiteCurve && hue == 0xff
+            ? maschineMK3MonochromeByte(for: intensity) & 0x03
+            : intensity
+        return (hue &<< 2) | brightnessBits
     }
 }
 
@@ -207,6 +235,21 @@ struct KontrolSurfaceInputAdapter: Sendable {
     mutating func reset() {
         previousReports.removeAll(keepingCapacity: true)
         maschineTouchPositions = [nil, nil]
+    }
+
+    /// Installs a daemon-provided state snapshot without emitting an input
+    /// event. Live reports that follow it can therefore decode their very first
+    /// encoder step against the real device counters.
+    mutating func prime(with bytes: [UInt8]) {
+        guard let reportID = bytes.first else { return }
+        previousReports[reportID] = bytes
+        guard family == .maschineMK3,
+              reportID == MaschineMK3Protocol.surfaceReportID,
+              bytes.count == MaschineMK3Protocol.surfaceReportSize else { return }
+        maschineTouchPositions = [30, 34].map { offset in
+            let position = Int(bytes[offset]) | Int(bytes[offset + 1] & 0x03) << 8
+            return position == 0 ? nil : position
+        }
     }
 
     mutating func events(for bytes: [UInt8], timestampNanos: UInt64) -> [KKMK2InputEvent] {

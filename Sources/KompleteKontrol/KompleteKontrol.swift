@@ -1436,6 +1436,7 @@ public enum KompleteKontrolLibUSBServer {
         private var queuedMIDIMessages: [String] = []
         private var inputPushSequence: UInt64 = 0
         private var midiPushSequence: UInt64 = 0
+        private var latestMaschineSurfaceInput: (timestamp: UInt64, bytes: [UInt8])?
         private let displayQueue = DispatchQueue(label: "media.vanille.kompletekontrol.display", qos: .userInitiated)
         private var pendingDisplayBlits: [UInt8: PendingDisplayBlit] = [:]
         private var displayDrainScheduled = false
@@ -1845,8 +1846,8 @@ public enum KompleteKontrolLibUSBServer {
                     guard let registration = KKDaemonBinaryCodec.parseRegisterPayload(frame.payload) else {
                         return ack(-1, "register parse")
                     }
-                    let status = binaryRegister(pid: registration.pid, name: registration.name, clientID: clientID, channel: channel)
-                    return ack(status, status == 0 ? "registered" : "register failed")
+                    let result = binaryRegister(pid: registration.pid, name: registration.name, clientID: clientID, channel: channel)
+                    return ack(result.status, result.message)
                 case .unregister:
                     return ack(binaryUnregister(clientID: clientID), "unregistered")
                 case .writeReport:
@@ -1898,7 +1899,12 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func binaryRegister(pid: Int32, name: String, clientID: Int, channel: KKDaemonBinaryChannel) -> Int32 {
+        private func binaryRegister(
+            pid: Int32,
+            name: String,
+            clientID: Int,
+            channel: KKDaemonBinaryChannel
+        ) -> (status: Int32, message: String) {
             let client = RegisteredClient(pid: pid, name: name)
             lock.lock()
             evictOtherSessionsLocked(newClientID: clientID, newPID: pid)
@@ -1908,13 +1914,25 @@ public enum KompleteKontrolLibUSBServer {
                 queuedInputMessages.removeAll()
                 queuedMIDIMessages.removeAll()
             }
+            let inputSnapshot = channel == .event && libusbSession?.deviceProfile.family == .maschineMK3
+                ? latestMaschineSurfaceInput
+                : nil
             lock.unlock()
 
-            daemonLog("client \(clientID) binary registered channel=\(channel) name=\(name) pid=\(pid)")
+            daemonLog(
+                "client \(clientID) binary registered channel=\(channel) name=\(name) pid=\(pid)" +
+                    (inputSnapshot.map { " inputSnapshot=\($0.bytes.count)B" } ?? "")
+            )
             if channel == .control {
                 showConnectedClient(client)
             }
-            return 0
+            let message = inputSnapshot.map {
+                KKDaemonBinaryCodec.registrationAckMessage(
+                    inputSnapshotTimestamp: $0.timestamp,
+                    bytes: $0.bytes
+                )
+            } ?? "registered"
+            return (0, message)
         }
 
         private func binaryUnregister(clientID: Int) -> Int32 {
@@ -2431,6 +2449,7 @@ public enum KompleteKontrolLibUSBServer {
                 return existingSession
             }
             libusbSession = session
+            latestMaschineSurfaceInput = nil
             nextSessionOpenAttemptAt = 0
             sessionOpenRetryDelayNs = initialOpenRetryDelayNs
             lock.unlock()
@@ -4035,6 +4054,12 @@ public enum KompleteKontrolLibUSBServer {
         fileprivate func pushInputToClients(_ data: UnsafePointer<UInt8>, length: UInt32) {
             let timestamp = KKTiming.now()
             let bytes = (0..<Int(length)).map { data[$0] }
+            lock.lock()
+            if libusbSession?.deviceProfile.family == .maschineMK3,
+               bytes.first == MaschineMK3Protocol.surfaceReportID {
+                latestMaschineSurfaceInput = (timestamp, bytes)
+            }
+            lock.unlock()
             let hex = bytes.map(KKHex.byte).joined(separator: " ")
             let sequence = nextInputPushSequence()
             daemonDebugLog(
@@ -4100,7 +4125,12 @@ public enum KompleteKontrolLibUSBServer {
                     eventPayload = Array(message.utf8)
             }
             let fds = clientFDs.filter { !binaryControlClientIDs.contains($0.key) }.map(\.value)
-            let eventFDs = Array(eventClientFDs.values)
+            // An accepted event socket is not live until its register request has
+            // completed. Sending sooner can place a hardware event before the
+            // register ack, where the synchronous request reader must discard it.
+            let eventFDs = eventClientFDs.compactMap { clientID, fd in
+                registeredClients[clientID] == nil ? nil : fd
+            }
             lock.unlock()
             daemonTraceLog("push clients=\(fds.count) eventClients=\(eventFDs.count) message=\(message)", group: "client")
             let bytes = Array((message + "\n").utf8)

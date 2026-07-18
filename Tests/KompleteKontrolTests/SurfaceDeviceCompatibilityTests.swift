@@ -115,6 +115,27 @@ struct SurfaceDeviceCompatibilityTests {
         ])
     }
 
+    @Test("a daemon snapshot primes MK3 counters before the first live encoder step")
+    func inputSnapshotPriming() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        var snapshot = surfaceReport()
+        snapshot[11] = 14
+        setWord(734, at: 12, in: &snapshot)
+        setWord(500, at: 30, in: &snapshot)
+        adapter.prime(with: snapshot)
+
+        var firstLiveReport = snapshot
+        firstLiveReport[11] = 15
+        setWord(735, at: 12, in: &firstLiveReport)
+        setWord(0, at: 30, in: &firstLiveReport)
+
+        #expect(adapter.events(for: firstLiveReport, timestampNanos: 2_000_000) == [
+            .jogScroll(delta: 1, value: 15),
+            .knob(index: 1, delta: 1, value: 735),
+            .strip(position: nil, time: 2),
+        ])
+    }
+
     @Test("two MK3 ribbon contacts hand over without a false release")
     func ribbonHandover() {
         var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
@@ -150,6 +171,7 @@ struct SurfaceDeviceCompatibilityTests {
             lamps: [
                 .function1: KontrolSurfaceLampValue(color: white, intensity: 3),
                 .play: KontrolSurfaceLampValue(color: green, intensity: 3),
+                .record: KontrolSurfaceLampValue(color: white, intensity: 2),
                 .pageLeft: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .scene: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .variation: KontrolSurfaceLampValue(color: white, intensity: 1),
@@ -165,9 +187,10 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(buttons.payload.count == MaschineMK3Protocol.buttonLEDPayloadSize)
         #expect(buttons.payload[MaschineMK3ButtonLED.displayButton1.rawValue] == 7)
         #expect(buttons.payload[MaschineMK3ButtonLED.play.rawValue] == 7)
-        #expect(buttons.payload[MaschineMK3ButtonLED.arrowLeft.rawValue] == 7)
-        #expect(buttons.payload[MaschineMK3ButtonLED.scene.rawValue] == 7)
-        #expect(buttons.payload[MaschineMK3ButtonLED.variation.rawValue] == 7)
+        #expect(buttons.payload[MaschineMK3ButtonLED.record.rawValue] == 6)
+        #expect(buttons.payload[MaschineMK3ButtonLED.arrowLeft.rawValue] == 4)
+        #expect(buttons.payload[MaschineMK3ButtonLED.scene.rawValue] == 4)
+        #expect(buttons.payload[MaschineMK3ButtonLED.variation.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.mainEncoderRight.rawValue] == 0x1e)
         #expect(buttons.payload[MaschineMK3ButtonLED.tap.rawValue] == 0)
 
@@ -175,6 +198,38 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(stripAndPads.payload[0] == 0xff)
         #expect(stripAndPads.payload[24] == 0x05)
         #expect(stripAndPads.payload[25...40].allSatisfy { $0 == 0 })
+    }
+
+    @Test("MK3 monochrome and hybrid Sampling brightness curves stay distinct")
+    func maschineBrightnessCurves() {
+        let white = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
+        let red = KKRGB(red: 0xff, green: 0, blue: 0)
+
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 1), lamp: .browser
+        ) == 0x04)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 2), lamp: .browser
+        ) == 0x06)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 3), lamp: .browser
+        ) == 0x07)
+
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 1), lamp: .sampling
+        ) == 0xfc)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 2), lamp: .sampling
+        ) == 0xfe)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 3), lamp: .sampling
+        ) == 0xff)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: red, intensity: 1), lamp: .sampling
+        ) == 0x05)
+        #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ButtonByte(
+            for: KontrolSurfaceLampValue(color: white, intensity: 1), lamp: .groupA
+        ) == 0xfd)
     }
 
     @Test("keyboard lamp output remains byte-for-byte compatible")
@@ -213,6 +268,30 @@ struct SurfaceDeviceCompatibilityTests {
             lamps: [.function1: KontrolSurfaceLampValue(rawByte: 0xab)]
         ).first)
         #expect(mk2.payload[KKMK2ButtonLED.function1.rawValue] == 0xab)
+    }
+
+    @Test("MK3 diagnostic LED bytes override every physical colour class")
+    func diagnosticLEDOverrides() throws {
+        let reports = KontrolSurfaceDeviceCompatibility.lampReports(
+            for: .maschineMK3,
+            lamps: [
+                .function1: KontrolSurfaceLampValue(rawByte: 0x07),
+                .jogUp: KontrolSurfaceLampValue(rawByte: 0x11),
+            ],
+            diagnosticLEDBytes: [
+                .maschineMK3Button(.displayButton1): 0x21,
+                .maschineMK3Button(.groupA): 0x22,
+                .maschineMK3Button(.mainEncoderUp): 0x23,
+                .maschineMK3Pad(.pad1): 0x24,
+            ]
+        )
+        let buttons = try #require(reports.first { $0.reportID == MaschineMK3Protocol.buttonLEDReportID })
+        let pads = try #require(reports.first { $0.reportID == MaschineMK3Protocol.stripLEDReportID })
+
+        #expect(buttons.payload[MaschineMK3ButtonLED.displayButton1.rawValue] == 0x21)
+        #expect(buttons.payload[MaschineMK3ButtonLED.groupA.rawValue] == 0x22)
+        #expect(buttons.payload[MaschineMK3ButtonLED.mainEncoderUp.rawValue] == 0x23)
+        #expect(pads.payload[MaschineMK3PadLED.pad1.rawValue] == 0x24)
     }
 
     @Test("MK3-only VARIATION never writes past the MK2 LED map")

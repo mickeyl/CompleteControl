@@ -494,13 +494,17 @@ public actor MK2Surface2 {
         }
         let registration = KKDaemonBinaryCodec.registerPayload(pid: getpid(), name: ProcessInfo.processInfo.processName)
         guard control.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0,
-              client.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0,
+              let eventRegistration = client.request(type: .register, payload: registration, timeoutUsec: 750_000),
+              eventRegistration.status == 0,
               display.request(type: .register, payload: registration, timeoutUsec: 750_000)?.status == 0 else {
             handleDaemonFailure("binary register failed")
             return
         }
         recordDaemonCommunication()
         refreshDeviceIdentity()
+        if let snapshot = KKDaemonBinaryCodec.parseRegistrationInputSnapshot(eventRegistration.message) {
+            inputAdapter.prime(with: snapshot.bytes)
+        }
         guard configureHostControl() else {
             handleDaemonFailure("daemon host-control setup failed")
             return
@@ -688,7 +692,8 @@ public actor MK2Surface2 {
         }
         let reports = KontrolSurfaceDeviceCompatibility.lampReports(
             for: activeDeviceFamily,
-            lamps: resolved
+            lamps: resolved,
+            diagnosticLEDBytes: scene.diagnosticLEDBytes
         )
         for report in reports {
             guard lastLampReports[report.reportID] != report.payload else { continue }

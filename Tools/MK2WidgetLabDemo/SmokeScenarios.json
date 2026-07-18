@@ -21,10 +21,12 @@
     {
       "demo": "mk3-led-calibration",
       "actions": [
-        { "send": "encoder 1 64" },
+        { "send": "encoder 1 42" },
         { "send": "encoder 2 96" },
         { "send": "encodertouch 1 on" },
-        { "send": "encodertouch 1 off" }
+        { "send": "encodertouch 1 off" },
+        { "send": "encodertouch 2 on" },
+        { "send": "encodertouch 2 off" }
       ]
     },
     {

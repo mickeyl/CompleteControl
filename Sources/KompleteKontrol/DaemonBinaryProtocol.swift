@@ -303,6 +303,40 @@ public enum KKDaemonBinaryCodec {
         return (pid, name)
     }
 
+    /// Event-channel registration may carry the latest complete surface report.
+    /// The client installs it as decoder state before reading live events, so a
+    /// change-only device such as MASCHINE MK3 does not lose its first gesture.
+    public static func registrationAckMessage(
+        inputSnapshotTimestamp: UInt64,
+        bytes: [UInt8]
+    ) -> String {
+        let encoded = bytes.map(KKHex.byte).joined()
+        return "registered input-snapshot=\(String(inputSnapshotTimestamp, radix: 16)):\(encoded)"
+    }
+
+    public static func parseRegistrationInputSnapshot(
+        _ message: String
+    ) -> (timestamp: UInt64, bytes: [UInt8])? {
+        guard let field = message.split(separator: " ").first(where: { $0.hasPrefix("input-snapshot=") }) else {
+            return nil
+        }
+        let value = field.dropFirst("input-snapshot=".count)
+        guard let separator = value.firstIndex(of: ":"),
+              let timestamp = UInt64(value[..<separator], radix: 16) else { return nil }
+        let encoded = value[value.index(after: separator)...]
+        guard !encoded.isEmpty, encoded.count.isMultiple(of: 2) else { return nil }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(encoded.count / 2)
+        var index = encoded.startIndex
+        while index < encoded.endIndex {
+            let next = encoded.index(index, offsetBy: 2)
+            guard let byte = UInt8(encoded[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        return (timestamp, bytes)
+    }
+
     public static func ackPayload(status: Int32, message: String = "") -> [UInt8] {
         var payload: [UInt8] = []
         payload.appendUInt32LE(UInt32(bitPattern: status))

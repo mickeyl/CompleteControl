@@ -183,11 +183,20 @@ available to the native decoder but do not impersonate an existing Kit2 action.
 The 16 pads remain outside this compatibility adapter until the separate
 HID-to-MIDI velocity/pressure contract is implemented.
 
-The Widget Lab hardware pass on 2026-07-17 verified the shared input map,
-including first-event main-encoder delivery, and the visible `0x07`
-monochrome lamp state for the reserved SCENE return and the MK3 VARIATION
-sub-demo switcher. RGB palette translation and a dimmer monochrome curve remain
-source-derived pending a focused colour-calibration pass.
+The Widget Lab hardware passes on 2026-07-17 and 2026-07-18 verified the shared
+input map, including first-event main-encoder delivery, and calibrated both LED
+families. Monochrome backlights use a non-linear low-bit order: `0x05` is almost
+dark, `0x04` is a useful soft state, `0x06` is bright, and `0x07` is maximum.
+Kit2 therefore maps semantic intensities 1, 2, and 3 to `0x04`, `0x06`, and
+`0x07`; zero remains off.
+
+Group A-H, the four point LEDs in the 4-D encoder halo, and all 16 pads use the
+16-hue RGB palette with four linearly increasing brightness-bit values 0...3.
+Browser is monochrome. Sampling is a hardware hybrid: coloured palette entries
+use the linear RGB curve, while both tested white encodings use the non-linear
+monochrome order. This bench result resolves the older public-source conflict:
+openAV-Ctlra classified Sampling as RGB, while cabl and ktemkin classified it as
+monochrome.
 
 ### MK3 reports `0x80` and `0x81`: LED indices
 
@@ -211,8 +220,10 @@ These indices are represented by `MaschineMK3ButtonLED` and
 echo: a documented button edge switches its matching lamp on/off, pad pressure
 above the source-derived reference threshold of 128 switches the candidate pad
 slot on/off, and each reported touch position selects one of the 25 strip LEDs.
-Monochrome button slots use brightness `0x07`; Group A-H, the main-encoder
-direction lamps, pads, and strip use the white palette value `0x4e`. Main
+Monochrome button slots use maximum brightness `0x07`; Sampling, Group A-H, the
+four 4-D encoder halo dots, pads, and strip use maximum white `0xff`. The older
+`0x4e` value remains documented as an alternate white reference at RGB
+brightness level 2. Main
 encoder press and ambiguous input bits are not animated because no matching
 lamp is established for them.
 

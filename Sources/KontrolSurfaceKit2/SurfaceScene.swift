@@ -157,6 +157,16 @@ public struct MK2LightGuideColor: Equatable, Sendable {
     }
 }
 
+/// A physical LED target for protocol diagnostics.
+///
+/// This intentionally sits outside the semantic lamp vocabulary. Product
+/// scenes should use `lamps`; calibration tools may use these targets to verify
+/// native bytes for controls that have no honest MK2 equivalent yet.
+public enum KontrolSurfaceDiagnosticLED: Hashable, Sendable {
+    case maschineMK3Button(MaschineMK3ButtonLED)
+    case maschineMK3Pad(MaschineMK3PadLED)
+}
+
 public struct MK2SurfaceScene2: Sendable {
     /// Alternate surface state active while the hardware SHIFT button is held.
     ///
@@ -205,6 +215,9 @@ public struct MK2SurfaceScene2: Sendable {
     public var keyIntensities: [Int: UInt8]
     public var bindings: MK2InputBindings2
     public var shift: ShiftLayer?
+    /// Literal native LED bytes applied after semantic lamp lowering.
+    /// Intended only for hardware calibration and protocol diagnostics.
+    public var diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8]
     /// Prepared touch highlights of encoder-bound slots, keyed by encoder;
     /// the runtime blits them locally while the touch selection is active.
     /// Suppressed while the shift layer is held — its slots show other values.
@@ -218,6 +231,7 @@ public struct MK2SurfaceScene2: Sendable {
         keyIntensities: [Int: UInt8] = [:],
         bindings: MK2InputBindings2 = MK2InputBindings2(),
         shift: ShiftLayer? = nil,
+        diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8] = [:],
         encoderTouchOverlays: [Int: MK2EncoderTouchOverlay] = [:]
     ) {
         displays = [left, right]
@@ -226,6 +240,7 @@ public struct MK2SurfaceScene2: Sendable {
         self.keyIntensities = keyIntensities.mapValues { min(3, $0) }
         self.bindings = bindings
         self.shift = shift
+        self.diagnosticLEDBytes = diagnosticLEDBytes
         self.encoderTouchOverlays = encoderTouchOverlays
     }
 }

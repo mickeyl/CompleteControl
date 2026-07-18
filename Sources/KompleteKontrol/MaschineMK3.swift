@@ -15,10 +15,18 @@ public enum MaschineMK3Protocol {
     public static let stripLEDPayloadSize = 41
     public static let stripLEDCount = 25
 
-    /// Source-documented values used by the NO CLIENT hardware echo. The MK3
-    /// uses separate encodings for monochrome brightness and colour LEDs.
+    /// Hardware-calibrated monochrome values. The low two bits are deliberately
+    /// non-linear: `0x05` is almost dark, `0x04` is a useful soft state,
+    /// `0x06` is bright, and `0x07` is maximum. Kit2 uses the three useful
+    /// levels and retains `0x05` as a documented diagnostic reference.
+    public static let monochromeDimLEDValue: UInt8 = 0x04
+    public static let monochromeSubtleDimLEDValue: UInt8 = 0x05
+    public static let monochromeBrightLEDValue: UInt8 = 0x06
     public static let monochromePressedLEDValue: UInt8 = 0x07
-    public static let whiteColorLEDValue: UInt8 = 0x4e
+    /// Maximum white in the source-derived 16-hue palette. `0x4e` is another
+    /// hardware-verified white reference at brightness level 2.
+    public static let whiteColorLEDValue: UInt8 = 0xff
+    public static let alternateWhiteColorLEDValue: UInt8 = 0x4e
     public static let padPressedReferenceThreshold = 128
 
     public static let displayWidth = 480
@@ -109,7 +117,7 @@ public enum MaschineMK3Button: String, CaseIterable, Sendable {
 }
 
 /// Byte indices inside the 62-byte payload of output report `0x80`.
-public enum MaschineMK3ButtonLED: Int, CaseIterable, Sendable {
+public enum MaschineMK3ButtonLED: Int, CaseIterable, Hashable, Sendable {
     case channel = 0, plugin, arranger, mixer, browser, sampling, arrowLeft, arrowRight
     case file = 8, settings, auto, macro
     case displayButton1 = 12, displayButton2, displayButton3, displayButton4
@@ -121,17 +129,21 @@ public enum MaschineMK3ButtonLED: Int, CaseIterable, Sendable {
     case duplicate = 54, select, solo, mute
     case mainEncoderUp = 58, mainEncoderLeft, mainEncoderRight, mainEncoderDown
 
-    /// ktemkin's raw protocol notes distinguish these RGB-style palette slots
-    /// from the otherwise monochrome brightness slots in report `0x80`.
+    /// Hardware calibration distinguishes these RGB-style palette slots from
+    /// the otherwise monochrome brightness slots in report `0x80`. Sampling is
+    /// hybrid: colours use the RGB curve, while white uses the monochrome curve.
     public var usesColorEncoding: Bool {
         switch self {
-            case .groupA, .groupB, .groupC, .groupD, .groupE, .groupF, .groupG, .groupH,
+            case .sampling,
+                 .groupA, .groupB, .groupC, .groupD, .groupE, .groupF, .groupG, .groupH,
                  .mainEncoderUp, .mainEncoderLeft, .mainEncoderRight, .mainEncoderDown:
                 true
             default:
                 false
         }
     }
+
+    public var usesMonochromeWhiteCurve: Bool { self == .sampling }
 
     public var pressedEchoValue: UInt8 {
         usesColorEncoding
@@ -141,7 +153,7 @@ public enum MaschineMK3ButtonLED: Int, CaseIterable, Sendable {
 }
 
 /// Byte indices inside the 41-byte payload of output report `0x81`.
-public enum MaschineMK3PadLED: Int, CaseIterable, Sendable {
+public enum MaschineMK3PadLED: Int, CaseIterable, Hashable, Sendable {
     case pad13 = 25, pad14, pad15, pad16
     case pad9 = 29, pad10, pad11, pad12
     case pad5 = 33, pad6, pad7, pad8
