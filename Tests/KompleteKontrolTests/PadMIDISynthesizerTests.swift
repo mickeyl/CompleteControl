@@ -32,11 +32,74 @@ struct PadMIDISynthesizerTests {
 
     @Test("touch-only pad never creates a MIDI note")
     func touchOnly() {
-        var synthesizer = KontrolPadMIDISynthesizer()
+        var synthesizer = KontrolPadMIDISynthesizer(mapping: KontrolPadMIDIMapping(
+            calibration: KontrolPadVelocityCalibration(strikeFloor: 100)
+        ))
 
         #expect(synthesizer.receive(event(.touch, pressure: 40, timestamp: 1)).isEmpty)
         #expect(synthesizer.receive(event(.pressure, pressure: 300, timestamp: 2)).isEmpty)
         #expect(synthesizer.receive(event(.up, timestamp: 3)).isEmpty)
+    }
+
+    @Test("accepted soft contact has the same MIDI lifecycle as a native strike")
+    func softHitLifecycle() {
+        let mapping = KontrolPadMIDIMapping(
+            calibration: KontrolPadVelocityCalibration(
+                strikeFloor: 8,
+                strikeCeiling: 1_008,
+                pressureFloor: 0,
+                pressureCeiling: 1_000
+            )
+        )
+        var synthesizer = KontrolPadMIDISynthesizer(mapping: mapping)
+
+        #expect(synthesizer.receive(event(.touch, pressure: 108, timestamp: 1)) == [
+            KKMIDIEvent(kind: .noteOn, channel: 0, note: 36, velocity: 13, receptionTimestamp: 1),
+        ])
+        #expect(synthesizer.receive(event(.pressure, pressure: 500, timestamp: 2)) == [
+            KKMIDIEvent(polyphonicPressure: 64, note: 36, channel: 0, receptionTimestamp: 2),
+        ])
+        #expect(synthesizer.receive(event(.up, timestamp: 3)) == [
+            KKMIDIEvent(kind: .noteOff, channel: 0, note: 36, velocity: 0, receptionTimestamp: 3),
+        ])
+    }
+
+    @Test("pressure-only contact becomes one soft MIDI note")
+    func pressureOnlyHitLifecycle() {
+        var synthesizer = KontrolPadMIDISynthesizer(mapping: KontrolPadMIDIMapping(
+            calibration: KontrolPadVelocityCalibration(
+                strikeFloor: 8,
+                strikeCeiling: 1_008
+            )
+        ))
+
+        #expect(synthesizer.receive(event(.down, pressure: 108, timestamp: 1)) == [
+            KKMIDIEvent(kind: .noteOn, channel: 0, note: 36, velocity: 13, receptionTimestamp: 1),
+        ])
+        #expect(synthesizer.receive(event(.down, strike: 200, timestamp: 2)).isEmpty)
+        #expect(synthesizer.receive(event(.up, timestamp: 3)) == [
+            KKMIDIEvent(kind: .noteOff, channel: 0, note: 36, velocity: 0, receptionTimestamp: 3),
+        ])
+    }
+
+    @Test("native strike after a soft trigger does not retrigger the held note")
+    func noDuplicateTrigger() {
+        var synthesizer = KontrolPadMIDISynthesizer()
+
+        #expect(synthesizer.receive(event(.touch, pressure: 20, timestamp: 1)).count == 1)
+        #expect(synthesizer.receive(event(.down, strike: 200, timestamp: 2)).isEmpty)
+        #expect(synthesizer.receive(event(.up, timestamp: 3)).count == 1)
+    }
+
+    @Test("fixed velocity applies to an accepted soft contact")
+    func fixedSoftHitVelocity() {
+        var synthesizer = KontrolPadMIDISynthesizer(mapping: KontrolPadMIDIMapping(
+            fixedVelocity: 96
+        ))
+
+        #expect(synthesizer.receive(event(.touch, pressure: 8, timestamp: 1)) == [
+            KKMIDIEvent(kind: .noteOn, channel: 0, note: 36, velocity: 96, receptionTimestamp: 1),
+        ])
     }
 
     @Test("multiple physical pads form independent chromatic notes")

@@ -2,16 +2,17 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
-/// Live MK3 pad laboratory. The HID endpoint supplies a native 12-bit strike
-/// value followed by a 12-bit pressure stream; this demo calibrates their two
-/// linear MIDI mappings independently.
+/// Live MK3 pad laboratory. The HID endpoint supplies a touch-only, native
+/// 12-bit hit, or pressure-only contact followed by a 12-bit pressure stream.
+/// This demo captures five increasing-force samples per pad and calibrates the
+/// two MIDI mappings independently.
 final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
     let descriptor = DemoDescriptor(
         id: "mk3-pad-calibration",
         title: "MASCHINE MK3 Pad Calibration",
         category: .calibration,
-        summary: "Native strike velocity and poly-pressure curves",
-        detail: "Strike and hold the 16 MK3 pads. The left display mirrors raw 12-bit pressure in the physical 4x4 layout. The right display distinguishes below-threshold touch from the separate 12-bit strike and pressure signals. E5-E8 tune the linear velocity and pressure floors and ceilings.",
+        summary: "Soft-hit threshold, velocity, and poly-pressure curves",
+        detail: "Hit every pad five times from very soft to hard. The left display tracks sample progress in the physical 4x4 layout. The right display distinguishes recovered touch/pressure hits from native strikes and shows the independent pressure signal. E5 sets the soft-hit threshold; E6-E8 tune velocity ceiling and pressure.",
         snapshotVariants: ["strike"]
     )
 
@@ -28,13 +29,21 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
         [1, 2, 3, 4],
     ]
 
-    private var strikeFloor = 128
-    private var strikeCeiling = 3072
+    private struct HitSample: Sendable {
+        var rawVelocity: Int
+        var source: KontrolPadHitSource
+    }
+
+    private var strikeFloor = 8
+    private var strikeCeiling = 768
     private var pressureFloor = 64
     private var pressureCeiling = 3072
     private var analyzer = KontrolPadStrikeAnalyzer()
+    private var hitSamples = [[HitSample]](repeating: [], count: 16)
+    private var sampledContacts = [Bool](repeating: false, count: 16)
+    private var midiHeldPads = [Bool](repeating: false, count: 16)
     private var selectedPadIndex = 0
-    private var strikeCount = 0
+    private var midiHitCount = 0
     private var focusedEncoder: Int?
     private var refreshTask: Task<Void, Never>?
 
@@ -66,13 +75,16 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
     func prepareSnapshot(variant: String) {
         refreshTask?.cancel()
         refreshTask = nil
-        strikeFloor = 128
-        strikeCeiling = 3072
+        strikeFloor = 8
+        strikeCeiling = 768
         pressureFloor = 64
         pressureCeiling = 3072
         analyzer = KontrolPadStrikeAnalyzer(calibration: calibration)
+        hitSamples = [[HitSample]](repeating: [], count: 16)
+        sampledContacts = [Bool](repeating: false, count: 16)
+        midiHeldPads = [Bool](repeating: false, count: 16)
         selectedPadIndex = 0
-        strikeCount = 0
+        midiHitCount = 0
         focusedEncoder = nil
         guard variant == "strike" else { return }
 
@@ -108,7 +120,7 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
 
     func testState() -> String? {
         let analysis = selectedAnalysis
-        return "pad=\(selectedPadIndex + 1) strikes=\(strikeCount) pressure=\(analysis?.currentPressure ?? 0) velocity=\(analysis?.velocityValue ?? 0)"
+        return "pad=\(selectedPadIndex + 1) hits=\(midiHitCount) samples=\(hitSamples[selectedPadIndex].count)/5 pressure=\(analysis?.currentPressure ?? 0) velocity=\(analysis?.velocityValue ?? 0)"
     }
 
     // MARK: - Input and calibration
@@ -116,8 +128,60 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
     private func receive(_ event: KontrolSurfacePadEvent) {
         analyzer.calibration = calibration
         selectedPadIndex = event.index
-        if event.phase == .down { strikeCount += 1 }
-        _ = analyzer.receive(event)
+        guard hitSamples.indices.contains(event.index) else { return }
+
+        let hit: HitSample?
+        switch event.phase {
+            case .touch:
+                hit = HitSample(rawVelocity: event.pressure, source: .softTouch)
+            case .down:
+                if let strikeVelocity = event.strikeVelocity {
+                    hit = HitSample(rawVelocity: strikeVelocity, source: .nativeStrike)
+                } else if event.pressure > 0 {
+                    hit = HitSample(rawVelocity: event.pressure, source: .pressureFallback)
+                } else {
+                    hit = nil
+                }
+            case .pressure, .up:
+                hit = nil
+        }
+
+        if let hit, !sampledContacts[event.index] {
+            sampledContacts[event.index] = true
+            if hitSamples[event.index].count < 5 {
+                hitSamples[event.index].append(hit)
+            }
+        }
+
+        let triggersMIDI: Bool
+        switch hit?.source {
+            case .softTouch, .pressureFallback:
+                triggersMIDI = hit.map { calibration.acceptsSoftHit($0.rawVelocity) } ?? false
+            case .nativeStrike:
+                triggersMIDI = hit != nil
+            case nil:
+                triggersMIDI = false
+        }
+        if triggersMIDI, !midiHeldPads[event.index] {
+            midiHeldPads[event.index] = true
+            midiHitCount += 1
+        }
+        if event.phase == .up {
+            sampledContacts[event.index] = false
+            midiHeldPads[event.index] = false
+        }
+
+        let analysis = analyzer.receive(event)
+        if let hit {
+            let source = switch hit.source {
+                case .softTouch: "touch"
+                case .pressureFallback: "pressure"
+                case .nativeStrike: "native"
+            }
+            let result = triggersMIDI ? "note" : "ignored"
+            let midi = analysis?.velocityValue.map(String.init) ?? "-"
+            labDiagnostic("pad-cal P\(String(format: "%02d", event.index + 1)) sample=\(hitSamples[event.index].count)/5 source=\(source) raw=\(hit.rawVelocity) midi=\(midi) result=\(result)")
+        }
     }
 
     private func requestRefresh(_ context: LabContext) {
@@ -133,8 +197,11 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
         refreshTask?.cancel()
         refreshTask = nil
         analyzer = KontrolPadStrikeAnalyzer(calibration: calibration)
+        hitSamples = [[HitSample]](repeating: [], count: 16)
+        sampledContacts = [Bool](repeating: false, count: 16)
+        midiHeldPads = [Bool](repeating: false, count: 16)
         selectedPadIndex = 0
-        strikeCount = 0
+        midiHitCount = 0
     }
 
     private func feedFixture(
@@ -180,12 +247,12 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
     }
 
     private func setStrikeFloor(_ value: Int) {
-        strikeFloor = max(0, min(1024, value))
+        strikeFloor = max(1, min(140, value))
         analyzer.calibration = calibration
     }
 
     private func setStrikeCeiling(_ value: Int) {
-        strikeCeiling = max(1536, min(4095, value))
+        strikeCeiling = max(256, min(4095, value))
         analyzer.calibration = calibration
     }
 
@@ -222,11 +289,12 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
 
     private func padMatrixScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         let analyses = analyzer.analyses
+        let samples = hitSamples
         let selected = selectedPadIndex
-        let strikes = strikeCount
+        let sampleCount = samples.reduce(0) { $0 + $1.count }
         return MK2RegularScreenDSL(
-            header: .title(title: "MK3 Pad Calibration", subtitle: "12-bit pressure"),
-            footer: .hint("Strike, hold, and release any pad")
+            header: .title(title: "MK3 Pad Calibration", subtitle: "5 hits per pad: soft to hard"),
+            footer: .hint("Clear, then play Pads 1-16 at five increasing levels")
         ) {
             MK2AnyScreenElement { frame, elementContext, _ in
                 guard let content = elementContext.layout?.contentRect else { return }
@@ -234,8 +302,8 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                 let top = content.y + 5
                 BitmapLabel("PHYSICAL PAD MATRIX", font: .gridBold, color: Palette.text)
                     .draw(into: &frame, x: left, y: top, clip: content)
-                BitmapLabel("STRIKES \(strikes)", font: .grid, color: Palette.dim)
-                    .draw(into: &frame, x: left + 328, y: top, clip: content)
+                BitmapLabel("SAMPLES \(sampleCount)/80", font: .grid, color: Palette.dim)
+                    .draw(into: &frame, x: left + 318, y: top, clip: content)
 
                 let cellWidth = 106
                 let cellHeight = 37
@@ -247,6 +315,7 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                         let index = padNumber - 1
                         let analysis = analyses[index]
                         let pressure = analysis?.currentPressure ?? 0
+                        let lastHit = samples[index].last?.rawVelocity ?? 0
                         let isHeld = analysis?.isHeld == true
                         let rect = MK2PixelRect(
                             x: left + column * (cellWidth + gapX),
@@ -258,11 +327,12 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                         frame.stroke(rect, index == selected ? Palette.accent : Palette.border, width: index == selected ? 2 : 1)
                         BitmapLabel(String(format: "P%02d", padNumber), font: .gridBold, color: index == selected ? Palette.text : Palette.accent)
                             .draw(into: &frame, x: rect.x + 6, y: rect.y + 4, clip: rect)
-                        BitmapLabel(String(format: "%4d", pressure), font: .grid, color: isHeld ? Palette.text : Palette.dim)
-                            .draw(into: &frame, x: rect.x + 54, y: rect.y + 4, clip: rect)
+                        BitmapLabel("\(samples[index].count)/5", font: .grid, color: isHeld ? Palette.text : Palette.dim)
+                            .draw(into: &frame, x: rect.x + 72, y: rect.y + 4, clip: rect)
                         let track = MK2PixelRect(x: rect.x + 6, y: rect.y + 27, width: rect.width - 12, height: 5)
                         frame.fill(track, Palette.track)
-                        let fillWidth = pressure * track.width / MaschineMK3Protocol.padMaximumPressure
+                        let meterValue = pressure > 0 ? pressure : lastHit
+                        let fillWidth = meterValue * track.width / MaschineMK3Protocol.padMaximumPressure
                         if fillWidth > 0 {
                             frame.fill(MK2PixelRect(x: track.x, y: track.y, width: fillWidth, height: track.height), Palette.green)
                         }
@@ -274,16 +344,25 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
 
     private func analysisScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         let analysis = selectedAnalysis
-        let rawStrike = analysis?.rawStrikeVelocity
+        let rawHit = analysis?.rawHitVelocity
         let rawPressure = analysis?.currentPressure ?? 0
         let velocityValue = analysis?.velocityValue
         let pressureValue = analysis?.pressureValue ?? 0
         let state = analysis.map {
             if !$0.isHeld { return "RELEASED" }
-            return $0.rawStrikeVelocity == nil ? "TOUCH" : "HELD"
+            switch $0.hitSource {
+                case .softTouch: return $0.triggersMIDI ? "SOFT HIT" : "TOUCH IGNORED"
+                case .pressureFallback: return $0.triggersMIDI ? "PRESSURE HIT" : "PRESSURE IGNORED"
+                case .nativeStrike: return "NATIVE HIT"
+                case nil: return "HELD"
+            }
         } ?? "WAITING"
-        let velocityRange = "\(strikeFloor) -> \(strikeCeiling)"
+        let velocityRange = ">=\(strikeFloor) / \(strikeFloor) -> \(strikeCeiling)"
         let pressureRange = "\(pressureFloor) -> \(pressureCeiling)"
+        let sampleText = hitSamples[selectedPadIndex]
+            .map { String(format: "%d", $0.rawVelocity) }
+            .joined(separator: "  ")
+        let selectedSampleCount = hitSamples[selectedPadIndex].count
         let values = encoderValues(context)
         return MK2RegularScreenDSL(
             header: .title(title: "Pad \(selectedPadIndex + 1) Dynamics", subtitle: state),
@@ -293,16 +372,16 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                 guard let content = elementContext.layout?.contentRect else { return }
                 let left = content.x + 8
                 let top = content.y + 5
-                BitmapLabel("STRIKE VELOCITY", font: .gridBold, color: Palette.text)
+                BitmapLabel("HIT VELOCITY", font: .gridBold, color: Palette.text)
                     .draw(into: &frame, x: left, y: top, clip: content)
-                BitmapLabel(rawStrike.map { String(format: "%4d / 4095", $0) } ?? "---- / 4095", font: .gridBold, color: Palette.accent)
+                BitmapLabel(rawHit.map { String(format: "%4d / 4095", $0) } ?? "---- / 4095", font: .gridBold, color: Palette.accent)
                     .draw(into: &frame, x: left + 160, y: top, clip: content)
-                BitmapLabel(velocityValue.map { String(format: "MIDI %3d", $0) } ?? "MIDI ---", font: .readoutBold, color: Palette.accent)
+                BitmapLabel(velocityValue.map { String(format: "MIDI %3d", $0) } ?? "NO NOTE", font: .readoutBold, color: Palette.accent)
                     .draw(into: &frame, x: left + 344, y: top, clip: content)
 
                 let strikeTrack = MK2PixelRect(x: left, y: top + 24, width: 448, height: 10)
                 frame.fill(strikeTrack, Palette.track)
-                let strikeWidth = (rawStrike ?? 0) * strikeTrack.width / MaschineMK3Protocol.padMaximumStrikeVelocity
+                let strikeWidth = (rawHit ?? 0) * strikeTrack.width / MaschineMK3Protocol.padMaximumStrikeVelocity
                 if strikeWidth > 0 {
                     frame.fill(MK2PixelRect(x: strikeTrack.x, y: strikeTrack.y, width: strikeWidth, height: strikeTrack.height), Palette.accent)
                 }
@@ -321,7 +400,7 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                     frame.fill(MK2PixelRect(x: pressureTrack.x, y: pressureTrack.y, width: pressureWidth, height: pressureTrack.height), Palette.green)
                 }
 
-                BitmapLabel("VELOCITY CURVE", font: .gridBold, color: Palette.accent)
+                BitmapLabel("TRIGGER / VELOCITY", font: .gridBold, color: Palette.accent)
                     .draw(into: &frame, x: left, y: top + 106, clip: content)
                 BitmapLabel(velocityRange, font: .grid, color: Palette.dim)
                     .draw(into: &frame, x: left + 160, y: top + 106, clip: content)
@@ -329,7 +408,7 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
                     .draw(into: &frame, x: left, y: top + 130, clip: content)
                 BitmapLabel(pressureRange, font: .grid, color: Palette.dim)
                     .draw(into: &frame, x: left + 160, y: top + 130, clip: content)
-                BitmapLabel("NATIVE 12-BIT HIT + 12-BIT PRESSURE", font: .grid, color: Palette.dim)
+                BitmapLabel("SAMPLES \(selectedSampleCount)/5  \(sampleText)", font: .grid, color: Palette.dim)
                     .draw(into: &frame, x: left, y: top + 150, clip: content)
             }
             MK2EncoderDiscreteValuesElement(values)
@@ -341,10 +420,10 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
             calibrationValue(
                 encoder: 5,
                 value: strikeFloor,
-                bounds: 0...1024,
-                step: 32,
-                defaultValue: 128,
-                label: "V FLOOR",
+                bounds: 1...140,
+                step: 1,
+                defaultValue: 8,
+                label: "TRIGGER",
                 icon: MK2HIG.IconGlyph.arrowLineRight,
                 displayValue: "\(strikeFloor)",
                 context: context,
@@ -353,9 +432,9 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
             calibrationValue(
                 encoder: 6,
                 value: strikeCeiling,
-                bounds: 1536...4095,
+                bounds: 256...4095,
                 step: 64,
-                defaultValue: 3072,
+                defaultValue: 768,
                 label: "V CEILING",
                 icon: MK2HIG.IconGlyph.arrowLineLeft,
                 displayValue: "\(strikeCeiling)",

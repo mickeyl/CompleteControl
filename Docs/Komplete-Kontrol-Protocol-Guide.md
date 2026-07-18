@@ -78,8 +78,17 @@ the contact/strike magnitude. Zero or more `0x4xxx` words carry independent
 12-bit pressure while held. CompleteControl therefore exposes touch-only,
 strike velocity (`0...4095`), pressure (`0...4095`), and release separately.
 This also explains why simply discarding every non-`0x4xxx` slot loses the
-hardware's lowest-latency onset signal, while treating `0x0xxx` as a note strike
-creates impossible velocity-zero notes from light touches.
+hardware's lowest-latency onset signal. A 2026-07-18 playing trace placed the
+device's touch/strike boundary sharply between raw values 139 and 142. Kit2 can
+therefore recover deliberate soft hits from `0x0xxx` without deriving onset
+velocity from the independent held-pressure stream.
+
+The five-level Pad 1...16 calibration pass also exposed a third onset shape:
+an extremely light contact can begin directly with a non-zero `0x4xxx` pressure
+word and end at zero, without any `0x0xxx` or `0x1xxx` word. Reports that also
+contain an explicit touch/strike for the same pad prefer that explicit onset, so
+one physical hit cannot be triggered twice. A genuine pressure-only contact uses
+its first pressure value as the best available soft-hit velocity fallback.
 
 A controlled physical Pad 1...16 pass verified the input matrix on bcdDevice
 `0x0146`: hardware indices 12-15 are Pads 1-4, 8-11 are Pads 5-8, 4-7 are Pads
@@ -191,13 +200,16 @@ timed native touch, strike, pressure, and release stream as
 `KontrolSurfacePadEvent` for calibration and diagnostics. In parallel,
 `KontrolPadMIDISynthesizer` translates triggered pads into the ordinary Kit2
 MIDI route used by MK2 USB-MIDI: physical Pads 1-16 map to notes 36-51 on MIDI
-channel 1, a strike emits Note On, held pressure emits MIDI polyphonic key
-pressure, and release emits Note Off with velocity zero. Every received strike
-maps to velocity `1...127`, since a MIDI Note On with velocity zero means Note
-Off; pressure retains its full `0...127` range. Touches that never cross the
-hardware strike threshold produce no MIDI note. The mapping, independent linear
-calibration ranges, optional fixed velocity, and pressure emission policy are
-configurable through `MK2Surface2.Options.padMIDIMapping`.
+channel 1, a native strike or accepted soft contact emits Note On, held pressure
+emits MIDI polyphonic key pressure, and release emits Note Off with velocity
+zero. Every accepted hit maps to velocity `1...127`, since a MIDI Note On with
+velocity zero means Note Off; pressure retains its full `0...127` range. The
+default light-playing profile accepts touch and pressure-only onset values from
+8 and saturates velocity at raw value 768. Raising `strikeFloor` rejects more
+recovered soft contacts; native strikes remain valid regardless of that host
+threshold. The mapping, independent linear calibration ranges, optional fixed
+velocity, and pressure emission policy are configurable through
+`MK2Surface2.Options.padMIDIMapping`.
 
 The daemon does not synthesize those notes and still does not claim the MK3's
 USB-MIDI interface 3. It forwards timestamped native pad reports; Kit2 performs

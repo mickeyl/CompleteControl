@@ -30,8 +30,9 @@ public struct KontrolPadMIDIMapping: Equatable, Sendable {
 }
 
 /// Bounded state machine that makes MK3 pad input look like ordinary MIDI to
-/// every Kit2 scene. Touches below the strike threshold remain diagnostic-only;
-/// a triggered pad produces Note On, note-addressed pressure, and Note Off.
+/// every Kit2 scene. Deliberate touch-only contacts above the calibrated floor
+/// become soft hits; a triggered pad produces Note On, note-addressed pressure,
+/// and Note Off.
 public struct KontrolPadMIDISynthesizer: Sendable {
     private struct HeldPad: Sendable {
         var note: UInt8
@@ -58,31 +59,32 @@ public struct KontrolPadMIDISynthesizer: Sendable {
 
         switch event.phase {
             case .touch:
-                return []
+                guard mapping.calibration.acceptsSoftHit(event.pressure),
+                      heldPads[event.index] == nil else { return [] }
+                return beginNote(
+                    padIndex: event.index,
+                    note: note,
+                    channel: channel,
+                    rawVelocity: event.pressure,
+                    timestampNanos: event.timestampNanos
+                )
 
             case .down:
-                guard let rawVelocity = event.strikeVelocity else { return [] }
-                let velocity = mapping.fixedVelocity.map { max(1, min(127, $0)) }
-                    ?? mapping.calibration.velocityValue(for: rawVelocity)
-                var result: [KKMIDIEvent] = []
-                if let previous = heldPads[event.index] {
-                    result.append(KKMIDIEvent(
-                        kind: .noteOff,
-                        channel: previous.channel,
-                        note: previous.note,
-                        velocity: 0,
-                        receptionTimestamp: event.timestampNanos
-                    ))
+                guard heldPads[event.index] == nil else { return [] }
+                let rawVelocity: Int
+                if let strikeVelocity = event.strikeVelocity {
+                    rawVelocity = strikeVelocity
+                } else {
+                    guard mapping.calibration.acceptsSoftHit(event.pressure) else { return [] }
+                    rawVelocity = event.pressure
                 }
-                heldPads[event.index] = HeldPad(note: note, channel: channel, lastPressure: 0)
-                result.append(KKMIDIEvent(
-                    kind: .noteOn,
-                    channel: channel,
+                return beginNote(
+                    padIndex: event.index,
                     note: note,
-                    velocity: velocity,
-                    receptionTimestamp: event.timestampNanos
-                ))
-                return result
+                    channel: channel,
+                    rawVelocity: rawVelocity,
+                    timestampNanos: event.timestampNanos
+                )
 
             case .pressure:
                 guard mapping.sendsPolyphonicPressure,
@@ -108,5 +110,24 @@ public struct KontrolPadMIDISynthesizer: Sendable {
                     receptionTimestamp: event.timestampNanos
                 )]
         }
+    }
+
+    private mutating func beginNote(
+        padIndex: Int,
+        note: UInt8,
+        channel: UInt8,
+        rawVelocity: Int,
+        timestampNanos: UInt64
+    ) -> [KKMIDIEvent] {
+        let velocity = mapping.fixedVelocity.map { max(1, min(127, $0)) }
+            ?? mapping.calibration.velocityValue(for: rawVelocity)
+        heldPads[padIndex] = HeldPad(note: note, channel: channel, lastPressure: 0)
+        return [KKMIDIEvent(
+            kind: .noteOn,
+            channel: channel,
+            note: note,
+            velocity: velocity,
+            receptionTimestamp: timestampNanos
+        )]
     }
 }

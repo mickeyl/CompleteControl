@@ -1,8 +1,8 @@
 import Foundation
 
-/// Independent linear mappings for the MK3's native strike-velocity and
-/// held-pressure values. Moving either floor/ceiling pair changes sensitivity
-/// without conflating the two hardware signals.
+/// Independent linear mappings for the MK3's contact/strike velocity and
+/// held-pressure values. The strike floor also acts as the host-side trigger
+/// threshold for contacts the hardware reports as touch-only.
 public struct KontrolPadVelocityCalibration: Equatable, Sendable {
     public var strikeFloor: Int
     public var strikeCeiling: Int
@@ -10,8 +10,8 @@ public struct KontrolPadVelocityCalibration: Equatable, Sendable {
     public var pressureCeiling: Int
 
     public init(
-        strikeFloor: Int = 128,
-        strikeCeiling: Int = 3072,
+        strikeFloor: Int = 8,
+        strikeCeiling: Int = 768,
         pressureFloor: Int = 64,
         pressureCeiling: Int = 3072
     ) {
@@ -22,14 +22,21 @@ public struct KontrolPadVelocityCalibration: Equatable, Sendable {
     }
 
     public func velocityValue(for rawStrikeVelocity: Int) -> UInt8 {
-        // MIDI Note On velocity zero is defined as Note Off. A real hardware
-        // strike therefore always occupies the playable 1...127 range, even
-        // when its raw value lies at or below the calibrated floor.
+        // MIDI Note On velocity zero is defined as Note Off. An accepted hit
+        // therefore always occupies the playable 1...127 range, even when its
+        // raw value lies at or below the calibrated floor.
         max(1, Self.midiValue(
             rawStrikeVelocity,
             lowerBound: strikeFloor,
             upperBound: strikeCeiling
         ))
+    }
+
+    /// The MK3 distinguishes a native strike from a slower touch at roughly
+    /// raw value 140. A lower host threshold recovers deliberate ghost notes
+    /// without deriving attack velocity from the independent pressure stream.
+    public func acceptsSoftHit(_ rawTouchVelocity: Int) -> Bool {
+        rawTouchVelocity > 0 && rawTouchVelocity >= strikeFloor
     }
 
     public func pressureValue(for rawPressure: Int) -> UInt8 {
@@ -53,10 +60,21 @@ public struct KontrolPadVelocityCalibration: Equatable, Sendable {
     }
 }
 
+public enum KontrolPadHitSource: Equatable, Sendable {
+    case softTouch
+    case pressureFallback
+    case nativeStrike
+}
+
 public struct KontrolPadStrikeAnalysis: Equatable, Sendable {
     public var padIndex: Int
     public var isHeld: Bool
     public var strikeCount: Int
+    /// Contact speed for both touch-only contacts and native strikes.
+    public var rawHitVelocity: Int?
+    public var hitSource: KontrolPadHitSource?
+    public var triggersMIDI: Bool
+    /// Native strike value only, retained separately for protocol diagnostics.
     public var rawStrikeVelocity: Int?
     public var currentPressure: Int
     public var velocityValue: UInt8?
@@ -69,6 +87,8 @@ public struct KontrolPadStrikeAnalyzer: Sendable {
     private struct PadState: Sendable {
         var isHeld = false
         var strikeCount = 0
+        var rawHitVelocity: Int?
+        var hitSource: KontrolPadHitSource?
         var rawStrikeVelocity: Int?
         var currentPressure = 0
     }
@@ -101,12 +121,22 @@ public struct KontrolPadStrikeAnalyzer: Sendable {
         switch event.phase {
             case .touch:
                 state.isHeld = true
+                state.rawHitVelocity = event.pressure
+                state.hitSource = .softTouch
                 state.rawStrikeVelocity = nil
                 state.currentPressure = event.pressure
             case .down:
                 state.isHeld = true
                 state.strikeCount += 1
-                state.rawStrikeVelocity = event.strikeVelocity
+                if let strikeVelocity = event.strikeVelocity {
+                    state.rawHitVelocity = strikeVelocity
+                    state.hitSource = .nativeStrike
+                    state.rawStrikeVelocity = strikeVelocity
+                } else if event.pressure > 0 {
+                    state.rawHitVelocity = event.pressure
+                    state.hitSource = .pressureFallback
+                    state.rawStrikeVelocity = nil
+                }
                 state.currentPressure = event.pressure
             case .pressure:
                 state.isHeld = true
@@ -129,13 +159,27 @@ public struct KontrolPadStrikeAnalyzer: Sendable {
         _ state: PadState,
         padIndex: Int
     ) -> KontrolPadStrikeAnalysis {
+        let triggersMIDI: Bool
+        switch state.hitSource {
+            case .softTouch, .pressureFallback:
+                triggersMIDI = state.rawHitVelocity.map(calibration.acceptsSoftHit) ?? false
+            case .nativeStrike:
+                triggersMIDI = state.rawHitVelocity != nil
+            case nil:
+                triggersMIDI = false
+        }
         let analysis = KontrolPadStrikeAnalysis(
             padIndex: padIndex,
             isHeld: state.isHeld,
             strikeCount: state.strikeCount,
+            rawHitVelocity: state.rawHitVelocity,
+            hitSource: state.hitSource,
+            triggersMIDI: triggersMIDI,
             rawStrikeVelocity: state.rawStrikeVelocity,
             currentPressure: state.currentPressure,
-            velocityValue: state.rawStrikeVelocity.map(calibration.velocityValue(for:)),
+            velocityValue: triggersMIDI
+                ? state.rawHitVelocity.map(calibration.velocityValue(for:))
+                : nil,
             pressureValue: calibration.pressureValue(for: state.currentPressure)
         )
         analyses[padIndex] = analysis

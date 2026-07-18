@@ -168,6 +168,46 @@ struct MaschineMK3ProtocolTests {
         #expect(tracker.events(for: [zero]).isEmpty)
     }
 
+    @Test("pad tracker recovers pressure-only hits without duplicating an explicit strike")
+    func pressureOnlyPadState() {
+        var tracker = MaschineMK3PadStateTracker()
+        let pressureOnly = MaschineMK3PadInput(
+            slotIndex: 0,
+            hardwareIndex: 15,
+            value: .pressure(25),
+            encodedValue: 0x4019
+        )
+        let pressureZero = MaschineMK3PadInput(
+            slotIndex: 0,
+            hardwareIndex: 15,
+            value: .pressure(0),
+            encodedValue: 0x4000
+        )
+
+        #expect(tracker.events(for: [pressureOnly]) == [
+            MaschineMK3PadEvent(hardwareIndex: 15, phase: .down, pressure: 25, encodedValue: 0x4019),
+        ])
+        #expect(tracker.events(for: [pressureZero]) == [
+            MaschineMK3PadEvent(hardwareIndex: 15, phase: .up, pressure: 0, encodedValue: 0x4000),
+        ])
+
+        let leadingPressure = MaschineMK3PadInput(
+            slotIndex: 0,
+            hardwareIndex: 13,
+            value: .pressure(104),
+            encodedValue: 0x4068
+        )
+        let strike = MaschineMK3PadInput(
+            slotIndex: 1,
+            hardwareIndex: 13,
+            value: .strikeVelocity(199),
+            encodedValue: 0x10c7
+        )
+        #expect(tracker.events(for: [leadingPressure, strike]) == [
+            MaschineMK3PadEvent(hardwareIndex: 13, phase: .down, pressure: 0, strikeVelocity: 199, encodedValue: 0x10c7),
+        ])
+    }
+
     @Test("button bitfields decode to semantic press and touch events")
     func surfaceButtonsAndTouches() {
         var previous = [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize)

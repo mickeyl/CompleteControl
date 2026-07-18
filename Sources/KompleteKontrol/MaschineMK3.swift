@@ -478,6 +478,14 @@ public struct MaschineMK3PadStateTracker: Sendable {
 
     public mutating func events(for inputs: [MaschineMK3PadInput]) -> [MaschineMK3PadEvent] {
         var events: [MaschineMK3PadEvent] = []
+        let explicitContactPads = Set(inputs.compactMap { input -> Int? in
+            switch input.value {
+                case .touch, .strikeVelocity:
+                    input.hardwareIndex
+                case .touchRelease, .release, .pressure:
+                    nil
+            }
+        })
         for input in inputs {
             let index = input.hardwareIndex
             guard pressures.indices.contains(index) else { continue }
@@ -508,6 +516,11 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     guard previous != pressure else { continue }
                     pressures[index] = pressure
                     if pressure > 0, !heldPads[index] {
+                        // Some reports contain an early pressure record and a
+                        // native touch/strike record for the same contact. Let
+                        // the explicit record supply attack velocity instead
+                        // of publishing two downs for one physical hit.
+                        guard !explicitContactPads.contains(index) else { continue }
                         heldPads[index] = true
                         events.append(MaschineMK3PadEvent(
                             hardwareIndex: index,
