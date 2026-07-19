@@ -13,7 +13,8 @@ final class MK3PadCalibrationDemo: LabDemo, @unchecked Sendable {
         category: .calibration,
         summary: "Soft-hit threshold, velocity, and poly-pressure curves",
         detail: "Hit every pad five times from very soft to hard. The left display tracks sample progress in the physical 4x4 layout. The right display distinguishes recovered touch/pressure hits from native strikes and shows the independent pressure signal. E5 sets the soft-hit threshold; E6-E8 tune velocity ceiling and pressure.",
-        snapshotVariants: ["strike"]
+        snapshotVariants: ["strike"],
+        requiredFamily: .maschineMK3
     )
 
     private static let padLEDs: [MaschineMK3PadLED] = [

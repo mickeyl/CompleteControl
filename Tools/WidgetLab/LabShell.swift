@@ -85,7 +85,9 @@ actor LabShell {
     private var activeDemo: (any LabDemo)?
     private var lampOverrides: [KKMK2ButtonLED: MK2LampState2] = [:]
     private var guideOverrides: [Int: KKRGB] = [:]
-    private var deviceFamily: KontrolDeviceFamily = .kompleteKontrolMK2
+    // Not private: `DemoBrowser` (same target, different file) reads this live
+    // value to badge demos the connected device can't run.
+    var deviceFamily: KontrolDeviceFamily = .kompleteKontrolMK2
     private static let availableIntensity: UInt8 = 0x01
     static let actionWhite = KKRGB(red: 0xff, green: 0xff, blue: 0xff)
 

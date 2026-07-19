@@ -40,11 +40,14 @@ extension LabShell {
     }
 
     func demoBrowserListResult(_ visible: [any LabDemo]) -> MK2ScreenBuildResult {
-        let items = visible.map { demo in
-            MK2SelectionItem(
-                title: demo.descriptor.title,
-                detail: demo.descriptor.summary,
-                badge: demo.descriptor.category.badge
+        let items = visible.map { demo -> MK2SelectionItem in
+            let descriptor = demo.descriptor
+            let reason = descriptor.unavailableReason(for: deviceFamily)
+            return MK2SelectionItem(
+                title: descriptor.title,
+                detail: reason ?? descriptor.summary,
+                badge: descriptor.category.badge,
+                isAvailable: reason == nil
             )
         }
         let colors = MK2SelectionViewColors(
@@ -114,14 +117,15 @@ extension LabShell {
             }
         }
         let descriptor = visible[index].descriptor
+        let reason = descriptor.unavailableReason(for: deviceFamily)
         return regularScreenResult(
             header: .title(title: descriptor.title, subtitle: descriptor.category.title),
-            footer: .hint("4-D press opens the demo · SCENE returns here")
+            footer: .hint(reason ?? "4-D press opens the demo · SCENE returns here")
         ) {
             MK2BrowserDetailElement(
                 title: descriptor.title,
                 detail: descriptor.detail,
-                metadata: "\(descriptor.category.title) · open \(descriptor.id)",
+                metadata: reason.map { "\(descriptor.category.title) · \($0)" } ?? "\(descriptor.category.title) · open \(descriptor.id)",
                 y: 48
             )
         }
@@ -138,7 +142,11 @@ extension LabShell {
         guard mode == .browser else { return }
         let visible = visibleBrowserDemos()
         guard let index = demoBrowserNavigation.clampedSelectedIndex(itemCount: visible.count) else { return }
-        await openDemo(visible[index])
+        let demo = visible[index]
+        // Badged, not hidden (see DemoDescriptor.requiredFamily) — a press on an
+        // unavailable row is a no-op, same as a disabled control elsewhere in the kit.
+        guard demo.descriptor.isAvailable(for: deviceFamily) else { return }
+        await openDemo(demo)
     }
 
     func setDemoBrowserCategory(_ value: Int) async {

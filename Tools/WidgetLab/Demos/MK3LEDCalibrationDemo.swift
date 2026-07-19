@@ -18,7 +18,8 @@ final class MK3LEDCalibrationDemo: LabDemo, @unchecked Sendable {
         category: .calibration,
         summary: "Cross-check RGB hue and brightness bytes",
         detail: "E1 selects brightness 0...3 and E2 selects 16 hue sectors, protocol white, or the alternate 0x4E reference. Browser is the monochrome comparison. Sampling is RGB with a monochrome white curve; Group A-H, the four 4-D halo dots, and all 16 pads use the linear RGB curve.",
-        snapshotVariants: ["red", "white"]
+        snapshotVariants: ["red", "white"],
+        requiredFamily: .maschineMK3
     )
 
     /// openAV-Ctlra derives device hue codes 1...16 from a 0...255 HSV hue.

@@ -9,19 +9,26 @@ public struct MK2SelectionItem: Sendable, Equatable {
     /// Values for a tabular list, matched by index to the list's `columns`.
     /// Ignored by lists without columns.
     public var columns: [String]
+    /// False renders the row muted regardless of selection — an item that's
+    /// visible and navigable but can't currently be acted on (e.g. it needs
+    /// hardware the connected device doesn't have). The row still highlights
+    /// on selection so navigation stays legible; only the text dims.
+    public var isAvailable: Bool
 
     public init(
         title: String,
         detail: String? = nil,
         badge: String? = nil,
         iconGlyph: String? = nil,
-        columns: [String] = []
+        columns: [String] = [],
+        isAvailable: Bool = true
     ) {
         self.title = title
         self.detail = detail
         self.badge = badge
         self.iconGlyph = iconGlyph
         self.columns = columns
+        self.isAvailable = isAvailable
     }
 }
 
@@ -409,12 +416,15 @@ public struct MK2SelectionList: Sendable {
             drawColumns(of: item, selected: selected, textX: textX, y: y, into: &frame, renderer: renderer)
             return
         }
-        MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + Self.primaryTextTopInset, color: selected ? colors.text : colors.dim, maxWidth: item.badge == nil ? 392 : 322)
+        let titleColor = item.isAvailable ? (selected ? colors.text : colors.dim) : colors.muted
+        let badgeColor = item.isAvailable ? (selected ? colors.text : colors.muted) : colors.muted
+        let detailColor = item.isAvailable ? (selected ? colors.dim : colors.muted) : colors.muted
+        MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: textX, y: y + Self.primaryTextTopInset, color: titleColor, maxWidth: item.badge == nil ? 392 : 322)
         if let badge = item.badge {
-            MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: 386, y: y + Self.primaryTextTopInset, color: selected ? colors.text : colors.muted, maxWidth: 74)
+            MK2SelectionDrawing.drawBody(badge, into: &frame, renderer: renderer, x: 386, y: y + Self.primaryTextTopInset, color: badgeColor, maxWidth: 74)
         }
         if rowHeight >= 44, let detail = item.detail {
-            MK2SelectionDrawing.drawBody(detail, into: &frame, renderer: renderer, x: textX, y: y + 24, color: selected ? colors.dim : colors.muted, maxWidth: 392)
+            MK2SelectionDrawing.drawBody(detail, into: &frame, renderer: renderer, x: textX, y: y + 24, color: detailColor, maxWidth: 392)
         }
     }
 

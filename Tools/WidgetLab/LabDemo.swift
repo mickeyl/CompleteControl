@@ -53,6 +53,10 @@ struct DemoDescriptor: Sendable {
     /// Detail-pane lines: what the demo shows and which controls it takes.
     let detail: String
     let snapshotVariants: [String]
+    /// nil runs on any connected device; set when a demo exercises hardware
+    /// only one family has (e.g. MK3 pads/RGB pad LEDs). The browser badges
+    /// rather than hides a mismatched demo — see `LabShell.deviceFamily`.
+    let requiredFamily: KontrolDeviceFamily?
 
     init(
         id: String,
@@ -60,7 +64,8 @@ struct DemoDescriptor: Sendable {
         category: DemoCategory,
         summary: String,
         detail: String,
-        snapshotVariants: [String] = []
+        snapshotVariants: [String] = [],
+        requiredFamily: KontrolDeviceFamily? = nil
     ) {
         self.id = id
         self.title = title
@@ -68,6 +73,27 @@ struct DemoDescriptor: Sendable {
         self.summary = summary
         self.detail = detail
         self.snapshotVariants = snapshotVariants
+        self.requiredFamily = requiredFamily
+    }
+
+    func isAvailable(for family: KontrolDeviceFamily) -> Bool {
+        requiredFamily == nil || requiredFamily == family
+    }
+
+    /// nil when available for `family` — the reason text the browser shows in
+    /// place of `summary` when it isn't.
+    func unavailableReason(for family: KontrolDeviceFamily) -> String? {
+        guard let requiredFamily, requiredFamily != family else { return nil }
+        return "Requires \(requiredFamily.displayName)"
+    }
+}
+
+extension KontrolDeviceFamily {
+    var displayName: String {
+        switch self {
+            case .kompleteKontrolMK2: "Komplete Kontrol MK2"
+            case .maschineMK3: "MASCHINE MK3"
+        }
     }
 }
 
