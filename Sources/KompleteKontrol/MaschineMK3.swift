@@ -486,6 +486,24 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     nil
             }
         })
+        // bcdDevice 0x0146 (MK3 firmware 1.4.6) emits a spurious touchRelease
+        // for Pad 14 (hw idx 1) in slot 4 alongside a non-zero pressure record
+        // in slot 0 for the same pad — every report, for the entire hold. The
+        // touchRelease resets heldPads, so the next report's pressure re-triggers
+        // a .down, producing dozens of noteOn/noteOff pairs for a single hit.
+        // When a report contains both an active contact signal (touch, strike,
+        // or non-zero pressure) and a touchRelease for the same pad, the
+        // contact signal is authoritative and the touchRelease is suppressed.
+        let padsWithActiveContact = Set(inputs.compactMap { input -> Int? in
+            switch input.value {
+                case .touch, .strikeVelocity:
+                    input.hardwareIndex
+                case let .pressure(pressure) where pressure > 0:
+                    input.hardwareIndex
+                case .touchRelease, .release, .pressure:
+                    nil
+            }
+        })
         for input in inputs {
             let index = input.hardwareIndex
             guard pressures.indices.contains(index) else { continue }
@@ -545,7 +563,23 @@ public struct MaschineMK3PadStateTracker: Sendable {
                         ))
                     }
 
-                case .touchRelease, .release:
+                case .touchRelease:
+                    // Suppress spurious touchRelease when the same report also
+                    // carries an active contact signal for this pad (firmware
+                    // 1.4.6 quirk on Pad 14). The pressure/touch stream is
+                    // authoritative.
+                    guard !padsWithActiveContact.contains(index) else { continue }
+                    guard heldPads[index] else { continue }
+                    heldPads[index] = false
+                    pressures[index] = 0
+                    events.append(MaschineMK3PadEvent(
+                        hardwareIndex: index,
+                        phase: .up,
+                        pressure: 0,
+                        encodedValue: input.encodedValue
+                    ))
+
+                case .release:
                     guard heldPads[index] else { continue }
                     heldPads[index] = false
                     pressures[index] = 0

@@ -208,6 +208,65 @@ struct MaschineMK3ProtocolTests {
         ])
     }
 
+    @Test("pad tracker suppresses spurious touchRelease alongside active pressure (firmware 1.4.6 Pad 14 quirk)")
+    func spuriousTouchReleaseSuppressed() {
+        var tracker = MaschineMK3PadStateTracker()
+
+        // Report 1: TOUCH + spurious TOUCH_REL for hw idx 1 (Pad 14).
+        // Without suppression, the TOUCH_REL would immediately release the pad.
+        let touch = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .touch(88), encodedValue: 0x0058)
+        let spuriousRelease1 = MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000)
+        let report1 = tracker.events(for: [touch, spuriousRelease1])
+        #expect(report1 == [
+            MaschineMK3PadEvent(hardwareIndex: 1, phase: .touch, pressure: 88, encodedValue: 0x0058),
+        ])
+
+        // Report 2: PRESSURE(>0) + spurious TOUCH_REL.
+        // Without suppression, PRESSURE would re-trigger .down and TOUCH_REL would .up.
+        let pressure = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .pressure(484), encodedValue: 0x41e4)
+        let spuriousRelease2 = MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000)
+        let report2 = tracker.events(for: [pressure, spuriousRelease2])
+        #expect(report2 == [
+            MaschineMK3PadEvent(hardwareIndex: 1, phase: .pressure, pressure: 484, encodedValue: 0x41e4),
+        ])
+
+        // Report 3: Another PRESSURE change + spurious TOUCH_REL — still held, no retrigger.
+        let pressure2 = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .pressure(690), encodedValue: 0x42b2)
+        let spuriousRelease3 = MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000)
+        let report3 = tracker.events(for: [pressure2, spuriousRelease3])
+        #expect(report3 == [
+            MaschineMK3PadEvent(hardwareIndex: 1, phase: .pressure, pressure: 690, encodedValue: 0x42b2),
+        ])
+
+        // Final report: PRESSURE(0) — the pad is actually released now.
+        let pressureZero = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .pressure(0), encodedValue: 0x4000)
+        let realRelease = MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000)
+        let report4 = tracker.events(for: [pressureZero, realRelease])
+        // PRESSURE(0) produces .up; the TOUCH_REL is suppressed because
+        // padsWithActivePressure is empty for this pad, but the PRESSURE(0)
+        // already emitted .up so the TOUCH_REL guard (heldPads) fails.
+        #expect(report4 == [
+            MaschineMK3PadEvent(hardwareIndex: 1, phase: .up, pressure: 0, encodedValue: 0x4000),
+        ])
+    }
+
+    @Test("pad tracker still honours a standalone touchRelease without active pressure")
+    func standaloneTouchReleaseHonoured() {
+        var tracker = MaschineMK3PadStateTracker()
+
+        let touch = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 5, value: .touch(50), encodedValue: 0x0032)
+        #expect(tracker.events(for: [touch]) == [
+            MaschineMK3PadEvent(hardwareIndex: 5, phase: .touch, pressure: 50, encodedValue: 0x0032),
+        ])
+
+        // A touchRelease in a report with no active pressure for this pad must
+        // still produce an .up event.
+        let release = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 5, value: .touchRelease, encodedValue: 0x2000)
+        #expect(tracker.events(for: [release]) == [
+            MaschineMK3PadEvent(hardwareIndex: 5, phase: .up, pressure: 0, encodedValue: 0x2000),
+        ])
+    }
+
     @Test("button bitfields decode to semantic press and touch events")
     func surfaceButtonsAndTouches() {
         var previous = [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize)
