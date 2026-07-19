@@ -11,7 +11,7 @@ struct SurfaceDeviceCompatibilityTests {
         let logicalLamps = mappings.compactMap(\.input.logicalLamp)
         let expectedLogicalLamps: Set<KKMK2ButtonLED> = [
             .jogLeft, .jogUp, .jogDown, .jogRight,
-            .shift, .tempo, .keyMode, .fixedVel, .scene, .pattern, .variation, .s, .m,
+            .shift, .tempo, .padMode, .fixedVel, .scene, .pattern, .variation, .s, .m,
             .instrument1, .instrument2, .instrument3, .instrument4,
             .instrument5, .instrument6, .instrument7, .instrument8,
             .keyboard,
@@ -29,7 +29,7 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .erase)?.input == .button(.clear))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .arrowLeft)?.input == .button(.pageLeft))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .channel)?.input == .button(.track))
-        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .padMode)?.input == .button(.keyMode))
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .padMode)?.input == .button(.padMode))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard)?.input == .button(.keyboard))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .variation)?.input == .button(.variation))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupA)?.input == .button(.instrument1))
@@ -319,7 +319,7 @@ struct SurfaceDeviceCompatibilityTests {
                 .record: KontrolSurfaceLampValue(color: white, intensity: 2),
                 .pageLeft: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .scene: KontrolSurfaceLampValue(color: white, intensity: 1),
-                .keyMode: KontrolSurfaceLampValue(color: white, intensity: 3),
+                .padMode: KontrolSurfaceLampValue(color: white, intensity: 3),
                 .keyboard: KontrolSurfaceLampValue(color: white, intensity: 2),
                 .variation: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .jogRight: KontrolSurfaceLampValue(color: green, intensity: 2),

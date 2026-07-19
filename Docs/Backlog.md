@@ -6,6 +6,12 @@
 
 ## Recently completed
 
+- **Dedicated MASCHINE PAD MODE control identity (completed 2026-07-19).**
+  MK3 PAD MODE no longer masquerades as KONTROL KEY MODE in Kit2's
+  compatibility plane. Paulinche can bind normal PAD MODE to its
+  Mono-Chromatic/Drum-Kit workflow and SHIFT+PAD MODE to the rarer Poly-
+  Chromatic action while KONTROL keeps its existing KEY MODE semantics.
+
 - **Typed Paulinche control-surface action bridge (completed 2026-07-19).**
   `ControlSurfaceEvent.button` now carries a closed `ControlSurfaceAction`
   vocabulary instead of a free-form name. Commands, scenes, soft-key layers,

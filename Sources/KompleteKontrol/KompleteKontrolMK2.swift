@@ -170,6 +170,10 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     /// Keeping it outside the MK2 report range lets Kit2 bind the physical
     /// gesture without pretending that the keyboard family has a peer.
     case keyboard = 88
+    /// A logical MASCHINE-only control for PAD MODE. It is deliberately not
+    /// lowered to KONTROL KEY MODE: clients may assign layout selection to the
+    /// pad controller while retaining KEY MODE for keybed voice behavior.
+    case padMode = 89
 
     public var protocolName: String {
         switch self {
@@ -255,6 +259,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .instrument7: "instrument7"
             case .instrument8: "instrument8"
             case .keyboard: "keyboard"
+            case .padMode: "padmode"
         }
     }
 

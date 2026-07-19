@@ -73,7 +73,7 @@ enum KontrolSurfaceDeviceCompatibility {
         MaschineMK3CompatibilityMapping(physicalButton: .groupG, input: .button(.instrument7)),
         MaschineMK3CompatibilityMapping(physicalButton: .groupH, input: .button(.instrument8)),
         MaschineMK3CompatibilityMapping(physicalButton: .tempo, input: .button(.tempo)),
-        MaschineMK3CompatibilityMapping(physicalButton: .padMode, input: .button(.keyMode)),
+        MaschineMK3CompatibilityMapping(physicalButton: .padMode, input: .button(.padMode)),
         MaschineMK3CompatibilityMapping(physicalButton: .keyboard, input: .button(.keyboard)),
         MaschineMK3CompatibilityMapping(physicalButton: .fixedVelocity, input: .button(.fixedVel)),
         MaschineMK3CompatibilityMapping(physicalButton: .scene, input: .button(.scene)),
