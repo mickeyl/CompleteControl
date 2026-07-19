@@ -24,13 +24,14 @@
 
 ## Simulator
 
-- Add a MASCHINE MK3 device profile to the existing simulator wire/session
-  before considering a separate visual app. First acceptance is headless:
-  native MK3 surface reports lower through the production compatibility adapter
-  and the unchanged Widget Lab behaves like hardware. A later visual MK3 panel
-  should reuse the existing display, button, encoder, and lamp components. It
-  can validate mappings and workflows, but USB timing and physical colour remain
-  hardware-only evidence.
+- Implement the shared simulator core and MASCHINE MK3 profile described in
+  [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md). Keep one
+  profile-driven `KontrolSimulator`, make the device handshake authoritative,
+  send native MK3 input reports through the existing production seam, and
+  support isolated instances so a simulated MASCHINE can run beside a real
+  KONTROL (and vice versa). First acceptance remains headless; the visual
+  320x301-mm MK3 panel follows on the same core. USB timing, physical colour,
+  pressure feel, and final latency remain hardware-only evidence.
 
 - Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation
   arrives as bare wire deltas, so acceleration/detent tuning gives almost no
