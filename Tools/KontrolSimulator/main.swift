@@ -1,22 +1,25 @@
 import AppKit
 import KompleteKontrol
+import KontrolSimulatorCore
 
-/// A standalone macOS app that impersonates the S61 MK2 panel so the daemon can be exercised
-/// without hardware. It listens on the device wire socket; when `ccd` (in CCD_SIMULATE mode)
-/// connects, display blits and LED reports render into the panel and clicking/scrolling the
-/// controls sends semantic input back — the daemon and its clients cannot tell it from the
-/// real device.
+/// A standalone macOS app that impersonates a selected Native Instruments surface so the
+/// daemon can be exercised without hardware. It listens on the device wire socket; when
+/// `ccd` (in CCD_SIMULATE mode) connects, display blits and LED reports render into the panel
+/// and interactive controls send native input reports back — the daemon and its clients
+/// cannot tell it from the real device.
 ///
 /// The panel is the document view of a magnifiable scroll view; the View menu drives zoom,
 /// including a True Size mode that renders the displays at the real panels' physical size.
+@MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private static let baseWindowTitle = "Komplete Kontrol S61 MK2 — Simulator"
     private enum DefaultsKey {
         static let screenIndex = "KontrolSimulator.window.screenIndex"
         static let x = "KontrolSimulator.window.x"
         static let y = "KontrolSimulator.window.y"
         static let width = "KontrolSimulator.window.width"
         static let height = "KontrolSimulator.window.height"
+        static let zoomMode = "KontrolSimulator.window.zoomMode"
+        static let magnification = "KontrolSimulator.window.magnification"
         static let keybedSize = "KontrolSimulator.keybedSize"
         static let stayOnTop = "KontrolSimulator.window.stayOnTop"
         static let cheatSheetVisible = "KontrolSimulator.cheatSheet.visible"
@@ -28,10 +31,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // No bench-verified S61 MK2 bcdDevice is on record — matches SimulatorDeviceSession's
     // own placeholder default so an untouched dialog shows what the daemon already reports.
-    private static let defaultFirmwareVersion: UInt16 = 0x0100
-
-    private let link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath)
-    private let displayPacketDecoder = MK2DisplayPacketDecoder()
+    private let definition: SimulatorDeviceDefinition
+    private let link: DeviceLink
 
     // Rudimentary control over a user-level simulator daemon: ccd in CCD_SIMULATE
     // mode touches no USB and binds a /tmp socket, so no sudo is involved. Clients
@@ -48,7 +49,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var daemonAutomationItem: NSMenuItem?
     private var window: NSWindow!
     private var scrollView: NSScrollView!
-    private var panel: PanelView!
+    private var statusBar: SimulatorStatusBarView!
+    private var panel: (any SimulatorPanel)!
     private var fitToWidthItem: NSMenuItem?
     private var zoomInOnDisplayItem: NSMenuItem?
     private var stayOnTopItem: NSMenuItem?
@@ -60,8 +62,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isProgrammaticResize = false
     private var pendingScrollerVisibilityRefresh = false
     private var isRefreshingScrollerVisibility = false
+    private var isSnapshotRun: Bool {
+        ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_PATH"] != nil
+    }
 
-    private enum ZoomMode {
+    private var baseWindowTitle: String { "\(definition.displayName) — Simulator" }
+    private var defaultFirmwareVersion: UInt16 { definition.descriptor.firmwareVersion }
+    private func profileDefaultsKey(_ base: String) -> String {
+        "\(base).\(definition.kind.rawValue)"
+    }
+    private var deviceFirmwareVersionDefaultsKey: String {
+        profileDefaultsKey(DefaultsKey.deviceFirmwareVersion)
+    }
+    private var deviceNameOverrideDefaultsKey: String {
+        profileDefaultsKey(DefaultsKey.deviceNameOverride)
+    }
+
+    init(definition: SimulatorDeviceDefinition) {
+        self.definition = definition
+        link = DeviceLink(socketPath: SimEndpoint.defaultSocketPath, descriptor: definition.descriptor)
+        super.init()
+    }
+
+    private enum ZoomMode: String {
         case manual
         case fitToWidth
     }
@@ -77,12 +100,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Base layout renders the displays at native 480x272 points; all zoom is scroll-view
         // magnification so clicks stay accurate.
-        panel = PanelView(scale: 1.0)
-        if let savedSize = PanelView.KeybedSize(rawValue: UserDefaults.standard.integer(forKey: DefaultsKey.keybedSize)) {
-            panel.setKeybedSize(savedSize)
+        switch definition.kind {
+            case .kompleteKontrolS61MK2:
+                let kontrolPanel = PanelView(scale: 1.0)
+                if let savedSize = PanelView.KeybedSize(rawValue: UserDefaults.standard.integer(forKey: DefaultsKey.keybedSize)) {
+                    kontrolPanel.setKeybedSize(savedSize)
+                }
+                panel = kontrolPanel
+            case .maschineMK3:
+                panel = MaschineMK3PanelView(definition: definition)
         }
 
-        let initialSize = NSSize(width: 1040, height: 640)
+        let initialSize = definition.kind == .maschineMK3
+            ? NSSize(width: 980, height: 820)
+            : NSSize(width: 1040, height: 640)
         let simulatorScrollView = SimulatorScrollView(frame: NSRect(origin: .zero, size: initialSize))
         simulatorScrollView.onKeyDown = { [weak self] event in
             self?.panel.handleKeyDown(event) ?? false
@@ -94,7 +125,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.panel.handleFlagsChanged(event) ?? false
         }
         scrollView = simulatorScrollView
-        scrollView.documentView = panel
+        scrollView.documentView = panel.view
         scrollView.allowsMagnification = true
         scrollView.minMagnification = 0.2
         scrollView.maxMagnification = 5.0
@@ -102,7 +133,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .legacy
-        scrollView.backgroundColor = PanelView.deviceBackgroundColor
+        scrollView.backgroundColor = panel.backgroundColor
         scrollView.drawsBackground = true
         (scrollView as? SimulatorScrollView)?.onViewportChanged = { [weak self] in
             self?.scheduleScrollerVisibilityRefresh()
@@ -114,11 +145,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window = NSWindow(contentRect: NSRect(origin: .zero, size: initialSize),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = Self.baseWindowTitle
+        window.title = baseWindowTitle
         window.delegate = self
-        window.contentView = scrollView
+        statusBar = SimulatorStatusBarView(modelName: definition.shortName)
+        let windowContentView = NSView(frame: NSRect(origin: .zero, size: initialSize))
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
+        windowContentView.addSubview(scrollView)
+        windowContentView.addSubview(statusBar)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: windowContentView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: windowContentView.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: windowContentView.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: windowContentView.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: windowContentView.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: windowContentView.bottomAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: SimulatorStatusBarView.height),
+        ])
+        window.contentView = windowContentView
+        windowContentView.layoutSubtreeIfNeeded()
         window.initialFirstResponder = scrollView
-        let restoredFrame = restoredWindowFrame()
+        let restoredFrame = isSnapshotRun ? nil : restoredWindowFrame()
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
         } else {
@@ -134,6 +182,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         panel.onInput = { [weak self] frame in self?.link.send(frame) }
+        panel.onDaemonStatus = { [weak self] status in
+            self?.statusBar.update(status: status)
+        }
         link.onFrame = { [weak self] frame in self?.handle(frame) }
         link.onConnect = { [weak self] in
             self?.daemonConnected = true
@@ -145,16 +196,25 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self?.daemonConnected = false
             self?.refreshDaemonStatusPresentation()
         }
+        link.onProtocolError = { [weak self] message in
+            NSLog("KontrolSimulator: protocol error — %@", message)
+            self?.statusBar.update(status: .protocolError)
+        }
         if !link.start() {
             NSLog("KontrolSimulator: failed to bind \(SimEndpoint.defaultSocketPath)")
         }
         installTerminationSignalHandlers()
         autostartDaemonIfConfigured()
 
-        // Initial zoom: True Size if requested, otherwise fit the panel to the current window
-        // width. A restored frame keeps its persisted height instead of being refitted.
+        // Window placement and zoom are independent per device profile. This makes switching
+        // between the wide keyboard and the taller pad controller preserve two useful desks.
         if ProcessInfo.processInfo.environment["SIM_TRUE_SIZE"] != nil {
             trueSize(nil)
+        } else if !isSnapshotRun, restoreZoomState() {
+            if zoomMode == .fitToWidth {
+                updateFitToWidthMagnification()
+            }
+            updateViewMenuState()
         } else {
             zoomMode = .fitToWidth
             updateFitToWidthMagnification()
@@ -180,7 +240,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func writeSnapshot(to path: String) {
-        let bounds = panel.bounds
+        let includesWindowChrome = ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_INCLUDE_CHROME"] != nil
+        let snapshotView = includesWindowChrome ? (window.contentView ?? panel.view) : panel.view
+        snapshotView.layoutSubtreeIfNeeded()
+        let bounds = snapshotView.bounds
         let scale = Double(ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_SCALE"] ?? "") ?? 2
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -198,7 +261,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         rep.size = bounds.size
-        panel.cacheDisplay(in: bounds, to: rep)
+        snapshotView.cacheDisplay(in: bounds, to: rep)
         guard let png = rep.representation(using: .png, properties: [:]) else {
             NSLog("KontrolSimulator: snapshot failed — no PNG data")
             return
@@ -206,7 +269,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do {
             try png.write(to: URL(fileURLWithPath: path))
             NSLog("KontrolSimulator: snapshot → %@", path)
-            NSLog("KontrolSimulator: snapshot panel=%@ displays=%@ workArea=%@ scale=%.2f",
+            NSLog("KontrolSimulator: snapshot view=%@ panel=%@ displays=%@ workArea=%@ scale=%.2f",
+                  includesWindowChrome ? "window chrome" : "hardware panel",
                   NSStringFromRect(bounds),
                   NSStringFromRect(panel.displayBlockRect),
                   NSStringFromRect(panel.displayWorkAreaRect),
@@ -219,6 +283,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         restartDaemonAfterTermination = false
         daemonProcess?.terminate()
+        link.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -264,16 +329,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         add(to: viewMenu, "Zoom Out", #selector(zoomOut), "-")
         viewMenu.addItem(.separator())
         fitToWidthItem = add(to: viewMenu, "Fit to Width", #selector(fitToWidth), "9")
-        add(to: viewMenu, "True Size (95 mm)", #selector(trueSize), "t")
+        let trueSizeLabel = definition.kind == .maschineMK3 ? "True Size (320 mm)" : "True Size (95 mm display)"
+        add(to: viewMenu, trueSizeLabel, #selector(trueSize), "t")
         zoomInOnDisplayItem = add(to: viewMenu, "Zoom In on Display", #selector(toggleZoomInOnDisplay), "z")
         viewMenu.addItem(.separator())
         stayOnTopItem = add(to: viewMenu, "Stay on Top", #selector(toggleStayOnTop), "")
         cheatSheetItem = add(to: viewMenu, "Keyboard Cheat Sheet", #selector(toggleCheatSheet), "")
-        viewMenu.addItem(.separator())
-        for size in PanelView.KeybedSize.allCases {
-            let item = add(to: viewMenu, size.title, #selector(setKeybedSizeFromMenu(_:)), "")
-            item.representedObject = size.rawValue
-            keybedSizeItems[size] = item
+        if definition.kind == .kompleteKontrolS61MK2 {
+            viewMenu.addItem(.separator())
+            for size in PanelView.KeybedSize.allCases {
+                let item = add(to: viewMenu, size.title, #selector(setKeybedSizeFromMenu(_:)), "")
+                item.representedObject = size.rawValue
+                keybedSizeItems[size] = item
+            }
         }
 
         NSApp.mainMenu = mainMenu
@@ -401,13 +469,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Overrides what the connected daemon reports through `deviceInfo` (firmware version and
     /// display name) — lets a client's about panel be exercised without real hardware. The
-    /// simulated product ID/key count stay the real S61 MK2's; only the identity strings a
-    /// client reads are overridable.
+    /// selected profile's product ID and capabilities stay fixed; only the identity values a
+    /// client reads are overridable. Identity overrides are stored separately per profile.
     @objc private func showDeviceIdentitySettings() {
         let defaults = UserDefaults.standard
-        let currentFirmwareVersion = defaults.object(forKey: DefaultsKey.deviceFirmwareVersion) != nil
-            ? UInt16(defaults.integer(forKey: DefaultsKey.deviceFirmwareVersion))
-            : Self.defaultFirmwareVersion
+        let currentFirmwareVersion = defaults.object(forKey: deviceFirmwareVersionDefaultsKey) != nil
+            ? UInt16(defaults.integer(forKey: deviceFirmwareVersionDefaultsKey))
+            : defaultFirmwareVersion
 
         let alert = NSAlert()
         alert.messageText = "Simulated Device Identity"
@@ -429,7 +497,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         container.addSubview(nameLabel)
         let nameField = NSTextField(frame: NSRect(x: 134, y: 2, width: 150, height: 22))
         nameField.placeholderString = "(default)"
-        nameField.stringValue = defaults.string(forKey: DefaultsKey.deviceNameOverride) ?? ""
+        nameField.stringValue = defaults.string(forKey: deviceNameOverrideDefaultsKey) ?? ""
         container.addSubview(nameField)
 
         alert.accessoryView = container
@@ -445,28 +513,30 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        defaults.set(Int(firmwareVersion), forKey: DefaultsKey.deviceFirmwareVersion)
-        defaults.set(nameField.stringValue, forKey: DefaultsKey.deviceNameOverride)
+        defaults.set(Int(firmwareVersion), forKey: deviceFirmwareVersionDefaultsKey)
+        defaults.set(nameField.stringValue, forKey: deviceNameOverrideDefaultsKey)
         sendDeviceIdentity()
     }
 
     private func sendDeviceIdentity() {
         let defaults = UserDefaults.standard
-        let firmwareVersion = defaults.object(forKey: DefaultsKey.deviceFirmwareVersion) != nil
-            ? UInt16(defaults.integer(forKey: DefaultsKey.deviceFirmwareVersion))
-            : Self.defaultFirmwareVersion
-        let nameOverride = defaults.string(forKey: DefaultsKey.deviceNameOverride) ?? ""
+        let firmwareVersion = defaults.object(forKey: deviceFirmwareVersionDefaultsKey) != nil
+            ? UInt16(defaults.integer(forKey: deviceFirmwareVersionDefaultsKey))
+            : defaultFirmwareVersion
+        let nameOverride = defaults.string(forKey: deviceNameOverrideDefaultsKey) ?? ""
         link.send(.identity(firmwareVersion: firmwareVersion, nameOverride: nameOverride))
     }
 
     private func refreshDaemonStatusPresentation() {
+        let status: SimulatorDaemonStatus
         if daemonConnected {
-            panel.setDaemonStatus(.connected)
+            status = .connected
         } else if daemonProcess != nil {
-            panel.setDaemonStatus(.starting)
+            status = .starting
         } else {
-            panel.setDaemonStatus(.none)
+            status = .none
         }
+        statusBar.update(status: status)
         updateWindowTitle()
         updateDaemonMenuState()
     }
@@ -510,7 +580,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func trueSize(_ sender: Any?) {
         displayZoomSnapshot = nil
-        guard let magnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main) else { return }
+        guard let magnification = DisplayCalibration.trueSizeMagnification(
+            screen: window.screen ?? NSScreen.main,
+            reference: panel.trueSizeReference
+        ) else { return }
         if abs(scrollView.magnification - magnification) <= 0.005 {
             alignDisplaysInViewport()
             return
@@ -549,7 +622,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         style.lineSpacing = 2
         let credits = NSAttributedString(
             string: """
-            A virtual Komplete Kontrol S-Series MK2 surface for hardware-free development, daemon testing, and surface UI iteration.
+            A virtual \(definition.displayName) surface for hardware-free development, daemon testing, and surface UI iteration.
 
             Part of CompleteControl.
             Copyright (c) 2026 Dr. Michael Lauer.
@@ -565,7 +638,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .applicationName: "KompleteSimulator",
             .applicationIcon: SimulatorAppIcon.make(),
             .version: "CompleteControl Simulator",
-            .applicationVersion: "S-Series MK2",
+            .applicationVersion: definition.shortName,
             .credits: credits,
         ])
     }
@@ -580,9 +653,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func setKeybedSizeFromMenu(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? Int,
-              let size = PanelView.KeybedSize(rawValue: rawValue) else { return }
+              let size = PanelView.KeybedSize(rawValue: rawValue),
+              let kontrolPanel = panel as? PanelView else { return }
         displayZoomSnapshot = nil
-        panel.setKeybedSize(size)
+        kontrolPanel.setKeybedSize(size)
         UserDefaults.standard.set(size.rawValue, forKey: DefaultsKey.keybedSize)
         if zoomMode == .fitToWidth {
             updateFitToWidthMagnification()
@@ -605,13 +679,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func updateFitToWidthMagnification() {
-        guard panel.frame.width > 0 else { return }
-        setMagnification(scrollView.contentSize.width / panel.frame.width)
+        guard panel.view.frame.width > 0 else { return }
+        setMagnification(scrollView.contentSize.width / panel.view.frame.width)
     }
 
     private func setMagnification(_ value: CGFloat) {
         let clamped = max(scrollView.minMagnification, min(scrollView.maxMagnification, value))
-        scrollView.setMagnification(clamped, centeredAt: NSPoint(x: panel.frame.midX, y: panel.frame.midY))
+        scrollView.setMagnification(clamped, centeredAt: NSPoint(x: panel.view.frame.midX, y: panel.view.frame.midY))
+        persistZoomState()
         updateWindowTitle()
         scheduleScrollerVisibilityRefresh()
     }
@@ -622,8 +697,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let displayBlock = panel.displayBlockRect
         let visibleSize = scrollView.documentVisibleRect.size
-        let maxOriginX = max(0, panel.bounds.width - visibleSize.width)
-        let maxOriginY = max(0, panel.bounds.height - visibleSize.height)
+        let maxOriginX = max(0, panel.view.bounds.width - visibleSize.width)
+        let maxOriginY = max(0, panel.view.bounds.height - visibleSize.height)
         let origin = NSPoint(
             x: min(max(0, displayBlock.midX - visibleSize.width / 2), maxOriginX),
             y: min(max(0, displayBlock.minY), maxOriginY)
@@ -662,8 +737,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             width: scrollView.contentSize.width / max(scrollView.magnification, 0.001),
             height: scrollView.contentSize.height / max(scrollView.magnification, 0.001)
         )
-        let maxOriginX = max(0, panel.bounds.width - visibleSize.width)
-        let maxOriginY = max(0, panel.bounds.height - visibleSize.height)
+        let maxOriginX = max(0, panel.view.bounds.width - visibleSize.width)
+        let maxOriginY = max(0, panel.view.bounds.height - visibleSize.height)
         let clampedOrigin = NSPoint(
             x: min(max(0, origin.x), maxOriginX),
             y: min(max(0, origin.y), maxOriginY)
@@ -675,8 +750,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func resizeWindowToCurrentMagnification(preserveContentWidth: Bool) {
         let magnification = scrollView.magnification
         var targetContentSize = NSSize(
-            width: panel.frame.width * magnification,
-            height: panel.frame.height * magnification
+            width: panel.view.frame.width * magnification,
+            height: panel.view.frame.height * magnification + SimulatorStatusBarView.height
         )
         if preserveContentWidth {
             targetContentSize.width = scrollView.frame.width
@@ -740,6 +815,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handleDirectMagnificationChange() {
         displayZoomSnapshot = nil
         zoomMode = .manual
+        persistZoomState()
         updateViewMenuState()
         scheduleScrollerVisibilityRefresh()
     }
@@ -750,8 +826,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         defer { isRefreshingScrollerVisibility = false }
 
         let documentSize = NSSize(
-            width: panel.frame.width * scrollView.magnification,
-            height: panel.frame.height * scrollView.magnification
+            width: panel.view.frame.width * scrollView.magnification,
+            height: panel.view.frame.height * scrollView.magnification
         )
         var showsHorizontalScroller = scrollView.hasHorizontalScroller
         var showsVerticalScroller = scrollView.hasVerticalScroller
@@ -794,7 +870,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stayOnTopItem?.state = window?.level == .floating ? .on : .off
         cheatSheetItem?.state = cheatSheetWindow?.isVisible == true ? .on : .off
         for (size, item) in keybedSizeItems {
-            item.state = panel.currentKeybedSize == size ? .on : .off
+            item.state = (panel as? PanelView)?.currentKeybedSize == size ? .on : .off
         }
         updateWindowTitle()
     }
@@ -847,7 +923,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         textView.textColor = NSColor(white: 0.86, alpha: 1)
         textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 14, height: 12)
-        textView.string = PanelView.keyboardCheatSheetText
+        textView.string = self.panel.keyboardCheatSheetText
         scrollView.documentView = textView
         panel.contentView = scrollView
         return panel
@@ -856,7 +932,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateWindowTitle() {
         guard window != nil else { return }
         let percent: CGFloat
-        if let trueSizeMagnification = DisplayCalibration.trueSizeMagnification(screen: window.screen ?? NSScreen.main),
+        if let trueSizeMagnification = DisplayCalibration.trueSizeMagnification(
+            screen: window.screen ?? NSScreen.main,
+            reference: panel.trueSizeReference
+        ),
            trueSizeMagnification > 0 {
             percent = scrollView.magnification / trueSizeMagnification * 100
         } else {
@@ -870,28 +949,31 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             daemonState = "no daemon"
         }
-        window.title = "\(Self.baseWindowTitle) \(panel.currentKeybedSize.title) (\(Int(percent.rounded()))%) — \(daemonState)"
+        let variant = (panel as? PanelView).map { " \($0.currentKeybedSize.title)" } ?? ""
+        window.title = "\(baseWindowTitle)\(variant) (\(Int(percent.rounded()))%) — \(daemonState)"
     }
 
     // MARK: - Window placement
 
     private func restoredWindowFrame() -> NSRect? {
         let defaults = UserDefaults.standard
-        guard defaults.object(forKey: DefaultsKey.width) != nil,
-              defaults.object(forKey: DefaultsKey.height) != nil else {
+        let widthKey = profileDefaultsKey(DefaultsKey.width)
+        let heightKey = profileDefaultsKey(DefaultsKey.height)
+        guard defaults.object(forKey: widthKey) != nil,
+              defaults.object(forKey: heightKey) != nil else {
             return nil
         }
 
         let screens = NSScreen.screens
         guard !screens.isEmpty else { return nil }
-        let storedIndex = defaults.object(forKey: DefaultsKey.screenIndex) as? Int ?? 0
+        let storedIndex = defaults.object(forKey: profileDefaultsKey(DefaultsKey.screenIndex)) as? Int ?? 0
         let screen = screens.indices.contains(storedIndex) ? screens[storedIndex] : (NSScreen.main ?? screens[0])
         let visibleFrame = screen.visibleFrame
         var frame = NSRect(
-            x: visibleFrame.minX + defaults.double(forKey: DefaultsKey.x),
-            y: visibleFrame.minY + defaults.double(forKey: DefaultsKey.y),
-            width: defaults.double(forKey: DefaultsKey.width),
-            height: defaults.double(forKey: DefaultsKey.height)
+            x: visibleFrame.minX + defaults.double(forKey: profileDefaultsKey(DefaultsKey.x)),
+            y: visibleFrame.minY + defaults.double(forKey: profileDefaultsKey(DefaultsKey.y)),
+            width: defaults.double(forKey: widthKey),
+            height: defaults.double(forKey: heightKey)
         )
         frame.size.width = max(360, min(frame.width, visibleFrame.width))
         frame.size.height = max(240, min(frame.height, visibleFrame.height))
@@ -899,15 +981,35 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func persistWindowPlacement() {
+        guard !isSnapshotRun else { return }
         guard let window, let screen = window.screen ?? screenContaining(window.frame) ?? NSScreen.main else { return }
         let visibleFrame = screen.visibleFrame
         let frame = window.frame
         let defaults = UserDefaults.standard
-        defaults.set(screenIndex(for: screen) ?? 0, forKey: DefaultsKey.screenIndex)
-        defaults.set(frame.minX - visibleFrame.minX, forKey: DefaultsKey.x)
-        defaults.set(frame.minY - visibleFrame.minY, forKey: DefaultsKey.y)
-        defaults.set(frame.width, forKey: DefaultsKey.width)
-        defaults.set(frame.height, forKey: DefaultsKey.height)
+        defaults.set(screenIndex(for: screen) ?? 0, forKey: profileDefaultsKey(DefaultsKey.screenIndex))
+        defaults.set(frame.minX - visibleFrame.minX, forKey: profileDefaultsKey(DefaultsKey.x))
+        defaults.set(frame.minY - visibleFrame.minY, forKey: profileDefaultsKey(DefaultsKey.y))
+        defaults.set(frame.width, forKey: profileDefaultsKey(DefaultsKey.width))
+        defaults.set(frame.height, forKey: profileDefaultsKey(DefaultsKey.height))
+        persistZoomState()
+    }
+
+    private func restoreZoomState() -> Bool {
+        let defaults = UserDefaults.standard
+        let magnificationKey = profileDefaultsKey(DefaultsKey.magnification)
+        guard defaults.object(forKey: magnificationKey) != nil else { return false }
+        zoomMode = defaults.string(forKey: profileDefaultsKey(DefaultsKey.zoomMode))
+            .flatMap(ZoomMode.init(rawValue:)) ?? .manual
+        setMagnification(CGFloat(defaults.double(forKey: magnificationKey)))
+        return true
+    }
+
+    private func persistZoomState() {
+        guard !isSnapshotRun else { return }
+        guard scrollView != nil else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(zoomMode.rawValue, forKey: profileDefaultsKey(DefaultsKey.zoomMode))
+        defaults.set(Double(scrollView.magnification), forKey: profileDefaultsKey(DefaultsKey.magnification))
     }
 
     private func screenIndex(for screen: NSScreen) -> Int? {
@@ -996,48 +1098,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Daemon output
 
     private func handle(_ frame: SimFrame) {
-        switch frame.type {
-            case .displayBlit:
-                applyBlit(frame.payload)
-            case .displayPacket:
-                do {
-                    let blit = try displayPacketDecoder.decodeAndApply(frame.payload)
-                    panel.applyBlit(
-                        screen: Int(blit.screen),
-                        x: Int(blit.x),
-                        y: Int(blit.y),
-                        w: Int(blit.width),
-                        h: Int(blit.height),
-                        be: blit.pixelsBE
-                    )
-                } catch {
-                    NSLog("KontrolSimulator: rejected MK2 display packet: %@", String(describing: error))
-                }
-            case .report:
-                guard let reportID = frame.payload.first else { return }
-                panel.applyReport(reportID: reportID, bytes: Array(frame.payload.dropFirst()))
-            default:
-                break
-        }
-    }
-
-    private func applyBlit(_ payload: [UInt8]) {
-        guard payload.count >= 9 else { return }
-        let screen = Int(payload[0])
-        let x = Int(payload[1]) << 8 | Int(payload[2])
-        let y = Int(payload[3]) << 8 | Int(payload[4])
-        let width = Int(payload[5]) << 8 | Int(payload[6])
-        let height = Int(payload[7]) << 8 | Int(payload[8])
-        let pixels = Array(payload.dropFirst(9))
-        panel.applyBlit(screen: screen, x: x, y: y, w: width, h: height, be: pixels)
-        displayPacketDecoder.record(MK2DecodedDisplayBlit(
-            screen: UInt8(clamping: screen),
-            x: UInt16(clamping: x),
-            y: UInt16(clamping: y),
-            width: UInt16(clamping: width),
-            height: UInt16(clamping: height),
-            pixelsBE: pixels
-        ))
+        panel.apply(frame)
     }
 }
 
@@ -1110,22 +1171,105 @@ private extension NSRect {
 /// the real MK2 panel's physical width on the current monitor. Derived live from
 /// `CGDisplayScreenSize` + `NSScreen.frame`, so it stays correct across resolutions/monitors.
 enum DisplayCalibration {
-    static let panelWidthMM: CGFloat = 95      // measured active area of one MK2 panel
-    static let baseDisplayPoints: CGFloat = 480 // display width at magnification 1.0
-
-    static func trueSizeMagnification(screen: NSScreen?) -> CGFloat? {
+    static func trueSizeMagnification(
+        screen: NSScreen?,
+        reference: SimulatorTrueSizeReference
+    ) -> CGFloat? {
         guard let screen else { return nil }
         let key = NSDeviceDescriptionKey("NSScreenNumber")
         let displayID = (screen.deviceDescription[key] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
         let physicalMM = CGDisplayScreenSize(displayID)
         guard physicalMM.width > 0 else { return nil }
         let pointsPerMM = screen.frame.width / physicalMM.width
-        return (panelWidthMM * pointsPerMM) / baseDisplayPoints
+        return (reference.physicalWidthMM * pointsPerMM) / reference.baseWidthPoints
     }
 }
 
+private struct SimulatorLaunchOptions {
+    var kind: SimulatorDeviceKind = .kompleteKontrolS61MK2
+    var instanceID = "main"
+
+    var definition: SimulatorDeviceDefinition {
+        SimulatorDeviceDefinition.definition(for: kind, instanceID: instanceID)
+    }
+
+    static func parse(_ arguments: [String]) -> SimulatorLaunchOptions {
+        if arguments.contains("--help") || arguments.contains("-h") || arguments.contains("help") {
+            print(help)
+            exit(0)
+        }
+        if arguments.contains("--version") {
+            print("KontrolSimulator (CompleteControl)")
+            exit(0)
+        }
+        var result = SimulatorLaunchOptions()
+        var index = 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--device" {
+                guard index + 1 < arguments.count else { fail("--device requires a value") }
+                index += 1
+                guard let kind = SimulatorDeviceKind(argument: arguments[index]) else {
+                    fail("unknown device '\(arguments[index])'; use 'maschine-mk3' or 'komplete-kontrol-s61-mk2'")
+                }
+                result.kind = kind
+            } else if argument.hasPrefix("--device=") {
+                let value = String(argument.dropFirst("--device=".count))
+                guard let kind = SimulatorDeviceKind(argument: value) else {
+                    fail("unknown device '\(value)'; use 'maschine-mk3' or 'komplete-kontrol-s61-mk2'")
+                }
+                result.kind = kind
+            } else if argument == "--instance" {
+                guard index + 1 < arguments.count else { fail("--instance requires a value") }
+                index += 1
+                result.instanceID = validatedInstanceID(arguments[index])
+            } else if argument.hasPrefix("--instance=") {
+                result.instanceID = validatedInstanceID(String(argument.dropFirst("--instance=".count)))
+            } else {
+                fail("unknown option '\(argument)'; run KontrolSimulator --help")
+            }
+            index += 1
+        }
+        return result
+    }
+
+    private static func validatedInstanceID(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard !value.isEmpty, value.utf8.count <= 32,
+              value.unicodeScalars.allSatisfy(allowed.contains) else {
+            fail("invalid instance ID '\(value)'; use 1–32 letters, digits, '-' or '_'")
+        }
+        return value
+    }
+
+    private static func fail(_ message: String) -> Never {
+        FileHandle.standardError.write(Data("KontrolSimulator: \(message)\n".utf8))
+        exit(64)
+    }
+
+    private static let help = """
+    KontrolSimulator — virtual Native Instruments control surface
+
+    Examples:
+      KontrolSimulator --device maschine-mk3
+      KontrolSimulator --device komplete-kontrol-s61-mk2
+
+    Options:
+      --device DEVICE    maschine-mk3 or komplete-kontrol-s61-mk2
+      --instance ID      diagnostic instance ID (letters, digits, '-' and '_')
+      -h, --help         show this help
+      --version          show the version
+
+    The default device remains komplete-kontrol-s61-mk2 for compatibility.
+    Clients connect through the ccd daemon started from the Daemon menu.
+    """
+}
+
+let launchDefinition = SimulatorLaunchOptions.parse(CommandLine.arguments).definition
 let application = NSApplication.shared
 application.setActivationPolicy(.regular)
-let controller = AppController()
+let controller = MainActor.assumeIsolated {
+    AppController(definition: launchDefinition)
+}
 application.delegate = controller
 application.run()

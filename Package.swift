@@ -12,9 +12,11 @@ let package = Package(
         .library(name: "KontrolSurfaceKit2", targets: ["KontrolSurfaceKit2"]),
         .library(name: "PaulincheSurfaceKit", targets: ["PaulincheSurfaceKit"]),
         .library(name: "KontrolUSB", targets: ["KontrolUSB"]),
+        .library(name: "KontrolSimulatorWire", targets: ["KontrolSimulatorWire"]),
+        .library(name: "KontrolSimulatorCore", targets: ["KontrolSimulatorCore"]),
         .executable(name: "ccd", targets: ["ccd"]),
         .executable(name: "MK2SurfaceDemo", targets: ["MK2SurfaceDemo"]),
-        .executable(name: "MK2WidgetLabDemo", targets: ["MK2WidgetLabDemo"]),
+        .executable(name: "widget-lab", targets: ["WidgetLab"]),
         .executable(name: "KontrolSimulator", targets: ["KontrolSimulator"]),
         .executable(name: "MK2USBSpy", targets: ["MK2USBSpy"]),
     ],
@@ -62,8 +64,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "KontrolSimulatorWire",
+            path: "Sources/KontrolSimulatorWire",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
             name: "KompleteKontrol",
-            dependencies: ["KontrolUSB"],
+            dependencies: ["KontrolUSB", "KontrolSimulatorWire"],
             path: "Sources/KompleteKontrol",
             resources: [
                 .copy("Resources/buddies.png"),
@@ -127,9 +136,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "MK2WidgetLabDemo",
+            name: "WidgetLab",
             dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
-            path: "Tools/MK2WidgetLabDemo",
+            path: "Tools/WidgetLab",
             exclude: ["SmokeScenarios.json"],
             resources: [
                 .copy("PhosphorIcons.regular.json"),
@@ -141,8 +150,16 @@ let package = Package(
         ),
         .executableTarget(
             name: "KontrolSimulator",
-            dependencies: ["KompleteKontrol"],
+            dependencies: ["KompleteKontrol", "KontrolSimulatorCore"],
             path: "Tools/KontrolSimulator",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
+            name: "KontrolSimulatorCore",
+            dependencies: ["KompleteKontrol", "KontrolSimulatorWire"],
+            path: "Sources/KontrolSimulatorCore",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
@@ -154,7 +171,7 @@ let package = Package(
         ),
         .testTarget(
             name: "KompleteKontrolTests",
-            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2", "PaulincheSurfaceKit"]
+            dependencies: ["KompleteKontrol", "KontrolSurfaceKit2", "PaulincheSurfaceKit", "KontrolSimulatorCore"]
         ),
         .plugin(
             name: "GenerateBuildInfo",

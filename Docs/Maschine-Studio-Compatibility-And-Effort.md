@@ -184,11 +184,19 @@ captures.
 | Display renderer | Existing `MK2PixelFrame`, screen DSL, image path, and display diffing are reusable |
 | Display USB profile | Device-specific: interface 5, bulk OUT endpoint `0x04` in openAV-Ctlra |
 | Surface USB profile | Device-specific: HID interface 4, interrupt IN `0x83`, interrupt OUT `0x03` in openAV-Ctlra |
-| Inputs | Public mappings exist for buttons, eight screen encoders, main encoder, touch, touchstrip, and pedal |
+| Inputs | Production decoding covers buttons, eight screen encoders, main encoder/touch, touchstrip, pedal/analogue fields, and pads; pad and shared-control paths are bench-verified while remaining source-derived controls retain their evidence labels |
 | Pads | HID report `0x02` is 64 bytes total and its payload is 21 three-byte record slots; physical 1-16 ordering, the slot-3 neutral sentinel, state edges, LED slots, and callback-to-write timing are bench-verified on bcdDevice `0x0146` |
-| LEDs | Public mappings exist for normal lamps, groups, pads, and the 25-segment touchstrip using output reports `0x80` and `0x81` |
+| LEDs | Production codecs and hardware calibration cover normal lamps, groups, pads, and the 25-segment touchstrip using output reports `0x80` and `0x81` |
 | Audio/MIDI | Composite USB device; control/display support must not disturb OS-owned audio interfaces. MIDI/DIN handling needs a separate capability decision |
-| Drop-in support in CompleteControl today | Device discovery, capability profile, safe interface ownership, displays, output clearing, semantic NO CLIENT decoding, and input-to-LED echo are implemented; a stable client-facing surface contract and simulator coverage remain |
+| Drop-in support in CompleteControl today | Device discovery, capability profile, safe interface ownership, displays, output clearing, semantic NO CLIENT decoding, Kit2 compatibility, pad-to-MIDI synthesis, and the single-device visual simulator are implemented |
+
+As of 2026-07-19, the same `KontrolSimulator` executable can present the MK3
+profile to arbitrary unchanged daemon clients. Its headless core synthesizes
+native MK3 input reports and reduces native output reports; the calibrated
+AppKit panel covers both displays, every supported control, all lamps and pads,
+the touch strip, profile-specific window/zoom state, and accessibility. This is
+single-device workflow/protocol evidence. Instance-isolated mixed operation and
+final physical feel/timing calibration remain separate follow-up work.
 
 ### Public implementation evidence
 
@@ -256,27 +264,25 @@ pixel codec: claim display interface 5, discover/fall back to endpoint `0x04`,
 and independently claim HID interface 4. Audio streaming interfaces must remain
 untouched; USB-MIDI should be claimed separately only when DIN MIDI is in scope.
 
-### CompleteControl changes required for MK3
+### CompleteControl changes delivered for MK3
 
-The current code assumes that an attached device has a key count, light guide,
-S-Series button reports, ribbon semantics, and a `KompleteKontrolDeviceModel`.
-MK3 needs capability-driven behaviour instead:
+The original S-Series assumptions were replaced or contained as follows:
 
-- add an MK3 product profile without pretending that its 16 pads are keys;
-- separate colour-display capabilities from the S-Series model enum;
-- select the MK3 input decoder by product profile and report length/type;
-- add semantic events for pads, pressure, touchstrip, the main encoder, and
+- an MK3 product profile represents its 16 pads without pretending they are keys;
+- colour-display capabilities are separate from the S-Series model enum;
+- the daemon selects the MK3 input decoder by product profile and report type;
+- semantic events cover pads, pressure, touchstrip, the main encoder, and
   the MK3 button set;
-- select MK3-specific `0x80`/`0x81` output codecs instead of reusing the
+- MK3-specific `0x80`/`0x81` output codecs replace accidental reuse of the
   numerically identical S-Series report IDs;
-- keep display and small-output queues independent so screen traffic cannot
+- display and small-output queues remain independent so screen traffic cannot
   delay pad feedback;
-- extend the simulator wire model and create an MK3 panel or protocol fixture
-  harness;
-- realize a useful MK3 scene and diagnostic page in MK2WidgetLabDemo without
+- the versioned simulator wire, headless MK3 profile, and calibrated visual panel
+  run below the normal daemon seam;
+- MK3 calibration scenes and diagnostics run in `widget-lab` without
   leaking product-specific reports into KontrolSurfaceKit2;
-- restore a safe device state on disconnect and establish how this interacts
-  with Native Instruments services.
+- disconnect clears MK3-owned output without claiming audio, MIDI, or DFU
+  interfaces.
 
 The built-in audio interface is deliberately outside this backend. The port
 should claim only the control and display functions and verify that Core Audio
@@ -360,6 +366,11 @@ The MK3 estimate uses the same one-engineering-day definition and assumes a
 physical MK3 is continuously available. It also assumes direct libusb ownership
 of the control/display interfaces, no requirement to run MASCHINE software at
 the same time, and no work on the built-in audio interface.
+
+This section is retained as the original planning baseline, not as a statement
+of remaining work. The production backend and the single-device simulator
+portion through the visual MK3 panel were delivered by 2026-07-19; mixed
+topology and final bench calibration are tracked separately.
 
 ### Milestones
 

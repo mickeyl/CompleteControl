@@ -32,7 +32,7 @@ public enum MK2HIG {
     ///
     /// This is a hand-picked subset, grown on demand: the full Phosphor
     /// Regular palette (≈1530 glyphs) lives in
-    /// `Tools/MK2WidgetLabDemo/PhosphorIcons.regular.json`. When a screen
+    /// `Tools/WidgetLab/PhosphorIcons.regular.json`. When a screen
     /// needs a glyph that is not here yet, look up its codepoint there and add
     /// a `case` below — never scatter raw `\u{…}` escapes through the demos or
     /// renderers. (The Icon Browser demo renders the whole JSON palette, so it

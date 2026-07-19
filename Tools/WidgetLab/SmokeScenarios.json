@@ -143,6 +143,15 @@
       ]
     },
     {
+      "demo": "hold-action-overlay",
+      "variant": "octave-5",
+      "actions": [
+        { "send": "button keyboard down" },
+        { "tap": "function6" },
+        { "send": "button keyboard up" }
+      ]
+    },
+    {
       "demo": "light-guide",
       "actions": [
         { "send": "encoder 5 3" },

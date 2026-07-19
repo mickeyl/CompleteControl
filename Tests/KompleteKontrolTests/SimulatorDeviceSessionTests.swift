@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import Darwin
 @testable import KompleteKontrol
+import KontrolSimulatorCore
 
 /// Drives a `SimulatorDeviceSession` over an in-process socketpair — no listening simulator,
 /// no hardware — to prove the round trip: semantic frames in → decoded input reports out,
@@ -39,6 +40,75 @@ struct SimulatorDeviceSessionTests {
         let baseline = MK2InputReportBuilder().bytes
         let events = KKMK2InputReportDecoder.eventsForReport(previous: baseline, current: received[0])
         #expect(events == [.button(led: .function3, pressed: true)])
+    }
+
+    @Test("A native MK3 surface frame reaches the sink without MK2 lowering")
+    func nativeMK3InputPath() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let descriptor = SimulatorDeviceDefinition.definition(for: .maschineMK3).descriptor
+        let session = SimulatorDeviceSession(fd: daemon, descriptor: descriptor)
+        var received: [UInt8] = []
+        _ = session.startAsyncInput { data, length in
+            received = Array(UnsafeBufferPointer(start: data, count: Int(length)))
+        }
+
+        var builder = MaschineMK3InputReportBuilder()
+        builder.setButton(.padMode, pressed: true)
+        send(.surfaceInput(builder.surfaceBytes), to: sim)
+        session.handleEvents(timeoutMs: 0)
+
+        #expect(session.productID == MaschineMK3Protocol.productID)
+        #expect(session.keyCount == 0)
+        #expect(session.deviceProfile.family == .maschineMK3)
+        #expect(received == builder.surfaceBytes)
+    }
+
+    @Test("The v2 handshake authoritatively selects MASCHINE MK3")
+    func authoritativeHandshake() throws {
+        let socketPath = "/tmp/cc-mk3-\(getpid())-\(UUID().uuidString.prefix(8)).sock"
+        let definition = SimulatorDeviceDefinition.definition(for: .maschineMK3, instanceID: "handshake")
+        let link = DeviceLink(socketPath: socketPath, descriptor: definition.descriptor)
+        #expect(link.start())
+        defer { link.stop() }
+
+        let opened = SimulatorDeviceSession.open(socketPath: socketPath)
+        let session = try #require(opened.session)
+        defer { session.close() }
+        #expect(opened.result.status == 0)
+        #expect(session.productID == MaschineMK3Protocol.productID)
+        #expect(session.firmwareVersion == 0x0146)
+        #expect(session.deviceProfile.family == .maschineMK3)
+    }
+
+    @Test("Unsupported wire versions are rejected before session registration")
+    func versionMismatch() {
+        let socketPath = "/tmp/cc-version-\(getpid())-\(UUID().uuidString.prefix(8)).sock"
+        var descriptor = SimulatorDeviceDefinition.definition(for: .maschineMK3).descriptor
+        descriptor.wireVersion = SimWireProtocol.currentVersion + 1
+        let link = DeviceLink(socketPath: socketPath, descriptor: descriptor)
+        #expect(link.start())
+        defer { link.stop() }
+
+        let opened = SimulatorDeviceSession.open(socketPath: socketPath)
+        #expect(opened.session == nil)
+        #expect(opened.result.status == -2)
+    }
+
+    @Test("An oversized post-handshake frame marks the virtual device lost")
+    func oversizedFrameMarksDeviceLost() {
+        let (daemon, sim) = makePair()
+        defer { Darwin.close(daemon); Darwin.close(sim) }
+        let session = SimulatorDeviceSession(fd: daemon)
+        let oversized = UInt32(SimWireProtocol.maximumPayloadLength + 1)
+        let header: [UInt8] = [
+            SimFrameType.surfaceInput.rawValue,
+            UInt8(oversized >> 24), UInt8((oversized >> 16) & 0xff),
+            UInt8((oversized >> 8) & 0xff), UInt8(oversized & 0xff),
+        ]
+        _ = header.withUnsafeBytes { write(sim, $0.baseAddress, header.count) }
+        session.handleEvents(timeoutMs: 0)
+        #expect(session.isDeviceLost)
     }
 
     @Test("Encoder frames accumulate into the running report state")

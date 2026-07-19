@@ -61,7 +61,7 @@ func replComplete(_ tokens: [String]) -> [String] {
 }
 
 func printReplHelp() {
-    print("MK2WidgetLabDemo REPL — commands (Tab completes):")
+    print("Widget Lab REPL — commands (Tab completes):")
     for command in replCommands {
         let left = "\(command.name) \(command.arg)".padding(toLength: 26, withPad: " ", startingAt: 0)
         print("  \(left)\(command.summary)")
@@ -355,7 +355,7 @@ actor LabShell {
     }
 
     // Headless verification hook: render each implemented unit's two-screen scene to a PNG
-    // without a surface/daemon connection. Driven by WIDGETLAB_SNAPSHOT_DIR at launch.
+    // without a surface/daemon connection. Driven by WIDGET_LAB_SNAPSHOT_DIR at launch.
     func snapshotAll(to directory: String) async {
         // The browser itself, once per category filter.
         mode = .browser

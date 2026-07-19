@@ -573,14 +573,22 @@ public struct MaschineMK3PadStateTracker: Sendable {
     }
 }
 
-public enum MaschineMK3InputReportDecoder {
-    private struct ButtonBit {
-        var byte: Int
-        var mask: UInt8
-        var button: MaschineMK3Button
+public enum MaschineMK3InputReportLayout {
+    public struct ButtonBit: Sendable, Equatable {
+        public var byte: Int
+        public var mask: UInt8
+        public var button: MaschineMK3Button
+
+        public init(byte: Int, mask: UInt8, button: MaschineMK3Button) {
+            self.byte = byte
+            self.mask = mask
+            self.button = button
+        }
     }
 
-    private static let buttonBits: [ButtonBit] = [
+    /// Shared by the production decoder and simulator builder. Keeping the bit map public
+    /// to the module boundary prevents the simulator from maintaining a drifting copy.
+    public static let buttonBits: [ButtonBit] = [
         ButtonBit(byte: 1, mask: 0x01, button: .mainEncoderPress),
         ButtonBit(byte: 1, mask: 0x04, button: .mainEncoderUp),
         ButtonBit(byte: 1, mask: 0x08, button: .mainEncoderRight),
@@ -645,6 +653,9 @@ public enum MaschineMK3InputReportDecoder {
         ButtonBit(byte: 9, mask: 0x20, button: .displayButton6),
         ButtonBit(byte: 9, mask: 0x40, button: .displayButton7),
     ]
+}
+
+public enum MaschineMK3InputReportDecoder {
 
     public static func observe(previous: [UInt8]?, current: [UInt8]) -> MaschineMK3InputReportObservation {
         guard let reportID = current.first else {
@@ -754,7 +765,7 @@ public enum MaschineMK3InputReportDecoder {
         var events: [MaschineMK3SurfaceEvent] = []
         var explained = Set<Int>()
 
-        for bit in buttonBits {
+        for bit in MaschineMK3InputReportLayout.buttonBits {
             let wasPressed = previous[bit.byte] & bit.mask != 0
             let isPressed = current[bit.byte] & bit.mask != 0
             if wasPressed != isPressed {
@@ -848,7 +859,7 @@ public enum MaschineMK3InputReportDecoder {
     /// inventing an unknowable first delta.
     private static func initialEventBaseline(current: [UInt8]) -> [UInt8] {
         var baseline = current
-        for bit in buttonBits {
+        for bit in MaschineMK3InputReportLayout.buttonBits {
             baseline[bit.byte] &= ~bit.mask
         }
         for offset in [30, 34] {

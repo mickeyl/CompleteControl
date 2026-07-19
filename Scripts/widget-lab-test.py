@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke, stress, soak, and compare the complete MK2 Widget Lab interaction path."""
+"""Smoke, stress, soak, and compare the complete Widget Lab interaction path."""
 
 import argparse
 import json
@@ -35,8 +35,8 @@ from kk_daemon import (  # noqa: E402
 
 
 VERSION = "0.1.0"
-DEFAULT_WIDGET_LAB = REPO_ROOT / ".build" / "debug" / "MK2WidgetLabDemo"
-DEFAULT_SCENARIOS = REPO_ROOT / "Tools" / "MK2WidgetLabDemo" / "SmokeScenarios.json"
+DEFAULT_WIDGET_LAB = REPO_ROOT / ".build" / "debug" / "widget-lab"
+DEFAULT_SCENARIOS = REPO_ROOT / "Tools" / "WidgetLab" / "SmokeScenarios.json"
 DISPLAY_WIDTH = 480
 DISPLAY_HEIGHT = 272
 
@@ -60,7 +60,7 @@ def parse_duration(value):
 
 def default_output_directory(mode):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    return Path("/tmp") / ("kk-widgetlab-%s-%s" % (mode, timestamp))
+    return Path("/tmp") / ("widget-lab-%s-%s" % (mode, timestamp))
 
 
 def load_scenarios(path):
@@ -118,7 +118,7 @@ class WidgetLabControl:
     def start(self):
         if not os.path.isfile(self.executable) or not os.access(self.executable, os.X_OK):
             raise CLIError(
-                "Widget Lab executable not found at %s. Run `make mk2-widget-lab-demo-build`."
+                "Widget Lab executable not found at %s. Run `make widget-lab-build`."
                 % self.executable,
                 EXIT_IO,
             )
@@ -682,7 +682,7 @@ def validate_command(args):
     executable = Path(args.widget_lab)
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise CLIError(
-            "Widget Lab executable not found at %s. Run `make mk2-widget-lab-demo-build`." % executable,
+            "Widget Lab executable not found at %s. Run `make widget-lab-build`." % executable,
             EXIT_IO,
         )
     try:
@@ -764,19 +764,19 @@ def add_run_options(parser, mode):
 
 def make_parser():
     parser = argparse.ArgumentParser(
-        description="Drive every MK2 Widget Lab demo through ccd and verify live display output.",
+        description="Drive every Widget Lab demo through ccd and verify live display output.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  kk-widgetlab-test.py smoke
-  kk-widgetlab-test.py stress --duration 30m --seed 42
-  kk-widgetlab-test.py soak --duration 8h --output /tmp/adaptive-soak
-  kk-widgetlab-test.py compare --adaptive-report A/report.json --legacy-report B/report.json
+  widget-lab-test.py smoke
+  widget-lab-test.py stress --duration 30m --seed 42
+  widget-lab-test.py soak --duration 8h --output /tmp/adaptive-soak
+  widget-lab-test.py compare --adaptive-report A/report.json --legacy-report B/report.json
 
 The runner launches and later stops only its own Widget Lab process. It never restarts,
 reconfigures, or stops ccd. Physical hardware requires the explicit --hardware flag.
 """,
     )
-    parser.add_argument("--version", action="version", version="kk-widgetlab-test %s" % VERSION)
+    parser.add_argument("--version", action="version", version="widget-lab-test %s" % VERSION)
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
     for mode in ("smoke", "stress", "soak"):
         add_run_options(subparsers.add_parser(mode, help="run the %s profile" % mode), mode)

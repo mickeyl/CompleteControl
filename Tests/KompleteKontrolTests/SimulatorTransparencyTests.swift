@@ -111,6 +111,34 @@ struct MK2InputReportBuilderTests {
 
 @Suite("Simulator wire codec")
 struct SimWireCodecTests {
+    @Test("Versioned device descriptors round-trip with capabilities")
+    func descriptorRoundTrip() throws {
+        let descriptor = SimulatorDeviceDescriptor(
+            productID: MaschineMK3Protocol.productID,
+            keyCount: 0,
+            firmwareVersion: 0x0146,
+            instanceID: "mk3-test",
+            reportedName: "Studio MK3",
+            capabilities: [.rawSurfaceInput, .displayPackets, .outputReports]
+        )
+        let decoded = try SimulatorDeviceDescriptor(payload: descriptor.encodedPayload())
+        #expect(decoded == descriptor)
+        #expect(SimFrame.hello(descriptor: descriptor).type == .hello)
+    }
+
+    @Test("Oversized payload headers are rejected before buffering their body")
+    func oversizedPayload() {
+        let oversized = UInt32(SimWireProtocol.maximumPayloadLength + 1)
+        let bytes: [UInt8] = [
+            SimFrameType.surfaceInput.rawValue,
+            UInt8(oversized >> 24), UInt8((oversized >> 16) & 0xff),
+            UInt8((oversized >> 8) & 0xff), UInt8(oversized & 0xff),
+        ]
+        #expect(throws: SimWireError.payloadTooLarge(Int(oversized))) {
+            _ = try SimWireCodec.decodeChecked(bytes)
+        }
+    }
+
     @Test("Encode → decode round-trips a single frame and reports consumption")
     func roundTrip() {
         let frame = SimFrame.button(led: .function3, pressed: true)
@@ -161,5 +189,62 @@ struct SimWireCodecTests {
         let (frames, consumed) = SimWireCodec.decode(SimWireCodec.encode(frame))
         #expect(frames == [frame])
         #expect(consumed == SimWireCodec.encode(frame).count)
+    }
+}
+
+@Suite("MASCHINE MK3 input report builder ↔ decoder round-trip")
+struct MaschineMK3InputReportBuilderTests {
+    @Test("Every mapped button uses the production decoder table")
+    func buttons() {
+        for button in MaschineMK3Button.allCases {
+            let before = MaschineMK3InputReportBuilder()
+            var after = before
+            after.setButton(button, pressed: true)
+            #expect(MaschineMK3InputReportDecoder.surfaceEvents(
+                previous: before.surfaceBytes,
+                current: after.surfaceBytes
+            ) == [.button(button: button, pressed: true)])
+        }
+    }
+
+    @Test("Main/display encoders, touch and strip are native surface changes")
+    func surfaceControls() {
+        var builder = MaschineMK3InputReportBuilder()
+        var previous = builder.surfaceBytes
+        builder.turnEncoder(0, delta: -1)
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: builder.surfaceBytes)
+            == [.encoder(index: 0, delta: -1, value: 15)])
+
+        previous = builder.surfaceBytes
+        builder.turnEncoder(5, delta: 7)
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: builder.surfaceBytes)
+            == [.encoder(index: 5, delta: 7, value: 7)])
+
+        previous = builder.surfaceBytes
+        builder.setEncoderTouch(5, touched: true)
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: builder.surfaceBytes)
+            == [.encoderTouch(index: 5, touched: true)])
+
+        previous = builder.surfaceBytes
+        builder.setTouchStrip(finger: 2, position: 800)
+        #expect(MaschineMK3InputReportDecoder.surfaceEvents(previous: previous, current: builder.surfaceBytes)
+            == [.touchStrip(finger: 2, position: 800)])
+    }
+
+    @Test("Pad strike, pressure and release form a complete native lifecycle")
+    func padLifecycle() throws {
+        var builder = MaschineMK3InputReportBuilder()
+        let hardwareIndex = try #require(MaschineMK3InputReportBuilder.hardwareIndex(forPhysicalPadNumber: 1))
+        var tracker = MaschineMK3PadStateTracker()
+
+        let strikeReport = builder.padStrike(hardwareIndex: hardwareIndex, velocity: 3000)
+        let strike = try #require(strikeReport)
+        #expect(tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: strike)).first?.phase == .down)
+        let pressureReport = builder.padPressure(hardwareIndex: hardwareIndex, pressure: 1700)
+        let pressure = try #require(pressureReport)
+        #expect(tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: pressure)).first?.phase == .pressure)
+        let releaseReport = builder.padRelease(hardwareIndex: hardwareIndex)
+        let release = try #require(releaseReport)
+        #expect(tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: release)).first?.phase == .up)
     }
 }

@@ -127,10 +127,14 @@ purely through synthetic hardware input, on an isolated socket pair.
    .build/debug/KontrolSimulator -KontrolSimulator.daemon.autostart YES -KontrolSimulator.daemon.automationEnabled YES &
    ```
 
-   Or, if you'd rather use the GUI: launch `make run-simulator`, then in the **Daemon** menu
-   check both **Autostart Daemon If Not Running** and **Enable Test-Automation Socket**. Both
-   checkboxes persist for next time. Changing the automation setting restarts a simulator-owned
-   daemon while autostart is enabled; an externally launched daemon must be restarted by its owner.
+   Add `--device maschine-mk3` to use the MK3 profile, or launch the GUI with
+   `make run-simulator` (KONTROL) / `make run-mk3-simulator` (MASCHINE). In the
+   **Daemon** menu check both **Autostart Daemon If Not Running** and **Enable
+   Test-Automation Socket**. Both checkboxes persist for next time. Changing the
+   automation setting restarts a simulator-owned daemon while autostart is
+   enabled; an externally launched daemon must be restarted by its owner.
+   KONTROL and MASCHINE currently share this default endpoint, so run only one
+   profile at a time until instance-scoped mixed topology is implemented.
 
 2. Confirm the simulator's own daemon is up on its own socket (not the hardware default):
 
@@ -175,7 +179,7 @@ purely through synthetic hardware input, on an isolated socket pair.
 
 ## 4. Complete Widget Lab smoke, stress, and soak tests
 
-`kk-widgetlab-test.py` launches its own `MK2WidgetLabDemo` client, drives actual hardware input
+`widget-lab-test.py` launches its own `widget-lab` client, drives actual hardware input
 through the daemon's automation socket, and reads the daemon's completed display shadow out of
 band. It never starts, stops, restarts, or reconfigures the daemon. The simulator daemon must
 already be running with automation enabled as described in section 3.
@@ -184,37 +188,37 @@ First validate the catalogue without a daemon. This fails whenever a registered 
 has no scenario, or the manifest references a removed demo:
 
 ```bash
-make mk2-widget-lab-test-validate
+make widget-lab-test-validate
 ```
 
 Then run the normal-use sweep. Every demo is opened, allowed to present its baseline scene, driven
 through its real bindings, and checked pixel-for-pixel on both 480×272 displays:
 
 ```bash
-make mk2-widget-lab-smoke
+make widget-lab-smoke
 # Equivalent:
-Scripts/kk-widgetlab-test.py smoke --socket /tmp/kontrol-simulator-daemon.sock
+Scripts/widget-lab-test.py smoke --socket /tmp/kontrol-simulator-daemon.sock
 ```
 
 The more aggressive profiles remove the per-scene baseline barrier, accelerate actions, shuffle
 the demo order from a recorded seed, and take periodic snapshots:
 
 ```bash
-make mk2-widget-lab-stress                    # 15 minutes
-make mk2-widget-lab-soak                      # 8 hours
+make widget-lab-stress                        # 15 minutes
+make widget-lab-soak                          # 8 hours
 
-WIDGETLAB_STRESS_DURATION=30m make mk2-widget-lab-stress
-WIDGETLAB_SOAK_DURATION=24h make mk2-widget-lab-soak
+WIDGET_LAB_STRESS_DURATION=30m make widget-lab-stress
+WIDGET_LAB_SOAK_DURATION=24h make widget-lab-soak
 
-Scripts/kk-widgetlab-test.py stress --cycles 100 --burst 3 --seed 42
-Scripts/kk-widgetlab-test.py soak --duration 8h --snapshot-interval 1m --seed 42
+Scripts/widget-lab-test.py stress --cycles 100 --burst 3 --seed 42
+Scripts/widget-lab-test.py soak --duration 8h --snapshot-interval 1m --seed 42
 ```
 
 `--burst` repeats the external input sequence for ordinary demos. The display benchmark remains
 one serialized scenario per catalogue pass because it already performs 12 alternating updates per
 fixture and temporarily owns the daemon-wide display-measurement session.
 
-Use `WIDGETLAB_TEST_SOCKET` to select another simulator daemon and `WIDGETLAB_TEST_ARGS` for
+Use `WIDGET_LAB_TEST_SOCKET` to select another simulator daemon and `WIDGET_LAB_TEST_ARGS` for
 additional CLI flags. Physical hardware is refused unless the direct CLI is given both its socket
 and `--hardware`; the Make targets intentionally default to the simulator socket.
 
@@ -230,14 +234,14 @@ change that setting itself.
 
 ```bash
 # Daemon currently started with adaptive encoding:
-Scripts/kk-widgetlab-test.py soak --cycles 1000 --burst 3 --seed 42 \
+Scripts/widget-lab-test.py soak --cycles 1000 --burst 3 --seed 42 \
   --output /tmp/widgetlab-adaptive
 
 # Restart the simulator daemon with legacy encoding, then run the identical workload:
-Scripts/kk-widgetlab-test.py soak --cycles 1000 --burst 3 --seed 42 \
+Scripts/widget-lab-test.py soak --cycles 1000 --burst 3 --seed 42 \
   --output /tmp/widgetlab-legacy
 
-make mk2-widget-lab-compare \
+make widget-lab-compare \
   ADAPTIVE_REPORT=/tmp/widgetlab-adaptive/report.json \
   LEGACY_REPORT=/tmp/widgetlab-legacy/report.json
 ```

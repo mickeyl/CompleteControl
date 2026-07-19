@@ -8,8 +8,8 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).parents[2]
-SCRIPT_PATH = REPO_ROOT / "Scripts" / "kk-widgetlab-test.py"
-SPEC = importlib.util.spec_from_file_location("kk_widgetlab_test", SCRIPT_PATH)
+SCRIPT_PATH = REPO_ROOT / "Scripts" / "widget-lab-test.py"
+SPEC = importlib.util.spec_from_file_location("widget_lab_test", SCRIPT_PATH)
 widgetlab = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(widgetlab)
 
@@ -25,7 +25,7 @@ class ScenarioTests(unittest.TestCase):
     def test_checked_in_manifest_covers_unique_demo_ids(self):
         scenarios = widgetlab.load_scenarios(widgetlab.DEFAULT_SCENARIOS)
         ids = [scenario["demo"] for scenario in scenarios]
-        self.assertEqual(len(ids), 15)
+        self.assertEqual(len(ids), 17)
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_coverage_reports_missing_and_unknown_demos(self):

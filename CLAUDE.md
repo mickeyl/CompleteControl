@@ -1,7 +1,8 @@
 # CompleteControl Agent Handover
 
 CompleteControl is the hardware and middleware stack for Native Instruments
-Komplete Kontrol S49/S61/S88 MK2 keyboards and the MASCHINE MK3 bring-up path.
+Komplete Kontrol S49/S61/S88 MK2 keyboards and MASCHINE MK3, including a
+single-device simulator profile for each family.
 The repository no longer contains a legacy-generation driver, middleware
 target, daemon branch, diagnostic tool, or device descriptor.
 
@@ -18,12 +19,14 @@ change as the implementation. Keep `README.md` user-facing and
 | --- | --- |
 | `KompleteKontrol` | Protocol types, input decoding, daemon clients, and `ccd` server implementation |
 | `KontrolUSB` | Persistent profile-driven libusb session and USB endpoint handling |
+| `KontrolSimulatorWire` | Foundation-only versioned simulator descriptor and bounded frame codec |
+| `KontrolSimulatorCore` | Headless virtual-device definitions, native MK3 gesture synthesis, output reduction, and calibrated geometry |
 | `KontrolSurfaceKit2` | Declarative two-screen surface middleware |
 | `PaulincheSurfaceKit` | Paulinche-specific Kit2 renderers |
 | `ccd` | Privileged hardware/simulator daemon |
 | `MK2SurfaceDemo` | Compact hardware feature demo |
-| `MK2WidgetLabDemo` | Kit2 demo browser (Calibration, Look & Feel, Kit Catalogue, Diagnostics): per-file `LabDemo`s, snapshot harness, LED/light-guide REPL |
-| `KontrolSimulator` | S61 MK2 panel and simulator-daemon host |
+| `widget-lab` | Device-independent Kit2 demo browser (Calibration, Look & Feel, Kit Catalogue, Diagnostics): per-file `LabDemo`s, snapshot harness, LED/light-guide REPL |
+| `KontrolSimulator` | Profile-driven S61 MK2/MASCHINE MK3 panel and simulator-daemon host |
 | `MK2USBSpy` | Direct descriptor/input diagnostic with safe per-interface MK3 capture |
 
 ## Build And Test
@@ -32,9 +35,11 @@ change as the implementation. Keep `README.md` user-facing and
 swift build
 swift test
 swift build -c release --product ccd
+swift build --product KontrolSimulator
+swift test --filter SimulatorCoreTests
 ```
 
-For a reusable Kit2 API, also realize it in `MK2WidgetLabDemo` and add focused
+For a reusable Kit2 API, also realize it in `widget-lab` and add focused
 or snapshot coverage. The simulator should remain wire-compatible with the
 hardware daemon.
 
@@ -163,8 +168,10 @@ current MK2-named semantic vocabulary. Keep input lowering and reverse lamp
 mapping in the single `SurfaceDeviceCompatibility.swift` mapping table; never
 synthesize fake MK2 USB reports and never create a parallel MK3 scene runtime.
 Unsupported capabilities such as the MK3 light guide are skipped rather than
-treated as connection failures. Pads stay outside the button compatibility map
-until their HID-to-MIDI velocity and poly-pressure contract is implemented.
+treated as connection failures. Pads stay outside the button compatibility map;
+their native timed stream is exposed separately and
+`KontrolPadMIDISynthesizer` lowers accepted strikes, held pressure, and releases
+into the same MIDI binding used by the MK2 keybed.
 
 Layout rules:
 
@@ -254,13 +261,39 @@ for tracker/grid content. Keep repeated text in the glyph/run caches.
 
 ## Simulator
 
-`KontrolSimulator` emulates an S61 MK2 and communicates through
-`SimWireProtocol`. The daemon selects it with `CCD_SIMULATE=<socket>`; clients
-then use the simulator daemon socket through `KK_DAEMON_SOCKET`.
+`KontrolSimulator` is one executable with S61 MK2 and MASCHINE MK3 profiles.
+`KontrolSimulatorWire` version 2 begins every connection with a bounded,
+authoritative descriptor containing product, capabilities, firmware, reported
+name, and diagnostic instance ID. MK3 gestures are synthesized as native input
+reports by `KontrolSimulatorCore` and pass through the production decoder;
+KONTROL retains its compatibility lowering while sharing the same descriptor,
+framebuffer, daemon, and client boundary. The daemon selects the virtual device
+with `CCD_SIMULATE=<socket>`; unchanged clients use its normal endpoint through
+`KK_DAEMON_SOCKET`.
 
 ```bash
 make run-simulator
-make mk2-widget-lab-demo-sim
+make run-mk3-simulator
+make widget-lab-sim
 ```
+
+The default profile is `komplete-kontrol-s61-mk2`; deterministic launches may
+pass `--device komplete-kontrol-s61-mk2` or `--device maschine-mk3`. Keep window
+frame, zoom mode, and magnification defaults profile-scoped. Connection state
+and the model name belong in the fixed window status bar, never in the
+magnifiable hardware document. Preserve the MK3 320x301-mm calibrated geometry,
+the shared combined click/Command-rotate main encoder, multi-held keyboard pads,
+accessibility controls, and the profile keyboard cheat sheet.
+
+The default device and daemon socket paths are still global. `--instance` is
+descriptor provenance only; it does not isolate paths or permit two simulator
+daemons. Real/simulated mixed operation and simultaneous KONTROL+MASCHINE remain
+Phase 5 of `Docs/Maschine-MK3-Simulator-Plan.md`.
+
+For visual acceptance snapshots, set `KONTROLSIM_SNAPSHOT_PATH`; optional
+`KONTROLSIM_SNAPSHOT_SCALE`, `KONTROLSIM_SNAPSHOT_DELAY`, and
+`KONTROLSIM_SNAPSHOT_INCLUDE_CHROME=1` select resolution, settle time, and the
+full window including the fixed status bar. Snapshot runs must not overwrite
+the user's persisted window profiles.
 
 Do not special-case simulator behavior above the `KontrolDeviceSession` seam.

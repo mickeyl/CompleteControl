@@ -19,7 +19,16 @@ struct DaemonHardwareAutomationTests {
         var fds: [Int32] = [0, 0]
         _ = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
         _ = fcntl(fds[0], F_SETFL, O_NONBLOCK)
+        _ = fcntl(fds[1], F_SETFL, O_NONBLOCK)
         hardware.addClient(fd: fds[0], clientID: clientID, channel: .event)
+        let registration = KKDaemonBinaryFrame(
+            channel: .event,
+            type: .register,
+            sequence: 1,
+            payload: KKDaemonBinaryCodec.registerPayload(pid: getpid(), name: "automation-test")
+        )
+        let response = hardware.handleBinaryFrame(registration, clientID: clientID, channel: .event)
+        #expect(KKDaemonBinaryCodec.parseAckPayload(response.payload)?.status == 0)
         return (fds[0], fds[1])
     }
 

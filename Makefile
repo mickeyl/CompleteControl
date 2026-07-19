@@ -13,24 +13,24 @@ DAEMON_RELEASE := .build/release/ccd
 DAEMON_TRACE_LOG ?= /tmp/ccd-trace.log
 MK2_SURFACE_DEMO := .build/debug/MK2SurfaceDemo
 MK2_SURFACE_DEMO_RELEASE := .build/release/MK2SurfaceDemo
-MK2_WIDGET_LAB_DEMO := .build/debug/MK2WidgetLabDemo
-MK2_WIDGET_LAB_DEMO_RELEASE := .build/release/MK2WidgetLabDemo
+WIDGET_LAB := .build/debug/widget-lab
+WIDGET_LAB_RELEASE := .build/release/widget-lab
 MK2_USB_SPY := .build/debug/MK2USBSpy
 MK2_USB_SPY_SECONDS ?= 0
 MK2_USB_SPY_PID ?=
 MK2_USB_SPY_ARGS = $(if $(MK2_USB_SPY_PID),--pid $(MK2_USB_SPY_PID),) $(if $(filter-out 0,$(MK2_USB_SPY_SECONDS)),--seconds $(MK2_USB_SPY_SECONDS),)
 MASCHINE_MK3_INPUT_SPY_SECONDS ?= 10
-WIDGETLAB_TEST_SOCKET ?= /tmp/kontrol-simulator-daemon.sock
-WIDGETLAB_STRESS_DURATION ?= 15m
-WIDGETLAB_SOAK_DURATION ?= 8h
-WIDGETLAB_TEST_ARGS ?=
+WIDGET_LAB_TEST_SOCKET ?= /tmp/kontrol-simulator-daemon.sock
+WIDGET_LAB_STRESS_DURATION ?= 15m
+WIDGET_LAB_SOAK_DURATION ?= 8h
+WIDGET_LAB_TEST_ARGS ?=
 ADAPTIVE_REPORT ?=
 LEGACY_REPORT ?=
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release widget-lab-build widget-lab-build-release widget-lab widget-lab-sim widget-lab-release widget-lab-test-validate widget-lab-smoke widget-lab-stress widget-lab-soak widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator run-mk3-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGET_LAB_TEST_SOCKET)" -v stress="$(WIDGET_LAB_STRESS_DURATION)" -v soak="$(WIDGET_LAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGET_LAB_TEST_SOCKET=%s\n  WIDGET_LAB_STRESS_DURATION=%s  WIDGET_LAB_SOAK_DURATION=%s\n  WIDGET_LAB_TEST_ARGS=...  additional widget-lab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -38,10 +38,10 @@ vendor-init: ## Initialize pinned vendored dependencies.
 clean: ## Remove SwiftPM build artifacts.
 	swift package clean
 
-build: vendor-init ## Build all MK2 libraries and tools.
+build: vendor-init ## Build all CompleteControl libraries and tools.
 	swift build
 
-build-release: vendor-init ## Build all MK2 libraries and tools optimized.
+build-release: vendor-init ## Build all CompleteControl libraries and tools optimized.
 	swift build -c release
 
 display-codec-benchmark: ## Run the deterministic adaptive display-codec cost replay.
@@ -53,11 +53,11 @@ mk2-surface-demo-build: vendor-init ## Build the MK2 hardware-only SurfaceKit2 f
 mk2-surface-demo-build-release: vendor-init ## Build optimized MK2 hardware-only SurfaceKit2 feature demo.
 	swift build -c release --product MK2SurfaceDemo
 
-mk2-widget-lab-demo-build: vendor-init ## Build the MK2 Widget Lab demo.
-	swift build --product MK2WidgetLabDemo
+widget-lab-build: vendor-init ## Build the device-independent Widget Lab.
+	swift build --product widget-lab
 
-mk2-widget-lab-demo-build-release: vendor-init ## Build optimized MK2 Widget Lab demo.
-	swift build -c release --product MK2WidgetLabDemo
+widget-lab-build-release: vendor-init ## Build the optimized device-independent Widget Lab.
+	swift build -c release --product widget-lab
 
 daemon-build: vendor-init ## Build the CompleteControl daemon.
 	swift build -c debug --product ccd
@@ -166,6 +166,11 @@ run-simulator: daemon-build ## Build and run the KontrolSimulator panel app (vir
 	@echo "Launching the simulator window. The built-in Daemon menu will use the freshly built debug ccd."
 	KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) .build/debug/KontrolSimulator
 
+run-mk3-simulator: daemon-build ## Build and run the MASCHINE MK3 simulator (single simulated device).
+	swift build --product KontrolSimulator
+	@echo "Launching MASCHINE MK3. Start its user-level ccd from the Daemon menu."
+	KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) .build/debug/KontrolSimulator --device maschine-mk3
+
 daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
 	@echo "Stopping installed/foreground daemons..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
@@ -216,32 +221,32 @@ mk2-surface-demo-release: mk2-surface-demo-build-release ## Run optimized MK2 ha
 	@$(MAKE) daemon-preflight
 	$(MK2_SURFACE_DEMO_RELEASE)
 
-mk2-widget-lab-demo: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab demo.
+widget-lab: widget-lab-build ## Run Widget Lab against the normal daemon endpoint.
 	@$(MAKE) daemon-preflight
-	$(MK2_WIDGET_LAB_DEMO)
+	$(WIDGET_LAB)
 
-mk2-widget-lab-demo-sim: mk2-widget-lab-demo-build ## Run the MK2 Widget Lab demo against the simulator daemon (start it from the KontrolSimulator Daemon menu; no sudo).
-	KK_DAEMON_SOCKET=/tmp/kontrol-simulator-daemon.sock $(MK2_WIDGET_LAB_DEMO)
+widget-lab-sim: widget-lab-build ## Run the same Widget Lab against the simulator daemon endpoint.
+	KK_DAEMON_SOCKET=/tmp/kontrol-simulator-daemon.sock $(WIDGET_LAB)
 
-mk2-widget-lab-demo-release: mk2-widget-lab-demo-build-release ## Run optimized MK2 Widget Lab demo.
+widget-lab-release: widget-lab-build-release ## Run optimized Widget Lab against the normal daemon endpoint.
 	@$(MAKE) daemon-preflight
-	$(MK2_WIDGET_LAB_DEMO_RELEASE)
+	$(WIDGET_LAB_RELEASE)
 
-mk2-widget-lab-test-validate: mk2-widget-lab-demo-build ## Validate that every Widget Lab demo has a smoke scenario.
-	Scripts/kk-widgetlab-test.py validate
+widget-lab-test-validate: widget-lab-build ## Validate that every Widget Lab demo has a smoke scenario.
+	Scripts/widget-lab-test.py validate
 
-mk2-widget-lab-smoke: mk2-widget-lab-demo-build ## Run the complete Widget Lab smoke suite against the simulator daemon.
-	Scripts/kk-widgetlab-test.py smoke --socket $(WIDGETLAB_TEST_SOCKET) $(WIDGETLAB_TEST_ARGS)
+widget-lab-smoke: widget-lab-build ## Run the complete Widget Lab smoke suite against the configured daemon endpoint.
+	Scripts/widget-lab-test.py smoke --socket $(WIDGET_LAB_TEST_SOCKET) $(WIDGET_LAB_TEST_ARGS)
 
-mk2-widget-lab-stress: mk2-widget-lab-demo-build ## Stress every Widget Lab demo (default: 15m; override WIDGETLAB_STRESS_DURATION).
-	Scripts/kk-widgetlab-test.py stress --socket $(WIDGETLAB_TEST_SOCKET) --duration $(WIDGETLAB_STRESS_DURATION) $(WIDGETLAB_TEST_ARGS)
+widget-lab-stress: widget-lab-build ## Stress every Widget Lab demo (default: 15m; override WIDGET_LAB_STRESS_DURATION).
+	Scripts/widget-lab-test.py stress --socket $(WIDGET_LAB_TEST_SOCKET) --duration $(WIDGET_LAB_STRESS_DURATION) $(WIDGET_LAB_TEST_ARGS)
 
-mk2-widget-lab-soak: mk2-widget-lab-demo-build ## Soak every Widget Lab demo (default: 8h; override WIDGETLAB_SOAK_DURATION).
-	Scripts/kk-widgetlab-test.py soak --socket $(WIDGETLAB_TEST_SOCKET) --duration $(WIDGETLAB_SOAK_DURATION) $(WIDGETLAB_TEST_ARGS)
+widget-lab-soak: widget-lab-build ## Soak every Widget Lab demo (default: 8h; override WIDGET_LAB_SOAK_DURATION).
+	Scripts/widget-lab-test.py soak --socket $(WIDGET_LAB_TEST_SOCKET) --duration $(WIDGET_LAB_SOAK_DURATION) $(WIDGET_LAB_TEST_ARGS)
 
-mk2-widget-lab-compare: ## Compare adaptive and legacy reports (set ADAPTIVE_REPORT and LEGACY_REPORT).
+widget-lab-compare: ## Compare adaptive and legacy reports (set ADAPTIVE_REPORT and LEGACY_REPORT).
 	@test -n "$(ADAPTIVE_REPORT)" -a -n "$(LEGACY_REPORT)" || { echo "Set ADAPTIVE_REPORT and LEGACY_REPORT to report.json paths." >&2; exit 2; }
-	Scripts/kk-widgetlab-test.py compare --adaptive-report "$(ADAPTIVE_REPORT)" --legacy-report "$(LEGACY_REPORT)"
+	Scripts/widget-lab-test.py compare --adaptive-report "$(ADAPTIVE_REPORT)" --legacy-report "$(LEGACY_REPORT)"
 
 kk-input: ## Open the interactive automation-input REPL with automatic socket discovery.
 	Scripts/kk-input.py

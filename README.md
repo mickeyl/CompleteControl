@@ -14,7 +14,7 @@ This is an independent project and is not endorsed by Native Instruments.
 | Komplete Kontrol S49 MK2 | `0x17cc` | `0x1610` | 49 keys | Production |
 | Komplete Kontrol S61 MK2 | `0x17cc` | `0x1620` | 61 keys | Production |
 | Komplete Kontrol S88 MK2 | `0x17cc` | `0x1630` | 88 keys | Production |
-| MASCHINE MK3 | `0x17cc` | `0x1600` | 16 pads | Shared Kit2 controls verified |
+| MASCHINE MK3 | `0x17cc` | `0x1600` | 16 pads | Hardware and single-device simulator verified |
 
 The S-Series MK2 surface includes:
 
@@ -200,27 +200,36 @@ Add the package products needed by an application:
 - lamps, light-guide colors, and semantic input bindings;
 - display diffing and binary display transport.
 
-New reusable Kit2 APIs should be demonstrated in `MK2WidgetLabDemo` and covered
+New reusable Kit2 APIs should be demonstrated in `widget-lab` and covered
 by focused or snapshot tests.
 
 ## Tools
 
 ```bash
 make mk2-surface-demo
-make mk2-widget-lab-demo
+make widget-lab
 make run-simulator
+make run-mk3-simulator
 make mk2-usb-spy
 make mk2-usb-spy-display-repl
 make display-codec-benchmark
 ```
 
 - `MK2SurfaceDemo` is the compact hardware feature demo.
-- `MK2WidgetLabDemo` exercises the production Kit2 widgets and includes a REPL
+- `widget-lab` exercises the production Kit2 widgets and includes a REPL
   for palette LEDs and light-guide control.
-- `KontrolSimulator` emulates the S61 MK2 panel and can start a user-level
-  simulator daemon from its Daemon menu, which also has a "Device Identity…"
-  dialog to override the firmware version and name it reports through
-  `deviceInfo` — useful for exercising a client's about panel without hardware.
+- `KontrolSimulator` emulates either the S61 MK2 or MASCHINE MK3 panel. Use
+  `make run-simulator` for KONTROL or `make run-mk3-simulator` for MASCHINE.
+  Both profiles start a user-level simulator daemon from the Daemon menu and
+  expose the same production daemon protocol to unchanged clients. A versioned
+  device handshake makes the selected product, capabilities, firmware, and
+  reported name authoritative at the normal device-session seam. The menu also
+  has a "Device Identity…" dialog to override the firmware version and name it
+  reports through `deviceInfo` — useful for exercising a client's about panel
+  without hardware.
+  Run `make widget-lab-sim` after starting either simulator daemon to exercise
+  both displays, encoders, buttons, touch strip, lamps, and pads. Simultaneous
+  KONTROL+MASCHINE daemon operation remains a separate follow-up phase.
 - `MK2USBSpy` inspects low-level descriptors and input traffic without the
   normal daemon. Its display REPL claims only USB interface 3 and sends no
   display data until an explicit command is entered. The Make target stops the
@@ -234,7 +243,7 @@ Widget Lab build:
 
 ```bash
 make install-daemon MK2_DISPLAY_ENCODING=legacy
-make mk2-widget-lab-demo-release
+make widget-lab-release
 
 # In the REPL:
 open display-benchmark
@@ -254,8 +263,34 @@ To run Widget Lab against the simulator daemon:
 ```bash
 make run-simulator
 # Start the daemon from the simulator's Daemon menu.
-make mk2-widget-lab-demo-sim
+make widget-lab-sim
 ```
+
+### Simulator controls and profiles
+
+The same executable selects the virtual device at launch; S61 MK2 remains the
+default for compatibility:
+
+```bash
+.build/debug/KontrolSimulator --device komplete-kontrol-s61-mk2
+.build/debug/KontrolSimulator --device maschine-mk3
+```
+
+Window position, size, zoom mode, and magnification are stored independently
+for KONTROL and MASCHINE. The hardware panel scrolls and magnifies while a fixed
+status bar keeps the daemon state and selected model visible. **View → Keyboard
+Cheat Sheet** lists the profile-specific keyboard controls. Both panels use one
+combined main encoder: click or drag for directional/center presses; hold
+Command while dragging or scrolling to rotate it. Command-click on a display
+encoder sends touch without rotation.
+
+The MK3 profile exposes both displays, all supported buttons and lamps, the
+main and eight display encoders, two touch-strip contacts, and all 16
+velocity/pressure pads. Its keyboard layout supports several held pads at once,
+while a mouse press uses vertical position for strike velocity and dragging for
+pressure. The panel follows the official 320x301-mm footprint and calibrated
+reference photographs, but it is a workflow and protocol simulator, not
+evidence for USB timing, physical OLED colour, pad feel, or audio coexistence.
 
 ## Acknowledgements
 

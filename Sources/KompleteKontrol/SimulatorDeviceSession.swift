@@ -8,9 +8,9 @@ import Glibc
 
 /// A `KontrolDeviceSession` backed by a Unix-socket connection to the `KontrolSimulator`
 /// app instead of a real USB device. Output (display blits, LED/guide reports) is forwarded
-/// as wire frames; the simulator's semantic input is lowered into byte-identical raw `0x01`
-/// reports via `MK2InputReportBuilder`, so the daemon — and every socket client above it —
-/// behaves exactly as with hardware.
+/// as wire frames; version-2 input is already native report data, so the daemon — and every
+/// socket client above it — behaves exactly as with hardware. Legacy semantic MK2 frames are
+/// temporarily retained for the existing KONTROL panel.
 ///
 /// The connection's fd participates in the daemon's kqueue reactor exactly where libusb
 /// pollfds do (`pollFds()`), and a closed socket surfaces as device-loss, so unplugging the
@@ -18,11 +18,16 @@ import Glibc
 final class SimulatorDeviceSession: KontrolDeviceSession {
     static let defaultSocketPath = SimEndpoint.defaultSocketPath
 
-    // The simulator emulates the bench S61 MK2.
-    private static let s61MK2ProductID: UInt16 = 0x1620
-    private static let s61MK2KeyCount: UInt8 = 61
+    static let defaultDescriptor = SimulatorDeviceDescriptor(
+        productID: 0x1620,
+        keyCount: 61,
+        firmwareVersion: 0x0100,
+        instanceID: "tests",
+        capabilities: [.rawSurfaceInput, .rawMIDIInput, .displayBlits, .displayPackets, .outputReports]
+    )
 
     private let fd: Int32
+    private let descriptor: SimulatorDeviceDescriptor
     private let displayPacketEncoder: MK2DisplayPacketEncoder?
     private let lock = NSLock()          // guards `lost` and the identity override below
     private let sendLock = NSLock()      // serializes frames from display/state queues
@@ -32,7 +37,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
     // Overridden by an `.identity` frame from the simulator's "Device Identity…" settings
     // dialog. No bench-verified S61 MK2 bcdDevice is on record (only MASCHINE MK3's 0x0146
     // is), so 0x0100 is a stable placeholder rather than a captured value until overridden.
-    private var firmwareVersionOverride: UInt16 = 0x0100
+    private var firmwareVersionOverride: UInt16
     private var nameOverride: String?
 
     // Reactor-thread only (handleEvents): the running input state + partial read buffer.
@@ -43,8 +48,17 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     // Internal (not private) so tests can drive a session over a socketpair without a
     // listening simulator.
-    init(fd: Int32, displayEncodingSelection: MK2DisplayEncodingSelection = .resolve()) {
+    init(
+        fd: Int32,
+        descriptor: SimulatorDeviceDescriptor = SimulatorDeviceSession.defaultDescriptor,
+        initialReadBuffer: [UInt8] = [],
+        displayEncodingSelection: MK2DisplayEncodingSelection = .resolve()
+    ) {
         self.fd = fd
+        self.descriptor = descriptor
+        firmwareVersionOverride = descriptor.firmwareVersion
+        nameOverride = descriptor.reportedName
+        readBuffer = initialReadBuffer
         displayPacketEncoder = displayEncodingSelection.mode == .adaptive ? MK2DisplayPacketEncoder() : nil
     }
 
@@ -75,14 +89,37 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
             // unplugged device.
             return (nil, makeResult(status: -4, "simulator not present at \(socketPath) errno=\(errno)"))
         }
+        let handshake: SimulatorDeviceDescriptor
+        let trailingBytes: [UInt8]
+        do {
+            (handshake, trailingBytes) = try receiveHandshake(fd: fd, timeoutMs: 1500)
+            guard handshake.wireVersion == SimWireProtocol.currentVersion else {
+                throw SimWireError.versionMismatch(handshake.wireVersion)
+            }
+            guard KontrolDeviceProfile.productID(
+                handshake.productID,
+                reportedKeyCount: handshake.keyCount
+            ) != nil else {
+                throw HandshakeError.unsupportedProduct(handshake.productID)
+            }
+            guard handshake.capabilities.contains(.rawSurfaceInput) else {
+                throw HandshakeError.missingRawSurfaceInput
+            }
+        } catch {
+            Darwin.close(fd)
+            return (nil, makeResult(status: -2, "simulator handshake rejected: \(error)"))
+        }
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
-        return (SimulatorDeviceSession(fd: fd), makeResult(status: 0, "simulator connected at \(socketPath)"))
+        return (
+            SimulatorDeviceSession(fd: fd, descriptor: handshake, initialReadBuffer: trailingBytes),
+            makeResult(status: 0, "simulator connected at \(socketPath) product=0x\(String(handshake.productID, radix: 16))")
+        )
     }
 
     // MARK: Metadata
 
-    var productID: UInt16 { Self.s61MK2ProductID }
-    var keyCount: UInt8 { Self.s61MK2KeyCount }
+    var productID: UInt16 { descriptor.productID }
+    var keyCount: UInt8 { descriptor.keyCount }
     var firmwareVersion: UInt16 { lock.lock(); defer { lock.unlock() }; return firmwareVersionOverride }
     var deviceProfile: KontrolDeviceProfile {
         var profile = KontrolDeviceProfile.productID(productID, reportedKeyCount: keyCount)!
@@ -194,9 +231,14 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
 
     func handleEvents(timeoutMs: Int) {
         drainSocket()
-        let (frames, consumed) = SimWireCodec.decode(readBuffer)
-        if consumed > 0 { readBuffer.removeFirst(consumed) }
-        for frame in frames { apply(frame) }
+        do {
+            let (frames, consumed) = try SimWireCodec.decodeChecked(readBuffer)
+            if consumed > 0 { readBuffer.removeFirst(consumed) }
+            for frame in frames { apply(frame) }
+        } catch {
+            readBuffer.removeAll(keepingCapacity: false)
+            markLost()
+        }
     }
 
     @discardableResult
@@ -234,6 +276,16 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
             applyIdentity(frame.payload)
             return
         }
+        if frame.type == .surfaceInput {
+            emit(frame.payload, to: inputSink)
+            return
+        }
+        if frame.type == .midiInput {
+            guard descriptor.capabilities.contains(.rawMIDIInput) else { return }
+            emit(frame.payload, to: midiSink)
+            return
+        }
+        guard deviceProfile.family == .kompleteKontrolMK2 else { return }
         MK2InputFrameLowering.apply(
             frame,
             builder: &builder,
@@ -252,6 +304,71 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
         firmwareVersionOverride = firmwareVersion
         nameOverride = name.isEmpty ? nil : name
         lock.unlock()
+    }
+
+    private func emit(
+        _ bytes: [UInt8],
+        to sink: ((UnsafePointer<UInt8>, UInt32) -> Void)?
+    ) {
+        guard !bytes.isEmpty else { return }
+        bytes.withUnsafeBufferPointer { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            sink?(baseAddress, UInt32(buffer.count))
+        }
+    }
+
+    private enum HandshakeError: Error, CustomStringConvertible {
+        case timeout
+        case disconnected
+        case firstFrameWasNotHello
+        case unsupportedProduct(UInt16)
+        case missingRawSurfaceInput
+
+        var description: String {
+            switch self {
+                case .timeout: "timeout"
+                case .disconnected: "disconnected"
+                case .firstFrameWasNotHello: "first frame was not hello"
+                case let .unsupportedProduct(productID): "unsupported product 0x\(String(productID, radix: 16))"
+                case .missingRawSurfaceInput: "raw surface-input capability missing"
+            }
+        }
+    }
+
+    private static func receiveHandshake(
+        fd: Int32,
+        timeoutMs: Int32
+    ) throws -> (descriptor: SimulatorDeviceDescriptor, trailingBytes: [UInt8]) {
+        let deadline = ProcessInfo.processInfo.systemUptime + Double(timeoutMs) / 1000
+        var buffer: [UInt8] = []
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let remaining = max(1, Int32((deadline - ProcessInfo.processInfo.systemUptime) * 1000))
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, remaining)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                throw HandshakeError.disconnected
+            }
+            if ready == 0 { continue }
+            let chunkCapacity = chunk.count
+            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, chunkCapacity) }
+            if count == 0 { throw HandshakeError.disconnected }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw HandshakeError.disconnected
+            }
+            buffer.append(contentsOf: chunk[0..<count])
+            let decoded = try SimWireCodec.decodeChecked(buffer)
+            guard let frame = decoded.frames.first else { continue }
+            guard frame.type == .hello else { throw HandshakeError.firstFrameWasNotHello }
+            let frameLength = 5 + frame.payload.count
+            return (
+                try SimulatorDeviceDescriptor(payload: frame.payload),
+                Array(buffer.dropFirst(frameLength))
+            )
+        }
+        throw HandshakeError.timeout
     }
 
     @discardableResult

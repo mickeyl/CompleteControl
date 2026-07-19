@@ -3,7 +3,7 @@ import KompleteKontrol
 
 @Suite("MK2 button LED capabilities")
 struct MK2ButtonLEDCapabilityTests {
-    @Test("Mute, Solo, F1-F8, and touch-strip LEDs are palette backlit")
+    @Test("Mute, Solo, F1-F8, instrument, and touch-strip LEDs are palette backlit")
     func rgbBacklitButtons() {
         let stripLEDs = (KKMK2ButtonLED.strip1.rawValue...KKMK2ButtonLED.strip25.rawValue)
             .compactMap(KKMK2ButtonLED.init(rawValue:))
@@ -12,6 +12,8 @@ struct MK2ButtonLEDCapabilityTests {
             .m, .s,
             .function1, .function2, .function3, .function4,
             .function5, .function6, .function7, .function8,
+            .instrument1, .instrument2, .instrument3, .instrument4,
+            .instrument5, .instrument6, .instrument7, .instrument8,
         ] + stripLEDs))
     }
 

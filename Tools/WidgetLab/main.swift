@@ -11,7 +11,7 @@ import KontrolSurfaceKit2
 // filterable demo browser — 4-D selects and opens a demo, which then owns every
 // control except SCENE, the reserved exit back to the browser.
 @main
-struct MK2WidgetLabDemo {
+struct WidgetLab {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments == ["--help"] || arguments == ["-h"] {
@@ -23,20 +23,20 @@ struct MK2WidgetLabDemo {
                 FileHandle.standardOutput.write(try LabControlServer.describeData(pretty: true))
                 print()
             } catch {
-                fputs("MK2WidgetLabDemo: cannot encode demo catalogue: \(error)\n", stderr)
+                fputs("widget-lab: cannot encode demo catalogue: \(error)\n", stderr)
                 exit(1)
             }
             return
         }
         let controlEnabled = arguments == ["--control-stdin"]
         guard arguments.isEmpty || controlEnabled else {
-            fputs("MK2WidgetLabDemo: unknown option. Run with --help.\n", stderr)
+            fputs("widget-lab: unknown option. Run with --help.\n", stderr)
             exit(2)
         }
 
         let surface = MK2Surface2(options: .init(tickHz: 60))
         let lab = LabShell(surface: surface)
-        if let snapshotDir = ProcessInfo.processInfo.environment["WIDGETLAB_SNAPSHOT_DIR"] {
+        if let snapshotDir = ProcessInfo.processInfo.environment["WIDGET_LAB_SNAPSHOT_DIR"] {
             await lab.snapshotAll(to: snapshotDir)
             return
         }
@@ -48,7 +48,7 @@ struct MK2WidgetLabDemo {
         await runner.run { _ in
             await lab.showBrowser()
             if controlEnabled {
-                fputs("MK2WidgetLabDemo control mode — JSON Lines on stdin/stdout.\n", stderr)
+                fputs("widget-lab control mode — JSON Lines on stdin/stdout.\n", stderr)
                 LabControlServer.start(lab: lab)
                 return
             }
@@ -70,25 +70,25 @@ struct MK2WidgetLabDemo {
         Exercise the KontrolSurfaceKit2 widget catalogue.
 
         Usage:
-          MK2WidgetLabDemo
-          MK2WidgetLabDemo --control-stdin
-          MK2WidgetLabDemo --describe-json
+          widget-lab
+          widget-lab --control-stdin
+          widget-lab --describe-json
 
         Options:
           -h, --help       Show this help.
           --control-stdin  Read JSON-Line control requests from stdin.
           --describe-json Print the demo catalogue as JSON and exit.
 
-        Control mode is intended for kk-widgetlab-test. Hardware input still travels
+        Control mode is intended for widget-lab-test. Hardware input still travels
         exclusively through ccd's opt-in automation socket.
         """)
     }
 
     private static func printBanner(replEnabled: Bool) {
         if replEnabled {
-            print("MK2WidgetLabDemo — 4-D browses and opens demos, SCENE exits. Type 'help' or press Tab.")
+            print("Widget Lab — 4-D browses and opens demos, SCENE exits. Type 'help' or press Tab.")
         } else {
-            print("MK2WidgetLabDemo — 4-D browses and opens demos, SCENE exits. REPL disabled: stdin is not a TTY.")
+            print("Widget Lab — 4-D browses and opens demos, SCENE exits. REPL disabled: stdin is not a TTY.")
         }
     }
 

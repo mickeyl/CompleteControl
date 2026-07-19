@@ -6,10 +6,11 @@ import KompleteKontrol
 /// eight rotary encoders, and the 4-D encoder — all drawn and all interactive. Output frames
 /// from the daemon update the pixels and LED colours; mouse/scroll interaction emits semantic
 /// input frames back through `onInput`.
-final class PanelView: NSView {
+final class PanelView: NSView, SimulatorPanel {
     static let deviceBackgroundColor = NSColor(white: 0.12, alpha: 1)
 
     var onInput: ((SimFrame) -> Void)?
+    var onDaemonStatus: ((SimulatorDaemonStatus) -> Void)?
 
     private let screens = [ScreenBuffer(), ScreenBuffer()]
     private let interactionAudio = InteractionAudio()
@@ -23,13 +24,6 @@ final class PanelView: NSView {
     private var modValue = 0
     private var ribbonPosition: Int?
     private var ribbonTimestamp = 0
-    enum DaemonStatus {
-        case none
-        case starting
-        case connected
-    }
-
-    private var daemonStatus = DaemonStatus.none
 
     enum KeybedSize: Int, CaseIterable {
         case kk37 = 37
@@ -64,9 +58,9 @@ final class PanelView: NSView {
     private var keybedSize: KeybedSize = .kk37
     private var fourDCenter = NSPoint.zero
     private var fourDRadius: CGFloat = 56
-    private var fourDWheelRect = NSRect.zero
     private var fourDWheelAngle = 0.0
     private var fourDWheelTouched = false
+    private var commandRotationMode = false
     private var pitchWheelRect = NSRect.zero
     private var modWheelRect = NSRect.zero
     private var ribbonRect = NSRect.zero
@@ -83,8 +77,7 @@ final class PanelView: NSView {
     private var activeRibbon = false
     private var lastDragY: CGFloat = 0
     private var activeFourD: MK2InputReportBuilder.FourDState?
-    private var activeFourDTouchOnly = false
-    private var activeFourDWheel = false
+    private var activeFourDRotation = false
     private var pendingEncoderTouchReleases: [Int: DispatchWorkItem] = [:]
     private var pendingFourDTouchRelease: DispatchWorkItem?
     private var keyboardButtons: Set<KKMK2ButtonLED> = []
@@ -101,7 +94,8 @@ final class PanelView: NSView {
     4-D Encoder
       Arrow keys             Push left/up/down/right
       Return / Keypad Enter  Press 4-D encoder
-      Mouse wheel on 4-D     Rotate 4-D encoder
+      Click / drag           Push center or a direction
+      Command-drag / scroll  Rotate the same encoder
 
     Core Buttons
       Shift                  SHIFT
@@ -145,7 +139,44 @@ final class PanelView: NSView {
 
     // MARK: - Output from the daemon
 
-    func setDaemonStatus(_ status: DaemonStatus) { daemonStatus = status; needsDisplay = true }
+    var view: NSView { self }
+    var backgroundColor: NSColor { Self.deviceBackgroundColor }
+    var keyboardCheatSheetText: String { Self.keyboardCheatSheetText }
+    var trueSizeReference: SimulatorTrueSizeReference {
+        SimulatorTrueSizeReference(physicalWidthMM: 95, baseWidthPoints: 480)
+    }
+
+    func apply(_ frame: SimFrame) {
+        switch frame.type {
+            case .displayBlit:
+                guard frame.payload.count >= 9 else { return }
+                applyBlit(
+                    screen: Int(frame.payload[0]),
+                    x: Int(frame.payload[1]) << 8 | Int(frame.payload[2]),
+                    y: Int(frame.payload[3]) << 8 | Int(frame.payload[4]),
+                    w: Int(frame.payload[5]) << 8 | Int(frame.payload[6]),
+                    h: Int(frame.payload[7]) << 8 | Int(frame.payload[8]),
+                    be: Array(frame.payload.dropFirst(9))
+                )
+            case .displayPacket:
+                do {
+                    let blit = try sharedDisplayPacketDecoder.decodeAndApply(frame.payload)
+                    applyBlit(
+                        screen: Int(blit.screen), x: Int(blit.x), y: Int(blit.y),
+                        w: Int(blit.width), h: Int(blit.height), be: blit.pixelsBE
+                    )
+                } catch {
+                    onDaemonStatus?(.protocolError)
+                }
+            case .report:
+                guard let reportID = frame.payload.first else { return }
+                applyReport(reportID: reportID, bytes: Array(frame.payload.dropFirst()))
+            default:
+                break
+        }
+    }
+
+    private var sharedDisplayPacketDecoder = MK2DisplayPacketDecoder()
 
     func applyBlit(screen: Int, x: Int, y: Int, w: Int, h: Int, be: [UInt8]) {
         guard screens.indices.contains(screen) else { return }
@@ -318,14 +349,6 @@ final class PanelView: NSView {
             x: (rightControlsX + rightControlsRight) / 2,
             y: dispY + controlH * 2 + rightControlsGapY + fourDRadius + 28
         )
-        let fourDWheelSize: CGFloat = 70
-        fourDWheelRect = NSRect(
-            x: fourDCenter.x - fourDWheelSize / 2,
-            y: fourDCenter.y + fourDRadius + 28,
-            width: fourDWheelSize,
-            height: fourDWheelSize
-        )
-
         let encoderLabelBottom = encY + knob + 18
         let keybedTop = encoderLabelBottom + 20 - 3 // light-guide strip starts 3 px into the key.
         let performanceTop = keybedTop - 62
@@ -350,7 +373,11 @@ final class PanelView: NSView {
         ribbonRect = NSRect(x: wheelAreaX, y: ribbonLEDRect.minY - 28, width: wheelAreaWidth, height: 22)
         buildKeybed(in: keybedRect)
 
-        let controlsBottom = max(keybedRect.maxY + 34, ribbonLEDRect.maxY + 28, fourDWheelRect.maxY + 38)
+        let controlsBottom = max(
+            keybedRect.maxY + 34,
+            ribbonLEDRect.maxY + 28,
+            fourDCenter.y + fourDRadius + 38
+        )
         preferredContentSize = NSSize(
             width: rightControlsRight + margin,
             height: controlsBottom)
@@ -408,9 +435,7 @@ final class PanelView: NSView {
         for button in buttons { drawButton(button) }
         for encoder in encoders { drawEncoder(encoder) }
         drawFourD()
-        drawFourDWheel()
         drawPerformanceControls()
-        drawStatus()
     }
 
     private func drawButton(_ button: ButtonControl) {
@@ -457,82 +482,26 @@ final class PanelView: NSView {
     }
 
     private func drawFourD() {
-        let activeColor = NSColor.systemBlue
-        let rect = NSRect(x: fourDCenter.x - fourDRadius, y: fourDCenter.y - fourDRadius,
-                          width: fourDRadius * 2, height: fourDRadius * 2)
-        let isTouched = activeFourD != nil || fourDWheelTouched
-        let outer = NSBezierPath(ovalIn: rect)
-        (isTouched ? NSColor(white: 0.18, alpha: 1) : NSColor(white: 0.14, alpha: 1)).setFill()
-        outer.fill()
-        (isTouched ? activeColor : NSColor(white: 0.35, alpha: 1)).setStroke()
-        outer.lineWidth = isTouched ? 3 : 2
-        outer.stroke()
-
-        // Direction arrows.
-        let a = fourDRadius * 0.55
-        let directions: [(state: MK2InputReportBuilder.FourDState, led: KKMK2ButtonLED, dx: Double, dy: Double)] = [
-            (.pushUp, .jogUp, 0.0, -1.0),
-            (.pushDown, .jogDown, 0.0, 1.0),
-            (.pushLeft, .jogLeft, -1.0, 0.0),
-            (.pushRight, .jogRight, 1.0, 0.0),
-        ]
-        for direction in directions {
-            let p = NSBezierPath()
-            let isActive = activeFourD == direction.state
-            let dotRadius: CGFloat = isActive ? 6 : 4
-            let cx = fourDCenter.x + CGFloat(direction.dx) * a
-            let cy = fourDCenter.y + CGFloat(direction.dy) * a
-            (isActive ? activeColor : ledIndicatorColor(for: direction.led)).setFill()
-            p.appendOval(in: NSRect(x: cx - dotRadius, y: cy - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
-            p.fill()
-        }
-        let inner = NSBezierPath(ovalIn: NSRect(x: fourDCenter.x - 16, y: fourDCenter.y - 16, width: 32, height: 32))
-        (activeFourD == .click ? activeColor : NSColor(white: 0.22, alpha: 1)).setFill()
-        inner.fill()
-        if activeFourD == .touched {
-            NSColor.systemBlue.setStroke()
-            inner.lineWidth = 2
-            inner.stroke()
-        }
-        drawLabel("4-D PUSH", in: NSRect(x: fourDCenter.x - 40, y: fourDCenter.y + fourDRadius + 4, width: 80, height: 14),
-                  color: NSColor(white: 0.6, alpha: 1), size: 11)
-    }
-
-    private func drawFourDWheel() {
-        let path = NSBezierPath(ovalIn: fourDWheelRect)
-        NSColor(white: 0.15, alpha: 1).setFill()
-        path.fill()
-        (fourDWheelTouched ? NSColor.systemBlue : NSColor(white: 0.35, alpha: 1)).setStroke()
-        path.lineWidth = fourDWheelTouched ? 3 : 1.5
-        path.stroke()
-
-        let center = NSPoint(x: fourDWheelRect.midX, y: fourDWheelRect.midY)
-        let radius = fourDWheelRect.width / 2 - 6
-        let tip = NSPoint(
-            x: center.x + CGFloat(sin(fourDWheelAngle)) * radius,
-            y: center.y - CGFloat(cos(fourDWheelAngle)) * radius
+        let mode: CombinedClickRotaryEncoder.Mode = commandRotationMode || activeFourDRotation ? .rotate : .push
+        CombinedClickRotaryEncoder.draw(
+            in: fourDRect,
+            mode: mode,
+            rotationAngle: fourDWheelAngle,
+            touched: activeFourD != nil || fourDWheelTouched,
+            activePush: combinedPushZone(for: activeFourD),
+            directionColor: { [weak self] zone in
+                guard let self, let led = self.led(for: zone) else {
+                    return NSColor(white: 0.46, alpha: 1)
+                }
+                return self.ledIndicatorColor(for: led)
+            }
         )
-        let tick = NSBezierPath()
-        tick.move(to: center)
-        tick.line(to: tip)
-        NSColor.white.setStroke()
-        tick.lineWidth = 2
-        tick.stroke()
-
-        let dots = 12
-        for i in 0..<dots {
-            let angle = Double(i) / Double(dots) * .pi * 2
-            let dotCenter = NSPoint(
-                x: center.x + CGFloat(sin(angle)) * (radius + 8),
-                y: center.y - CGFloat(cos(angle)) * (radius + 8)
-            )
-            let dot = NSBezierPath(ovalIn: NSRect(x: dotCenter.x - 1.5, y: dotCenter.y - 1.5, width: 3, height: 3))
-            NSColor(white: 0.55, alpha: 1).setFill()
-            dot.fill()
-        }
-
-        drawLabel("4-D ROT", in: NSRect(x: fourDWheelRect.minX - 12, y: fourDWheelRect.maxY + 3, width: fourDWheelRect.width + 24, height: 14),
-                  color: NSColor(white: 0.6, alpha: 1), size: 11)
+        drawLabel(
+            mode == .rotate ? "⌘ ROTATE" : "4-D PUSH",
+            in: NSRect(x: fourDCenter.x - 44, y: fourDCenter.y + fourDRadius + 4, width: 88, height: 14),
+            color: mode == .rotate ? .systemBlue : NSColor(white: 0.6, alpha: 1),
+            size: 11
+        )
     }
 
     private func drawPerformanceControls() {
@@ -654,24 +623,6 @@ final class PanelView: NSView {
         path.stroke()
     }
 
-    private func drawStatus() {
-        let text: String
-        let color: NSColor
-        switch daemonStatus {
-            case .connected:
-                text = "● daemon connected"
-                color = .systemGreen
-            case .starting:
-                text = "◐ starting daemon …"
-                color = .systemYellow
-            case .none:
-                text = "○ waiting for ccd  (CCD_SIMULATE)"
-                color = NSColor(white: 0.5, alpha: 1)
-        }
-        drawLabel(text, in: NSRect(x: 24, y: bounds.height - 22, width: 400, height: 16),
-                  color: color, size: 11, left: true)
-    }
-
     private func drawLabel(_ text: String, in rect: NSRect, color: NSColor, size: CGFloat = 12, left: Bool = false) {
         let style = NSMutableParagraphStyle(); style.alignment = left ? .left : .center
         let attrs: [NSAttributedString.Key: Any] = [
@@ -790,20 +741,10 @@ final class PanelView: NSView {
             beginEncoderTouch(index: encoder.index)
             return
         }
-        if fourDWheelRect.contains(point) {
+        if CombinedClickRotaryEncoder.pushZone(at: point, in: fourDRect) != nil {
             if event.modifierFlags.contains(.command) {
-                activeFourDTouchOnly = true
-                beginFourDTouch()
-                return
-            }
-            activeFourDWheel = true
-            lastDragY = point.y
-            beginFourDTouch()
-            return
-        }
-        if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
-            if event.modifierFlags.contains(.command) {
-                activeFourDTouchOnly = true
+                activeFourDRotation = true
+                lastDragY = point.y
                 beginFourDTouch()
                 return
             }
@@ -816,7 +757,7 @@ final class PanelView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if activeFourDTouchOnly || activeEncoderTouchOnly != nil {
+        if activeEncoderTouchOnly != nil {
             return
         }
 
@@ -858,7 +799,7 @@ final class PanelView: NSView {
             return
         }
 
-        if activeFourDWheel {
+        if activeFourDRotation {
             let steps = Int((lastDragY - point.y) / 4) // drag up = clockwise/increase
             if steps != 0 {
                 emitFourDWheel(delta: steps)
@@ -901,13 +842,9 @@ final class PanelView: NSView {
             endEncoderTouch(index: index)
             activeEncoder = nil
         }
-        if activeFourDTouchOnly {
+        if activeFourDRotation {
             endFourDTouch()
-            activeFourDTouchOnly = false
-        }
-        if activeFourDWheel {
-            endFourDTouch()
-            activeFourDWheel = false
+            activeFourDRotation = false
         }
         if activeFourD != nil {
             onInput?(.fourDState(MK2InputReportBuilder.FourDState.released.rawValue))
@@ -934,11 +871,14 @@ final class PanelView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if event.modifierFlags.contains(.command) {
+        let overFourD = CombinedClickRotaryEncoder.pushZone(at: point, in: fourDRect) != nil
+        if event.modifierFlags.contains(.command), !overFourD {
             super.scrollWheel(with: event)
             return
         }
-        if event.hasPreciseScrollingDeltas, enclosingScrollViewCanScroll {
+        if event.hasPreciseScrollingDeltas,
+           enclosingScrollViewCanScroll,
+           !(event.modifierFlags.contains(.command) && overFourD) {
             super.scrollWheel(with: event)
             return
         }
@@ -957,17 +897,28 @@ final class PanelView: NSView {
             // The 4-D wheel below stays 1:1: its wire counter is 4-bit.
             emitEncoder(index: encoder.index, delta: delta * Self.encoderCountsPerScrollTick)
             scheduleEncoderTouchRelease(index: encoder.index)
-        } else if fourDWheelRect.contains(point) {
-            beginFourDTouch()
-            emitFourDWheel(delta: delta)
-            scheduleFourDTouchRelease()
-        } else if hypot(point.x - fourDCenter.x, point.y - fourDCenter.y) <= fourDRadius {
+        } else if overFourD, event.modifierFlags.contains(.command) {
             beginFourDTouch()
             emitFourDWheel(delta: delta)
             scheduleFourDTouchRelease()
         } else {
             super.scrollWheel(with: event)
         }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleKeyDown(event) { return }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if handleKeyUp(event) { return }
+        super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        if handleFlagsChanged(event) { return }
+        super.flagsChanged(with: event)
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -999,7 +950,13 @@ final class PanelView: NSView {
     }
 
     func handleFlagsChanged(_ event: NSEvent) -> Bool {
-        let shiftDown = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shiftDown = flags.contains(.shift)
+        let nextCommandRotationMode = flags.contains(.command)
+        if commandRotationMode != nextCommandRotationMode {
+            commandRotationMode = nextCommandRotationMode
+            needsDisplay = true
+        }
         if shiftDown {
             pressKeyboardButton(.shift)
         } else {
@@ -1019,6 +976,7 @@ final class PanelView: NSView {
             keyboardFourD = nil
             activeFourD = nil
         }
+        commandRotationMode = false
         needsDisplay = true
     }
 
@@ -1278,13 +1236,45 @@ final class PanelView: NSView {
     }
 
     private func fourDZone(_ point: NSPoint) -> MK2InputReportBuilder.FourDState {
-        let dx = point.x - fourDCenter.x
-        let dy = point.y - fourDCenter.y
-        let distance = hypot(dx, dy)
-        if distance < 16 { return .click }
-        if distance < 30 { return .touched }
-        if abs(dx) > abs(dy) { return dx > 0 ? .pushRight : .pushLeft }
-        return dy > 0 ? .pushDown : .pushUp // flipped: +y is downward
+        switch CombinedClickRotaryEncoder.pushZone(at: point, in: fourDRect) ?? .center {
+            case .center: return .click
+            case .up: return .pushUp
+            case .right: return .pushRight
+            case .down: return .pushDown
+            case .left: return .pushLeft
+        }
+    }
+
+    private var fourDRect: NSRect {
+        NSRect(
+            x: fourDCenter.x - fourDRadius,
+            y: fourDCenter.y - fourDRadius,
+            width: fourDRadius * 2,
+            height: fourDRadius * 2
+        )
+    }
+
+    private func combinedPushZone(
+        for state: MK2InputReportBuilder.FourDState?
+    ) -> CombinedClickRotaryEncoder.PushZone? {
+        switch state {
+            case .click: return .center
+            case .pushUp: return .up
+            case .pushRight: return .right
+            case .pushDown: return .down
+            case .pushLeft: return .left
+            case .touched, .released, .none: return nil
+        }
+    }
+
+    private func led(for zone: CombinedClickRotaryEncoder.PushZone) -> KKMK2ButtonLED? {
+        switch zone {
+            case .center: return nil
+            case .up: return .jogUp
+            case .right: return .jogRight
+            case .down: return .jogDown
+            case .left: return .jogLeft
+        }
     }
 }
 

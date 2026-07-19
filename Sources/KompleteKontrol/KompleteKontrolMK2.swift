@@ -266,8 +266,8 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     }
 
     /// LEDs that accept the MK2 palette byte directly in the 0x80 report.
-    /// Most panel buttons are fixed-colour indicators; M/S, F1-F8, and the
-    /// touch-strip LED slots are palette-capable.
+    /// Most panel buttons are fixed-colour indicators; M/S, F1-F8, instrument
+    /// buttons 1-8, and the touch-strip LED slots are palette-capable.
     public var isRGBBacklit: Bool {
         switch self {
             case .m, .s,

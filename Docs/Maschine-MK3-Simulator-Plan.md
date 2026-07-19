@@ -1,6 +1,59 @@
 # MASCHINE MK3 simulator and shared simulator core
 
-Status: planning decision, 2026-07-19
+Status: single-device simulator implemented, 2026-07-19; mixed/parallel operation deferred
+
+## Implementation checkpoint
+
+The requested single-device milestone is implemented through the visual MK3 panel:
+
+- `KontrolSimulatorWire` owns the Foundation-only v2 wire, bounded descriptor
+  handshake, payload limits, and raw native input frames.
+- `SimulatorDeviceSession` now derives product, capabilities, firmware, and name
+  from the authoritative handshake and reports MASCHINE MK3 as product `0x1600`
+  with no keybed or USB-MIDI claim.
+- `KontrolSimulatorCore` owns device definitions, the app-side virtual-device
+  socket, native gesture synthesis, framebuffer/output reduction, and the
+  calibrated 320x301-mm MK3 geometry.
+- `MaschineMK3InputReportBuilder` shares the production decoder's button table
+  and emits native surface and pad reports for buttons, all nine encoders and
+  their touch state, two touch-strip fingers, pad touch/strike/pressure/release,
+  and the three analogue fields.
+- The AppKit shell selects `maschine-mk3` or `komplete-kontrol-s61-mk2` without
+  a second simulator product. The MK3 panel renders both displays, all native
+  button and group lamps, the 25 strip LEDs, and all 16 pad colours. Mouse,
+  multi-held keyboard pads, keyboard shortcuts, zoom, true size, snapshots,
+  daemon ownership, and accessibility actions are wired.
+- Window position, size, zoom mode, and magnification persist independently per
+  device profile. A fixed window status bar keeps daemon state and model name
+  outside the magnifiable panel. The MK3 presentation includes calibrated
+  section alignment, NOTE REPEAT geometry, pad SHIFT legends, readable unlit
+  labels and distinct dim lamps, a shared click/Command-rotate main encoder,
+  and smoothed display scaling.
+- The device-independent `widget-lab` has been run through the normal daemon
+  endpoint against the simulated MK3; its existing MK3 LED calibration scene
+  rendered on both simulator displays and illuminated the matching native
+  button, group, direction, and pad targets.
+
+Developer flow:
+
+```bash
+make run-mk3-simulator
+# In the simulator: Daemon -> Start Simulator Daemon
+make widget-lab-sim
+```
+
+The original `make run-simulator` KONTROL flow remains available and was used
+as the regression client of the extraction.
+
+The following planned work is deliberately not part of this checkpoint:
+
+- simultaneous MK2 and MK3 simulator instances;
+- product-bound real/simulated daemon pairs and endpoint isolation;
+- Paulinche's composite two-surface port and four-display projection;
+- both-real coexistence, latency, colour, pressure-feel, and USB calibration.
+
+Those remain Phase 5/6 follow-up work below. The single-device simulator must
+not be described as evidence for them.
 
 ## Outcome
 
@@ -394,7 +447,7 @@ and instance selection are required for deterministic tests.
 
 ## Delivery phases
 
-### Phase 0 - freeze evidence and contracts
+### Phase 0 - freeze evidence and contracts (completed 2026-07-19)
 
 - Record the current simulator target graph, wire frames, paths, snapshots,
   menu behaviour, and KONTROL input/output fixture coverage.
@@ -406,7 +459,7 @@ and instance selection are required for deterministic tests.
 Gate: there is a reviewed mapping/geometry inventory and no unknown control is
 hidden behind a guessed MK2 equivalent.
 
-### Phase 1 - versioned wire and authoritative identity
+### Phase 1 - versioned wire and authoritative identity (completed 2026-07-19)
 
 - Add `KontrolSimulatorWire` and move the generic frame codec.
 - Implement the version-2 descriptor handshake with bounded open-time timeout.
@@ -419,7 +472,7 @@ hidden behind a guessed MK2 equivalent.
 Gate: a headless socketpair can report either S61 MK2 or MASCHINE MK3 through
 `deviceInfo`, and unsupported identities fail before client registration.
 
-### Phase 2 - extract the core without changing KONTROL behaviour
+### Phase 2 - extract the shared seam without changing KONTROL behaviour (milestone complete 2026-07-19)
 
 - Add `KontrolSimulatorCore` and move `DeviceLink`, framebuffers, connection
   state, output reduction, instance configuration, and snapshot state.
@@ -432,7 +485,12 @@ Gate: the S61 simulator passes its existing socket/session tests, visual
 snapshot, Widget Lab smoke, zoom/true-size flow, input cheat sheet, daemon
 autostart, and unplug/reconnect path with no MK3 selected.
 
-### Phase 3 - headless native MK3 profile
+The milestone extracted the wire, device definition, output state, daemon link,
+and native MK3 runtime while retaining the mature KONTROL `PanelView` as the
+regression frontend. Splitting all KONTROL geometry into descriptors remains an
+optional cleanup; it is not required for shared clients or the MK3 profile.
+
+### Phase 3 - headless native MK3 profile (completed 2026-07-19)
 
 - Add the shared-table `MaschineMK3InputReportBuilder`.
 - Implement all mapped buttons, main and display encoders, encoder touch,
@@ -446,7 +504,7 @@ autostart, and unplug/reconnect path with no MK3 selected.
 Gate: semantic gestures round-trip through native MK3 bytes, the production MK3
 decoder, compatibility adapter, and Widget Lab; no fake MK2 report is generated.
 
-### Phase 4 - visual MK3 panel
+### Phase 4 - visual MK3 panel (completed 2026-07-19)
 
 - Implement the 320x301-mm panel from the calibrated definition.
 - Wire every supported control to the headless profile and every native output
@@ -460,7 +518,7 @@ decoder, compatibility adapter, and Widget Lab; no fake MK2 report is generated.
 Gate: every decoded/illuminated MK3 control has one visible, interactive panel
 element; geometry meets the first-pass tolerances; snapshots are deterministic.
 
-### Phase 5 - instance isolation and mixed topology
+### Phase 5 - instance isolation and mixed topology (deferred)
 
 - Parameterize instance ID, device socket, daemon socket, logs, defaults, and
   snapshot output.
@@ -475,7 +533,7 @@ Gate: real KONTROL plus simulated MK3 and simulated KONTROL plus real MK3 both
 work without endpoint fallback, state leakage, or interruption of the surviving
 surface.
 
-### Phase 6 - bench calibration
+### Phase 6 - bench calibration (deferred)
 
 - Compare every visual control with a real MK3 input capture and every lamp/pad
   with known output reports.
@@ -546,8 +604,7 @@ and shutdown restoration.
 
 ## Acceptance definition
 
-The MASCHINE simulator is complete for Phase 1 parallel-operation development
-when all of the following are true:
+The single-device MASCHINE simulator milestone is complete:
 
 - `KontrolSimulator` can select MK2 or MK3 without separate product codebases.
 - The selected product and capabilities reach daemon clients through the
@@ -559,23 +616,22 @@ when all of the following are true:
 - The MK3 panel uses the official 320x301-mm footprint and reviewed derived
   control geometry.
 - Headless tests do not require AppKit and visual tests do not require a daemon.
+- Final docs distinguish simulator evidence from hardware-only evidence.
+
+The following acceptance belongs to deferred parallel-operation Phase 5/6, not
+to the delivered single-device simulator:
+
 - Two simulator instances can coexist, and one simulated endpoint can coexist
   with a real hardware daemon without path or process collisions.
 - Paulinche can attach explicit KONTROL and MASCHINE endpoints, preserve
   `SurfaceID` event ownership, and survive loss of either endpoint.
-- Final docs distinguish simulator evidence from hardware-only evidence.
 
 ## Rough effort and recommended order
 
-With the current production MK3 protocol and compatibility support as the
-starting point, the shared-core, headless profile, visual panel, and isolated
-instance work is roughly **8-14 focused engineering days**. This excludes the
-broader Paulinche `CompositeControlSurfacePort` implementation already planned
-in its parallel-operation backlog, but includes the simulator-side mixed-mode
-orchestration and tests.
-
-The highest-risk work is not drawing the panel. It is making device identity
-authoritative, generating native stateful MK3 reports without duplicating the
-decoder, and preserving KONTROL behaviour while extracting the core. The
-recommended sequence is therefore wire -> KONTROL core migration -> headless
-MK3 -> visual MK3 -> mixed topology -> hardware calibration.
+The originally estimated wire, shared-seam, headless-profile, and visual-panel
+sequence is now delivered. Remaining effort is concentrated in instance/path
+isolation, two-daemon orchestration, Paulinche's separately planned
+`CompositeControlSurfacePort`, mixed-failure testing, and final hardware
+calibration. Preserve the implemented dependency order: versioned identity and
+native reports remain below the daemon; mixed topology builds on explicit
+endpoints rather than weakening that seam.

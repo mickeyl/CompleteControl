@@ -6,10 +6,21 @@
 
 ## Recently completed
 
+- **Shared simulator core and single-device MASCHINE MK3 simulator (completed
+  2026-07-19).** `KontrolSimulatorWire` now provides the versioned authoritative
+  device handshake and bounded raw-frame transport; `KontrolSimulatorCore`
+  provides headless definitions, native MK3 report synthesis, output reduction,
+  and calibrated geometry. The one `KontrolSimulator` executable selects S61
+  MK2 or MASCHINE MK3, runs unchanged daemon clients such as `widget-lab`, and
+  renders the complete interactive MK3 surface: two displays, lamps, strip,
+  pads, encoders, profile-scoped window/zoom state, accessibility, and fixed
+  out-of-content daemon status. The Widget Lab executable, sources, automation
+  script, and Make targets are now device-independent rather than MK2-named.
+
 - **Typed 4-D Kit input contract (completed 2026-07-19).** `KK4DNavigationDirection` now represents only up/right/down/left; MK2 and MK3 both deliver `jogCenter` only on center release. The historical `"press"` pseudo-direction was removed from the decoder, Kit2 consumers, and demos. A raw MK2/MK3 contract test verifies held SHIFT, directional press/release, and center confirmation through the input adapter and `MK2Surface2` semantic sink.
 
 - **Investigate intermittent 10-second Widget Lab startup latency (noted
-  2026-07-15).** On physical MK2 hardware, `MK2WidgetLabDemo` sometimes takes
+  2026-07-15).** On physical MK2 hardware, `widget-lab` sometimes takes
   almost ten seconds before both the REPL prompt and first browser frame appear,
   despite an already-running daemon; Paulinche reaches its first surface much
   sooner. The strongest current suspect is eager demo construction:
@@ -30,14 +41,22 @@
 
 ## Simulator
 
-- Implement the shared simulator core and MASCHINE MK3 profile described in
-  [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md). Keep one
-  profile-driven `KontrolSimulator`, make the device handshake authoritative,
-  send native MK3 input reports through the existing production seam, and
-  support isolated instances so a simulated MASCHINE can run beside a real
-  KONTROL (and vice versa). First acceptance remains headless; the visual
-  320x301-mm MK3 panel follows on the same core. USB timing, physical colour,
-  pressure feel, and final latency remain hardware-only evidence.
+- **Phase 5: isolate simulator instances and enable mixed topology.** The shared
+  core, authoritative handshake, native MK3 input, and visual 320x301-mm panel
+  are complete. Next, replace the global device/daemon socket, log, lock, and
+  defaults paths with validated instance-scoped paths; make child-daemon
+  ownership profile-aware; and add real KONTROL + simulated MASCHINE,
+  simulated KONTROL + real MASCHINE, and both-simulated harnesses. Paulinche
+  must attach the two explicit endpoints through stable `SurfaceID`s without
+  daemon auto-discovery. See Phase 5 of
+  [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md).
+
+- **Phase 6: final MK3 bench calibration.** Compare the simulator's remaining
+  estimated geometry and interaction constants with the real unit, then verify
+  encoder count/touch timing, pad velocity and pressure feel, touch-strip edge
+  cases, physical colour/brightness, reconnect/shutdown, audio-interface
+  coexistence, and the final both-real four-display stress case. Simulator
+  evidence must not be promoted to USB timing or physical-feel evidence.
 
 - Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation
   arrives as bare wire deltas, so acceleration/detent tuning gives almost no

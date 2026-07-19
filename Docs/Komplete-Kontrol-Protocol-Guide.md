@@ -198,7 +198,7 @@ emitted only after the final contact leaves. The MK2-style millisecond field is
 synthesized from the daemon's monotonic input timestamp. Existing Strip 1-25
 lamp state maps to MK3 report `0x81` slots 0-24.
 
-`MK2WidgetLabDemo` uses the direct MK3 **Variation** control as its local
+`widget-lab` uses the direct MK3 **Variation** control as its local
 sub-demo switcher. On MK2 it continues to use **Instance**. `Variation` is a
 logical MK3-only Kit2 control (outside the MK2 LED report range), so the
 projection does not create an invalid MK2 USB write. This is a Widget-Lab-only
@@ -230,7 +230,7 @@ the musical policy transformation on the same ordered actor path and feeds the
 result into `MK2InputBindings2.midiFocus` or `midi`. Consequently existing Kit2
 clients such as Paulinche receive MK3 pad notes through the same binding as MK2
 keybed notes, while low-level daemon clients continue to see the native surface
-stream. `MK2WidgetLabDemo`'s hardware-neutral MIDI Monitor makes held notes,
+stream. `widget-lab`'s hardware-neutral MIDI Monitor makes held notes,
 chords, velocities, and pressure visible for both device families.
 
 The Widget Lab hardware passes on 2026-07-17 and 2026-07-18 verified the shared
@@ -860,7 +860,7 @@ graph LR
     Session --> USB
     Session --> Sim
     USB <-->|"HID + bulk + USB-MIDI"| Hardware
-    Sim <-->|"SimWireProtocol"| Simulator
+    Sim <-->|"KontrolSimulatorWire v2"| Simulator
 ```
 
 Display commands and state reports are acknowledged when enqueued, not after the
@@ -878,10 +878,21 @@ transfer does not hold a small, feel-critical lamp/light-guide update behind it.
 `KontrolSimulator` replaces the physical device below `ccd`; normal clients still
 connect to the daemon and cannot select a special simulator API.
 
-`SimulatorDeviceSession` receives semantic virtual input and lowers it through
-`MK2InputReportBuilder` into the same raw `0x01`, `0x02`, and USB-MIDI bytes that
-clients decode on hardware. Builder-to-decoder round-trip tests keep the input
-layout from drifting.
+The first simulator frame is a version-2 `KSIM` descriptor. It authoritatively
+declares the product ID, key count, firmware revision, diagnostic instance ID,
+reported name, and supported frame capabilities. `SimulatorDeviceSession`
+validates its bounded payload, resolves the production device profile, and
+rejects malformed, unsupported, or version-mismatched identities before the
+daemon exposes the session to clients. Live identity updates may change the
+reported firmware/name, but never the connected product family.
+
+The MASCHINE profile generates native `0x01` surface and `0x02` pad reports in
+`MaschineMK3InputReportBuilder`; those raw snapshots cross the wire as
+`SURFACE_INPUT` and are decoded by the same production path as USB hardware.
+The KONTROL panel temporarily retains its semantic frames, which
+`SimulatorDeviceSession` lowers through `MK2InputReportBuilder` into the same
+raw surface, ribbon, and USB-MIDI bytes clients receive from hardware.
+Builder-to-decoder round-trip tests keep both input layouts from drifting.
 
 The local simulator wire format is:
 
@@ -891,19 +902,25 @@ The local simulator wire format is:
 
 | Direction | Frames |
 | --- | --- |
-| Simulator → daemon | `HELLO`, `BUTTON`, `ENCODER`, `ENCODER_TOUCH`, `FOURD_WHEEL`, `FOURD_STATE`, `NOTE`, `MIDI`, `STRIP` |
+| Simulator → daemon | `HELLO` descriptor, `IDENTITY`, `SURFACE_INPUT`, `MIDI_INPUT`; legacy KONTROL-only `BUTTON`, `ENCODER`, `ENCODER_TOUCH`, `FOURD_WHEEL`, `FOURD_STATE`, `NOTE`, `MIDI`, `STRIP` |
 | Daemon → simulator | `DISPLAY_BLIT`, `DISPLAY_PACKET`, `REPORT` |
 
-The simulator proves the stack above the device-session seam: daemon framing,
-client decoding, reconnect behaviour, logical display rectangles, and LED
-capability rules. In fail-safe `legacy` mode it retains the original
-`DISPLAY_BLIT` path. In `adaptive` mode, `SimulatorDeviceSession` sends the raw
-physical packet as `DISPLAY_PACKET`; an independent strict reference decoder in
-the simulator applies literal, repeat-pair, and skip tokens to its own shadow
-before displaying the resulting rectangle. This validates packet syntax,
-chaining semantics, and pixel equivalence, but deliberately does **not** prove
-USB claims, endpoint timing/stalls, firmware buffering, or colour through the
-real diffuser plastics.
+The shared `KontrolSimulatorCore` defines both virtual products, reduces native
+output reports into lamps/pads/strip state, and converges logical blits or raw
+display packets into the same two framebuffers. In fail-safe `legacy` mode the
+daemon retains the original `DISPLAY_BLIT` path. In `adaptive` mode,
+`SimulatorDeviceSession` sends the physical packet as `DISPLAY_PACKET`; the
+strict reference decoder applies literal, repeat-pair, and skip tokens before
+displaying the resulting rectangle. This validates product identity, daemon
+framing, native MK3 decoding, reconnect behaviour, logical display rectangles,
+LED capability rules, packet syntax, chaining semantics, and pixel equivalence.
+It deliberately does **not** prove USB claims, endpoint timing/stalls, firmware
+buffering, physical OLED colour, or pad feel.
+
+One `KontrolSimulator` executable selects `komplete-kontrol-s61-mk2` or
+`maschine-mk3`. Both currently share the default simulator device/daemon paths;
+the descriptor's `instanceID` is diagnostic provenance, not path isolation.
+Simultaneous KONTROL and MASCHINE daemons remain a later mixed-topology phase.
 
 The deterministic headless replay reports exact packet bytes and estimated wire
 time using the hardware-calibrated cost model:
@@ -938,7 +955,7 @@ display worker only reads the enabled flag while holding its existing session lo
 it takes no additional lock, timestamp, or barrier round trip. The C result carries
 the byte count already returned by `libusb_bulk_transfer`.
 
-`MK2WidgetLabDemo` uses this barrier in its **Display Benchmark** diagnostic. Each
+`widget-lab` uses this barrier in its **Display Benchmark** diagnostic. Each
 fixture is rendered before timing, then alternated through the normal Kit2
 framebuffer reconciler. The reported end-to-end time covers diffing, daemon IPC and
 queueing, adaptive encoding when selected, and the completed physical transfer.
@@ -948,11 +965,11 @@ Run the normal stack with:
 ```bash
 make run-simulator
 # Start the simulator daemon from the app's Daemon menu
-make mk2-widget-lab-demo-sim
+make widget-lab-sim
 ```
 
 Operational details and headless snapshot variables live in `CLAUDE.md`, section
-“Simulation mode”.
+“Simulator”.
 
 ### Implementation map
 
@@ -963,10 +980,13 @@ Operational details and headless snapshot variables live in `CLAUDE.md`, section
 | Experimental display-command REPL and packet self-test | `Tools/MK2USBSpy/MK2DisplayCommandREPL.c` |
 | Daemon ownership and scheduling | `Sources/KompleteKontrol/KompleteKontrol.swift` |
 | Device-session seam | `Sources/KompleteKontrol/KontrolDeviceSession.swift` |
-| Simulator wire protocol | `Sources/KompleteKontrol/SimWireProtocol.swift` |
-| Raw report synthesis | `Sources/KompleteKontrol/MK2InputReportBuilder.swift` |
+| Simulator wire protocol | `Sources/KontrolSimulatorWire/SimWireProtocol.swift` |
+| KONTROL raw report synthesis | `Sources/KompleteKontrol/MK2InputReportBuilder.swift` |
+| MASCHINE raw report synthesis | `Sources/KompleteKontrol/MaschineMK3InputReportBuilder.swift` |
 | Simulator daemon backend | `Sources/KompleteKontrol/SimulatorDeviceSession.swift` |
-| Simulator panel | `Tools/KontrolSimulator/PanelView.swift` |
+| Shared simulator definitions/state | `Sources/KontrolSimulatorCore/` |
+| KONTROL panel | `Tools/KontrolSimulator/PanelView.swift` |
+| MASCHINE panel | `Tools/KontrolSimulator/MaschineMK3PanelView.swift` |
 
 ---
 

@@ -3,7 +3,7 @@ import KompleteKontrol
 import KontrolSurfaceKit2
 
 enum MK2PaulincheRendererSupport {
-    // The tracker palette developed in the MK2 widget lab (Tools/MK2WidgetLabDemo).
+    // The tracker palette developed in Widget Lab (Tools/WidgetLab).
     enum Palette {
         static let background: UInt16 = 0x0841 // near-black blue
         static let text: UInt16 = 0xffff
