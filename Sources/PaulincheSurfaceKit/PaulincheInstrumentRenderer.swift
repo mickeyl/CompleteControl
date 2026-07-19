@@ -7,11 +7,30 @@ public enum MK2PaulincheInstrumentKind: Sendable, Equatable {
     case wavetable
 }
 
+public struct MK2PaulincheInstrumentColorGradient: Sendable, Equatable {
+    public var top: KKRGB
+    public var center: KKRGB
+    public var bottom: KKRGB
+
+    public init(top: KKRGB, center: KKRGB, bottom: KKRGB) {
+        self.top = top
+        self.center = center
+        self.bottom = bottom
+    }
+
+    public static let fallback = MK2PaulincheInstrumentColorGradient(
+        top: KKRGB(red: 0xff, green: 0x52, blue: 0x52),
+        center: KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+        bottom: KKRGB(red: 0xb8, green: 0x00, blue: 0x00)
+    )
+}
+
 public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
     public var title: String
     public var subtitle: String
     public var instrumentIndex: Int
     public var kind: MK2PaulincheInstrumentKind
+    public var instrumentColorGradient: MK2PaulincheInstrumentColorGradient
     public var infoLines: [String]
     public var playheadProgress: Double?
     public var waveform: MK2WaveformEnvelope
@@ -31,6 +50,7 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         subtitle: String,
         instrumentIndex: Int,
         kind: MK2PaulincheInstrumentKind,
+        instrumentColorGradient: MK2PaulincheInstrumentColorGradient = .fallback,
         infoLines: [String] = [],
         playheadProgress: Double? = nil,
         waveform: MK2WaveformEnvelope = MK2WaveformEnvelope(minima: [], maxima: []),
@@ -44,6 +64,7 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         self.subtitle = subtitle
         self.instrumentIndex = max(0, instrumentIndex)
         self.kind = kind
+        self.instrumentColorGradient = instrumentColorGradient
         self.infoLines = infoLines
         self.playheadProgress = playheadProgress.map { MK2PaulincheRendererSupport.clamped01($0) }
         self.waveform = waveform
@@ -87,6 +108,7 @@ public struct MK2PaulincheInstrumentActions: Sendable {
 public enum MK2PaulincheInstrumentRenderer {
     static let encoderSlotRect = MK2PixelRect(x: 8, y: 215, width: 464, height: 57)
     static let waveformRect = MK2PixelRect(x: 8, y: 32, width: 464, height: 174)
+    static let instrumentColorRect = MK2PixelRect(x: 430, y: 4, width: 42, height: 24)
 
     public static func render(
         _ scene: MK2PaulincheInstrumentScene,
@@ -117,7 +139,9 @@ public enum MK2PaulincheInstrumentRenderer {
         typealias Support = MK2PaulincheRendererSupport
         return MK2FullScreenDSL(background: Support.Palette.background) {
             MK2ContentText(scene.title.uppercased(), x: 8, y: 6, maxWidth: 330, role: .custom(weight: .bold, pixelSize: 15), color: Support.Palette.blue, relativeToContent: false)
-            MK2ContentText(scene.subtitle.uppercased(), x: 344, y: 8, maxWidth: 128, role: .custom(weight: .medium, pixelSize: 12), color: Support.Palette.dim, relativeToContent: false)
+            MK2RenderBlock { frame, _ in
+                drawInstrumentColorGradient(scene.instrumentColorGradient, into: &frame)
+            }
             MK2RenderBlock { frame, _ in
                 MK2WaveformDisplay(
                     envelope: scene.waveform,
@@ -135,6 +159,51 @@ public enum MK2PaulincheInstrumentRenderer {
             )
             encoderBindings(range: 0..<4, actions: actions)
         }.build(renderer: renderer)
+    }
+
+    private static func drawInstrumentColorGradient(
+        _ gradient: MK2PaulincheInstrumentColorGradient,
+        into frame: inout MK2PixelFrame
+    ) {
+        let radius = 5
+        let topHeight = Int((Double(instrumentColorRect.height) * 0.48).rounded())
+        let topRect = MK2PixelRect(
+            x: instrumentColorRect.x,
+            y: instrumentColorRect.y,
+            width: instrumentColorRect.width,
+            height: topHeight
+        )
+        let bottomRect = MK2PixelRect(
+            x: instrumentColorRect.x,
+            y: instrumentColorRect.y + topHeight,
+            width: instrumentColorRect.width,
+            height: instrumentColorRect.height - topHeight
+        )
+        let top = KompleteKontrolSSeriesMK2.rgb565(gradient.top)
+        let center = KompleteKontrolSSeriesMK2.rgb565(gradient.center)
+        let bottom = KompleteKontrolSSeriesMK2.rgb565(gradient.bottom)
+
+        frame.fillRoundedVerticalGradient(
+            instrumentColorRect,
+            radius: radius,
+            top: center,
+            bottom: center,
+            antialiased: true
+        )
+        frame.fillRoundedVerticalGradient(
+            topRect,
+            radius: radius,
+            top: top,
+            bottom: center,
+            antialiased: true
+        )
+        frame.fillRoundedVerticalGradient(
+            bottomRect,
+            radius: radius,
+            top: center,
+            bottom: bottom,
+            antialiased: true
+        )
     }
 
     // MARK: - Right screen: facts and mix values

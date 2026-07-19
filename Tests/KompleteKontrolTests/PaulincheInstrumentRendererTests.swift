@@ -1,8 +1,8 @@
 import Foundation
 import KompleteKontrol
-import PaulincheSurfaceKit
 import Testing
 @testable import KontrolSurfaceKit2
+@testable import PaulincheSurfaceKit
 
 @Suite("Paulinche instrument renderer")
 struct PaulincheInstrumentRendererTests {
@@ -27,6 +27,30 @@ struct PaulincheInstrumentRendererTests {
         if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
             try? PixelSnapshot.write([left, right], to: "\(dir)/paulinche-instrument.png")
         }
+    }
+
+    @Test("Instrument color replaces the subtitle with a rounded vertical gradient")
+    func instrumentColorReplacesSubtitle() {
+        let renderer = try? FreeTypeTextRenderer()
+        let scene = Self.instrumentFixture()
+        let left = MK2PaulincheInstrumentRenderer.render(scene, renderer: renderer).left.screen.frame
+        let rect = MK2PaulincheInstrumentRenderer.instrumentColorRect
+        let centerX = rect.x + rect.width / 2
+
+        let top = left[centerX, rect.y]
+        let center = left[centerX, rect.y + Int((Double(rect.height) * 0.48).rounded()) - 1]
+        let bottom = left[centerX, rect.maxY - 1]
+        #expect(top > center)
+        #expect(center > bottom)
+        #expect(left[rect.x, rect.y] == 0x0841)
+
+        var changedSubtitle = scene
+        changedSubtitle.subtitle = "THIS MUST NOT BE RENDERED"
+        let changedLeft = MK2PaulincheInstrumentRenderer.render(
+            changedSubtitle,
+            renderer: renderer
+        ).left.screen.frame
+        #expect(changedLeft == left)
     }
 
     @Test("Instrument scene shift soft keys build and dispatch the shift layer")
@@ -123,6 +147,11 @@ struct PaulincheInstrumentRendererTests {
             subtitle: "EDIT 04 SAMPLE",
             instrumentIndex: 3,
             kind: .sample,
+            instrumentColorGradient: MK2PaulincheInstrumentColorGradient(
+                top: KKRGB(red: 0xff, green: 0x52, blue: 0x52),
+                center: KKRGB(red: 0xff, green: 0x00, blue: 0x00),
+                bottom: KKRGB(red: 0xb8, green: 0x00, blue: 0x00)
+            ),
             infoLines: ["8420 FRAMES · 8363 HZ", "LOOP 1440…7900 · 6460 FRM"],
             playheadProgress: 0.38,
             waveform: MK2WaveformEnvelope(
