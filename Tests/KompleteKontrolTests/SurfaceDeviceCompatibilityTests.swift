@@ -28,7 +28,7 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .erase)?.input == .button(.clear))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .arrowLeft)?.input == .button(.pageLeft))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .channel)?.input == .button(.track))
-        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard)?.input == .button(.keyMode))
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .padMode)?.input == .button(.keyMode))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .variation)?.input == .button(.variation))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupA)?.input == .button(.instrument1))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupH)?.input == .button(.instrument8))
@@ -36,6 +36,7 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .restart) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .tap) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .noteRepeat) == nil)
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .chords) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .duplicate) == nil)
     }
@@ -253,6 +254,7 @@ struct SurfaceDeviceCompatibilityTests {
                 .record: KontrolSurfaceLampValue(color: white, intensity: 2),
                 .pageLeft: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .scene: KontrolSurfaceLampValue(color: white, intensity: 1),
+                .keyMode: KontrolSurfaceLampValue(color: white, intensity: 3),
                 .variation: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .jogRight: KontrolSurfaceLampValue(color: green, intensity: 2),
                 .strip1: KontrolSurfaceLampValue(color: white, intensity: 3),
@@ -269,6 +271,9 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(buttons.payload[MaschineMK3ButtonLED.record.rawValue] == 6)
         #expect(buttons.payload[MaschineMK3ButtonLED.arrowLeft.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.scene.rawValue] == 4)
+        #expect(buttons.payload[MaschineMK3ButtonLED.padMode.rawValue] == 7)
+        #expect(buttons.payload[MaschineMK3ButtonLED.keyboard.rawValue] == 0)
+        #expect(buttons.payload[MaschineMK3ButtonLED.chords.rawValue] == 0)
         #expect(buttons.payload[MaschineMK3ButtonLED.variation.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.mainEncoderRight.rawValue] == 0x1e)
         #expect(buttons.payload[MaschineMK3ButtonLED.tap.rawValue] == 0)
