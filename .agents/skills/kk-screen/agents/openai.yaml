@@ -1,0 +1,4 @@
+interface:
+  display_name: "KK Screen"
+  short_description: "Live Komplete Kontrol MK2 screen capture"
+  default_prompt: "Use $kk-screen to capture and inspect both Komplete Kontrol MK2 displays."
