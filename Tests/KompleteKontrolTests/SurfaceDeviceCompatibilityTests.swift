@@ -184,14 +184,46 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(adapter.events(for: baseline, timestampNanos: 2) == [.jogCenter])
     }
 
-    @Test("the first MK3 surface report does not consume the first encoder turn")
-    func firstSurfaceGesture() {
+    @Test("the first MK3 surface report baselines absolute counters without phantom controls")
+    func firstSurfaceReportBaseline() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        let firstReport: [UInt8] = [
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x80, 0x00, 0x07, 0x5e, 0x03, 0x34, 0x02,
+            0xd1, 0x00, 0x8c, 0x02, 0x93, 0x01, 0xe1, 0x02,
+            0x46, 0x02, 0x97, 0x02, 0x11, 0xbf, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ]
+
+        #expect(adapter.events(for: firstReport, timestampNanos: 1_000_000).isEmpty)
+
+        var firstTurn = firstReport
+        firstTurn[11] = 8
+        #expect(adapter.events(for: firstTurn, timestampNanos: 2_000_000) == [
+            .jogScroll(delta: 1, value: 8),
+        ])
+    }
+
+    @Test("a first MK3 button press remains an event without an input snapshot")
+    func firstSurfaceButton() {
         var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
         var firstReport = surfaceReport()
-        firstReport[11] = 1
+        firstReport[6] = 0x20
 
         #expect(adapter.events(for: firstReport, timestampNanos: 1_000_000) == [
-            .jogScroll(delta: 1, value: 1),
+            .button(led: .play, pressed: true),
+        ])
+    }
+
+    @Test("a first MK3 ribbon contact remains an event without an input snapshot")
+    func firstSurfaceRibbonContact() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        var firstReport = surfaceReport()
+        setWord(512, at: 30, in: &firstReport)
+
+        #expect(adapter.events(for: firstReport, timestampNanos: 1_000_000) == [
+            .strip(position: 512, time: 1),
         ])
     }
 

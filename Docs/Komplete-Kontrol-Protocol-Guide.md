@@ -152,6 +152,19 @@ positions, and the three analogue controls. Changes to ambiguous bits are never
 dropped: they appear as `rawChanged` events in NO CLIENT so a focused capture can
 promote them later.
 
+The MK3 interrupt endpoint can remain silent until physical state changes. If a
+client registers before the daemon has cached a report, its first live report
+therefore contains already-established absolute encoder and analogue values as
+well as the initiating gesture. Those absolute values must seed the comparison
+baseline; comparing the complete report with zero creates phantom turns on all
+eight display encoders. Known button bits are neutralized in the synthetic
+baseline so the first press remains visible; touch-strip positions are compared
+with their zero/release state so the first ribbon contact also remains visible.
+Encoder-touch state is retained: the touch report primes the current counter,
+and the following physical turn is then decoded against that real MK3 value.
+This cold-start rule is MK3-specific; the S-Series MK2 decoder keeps its separate
+initial-report policy.
+
 ### Kit2 compatibility adapter
 
 `MK2Surface2` now selects a device adapter from the daemon's structured

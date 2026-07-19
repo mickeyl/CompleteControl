@@ -742,10 +742,14 @@ public enum MaschineMK3InputReportDecoder {
 
     public static func surfaceEvents(previous: [UInt8]?, current: [UInt8]) -> [MaschineMK3SurfaceEvent] {
         guard current.count == MaschineMK3Protocol.surfaceReportSize,
-              current.first == MaschineMK3Protocol.surfaceReportID,
-              let previous,
-              previous.count == current.count,
-              previous.first == current.first else { return [] }
+              current.first == MaschineMK3Protocol.surfaceReportID else { return [] }
+        let previous = if let previous,
+                          previous.count == current.count,
+                          previous.first == current.first {
+            previous
+        } else {
+            initialEventBaseline(current: current)
+        }
 
         var events: [MaschineMK3SurfaceEvent] = []
         var explained = Set<Int>()
@@ -832,6 +836,26 @@ public enum MaschineMK3InputReportDecoder {
             events.append(.rawChanged(indices: unknownChanges))
         }
         return events
+    }
+
+    /// Builds a safe comparison state for the first live report when the daemon
+    /// could not supply an earlier snapshot. MK3 encoder and analogue fields are
+    /// absolute state whose counters may already be non-zero; treating them as
+    /// deltas from zero creates phantom edits. Known button bits remain edge-like
+    /// so a first press is still delivered, and non-zero strip positions remain
+    /// first contacts. Encoder touch state is retained because it arrives before
+    /// rotation and therefore primes the following real counter change without
+    /// inventing an unknowable first delta.
+    private static func initialEventBaseline(current: [UInt8]) -> [UInt8] {
+        var baseline = current
+        for bit in buttonBits {
+            baseline[bit.byte] &= ~bit.mask
+        }
+        for offset in [30, 34] {
+            baseline[offset] = 0
+            baseline[offset + 1] &= ~0x03
+        }
+        return baseline
     }
 
     private static func word(_ bytes: [UInt8], offset: Int, highMask: UInt8 = 0xff) -> Int {

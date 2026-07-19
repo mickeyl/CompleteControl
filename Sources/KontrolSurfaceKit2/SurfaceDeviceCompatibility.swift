@@ -305,21 +305,8 @@ struct KontrolSurfaceInputAdapter: Sendable {
                 return events
 
             case .maschineMK3:
-                let previous: [UInt8]?
-                if let cached = previousReports[reportID] {
-                    previous = cached
-                } else if reportID == MaschineMK3Protocol.surfaceReportID {
-                    // The MK3 only interrupts on a changed surface state, so a
-                    // newly registered client may receive the first physical
-                    // encoder turn before it has ever seen an idle report.
-                    // Seed the decoder with the neutral report rather than
-                    // silently consuming that first real gesture as a baseline.
-                    previous = initialMaschineMK3SurfaceBaseline(for: bytes)
-                } else {
-                    previous = nil
-                }
                 let nativeEvents = MaschineMK3InputReportDecoder.surfaceEvents(
-                    previous: previous,
+                    previous: previousReports[reportID],
                     current: bytes
                 )
                 if reportID == MaschineMK3Protocol.surfaceReportID {
@@ -418,10 +405,4 @@ struct KontrolSurfaceInputAdapter: Sendable {
         maschineTouchPositions[0] ?? maschineTouchPositions[1]
     }
 
-    private func initialMaschineMK3SurfaceBaseline(for bytes: [UInt8]) -> [UInt8]? {
-        guard bytes.count == MaschineMK3Protocol.surfaceReportSize,
-              bytes.first == MaschineMK3Protocol.surfaceReportID else { return nil }
-        return [MaschineMK3Protocol.surfaceReportID]
-            + [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize - 1)
-    }
 }
