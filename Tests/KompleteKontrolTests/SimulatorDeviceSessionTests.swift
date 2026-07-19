@@ -312,8 +312,8 @@ struct SimulatorDeviceSessionTests {
         defer { Darwin.close(daemon); Darwin.close(sim) }
         let session = SimulatorDeviceSession(fd: daemon)
 
-        // Untouched default: matches the daemon's own placeholder, real model name.
-        #expect(session.firmwareVersion == 0x0100)
+        // Untouched default: matches the daemon's own bench-verified default, real model name.
+        #expect(session.firmwareVersion == 0x0060)
         #expect(session.deviceProfile.name == "KOMPLETE KONTROL S61 MK2")
 
         send(.identity(firmwareVersion: 0x0146, nameOverride: "Test Rig"), to: sim)

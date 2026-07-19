@@ -127,6 +127,8 @@ hardware indices 0-15 map directly to `0x81` payload offsets 25-40. Use
 ## MK2 Protocol Essentials
 
 - VID `0x17cc`; PIDs `0x1610`, `0x1620`, `0x1630`.
+- Bench-verified S61 MK2 unit revision `bcdDevice 0x0060` (firmware 0.6.0);
+  this is the simulator's default MK2 identity.
 - Host-control mode: report `0xA0`, payload `00 10`.
 - Mapping-engine standalone mode: `0xA0 93 00`, templates `0xA1`/`0xA2`,
   commit `0xAF 00 02`.

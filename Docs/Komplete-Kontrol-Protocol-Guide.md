@@ -23,6 +23,13 @@ custom tracker surface:
 
 ![Komplete Kontrol S61 MK2 running a custom tracker UI on its two displays](images/mk2-hardware-tracker.jpg)
 
+## Komplete Kontrol S61 MK2 bench profile
+
+Read directly from a connected S61 MK2 on 2026-07-19: firmware/device revision
+`bcdDevice 0x0060`, formatted "0.6.0" by the same BCD-nibble rule as MASCHINE
+MK3 below. This is the baseline identity `KontrolSimulator`'s MK2 profile
+reports until overridden by an `.identity` frame.
+
 ## MASCHINE MK3 bench profile
 
 The following transport facts were read directly from a connected MASCHINE MK3

@@ -60,7 +60,9 @@ public struct SimulatorDeviceDefinition: Sendable, Equatable {
                     descriptor: SimulatorDeviceDescriptor(
                         productID: 0x1620,
                         keyCount: 61,
-                        firmwareVersion: 0x0100,
+                        // Bench-verified S61 MK2 bcdDevice (firmware 0.6.0) — see
+                        // Docs/Komplete-Kontrol-Protocol-Guide.md.
+                        firmwareVersion: 0x0060,
                         instanceID: instanceID,
                         capabilities: [.rawSurfaceInput, .rawMIDIInput, .displayBlits, .displayPackets, .outputReports]
                     ),

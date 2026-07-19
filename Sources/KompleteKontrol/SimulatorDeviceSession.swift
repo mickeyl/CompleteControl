@@ -21,7 +21,7 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
     static let defaultDescriptor = SimulatorDeviceDescriptor(
         productID: 0x1620,
         keyCount: 61,
-        firmwareVersion: 0x0100,
+        firmwareVersion: 0x0060,
         instanceID: "tests",
         capabilities: [.rawSurfaceInput, .rawMIDIInput, .displayBlits, .displayPackets, .outputReports]
     )
@@ -35,8 +35,8 @@ final class SimulatorDeviceSession: KontrolDeviceSession {
     private var lostFlag = false
 
     // Overridden by an `.identity` frame from the simulator's "Device Identity…" settings
-    // dialog. No bench-verified S61 MK2 bcdDevice is on record (only MASCHINE MK3's 0x0146
-    // is), so 0x0100 is a stable placeholder rather than a captured value until overridden.
+    // dialog. Defaults to the bench-verified S61 MK2 bcdDevice 0x0060 (firmware 0.6.0; see
+    // Docs/Komplete-Kontrol-Protocol-Guide.md) until overridden.
     private var firmwareVersionOverride: UInt16
     private var nameOverride: String?
 
