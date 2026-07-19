@@ -14,7 +14,8 @@ final class LightGuideDemo: LabDemo, @unchecked Sendable {
         category: .diagnostics,
         summary: "Paint light-guide keys and button LEDs",
         detail: "Scene-driven light-guide painting with an on-screen mirror to compare against the hardware. E5 pattern, E6 colour, E7 key span, E8 mirrors the colour onto the F-key LEDs; 4-D moves the cursor, press paints.",
-        snapshotVariants: ["rainbow", "solid", "instruments64"]
+        snapshotVariants: ["rainbow", "solid", "instruments64"],
+        requiredFamily: .kompleteKontrolMK2
     )
 
     private enum GuidePattern: Int, CaseIterable {
