@@ -447,7 +447,7 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
         var frame = MK2PixelFrame(fill: Palette.page)
         drawFreeTypeTitle(title, into: &frame, renderer: renderer, x: 12, y: 12, size: 20, color: Palette.text, maxWidth: 456)
         BitmapLabel(subtitle, font: .label, color: Palette.dim).draw(into: &frame, x: 14, y: 42)
-        BitmapLabel("PAYLOAD              KB     USB     P90", font: .label, color: Palette.blue).draw(into: &frame, x: 14, y: 68)
+        BitmapLabel(Self.resultTableHeader, font: .grid, color: Palette.blue).draw(into: &frame, x: 14, y: 68)
         frame.fill(MK2PixelRect(x: 12, y: 84, width: 456, height: 1), Palette.border)
         for (index, result) in results.enumerated() {
             drawResultRow(result, y: 96 + index * 34, into: &frame)
@@ -462,16 +462,41 @@ final class DisplayBenchmarkDemo: LabDemo, @unchecked Sendable {
         return frame
     }
 
+    // Header and data rows share these widths and both draw in the fixed-pitch
+    // `.grid` font so a character index maps to the same pixel column in both —
+    // padding the header to line up in a different, differently-pitched font
+    // (as `.label` was here) silently drifts once the two diverge.
+    private static let payloadColumnWidth = 19
+    private static let narrowNumericColumnWidth = 6
+    private static let wideNumericColumnWidth = 7
+
+    private static let resultTableHeader: String = {
+        // `String(format:)`'s `%@` ignores a numeric field width — unlike `%f`,
+        // it does not pad — so the header columns are right-aligned by hand
+        // instead, to the exact same widths `drawResultRow`'s printf spec pads
+        // its numeric fields to.
+        let name = "PAYLOAD".padding(toLength: payloadColumnWidth, withPad: " ", startingAt: 0)
+        let kb = rightAligned("KB", width: narrowNumericColumnWidth)
+        let usb = rightAligned("USB", width: wideNumericColumnWidth)
+        let p90 = rightAligned("P90", width: wideNumericColumnWidth)
+        return "\(name) \(kb) \(usb) \(p90)"
+    }()
+
+    private static func rightAligned(_ text: String, width: Int) -> String {
+        String(repeating: " ", count: max(0, width - text.count)) + text
+    }
+
     private func drawResultRow(
         _ result: Result,
         y: Int,
         into frame: inout MK2PixelFrame,
         color: UInt16 = Palette.text
     ) {
-        let name = String(result.title.prefix(19)).padding(toLength: 19, withPad: " ", startingAt: 0)
+        let name = String(result.title.prefix(Self.payloadColumnWidth))
+            .padding(toLength: Self.payloadColumnWidth, withPad: " ", startingAt: 0)
         let kilobytes = result.averageTransportBytes / 1024.0
         let line = String(
-            format: "%@ %6.1f %7.2f %7.2f",
+            format: "%@ %\(Self.narrowNumericColumnWidth).1f %\(Self.wideNumericColumnWidth).2f %\(Self.wideNumericColumnWidth).2f",
             name,
             kilobytes,
             result.transportMedianMilliseconds,
