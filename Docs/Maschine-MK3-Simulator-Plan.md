@@ -279,15 +279,19 @@ First-pass visual tolerances:
 - uncertain bevels, radii, legends, and active display dimensions stay marked
   as estimates until measured.
 
-No user photo is required to begin or to reach functional acceptance. For the
-later visual-calibration gate, one user-supplied image would improve the result:
-a high-resolution, straight top-down photo of the **top/face plate**, camera
-centred and parallel to the surface, all four chassis edges visible, preferably
-with a ruler or two measured reference distances in frame. A longer focal
-length or 2x camera setting reduces perspective distortion. A photograph of
-the underside/base plate alone would not help place the controls. Optional
-oblique close-ups help with control height and bevels, but are not needed for a
-2-D simulator.
+Two full-resolution user photographs with metric rulers are available for the
+visual-calibration gate:
+
+- [width calibration, original 4355x4283](images/maschine-mk3-calibration-width-ruler.jpg)
+- [depth calibration, original 3917x3285](images/maschine-mk3-calibration-depth-ruler.jpg)
+
+The width view covers the complete 320-mm top edge; the depth view covers the
+301-mm side and preserves all four chassis edges. Rectify each face plate from
+its four outer corners, then use the ruler as an independent scale check. These
+photographs are calibration evidence only and must not be packaged as
+`KontrolSimulator` application resources. No additional photograph is required
+for the 2-D panel. Optional oblique close-ups would help with control height and
+bevels, but those are outside functional simulator acceptance.
 
 Official references:
 
