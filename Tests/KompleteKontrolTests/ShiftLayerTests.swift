@@ -10,7 +10,7 @@ struct ShiftLayerTests {
         let box = ShiftLayerBox()
         var base = MK2InputBindings2()
         base.onPress(.function5) { box.basePresses += 1 }
-        base.encoder[2] = { delta, _, _ in box.baseEncoderDelta += delta }
+        base.rawEncoder[2] = { delta, _, _ in box.baseEncoderDelta += delta }
         var layer = MK2InputBindings2()
         layer.onPress(.function5) { box.shiftPresses += 1 }
 
@@ -41,10 +41,10 @@ struct ShiftLayerTests {
     func layerEncoderBindingsReplaceBase() async {
         let box = ShiftLayerBox()
         var base = MK2InputBindings2()
-        base.encoder[1] = { delta, _, _ in box.baseEncoderDelta += delta }
+        base.rawEncoder[1] = { delta, _, _ in box.baseEncoderDelta += delta }
         base.jogScroll = { delta, _ in box.baseJogDelta += delta }
         var layer = MK2InputBindings2()
-        layer.encoder[1] = { delta, _, _ in box.shiftEncoderDelta += delta }
+        layer.rawEncoder[1] = { delta, _, _ in box.shiftEncoderDelta += delta }
 
         let surface = MK2Surface2()
         await surface.present(MK2SurfaceScene2(

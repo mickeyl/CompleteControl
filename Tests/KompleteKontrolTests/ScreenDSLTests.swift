@@ -179,8 +179,8 @@ struct ScreenDSLTests {
         }.build()
 
         result.bindings.encoderTouch[5]?(true)
-        result.bindings.encoder[5]?(1, 0, 0)
-        result.bindings.encoder[6]?(-1, 0, 0)
+        result.bindings.rawEncoder[5]?(1, 0, 0)
+        result.bindings.rawEncoder[6]?(-1, 0, 0)
 
         #expect(box.touched)
         #expect(box.lastValue == 3)
@@ -208,7 +208,7 @@ struct ScreenDSLTests {
         }.build()
 
         result.bindings.encoderTouch[5]?(true)
-        result.bindings.encoder[5]?(1, 0, 0)
+        result.bindings.rawEncoder[5]?(1, 0, 0)
         result.bindings.encoderTouch[5]?(false)
 
         #expect(box.secondValue == -5)
@@ -306,7 +306,7 @@ struct ScreenDSLTests {
         }.build()
 
         result.bindings.encoderTouch[1]?(true)
-        result.bindings.encoder[1]?(2, 0, 0)
+        result.bindings.rawEncoder[1]?(2, 0, 0)
 
         #expect(box.touched)
         #expect(box.lastValue == 5)

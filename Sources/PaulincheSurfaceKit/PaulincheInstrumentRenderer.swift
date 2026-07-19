@@ -318,7 +318,9 @@ public enum MK2PaulincheInstrumentRenderer {
     ) -> [any MK2ScreenElement] {
         range.map { index in
             let encoder = index + 1
-            return MK2EncoderBindingElement(
+            // Deliberately raw: Paulinche owns each instrument parameter's
+            // concrete span and applies its span-aware adaptive scaler app-side.
+            return MK2RawEncoderBindingElement(
                 encoder,
                 onTouch: { touched in
                     actions.onEncoderTouch?(encoder, touched)

@@ -74,8 +74,10 @@ struct PaulinchePatternRendererTests {
         #expect(edit.countPixels(in: MK2PixelRect(x: 0, y: 60, width: 480, height: 145), notMatching: Self.background) > 300)
     }
 
-    @Test("Pattern edit footer forwards encoder deltas and touches")
-    func patternEditFooterForwardsEncoders() {
+    @Test("Pattern edit footer uses adaptive relative encoder steps")
+    func patternEditFooterUsesAdaptiveRelativeSteps() {
+        MK2EncoderDetents.shared.reset()
+        defer { MK2EncoderDetents.shared.reset() }
         let scene = Self.fixture()
         let recorder = PatternEncoderActionRecorder()
         let rendered = MK2PaulinchePatternRenderer.surfaceScene(
@@ -92,8 +94,11 @@ struct PaulinchePatternRendererTests {
 
         rendered.bindings.encoderTouch[5]?(true)
         rendered.bindings.encoderTouch[5]?(false)
-        rendered.bindings.encoder[5]?(2, 0, 0)
-        rendered.bindings.encoder[8]?(-1, 0, 0)
+        let second: UInt64 = 1_000_000_000
+        rendered.bindings.rawEncoder[5]?(12, 0, second)
+        #expect(recorder.changesSnapshot().isEmpty)
+        rendered.bindings.rawEncoder[5]?(12, 0, 2 * second)
+        rendered.bindings.rawEncoder[8]?(-24, 0, second)
 
         let touches = recorder.touchesSnapshot()
         let changes = recorder.changesSnapshot()
@@ -104,13 +109,15 @@ struct PaulinchePatternRendererTests {
         #expect(touches[1].1 == false)
         #expect(changes.count == 2)
         #expect(changes[0].0 == 5)
-        #expect(changes[0].1 == 2)
+        #expect(changes[0].1 == 1)
         #expect(changes[1].0 == 8)
         #expect(changes[1].1 == -1)
     }
 
-    @Test("Channel encoders E1–E4 forward touch and rotation")
-    func channelEncodersForwardTouchAndRotation() {
+    @Test("Channel encoders E1-E4 use calibrated detents and rate acceleration")
+    func channelEncodersUseAdaptiveDiscreteThrow() {
+        MK2EncoderDetents.shared.reset()
+        defer { MK2EncoderDetents.shared.reset() }
         let scene = Self.fixture()
         let recorder = PatternEncoderActionRecorder()
         let rendered = MK2PaulinchePatternRenderer.surfaceScene(
@@ -126,21 +133,27 @@ struct PaulinchePatternRendererTests {
         )
 
         for encoder in 1...4 {
-            #expect(rendered.bindings.encoder[encoder] != nil)
+            #expect(rendered.bindings.rawEncoder[encoder] != nil)
             #expect(rendered.bindings.encoderTouch[encoder] != nil)
         }
 
         rendered.bindings.encoderTouch[2]?(true)
-        rendered.bindings.encoder[3]?(1, 0, 0)
+        let second: UInt64 = 1_000_000_000
+        rendered.bindings.rawEncoder[3]?(12, 0, second)
+        #expect(recorder.changesSnapshot().isEmpty)
+        rendered.bindings.rawEncoder[3]?(12, 0, 2 * second)
+        rendered.bindings.rawEncoder[3]?(30, 0, 2 * second + 10_000_000)
 
         let touches = recorder.touchesSnapshot()
         let changes = recorder.changesSnapshot()
         #expect(touches.count == 1)
         #expect(touches[0].0 == 2)
         #expect(touches[0].1 == true)
-        #expect(changes.count == 1)
+        #expect(changes.count == 2)
         #expect(changes[0].0 == 3)
         #expect(changes[0].1 == 1)
+        #expect(changes[1].0 == 3)
+        #expect(changes[1].1 > 1)
     }
 
     @Test("Channel encoders live in the DSL, so render() and surfaceScene() agree")
@@ -149,9 +162,9 @@ struct PaulinchePatternRendererTests {
         let viaRender = MK2PaulinchePatternRenderer.render(scene).scene()
         let viaSurface = MK2PaulinchePatternRenderer.surfaceScene(scene)
         for encoder in 1...4 {
-            #expect(viaRender.bindings.encoder[encoder] != nil)
+            #expect(viaRender.bindings.rawEncoder[encoder] != nil)
             #expect(viaRender.bindings.encoderTouch[encoder] != nil)
-            #expect(viaSurface.bindings.encoder[encoder] != nil)
+            #expect(viaSurface.bindings.rawEncoder[encoder] != nil)
             #expect(viaSurface.bindings.encoderTouch[encoder] != nil)
         }
     }

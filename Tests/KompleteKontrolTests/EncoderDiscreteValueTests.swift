@@ -54,7 +54,7 @@ struct EncoderDiscreteValueTests {
         ).apply(bindings: &bindings)
 
         bindings.encoderTouch[6]?(true)
-        bindings.encoder[6]?(2, 0, 0)
+        bindings.rawEncoder[6]?(2, 0, 0)
 
         #expect(box.touches == [true])
         #expect(box.values == [12])
@@ -143,15 +143,15 @@ struct EncoderDiscreteValueTests {
             onChange: { box.change($0) }
         ).apply(bindings: &bindings)
 
-        bindings.encoder[3]?(6, 0, 0)
+        bindings.rawEncoder[3]?(6, 0, 0)
         #expect(box.values.isEmpty)
-        bindings.encoder[3]?(4, 0, 0)
+        bindings.rawEncoder[3]?(4, 0, 0)
         #expect(box.values == [2])
 
         // Direction flip decays the remainder through signed accumulation.
-        bindings.encoder[3]?(-6, 0, 0)
+        bindings.rawEncoder[3]?(-6, 0, 0)
         #expect(box.values == [2])
-        bindings.encoder[3]?(-4, 0, 0)
+        bindings.rawEncoder[3]?(-4, 0, 0)
         #expect(box.values == [2, 0])
         MK2EncoderDetents.shared.reset()
     }
@@ -170,7 +170,7 @@ struct EncoderDiscreteValueTests {
             onChange: { box.change($0) }
         ).apply(bindings: &bindings)
 
-        bindings.encoder[3]?(23, 0, 0)
+        bindings.rawEncoder[3]?(23, 0, 0)
         #expect(box.values == [4])
         MK2EncoderDetents.shared.reset()
     }
@@ -193,14 +193,14 @@ struct EncoderDiscreteValueTests {
         let second: UInt64 = 1_000_000_000
         // A slow nudge — two reports of 12 counts, a second apart — moves
         // exactly one value, even on an 8192-value domain (24 counts/step).
-        bindings.encoder[2]?(12, 0, second)
+        bindings.rawEncoder[2]?(12, 0, second)
         #expect(box.values.isEmpty)
-        bindings.encoder[2]?(12, 0, 2 * second)
+        bindings.rawEncoder[2]?(12, 0, 2 * second)
         #expect(box.values == [4097])
 
         // A fast flick — 30 counts within 10 ms (3000 counts/s) — hits the
         // domain-scaled ceiling and covers hundreds of values in one report.
-        bindings.encoder[2]?(30, 0, 2 * second + 10_000_000)
+        bindings.rawEncoder[2]?(30, 0, 2 * second + 10_000_000)
         let sweep = box.values.last! - 4096
         #expect(sweep > 300)
 
@@ -208,8 +208,8 @@ struct EncoderDiscreteValueTests {
         // quickly: the factor tracks rotation speed, not report cadence.
         MK2EncoderDetents.shared.reset()
         let emissions = box.values.count
-        bindings.encoder[2]?(1, 0, 2 * second + 60_000_000)
-        bindings.encoder[2]?(1, 0, 2 * second + 110_000_000)
+        bindings.rawEncoder[2]?(1, 0, 2 * second + 60_000_000)
+        bindings.rawEncoder[2]?(1, 0, 2 * second + 110_000_000)
         #expect(box.values.count == emissions)
 
         MK2EncoderDetents.shared.reset()

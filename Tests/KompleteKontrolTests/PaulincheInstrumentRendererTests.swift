@@ -133,8 +133,8 @@ struct PaulincheInstrumentRendererTests {
         // display their encoder sits under.
         #expect(rendered.encoderTouchOverlays[2]?.screen == 0)
         #expect(rendered.encoderTouchOverlays[5]?.screen == 1)
-        #expect(rendered.bindings.encoder[1] != nil)
-        #expect(rendered.bindings.encoder[8] != nil)
+        #expect(rendered.bindings.rawEncoder[1] != nil)
+        #expect(rendered.bindings.rawEncoder[8] != nil)
     }
 
     private static func instrumentFixture() -> MK2PaulincheInstrumentScene {

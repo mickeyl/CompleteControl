@@ -221,16 +221,31 @@ public enum MK2PaulinchePatternRenderer {
             // same axis as the 4-D wheel). They carry no value cells — the
             // bottom-flush E5–E8 slots own that layout. Wired here, inside the
             // DSL, so `render()` and `surfaceScene()` agree.
-            channelEncoderBindings(actions)
+            channelEncoderBindings(scene, actions: actions)
         }.build(renderer: renderer)
     }
 
-    private static func channelEncoderBindings(_ actions: MK2PaulinchePatternActions) -> [any MK2ScreenElement] {
-        (1...4).map { encoder in
-            MK2EncoderBindingElement(
-                encoder,
-                onTouch: { touched in actions.onEncoderTouch?(encoder, touched) },
-                onChange: { delta, _, _ in actions.onEncoderChange?(encoder, delta) }
+    /// E1-E4 share the calibrated discrete-value path used by the rest of the
+    /// surface. A slow turn accumulates high-resolution counts for precise
+    /// single-row movement; a fast turn accelerates across the pattern.
+    private static func channelEncoderBindings(
+        _ scene: MK2PaulinchePatternScene,
+        actions: MK2PaulinchePatternActions
+    ) -> [any MK2ScreenElement] {
+        let rowBounds = 0...max(0, scene.rowCount - 1)
+        let selectedRow = min(rowBounds.upperBound, max(rowBounds.lowerBound, scene.selectedRowIndex))
+        return (1...4).map { encoder in
+            MK2EncoderDiscreteValueElement(
+                MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: selectedRow,
+                    bounds: rowBounds,
+                    onTouch: { touched in actions.onEncoderTouch?(encoder, touched) },
+                    onChange: { nextRow in
+                        actions.onEncoderChange?(encoder, nextRow - selectedRow)
+                    }
+                ),
+                drawsDisplay: false
             )
         }
     }
@@ -413,14 +428,19 @@ public enum MK2PaulinchePatternRenderer {
     ) -> [any MK2ScreenElement] {
         parameters.prefix(4).enumerated().map { index, _ in
             let encoder = index + 5
-            return MK2EncoderBindingElement(
-                encoder,
-                onTouch: { touched in
-                    actions.onEncoderTouch?(encoder, touched)
-                },
-                onChange: { delta, _, _ in
-                    actions.onEncoderChange?(encoder, delta)
-                }
+            return MK2EncoderDiscreteValueElement(
+                MK2EncoderDiscreteValue(
+                    encoder: encoder,
+                    value: 0,
+                    bounds: -64...64,
+                    onTouch: { touched in
+                        actions.onEncoderTouch?(encoder, touched)
+                    },
+                    onChange: { delta in
+                        actions.onEncoderChange?(encoder, delta)
+                    }
+                ),
+                drawsDisplay: false
             )
         }
     }

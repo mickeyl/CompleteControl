@@ -117,10 +117,26 @@ public struct MK2InputBindings2: Sendable {
     public var modifiedButtonDown: [ModifiedButton: @Sendable () -> Void] = [:]
     public var modifiedButtonUp: [ModifiedButton: @Sendable () -> Void] = [:]
     public var modifiedButtonHold: [ModifiedButton: @Sendable () -> Void] = [:]
-    /// `timestampNanos` is the daemon-side reception time (KKTiming clock): velocity-
-    /// sensitive consumers must measure from it, not from processing time — handler
-    /// invocations bunch up behind rendering and would fake fast turns otherwise.
-    public var encoder: [Int: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void] = [:]
+    /// Explicit low-level encoder handlers. `timestampNanos` is the daemon-side
+    /// reception time (KKTiming clock): client-side adaptive consumers must
+    /// measure from it, not from processing time, because handler invocations
+    /// bunch up behind rendering and would otherwise fake fast turns.
+    ///
+    /// Value-bearing controls should bind through `MK2EncoderDiscreteValue`
+    /// instead. Direct raw handlers are reserved for documented client-side
+    /// span-aware scaling and hardware diagnostics.
+    public var rawEncoder: [Int: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void] = [:]
+
+    @available(
+        *,
+        deprecated,
+        renamed: "rawEncoder",
+        message: "Bind value controls through MK2EncoderDiscreteValue. Use rawEncoder only for a documented client-side scaler or hardware diagnostic."
+    )
+    public var encoder: [Int: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void] {
+        get { rawEncoder }
+        set { rawEncoder = newValue }
+    }
     public var encoderTouch: [Int: @Sendable (_ touched: Bool) -> Void] = [:]
     /// Two touch-downs on the same encoder within the double-touch window; the pro-audio
     /// "reset to default" gesture — what "default" means is the client's decision.
@@ -185,7 +201,7 @@ public struct MK2InputBindings2: Sendable {
         modifiedButtonDown.merge(other.modifiedButtonDown) { _, next in next }
         modifiedButtonUp.merge(other.modifiedButtonUp) { _, next in next }
         modifiedButtonHold.merge(other.modifiedButtonHold) { _, next in next }
-        encoder.merge(other.encoder) { _, next in next }
+        rawEncoder.merge(other.rawEncoder) { _, next in next }
         encoderTouch.merge(other.encoderTouch) { _, next in next }
         encoderDoubleTouch.merge(other.encoderDoubleTouch) { _, next in next }
         if let jog = other.jog { self.jog = jog }

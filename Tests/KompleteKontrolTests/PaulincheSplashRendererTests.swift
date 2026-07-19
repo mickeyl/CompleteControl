@@ -40,7 +40,7 @@ struct PaulincheSplashRendererTests {
         let rendered = MK2PaulincheSplashRenderer.surfaceScene(artwork: nil)
         #expect(rendered.displays[0] != nil)
         #expect(rendered.displays[1] != nil)
-        #expect(rendered.bindings.encoder.isEmpty)
+        #expect(rendered.bindings.rawEncoder.isEmpty)
         #expect(rendered.bindings.buttonDown.isEmpty)
     }
 

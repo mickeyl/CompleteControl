@@ -141,13 +141,19 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         // rotation moves the cursor row — the same axis as the 4-D wheel.
         for channel in 0..<4 {
             let encoder = channel + 1
-            bindings.encoder[encoder] = { [weak self] delta, _, _ in
-                context.update { self?.turnMainEncoder(delta) }
-            }
-            bindings.encoderTouch[encoder] = { [weak self] touched in
-                guard touched else { return }
-                context.update { self?.focusedChannel = channel }
-            }
+            let selectedRow = playheadRow
+            MK2EncoderDiscreteValue(
+                encoder: encoder,
+                value: selectedRow,
+                bounds: 0...max(0, patternRows.count - 1),
+                onTouch: { [weak self] touched in
+                    guard touched else { return }
+                    context.update { self?.focusedChannel = channel }
+                },
+                onChange: { [weak self] nextRow in
+                    context.update { self?.turnMainEncoder(nextRow - selectedRow) }
+                }
+            ).apply(bindings: &bindings)
         }
         bindings.onPress(.play) { [weak self] in
             context.update { self?.play() }

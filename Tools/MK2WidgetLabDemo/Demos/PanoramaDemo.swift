@@ -46,7 +46,7 @@ final class PanoramaDemo: LabDemo, @unchecked Sendable {
         scene.bindings.encoderTouch[7] = { [weak self] touched in
             context.update { self?.focus(7, touched) }
         }
-        scene.bindings.encoder[7] = { [weak self] delta, _, _ in
+        scene.bindings.rawEncoder[7] = { [weak self] delta, _, _ in
             self?.adjust(context) { demo in
                 demo.gapColumns = max(0, min(128, demo.gapColumns + delta))
             }
@@ -54,7 +54,7 @@ final class PanoramaDemo: LabDemo, @unchecked Sendable {
         scene.bindings.encoderTouch[8] = { [weak self] touched in
             context.update { self?.focus(8, touched) }
         }
-        scene.bindings.encoder[8] = { [weak self] delta, _, _ in
+        scene.bindings.rawEncoder[8] = { [weak self] delta, _, _ in
             self?.adjust(context) { demo in
                 demo.brightnessPercent = max(0, min(100, demo.brightnessPercent + delta))
             }

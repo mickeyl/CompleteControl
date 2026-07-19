@@ -133,6 +133,9 @@ private actor MK2FeatureDemo {
         var bindings = MK2InputBindings2()
         bindFeatureKeys(&bindings)
 
+        // Deliberately raw: this low-level hardware demo reports physical
+        // deltas, absolute counts, and reception timestamps for diagnostics.
+
         switch feature {
             case .overview:
                 // Lit means bound: all four 4-D directions and the click act on the menu.
@@ -152,8 +155,8 @@ private actor MK2FeatureDemo {
 
             case .lightGuide:
                 lamps[.clear] = .red
-                bindings.encoder[1] = { delta, _, time in Task { await self.adjustHue(delta, time: time) } }
-                bindings.encoder[2] = { delta, _, time in Task { await self.adjustSpread(delta, time: time) } }
+                bindings.rawEncoder[1] = { delta, _, time in Task { await self.adjustHue(delta, time: time) } }
+                bindings.rawEncoder[2] = { delta, _, time in Task { await self.adjustSpread(delta, time: time) } }
                 bindings.encoderDoubleTouch[1] = { Task { await self.resetLightGuide() } }
                 bindings.encoderDoubleTouch[2] = { Task { await self.resetLightGuide() } }
                 bindings.onPress(.clear) { Task { await self.resetLightGuide() } }
@@ -177,7 +180,7 @@ private actor MK2FeatureDemo {
                     }
                 }
                 bindings.strip = { position, time in Task { await self.ribbon(position: position, time: time) } }
-                bindings.encoder[1] = { delta, _, time in Task { await self.changeRibbonMode(delta, time: time) } }
+                bindings.rawEncoder[1] = { delta, _, time in Task { await self.changeRibbonMode(delta, time: time) } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "RIBBON LAB", lines: ["MODE \(ribbonModeName)", "TOUCH STRIP STREAM"], stripStart: 0),
                     right: meterFrame(title: "POSITION", value: Double(ribbonPosition ?? 0) / 1024, footer: lastEvent, stripStart: 4),
@@ -188,7 +191,7 @@ private actor MK2FeatureDemo {
 
             case .encoders:
                 for index in 1...8 {
-                    bindings.encoder[index] = { delta, value, time in Task { await self.encoder(index, delta: delta, value: value, time: time) } }
+                    bindings.rawEncoder[index] = { delta, value, time in Task { await self.encoder(index, delta: delta, value: value, time: time) } }
                     bindings.encoderTouch[index] = { touched in Task { await self.encoderTouch(index, touched: touched) } }
                     bindings.encoderDoubleTouch[index] = { Task { await self.resetLabParameter(index) } }
                 }
@@ -249,7 +252,7 @@ private actor MK2FeatureDemo {
                 )
 
             case .display:
-                bindings.encoder[1] = { delta, _, time in Task { await self.adjustDisplayMeter(delta, time: time) } }
+                bindings.rawEncoder[1] = { delta, _, time in Task { await self.adjustDisplayMeter(delta, time: time) } }
                 bindings.jogScroll = { delta, _ in Task { await self.nudgeDisplayMeter(detents: delta) } }
                 return MK2SurfaceScene2(
                     left: displayLabFrame(screen: 0),

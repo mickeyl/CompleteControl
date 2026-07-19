@@ -970,7 +970,7 @@ public actor MK2Surface2 {
                         tick(forceDisplay: false)
                     }
                 case let .knob(index, delta, value):
-                    (activeHeldButtonLayer?.layer.bindings.encoder[index] ?? scene.bindings.encoder[index])?(delta, value, timestampNanos)
+                    (activeHeldButtonLayer?.layer.bindings.rawEncoder[index] ?? scene.bindings.rawEncoder[index])?(delta, value, timestampNanos)
                 case let .touchEncoder(index, touched):
                     if touched {
                         touchedEncoders.insert(index)

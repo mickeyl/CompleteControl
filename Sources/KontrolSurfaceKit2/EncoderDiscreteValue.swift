@@ -236,7 +236,7 @@ public struct MK2EncoderDiscreteValue: Sendable {
         bindings.encoderTouch[encoder] = { touched in
             onTouch(touched)
         }
-        bindings.encoder[encoder] = { [countsPerStep = resolvedCountsPerStep, bounds] delta, _, timestampNanos in
+        bindings.rawEncoder[encoder] = { [countsPerStep = resolvedCountsPerStep, bounds] delta, _, timestampNanos in
             let steps = MK2EncoderDetents.shared.steps(
                 encoder: encoder,
                 delta: delta,

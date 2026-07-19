@@ -983,7 +983,14 @@ public struct MK2ButtonBindingElement: MK2ScreenElement {
     }
 }
 
-public struct MK2EncoderBindingElement: MK2ScreenElement {
+/// Explicit escape hatch for unscaled high-resolution encoder input.
+///
+/// Value-bearing controls should use `MK2EncoderDiscreteValueElement`, which
+/// supplies precision detents and rate-based acceleration. Use this raw form
+/// only when a downstream client deliberately owns span-aware adaptive scaling
+/// or when the encoder represents a non-value action; document that reason at
+/// the call site.
+public struct MK2RawEncoderBindingElement: MK2ScreenElement {
     public var encoder: Int
     private let onChange: @Sendable (_ delta: Int, _ value: Int, _ timestampNanos: UInt64) -> Void
     private let onTouch: (@Sendable (_ touched: Bool) -> Void)?
@@ -1005,7 +1012,7 @@ public struct MK2EncoderBindingElement: MK2ScreenElement {
     }
 
     public func apply(to frame: inout MK2PixelFrame, context: MK2ScreenContext, result: inout MK2ScreenBuildResult) {
-        result.bindings.encoder[encoder] = onChange
+        result.bindings.rawEncoder[encoder] = onChange
         if let onTouch {
             result.bindings.encoderTouch[encoder] = onTouch
         }
@@ -1014,6 +1021,14 @@ public struct MK2EncoderBindingElement: MK2ScreenElement {
         }
     }
 }
+
+@available(
+    *,
+    deprecated,
+    renamed: "MK2RawEncoderBindingElement",
+    message: "Use MK2EncoderDiscreteValueElement for value controls. Use MK2RawEncoderBindingElement only for a documented client-side scaler or non-value action."
+)
+public typealias MK2EncoderBindingElement = MK2RawEncoderBindingElement
 
 public struct MK2PageIndicatorElement: MK2ScreenElement {
     public var currentIndex: Int

@@ -197,9 +197,16 @@ Interaction and rendering rules:
   `maximumCountsPerStep`), so a three-way mode is not swept in two raw
   counts; override per value via `countsPerStep` — never re-derive raw
   1:1 count mapping in a client;
+- `MK2EncoderBindingElement` and `MK2InputBindings2.encoder` are deprecated
+  because their neutral names made raw 1:1 encoder handling too easy.
+  Value-bearing controls use `MK2EncoderDiscreteValueElement`. The explicitly
+  named `MK2RawEncoderBindingElement` and `rawEncoder` dictionary are escape
+  hatches only for a documented client-side span-aware scaler, genuine
+  non-value action, or hardware diagnostic; every use must state that reason
+  at the call site;
 - encoder double-touch is the "back to default" gesture: declare
   `MK2EncoderDiscreteValue.defaultValue` for value slots (silent when already
-  at default); the raw `MK2EncoderBindingElement.onDoubleTouch` hook is for
+  at default); the raw `MK2RawEncoderBindingElement.onDoubleTouch` hook is for
   actions beyond a reset — never bind double-touch to something destructive;
 - value-cell and filter-cell labels name the *parameter/unit/filter*, never
   the encoder — the physical encoder above the cell is identified by position

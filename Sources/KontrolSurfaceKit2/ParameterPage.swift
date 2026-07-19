@@ -15,8 +15,8 @@ public struct MK2ParameterPageSlot: Sendable {
     /// app-declared persistent selection on top of this.
     public var selection: MK2EncoderSelectionBehavior
     /// The encoder whose touch drives the selection when the slot carries no
-    /// `encoderValue` — for slots whose encoder is bound separately (raw
-    /// `MK2EncoderBindingElement`, velocity-scaled app-side values).
+    /// `encoderValue` - for slots whose encoder is deliberately bound through
+    /// `MK2RawEncoderBindingElement` and adaptively scaled app-side.
     public var selectionEncoder: Int?
 
     public init(

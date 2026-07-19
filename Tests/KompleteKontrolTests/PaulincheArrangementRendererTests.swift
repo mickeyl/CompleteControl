@@ -41,15 +41,15 @@ struct PaulincheArrangementRendererTests {
             )
         )
         for encoder in 1...4 {
-            #expect(rendered.bindings.encoder[encoder] != nil)
+            #expect(rendered.bindings.rawEncoder[encoder] != nil)
             #expect(rendered.bindings.encoderTouch[encoder] != nil)
         }
         rendered.bindings.encoderTouch[2]?(true)
-        rendered.bindings.encoder[2]?(41, 0, 0)
+        rendered.bindings.rawEncoder[2]?(41, 0, 0)
 
         #expect(recorder.changes.isEmpty)
 
-        rendered.bindings.encoder[2]?(1, 0, 0)
+        rendered.bindings.rawEncoder[2]?(1, 0, 0)
 
         #expect(recorder.touches == [2])
         #expect(recorder.changes.first?.0 == 2)
