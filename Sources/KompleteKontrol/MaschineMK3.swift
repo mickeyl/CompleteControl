@@ -478,14 +478,22 @@ public struct MaschineMK3PadStateTracker: Sendable {
 
     public mutating func events(for inputs: [MaschineMK3PadInput]) -> [MaschineMK3PadEvent] {
         var events: [MaschineMK3PadEvent] = []
-        let explicitContactPads = Set(inputs.compactMap { input -> Int? in
+        var explicitContactMask: UInt16 = 0
+        var activeContactMask: UInt16 = 0
+        for input in inputs {
+            let index = input.hardwareIndex
+            guard pressures.indices.contains(index) else { continue }
+            let padBit = UInt16(1) << UInt16(index)
             switch input.value {
                 case .touch, .strikeVelocity:
-                    input.hardwareIndex
+                    explicitContactMask |= padBit
+                    activeContactMask |= padBit
+                case let .pressure(pressure) where pressure > 0:
+                    activeContactMask |= padBit
                 case .touchRelease, .release, .pressure:
-                    nil
+                    break
             }
-        })
+        }
         // bcdDevice 0x0146 (MK3 firmware 1.4.6) emits a spurious touchRelease
         // for Pad 14 (hw idx 1) in slot 4 alongside a non-zero pressure record
         // in slot 0 for the same pad — every report, for the entire hold. The
@@ -494,19 +502,10 @@ public struct MaschineMK3PadStateTracker: Sendable {
         // When a report contains both an active contact signal (touch, strike,
         // or non-zero pressure) and a touchRelease for the same pad, the
         // contact signal is authoritative and the touchRelease is suppressed.
-        let padsWithActiveContact = Set(inputs.compactMap { input -> Int? in
-            switch input.value {
-                case .touch, .strikeVelocity:
-                    input.hardwareIndex
-                case let .pressure(pressure) where pressure > 0:
-                    input.hardwareIndex
-                case .touchRelease, .release, .pressure:
-                    nil
-            }
-        })
         for input in inputs {
             let index = input.hardwareIndex
             guard pressures.indices.contains(index) else { continue }
+            let padBit = UInt16(1) << UInt16(index)
             switch input.value {
                 case let .touch(pressure):
                     heldPads[index] = true
@@ -538,7 +537,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
                         // native touch/strike record for the same contact. Let
                         // the explicit record supply attack velocity instead
                         // of publishing two downs for one physical hit.
-                        guard !explicitContactPads.contains(index) else { continue }
+                        guard explicitContactMask & padBit == 0 else { continue }
                         heldPads[index] = true
                         events.append(MaschineMK3PadEvent(
                             hardwareIndex: index,
@@ -568,7 +567,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     // carries an active contact signal for this pad (firmware
                     // 1.4.6 quirk on Pad 14). The pressure/touch stream is
                     // authoritative.
-                    guard !padsWithActiveContact.contains(index) else { continue }
+                    guard activeContactMask & padBit == 0 else { continue }
                     guard heldPads[index] else { continue }
                     heldPads[index] = false
                     pressures[index] = 0

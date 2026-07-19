@@ -242,12 +242,57 @@ struct MaschineMK3ProtocolTests {
         let pressureZero = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .pressure(0), encodedValue: 0x4000)
         let realRelease = MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000)
         let report4 = tracker.events(for: [pressureZero, realRelease])
-        // PRESSURE(0) produces .up; the TOUCH_REL is suppressed because
-        // padsWithActivePressure is empty for this pad, but the PRESSURE(0)
-        // already emitted .up so the TOUCH_REL guard (heldPads) fails.
+        // PRESSURE(0) produces .up. The following TOUCH_REL is not suppressed,
+        // but produces no duplicate because PRESSURE(0) already cleared heldPads.
         #expect(report4 == [
             MaschineMK3PadEvent(hardwareIndex: 1, phase: .up, pressure: 0, encodedValue: 0x4000),
         ])
+    }
+
+    @Test("full firmware 1.4.6 report keeps Pad 14 held despite its concurrent touchRelease")
+    func capturedSpuriousTouchReleaseReport() {
+        // Full-size, anonymized bench fixture. It preserves the observed slot
+        // positions while neutralizing unrelated records: Pad 14 pressure in
+        // slot 0, the firmware sentinel in slot 3, and TOUCH_REL in slot 4.
+        let report: [UInt8] = [
+            0x02,
+            0x01, 0x41, 0xe4, // slot 0: Pad 14, PRESSURE(484)
+            0x00, 0x00, 0x00, // slot 1
+            0x00, 0x00, 0x00, // slot 2
+            0x0d, 0x40, 0x00, // slot 3: neutral firmware sentinel
+            0x01, 0x20, 0x00, // slot 4: Pad 14, spurious TOUCH_REL
+            0x00, 0x00, 0x00, // slot 5
+            0x00, 0x00, 0x00, // slot 6
+            0x00, 0x00, 0x00, // slot 7
+            0x00, 0x00, 0x00, // slot 8
+            0x00, 0x00, 0x00, // slot 9
+            0x00, 0x00, 0x00, // slot 10
+            0x00, 0x00, 0x00, // slot 11
+            0x00, 0x00, 0x00, // slot 12
+            0x00, 0x00, 0x00, // slot 13
+            0x00, 0x00, 0x00, // slot 14
+            0x00, 0x00, 0x00, // slot 15
+            0x00, 0x00, 0x00, // slot 16
+            0x00, 0x00, 0x00, // slot 17
+            0x00, 0x00, 0x00, // slot 18
+            0x00, 0x00, 0x00, // slot 19
+            0x00, 0x00, 0x00, // slot 20
+        ]
+
+        #expect(report.count == MaschineMK3Protocol.padReportSize)
+        let inputs = MaschineMK3InputReportDecoder.padInputs(in: report)
+        #expect(inputs == [
+            MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 1, value: .pressure(484), encodedValue: 0x41e4),
+            MaschineMK3PadInput(slotIndex: 4, hardwareIndex: 1, value: .touchRelease, encodedValue: 0x2000),
+        ])
+
+        var tracker = MaschineMK3PadStateTracker()
+        #expect(tracker.events(for: inputs) == [
+            MaschineMK3PadEvent(hardwareIndex: 1, phase: .down, pressure: 484, encodedValue: 0x41e4),
+        ])
+        #expect(tracker.heldPads[1])
+        #expect(tracker.events(for: inputs).isEmpty)
+        #expect(tracker.heldPads[1])
     }
 
     @Test("pad tracker still honours a standalone touchRelease without active pressure")
