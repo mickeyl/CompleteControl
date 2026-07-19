@@ -26,7 +26,7 @@ struct KontrolSurfaceLampValue: Equatable, Sendable {
 
 enum MaschineMK3CompatibilityInput: Equatable, Sendable {
     case button(KKMK2ButtonLED)
-    case jog(direction: String, lamp: KKMK2ButtonLED)
+    case jog(direction: KK4DNavigationDirection, lamp: KKMK2ButtonLED)
     case jogCenterOnRelease
 
     var logicalLamp: KKMK2ButtonLED? {
@@ -59,10 +59,10 @@ enum KontrolSurfaceDeviceCompatibility {
 
     static let maschineMK3Mappings: [MaschineMK3CompatibilityMapping] = [
         MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderPress, input: .jogCenterOnRelease),
-        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderUp, input: .jog(direction: "up", lamp: .jogUp)),
-        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderRight, input: .jog(direction: "right", lamp: .jogRight)),
-        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderDown, input: .jog(direction: "down", lamp: .jogDown)),
-        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderLeft, input: .jog(direction: "left", lamp: .jogLeft)),
+        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderUp, input: .jog(direction: .up, lamp: .jogUp)),
+        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderRight, input: .jog(direction: .right, lamp: .jogRight)),
+        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderDown, input: .jog(direction: .down, lamp: .jogDown)),
+        MaschineMK3CompatibilityMapping(physicalButton: .mainEncoderLeft, input: .jog(direction: .left, lamp: .jogLeft)),
         MaschineMK3CompatibilityMapping(physicalButton: .shift, input: .button(.shift)),
         MaschineMK3CompatibilityMapping(physicalButton: .groupA, input: .button(.instrument1)),
         MaschineMK3CompatibilityMapping(physicalButton: .groupB, input: .button(.instrument2)),

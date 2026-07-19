@@ -101,7 +101,7 @@ struct SurfaceDeviceCompatibilityTests {
         current[12] = 1
 
         #expect(adapter.events(for: current, timestampNanos: 12_000_000) == [
-            .jog(direction: "right"),
+            .jog(direction: .right),
             .button(led: .shift, pressed: true),
             .button(led: .function8, pressed: true),
             .button(led: .play, pressed: true),
@@ -529,6 +529,92 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(report.payload.allSatisfy { $0 == 0 })
     }
 
+    @Test("Raw MK2 and MK3 4-D reports reach the same shifted navigation and confirmation sink")
+    func rawFourDContract() async {
+        var mk2Baseline = [UInt8](repeating: 0, count: 32)
+        mk2Baseline[0] = UInt8(KompleteKontrolMK2Protocol.inputReportID)
+        var mk2Shift = mk2Baseline
+        mk2Shift[2] = 0x80
+        var mk2Right = mk2Shift
+        mk2Right[6] = 0x84
+        var mk2DirectionalRelease = mk2Shift
+        mk2DirectionalRelease[6] = 0x04
+        var mk2CenterPress = mk2DirectionalRelease
+        mk2CenterPress[6] = 0x0c
+
+        let mk2Actions = await routeFourDReports(
+            family: .kompleteKontrolMK2,
+            reports: [
+                mk2Baseline,
+                mk2Shift,
+                mk2Right,
+                mk2DirectionalRelease,
+                mk2CenterPress,
+                mk2DirectionalRelease,
+                mk2Baseline,
+            ]
+        )
+
+        let mk3Baseline = surfaceReport()
+        var mk3Shift = mk3Baseline
+        mk3Shift[1] = 0x40
+        var mk3Right = mk3Shift
+        mk3Right[1] |= 0x08
+        var mk3CenterPress = mk3Shift
+        mk3CenterPress[1] |= 0x01
+
+        let mk3Actions = await routeFourDReports(
+            family: .maschineMK3,
+            reports: [
+                mk3Baseline,
+                mk3Shift,
+                mk3Right,
+                mk3Shift,
+                mk3CenterPress,
+                mk3Shift,
+                mk3Baseline,
+            ]
+        )
+
+        let expected = ["shift right", "shift confirm"]
+        #expect(mk2Actions == expected)
+        #expect(mk3Actions == expected)
+    }
+
+    private func routeFourDReports(
+        family: KontrolDeviceFamily,
+        reports: [[UInt8]]
+    ) async -> [String] {
+        let actions = SurfaceInputActionBox()
+        var baseBindings = MK2InputBindings2()
+        baseBindings.jog = { direction in
+            actions.append("base \(direction.rawValue)")
+        }
+        baseBindings.jogCenter = {
+            actions.append("base confirm")
+        }
+        var shiftBindings = MK2InputBindings2()
+        shiftBindings.jog = { direction in
+            actions.append("shift \(direction.rawValue)")
+        }
+        shiftBindings.jogCenter = {
+            actions.append("shift confirm")
+        }
+
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(
+            bindings: baseBindings,
+            shift: MK2SurfaceScene2.ShiftLayer(bindings: shiftBindings)
+        ))
+
+        var adapter = KontrolSurfaceInputAdapter(family: family)
+        for (index, report) in reports.enumerated() {
+            let events = adapter.events(for: report, timestampNanos: UInt64(index))
+            await surface.handleForTesting(events, timestampNanos: UInt64(index))
+        }
+        return actions.values
+    }
+
     private func surfaceReport() -> [UInt8] {
         [MaschineMK3Protocol.surfaceReportID]
             + [UInt8](repeating: 0, count: MaschineMK3Protocol.surfaceReportSize - 1)
@@ -546,5 +632,13 @@ struct SurfaceDeviceCompatibilityTests {
     private func setWord(_ value: Int, at offset: Int, in report: inout [UInt8]) {
         report[offset] = UInt8(value & 0xff)
         report[offset + 1] = UInt8((value >> 8) & 0x03)
+    }
+}
+
+private final class SurfaceInputActionBox: @unchecked Sendable {
+    private(set) var values: [String] = []
+
+    func append(_ value: String) {
+        values.append(value)
     }
 }

@@ -145,6 +145,7 @@ private actor MK2FeatureDemo {
                 lamps[.jogDown] = .amber
                 bindings.jogScroll = { delta, _ in Task { await self.moveHomeSelection(delta) } }
                 bindings.jog = { direction in Task { await self.homeJog(direction) } }
+                bindings.jogCenter = { Task { await self.show(self.homeSelection) } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "SURFACEKIT2", lines: ["4D SELECT \(homeSelection.short)", "FUNCTION KEYS DIRECT"], stripStart: 0),
                     right: menuFrame(),
@@ -239,10 +240,7 @@ private actor MK2FeatureDemo {
                     lamps[led] = buttonColors[led].map { .on($0) } ?? .pulse(attractor, period: 1.4)
                     bindings.onPress(led) { Task { await self.toggleButton(led) } }
                 }
-                bindings.jog = { direction in
-                    guard direction == "press" else { return }
-                    Task { await self.show(.overview) }
-                }
+                bindings.jogCenter = { Task { await self.show(.overview) } }
                 return MK2SurfaceScene2(
                     left: baseFrame(title: "BUTTON LEDS", lines: ["RGB: M S F1-F8", "REST WHITE ONLY"], stripStart: 0),
                     right: buttonFrame(),
@@ -289,20 +287,16 @@ private actor MK2FeatureDemo {
         await render()
     }
 
-    private func homeJog(_ direction: String) async {
+    private func homeJog(_ direction: KK4DNavigationDirection) async {
         switch direction {
-            case "press":
-                await show(homeSelection)
-            case "left":
+            case .left:
                 await moveHomeSelection(-1)
-            case "right":
+            case .right:
                 await moveHomeSelection(1)
-            case "up":
+            case .up:
                 await moveHomeSelection(-2)
-            case "down":
+            case .down:
                 await moveHomeSelection(2)
-            default:
-                break
         }
     }
 
@@ -373,8 +367,8 @@ private actor MK2FeatureDemo {
         await render()
     }
 
-    private func jog(_ direction: String) async {
-        jogLast = direction.uppercased()
+    private func jog(_ direction: KK4DNavigationDirection) async {
+        jogLast = direction.rawValue.uppercased()
         lastEvent = "JOG \(jogLast)"
         await render()
     }

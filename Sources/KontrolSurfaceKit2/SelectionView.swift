@@ -149,13 +149,13 @@ public struct MK2SelectionNavigation: Sendable, Equatable {
         }
     }
 
-    public mutating func move(jogDirection direction: String, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
-        guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout) else { return false }
+    public mutating func move(jogDirection direction: KK4DNavigationDirection, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
+        let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout)
         return move(by: delta, itemCount: itemCount, wraps: wraps)
     }
 
-    public func canMove(jogDirection direction: String, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
-        guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout) else { return false }
+    public func canMove(jogDirection direction: KK4DNavigationDirection, itemCount: Int, layout: MK2SelectionJogLayout, wraps: Bool = false) -> Bool {
+        let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout)
         return canMove(by: delta, itemCount: itemCount, wraps: wraps)
     }
 
@@ -167,10 +167,10 @@ public struct MK2SelectionNavigation: Sendable, Equatable {
         wraps: Bool = false
     ) -> [KKMK2ButtonLED: MK2LampState2] {
         [
-            .jogLeft: canMove(jogDirection: "left", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
-            .jogRight: canMove(jogDirection: "right", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
-            .jogUp: canMove(jogDirection: "up", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
-            .jogDown: canMove(jogDirection: "down", itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogLeft: canMove(jogDirection: .left, itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogRight: canMove(jogDirection: .right, itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogUp: canMove(jogDirection: .up, itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
+            .jogDown: canMove(jogDirection: .down, itemCount: itemCount, layout: layout, wraps: wraps) ? availableLamp : unavailableLamp,
         ]
     }
 
@@ -238,29 +238,26 @@ public enum MK2SelectionLayout {
         gridColumnCount(for: cellSize, contentWidth: contentWidth)
     }
 
-    public static func jogDelta(for direction: String, layout: MK2SelectionJogLayout) -> Int? {
-        let normalized = direction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    public static func jogDelta(for direction: KK4DNavigationDirection, layout: MK2SelectionJogLayout) -> Int {
         switch layout {
             case let .list(step):
                 // A linear list moves one row per up/down and one page (step)
                 // per left/right — up/down must never page-jump.
                 let page = max(1, step)
-                switch normalized {
-                    case "up": return -1
-                    case "down": return 1
-                    case "left": return -page
-                    case "right": return page
-                    default: return nil
+                switch direction {
+                    case .up: return -1
+                    case .down: return 1
+                    case .left: return -page
+                    case .right: return page
                 }
             case let .grid(cellSize, contentWidth):
                 // A grid moves one full row per up/down and one cell per left/right.
                 let rowStep = gridRowStep(for: cellSize, contentWidth: contentWidth)
-                switch normalized {
-                    case "up": return -rowStep
-                    case "down": return rowStep
-                    case "left": return -1
-                    case "right": return 1
-                    default: return nil
+                switch direction {
+                    case .up: return -rowStep
+                    case .down: return rowStep
+                    case .left: return -1
+                    case .right: return 1
                 }
         }
     }

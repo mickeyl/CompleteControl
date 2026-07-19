@@ -742,8 +742,8 @@ public struct MK2SelectionInputElement: MK2ScreenElement {
         )
 
         result.bindings.jog = { direction in
-            guard let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout),
-                  navigation.canMove(by: delta, itemCount: itemCount, wraps: wraps) else { return }
+            let delta = MK2SelectionLayout.jogDelta(for: direction, layout: layout)
+            guard navigation.canMove(by: delta, itemCount: itemCount, wraps: wraps) else { return }
             onMove(delta)
         }
 

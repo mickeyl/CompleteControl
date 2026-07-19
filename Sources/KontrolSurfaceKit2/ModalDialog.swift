@@ -143,13 +143,11 @@ public struct MK2ModalDialog: Sendable {
     private func bindNavigation(into bindings: inout MK2InputBindings2) {
         bindings.jog = { direction in
             switch direction {
-                case "up":
+                case .up:
                     select(delta: -1)
-                case "down":
+                case .down:
                     select(delta: 1)
-                case "press":
-                    confirm()
-                default:
+                case .left, .right:
                     break
             }
         }

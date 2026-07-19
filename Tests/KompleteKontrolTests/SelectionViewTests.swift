@@ -52,34 +52,33 @@ struct SelectionViewTests {
     func navigationMapsJogDirections() {
         let cell = MK2SelectionCellSize(width: 154, height: 58)
 
-        #expect(MK2SelectionLayout.jogDelta(for: "left", layout: .grid(cellSize: cell)) == -1)
-        #expect(MK2SelectionLayout.jogDelta(for: "right", layout: .grid(cellSize: cell)) == 1)
-        #expect(MK2SelectionLayout.jogDelta(for: "up", layout: .grid(cellSize: cell)) == -3)
-        #expect(MK2SelectionLayout.jogDelta(for: "down", layout: .grid(cellSize: cell)) == 3)
-        #expect(MK2SelectionLayout.jogDelta(for: "press", layout: .grid(cellSize: cell)) == nil)
+        #expect(MK2SelectionLayout.jogDelta(for: .left, layout: .grid(cellSize: cell)) == -1)
+        #expect(MK2SelectionLayout.jogDelta(for: .right, layout: .grid(cellSize: cell)) == 1)
+        #expect(MK2SelectionLayout.jogDelta(for: .up, layout: .grid(cellSize: cell)) == -3)
+        #expect(MK2SelectionLayout.jogDelta(for: .down, layout: .grid(cellSize: cell)) == 3)
 
         var navigation = MK2SelectionNavigation(selectedIndex: 4)
-        let movedLeft = navigation.move(jogDirection: "left", itemCount: 10, layout: .grid(cellSize: cell))
+        let movedLeft = navigation.move(jogDirection: .left, itemCount: 10, layout: .grid(cellSize: cell))
         #expect(movedLeft)
         #expect(navigation.selectedIndex == 3)
-        let movedDown = navigation.move(jogDirection: "down", itemCount: 10, layout: .grid(cellSize: cell))
+        let movedDown = navigation.move(jogDirection: .down, itemCount: 10, layout: .grid(cellSize: cell))
         #expect(movedDown)
         #expect(navigation.selectedIndex == 6)
-        let movedUp = navigation.move(jogDirection: "up", itemCount: 10, layout: .grid(cellSize: cell))
+        let movedUp = navigation.move(jogDirection: .up, itemCount: 10, layout: .grid(cellSize: cell))
         #expect(movedUp)
         #expect(navigation.selectedIndex == 3)
 
         // A linear list moves one row per up/down and one page per left/right —
         // up/down must never page-jump.
-        #expect(MK2SelectionLayout.jogDelta(for: "up", layout: .list(step: 7)) == -1)
-        #expect(MK2SelectionLayout.jogDelta(for: "down", layout: .list(step: 7)) == 1)
-        #expect(MK2SelectionLayout.jogDelta(for: "left", layout: .list(step: 7)) == -7)
-        #expect(MK2SelectionLayout.jogDelta(for: "right", layout: .list(step: 7)) == 7)
+        #expect(MK2SelectionLayout.jogDelta(for: .up, layout: .list(step: 7)) == -1)
+        #expect(MK2SelectionLayout.jogDelta(for: .down, layout: .list(step: 7)) == 1)
+        #expect(MK2SelectionLayout.jogDelta(for: .left, layout: .list(step: 7)) == -7)
+        #expect(MK2SelectionLayout.jogDelta(for: .right, layout: .list(step: 7)) == 7)
 
         var list = MK2SelectionNavigation(selectedIndex: 10)
-        _ = list.move(jogDirection: "down", itemCount: 30, layout: .list(step: 7))
+        _ = list.move(jogDirection: .down, itemCount: 30, layout: .list(step: 7))
         #expect(list.selectedIndex == 11)
-        _ = list.move(jogDirection: "right", itemCount: 30, layout: .list(step: 7))
+        _ = list.move(jogDirection: .right, itemCount: 30, layout: .list(step: 7))
         #expect(list.selectedIndex == 18)
     }
 

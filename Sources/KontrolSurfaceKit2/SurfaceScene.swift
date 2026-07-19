@@ -141,7 +141,7 @@ public struct MK2InputBindings2: Sendable {
     /// Two touch-downs on the same encoder within the double-touch window; the pro-audio
     /// "reset to default" gesture — what "default" means is the client's decision.
     public var encoderDoubleTouch: [Int: @Sendable () -> Void] = [:]
-    public var jog: (@Sendable (_ direction: String) -> Void)?
+    public var jog: (@Sendable (_ direction: KK4DNavigationDirection) -> Void)?
     public var jogCenter: (@Sendable () -> Void)?
     public var jogScroll: (@Sendable (_ delta: Int, _ value: Int) -> Void)?
     public var jogTouch: (@Sendable (_ touched: Bool) -> Void)?

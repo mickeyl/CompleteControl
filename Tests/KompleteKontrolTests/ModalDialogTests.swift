@@ -27,8 +27,8 @@ struct ModalDialogTests {
         let bindings = dialog.scene().bindings
 
         bindings.jogScroll?(-1, 0)
-        bindings.jog?("down")
-        bindings.jog?("up")
+        bindings.jog?(.down)
+        bindings.jog?(.up)
 
         #expect(box.events == ["select:0", "select:2", "select:0"])
     }

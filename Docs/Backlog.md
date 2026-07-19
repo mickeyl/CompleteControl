@@ -2,6 +2,12 @@
 
 ## Next up
 
+- **Replace Paulinche's stringly semantic `ControlSurfaceEvent.button(name:)` bridge with typed actions or a closed command enum (priority: high, noted 2026-07-19).** The Kit2 4-D contract is now typed and end-to-end covered, but Paulinche's adapter, router, and app-side effects can still drift through button-name strings. Preserve the command-first architecture while giving the surface port a finite action vocabulary.
+
+## Recently completed
+
+- **Typed 4-D Kit input contract (completed 2026-07-19).** `KK4DNavigationDirection` now represents only up/right/down/left; MK2 and MK3 both deliver `jogCenter` only on center release. The historical `"press"` pseudo-direction was removed from the decoder, Kit2 consumers, and demos. A raw MK2/MK3 contract test verifies held SHIFT, directional press/release, and center confirmation through the input adapter and `MK2Surface2` semantic sink.
+
 - **Investigate intermittent 10-second Widget Lab startup latency (noted
   2026-07-15).** On physical MK2 hardware, `MK2WidgetLabDemo` sometimes takes
   almost ten seconds before both the REPL prompt and first browser frame appear,

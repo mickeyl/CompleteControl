@@ -338,10 +338,21 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     }
 }
 
+/// The four directional pushes around the main 4-D encoder. Confirmation is a
+/// separate `KKMK2InputEvent.jogCenter` activation, never a pseudo-direction.
+public enum KK4DNavigationDirection: String, CaseIterable, Equatable, Sendable, CustomStringConvertible {
+    case up
+    case right
+    case down
+    case left
+
+    public var description: String { rawValue }
+}
+
 public enum KKMK2InputEvent: Equatable, Sendable, CustomStringConvertible {
     case button(led: KKMK2ButtonLED, pressed: Bool)
     case touchEncoder(index: Int, touched: Bool)
-    case jog(direction: String)
+    case jog(direction: KK4DNavigationDirection)
     case jogCenter
     case jogTouch(touched: Bool)
     case jogScroll(delta: Int, value: Int)
@@ -441,12 +452,11 @@ public enum KKMK2InputReportDecoder {
         ButtonBit(byte: 8, mask: 0x04, led: .fixedVel),
     ]
 
-    static let jogStates: [UInt8: String] = [
-        0x0c: "press",
-        0x14: "left",
-        0x24: "up",
-        0x44: "down",
-        0x84: "right",
+    static let jogStates: [UInt8: KK4DNavigationDirection] = [
+        0x14: .left,
+        0x24: .up,
+        0x44: .down,
+        0x84: .right,
     ]
 
     public static func hexDump(_ bytes: [UInt8]) -> String {

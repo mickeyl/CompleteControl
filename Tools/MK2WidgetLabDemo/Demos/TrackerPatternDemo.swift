@@ -129,11 +129,10 @@ final class TrackerPatternDemo: LabDemo, @unchecked Sendable {
         bindings.jog = { [weak self] direction in
             context.update {
                 switch direction {
-                    case "up": self?.turnMainEncoder(-1)
-                    case "down": self?.turnMainEncoder(1)
-                    case "left": self?.moveFocusedChannel(-1)
-                    case "right": self?.moveFocusedChannel(1)
-                    default: break
+                    case .up: self?.turnMainEncoder(-1)
+                    case .down: self?.turnMainEncoder(1)
+                    case .left: self?.moveFocusedChannel(-1)
+                    case .right: self?.moveFocusedChannel(1)
                 }
             }
         }

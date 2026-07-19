@@ -104,8 +104,8 @@ final class IconBrowserDemo: LabDemo, @unchecked Sendable {
         }
         scene.bindings.jog = { [weak self] direction in
             context.update {
-                guard let self,
-                      let delta = MK2SelectionLayout.jogDelta(for: direction, layout: self.jogLayout) else { return }
+                guard let self else { return }
+                let delta = MK2SelectionLayout.jogDelta(for: direction, layout: self.jogLayout)
                 self.moveIcon(delta)
             }
         }

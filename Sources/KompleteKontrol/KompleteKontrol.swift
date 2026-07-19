@@ -2809,7 +2809,7 @@ public enum KompleteKontrolLibUSBServer {
                 case let .knob(index, delta, _):
                     return "KNOB \(index) \(delta >= 0 ? "+" : "")\(delta)"
                 case let .jog(direction):
-                    return "JOG \(direction.uppercased())"
+                    return "JOG \(direction.rawValue.uppercased())"
                 case .jogCenter:
                     return "JOG CENTER"
                 case let .jogTouch(touched):
@@ -3755,18 +3755,14 @@ public enum KompleteKontrolLibUSBServer {
                     setIdleMK2ButtonLED(led, color: pressed ? .hsv(192, 0.72, 0.72) : .off)
                 case let .jog(direction):
                     switch direction {
-                        case "left":
+                        case .left:
                             idleMK2JogActiveLEDs = [.jogLeft]
-                        case "up":
+                        case .up:
                             idleMK2JogActiveLEDs = [.jogUp]
-                        case "down":
+                        case .down:
                             idleMK2JogActiveLEDs = [.jogDown]
-                        case "right":
+                        case .right:
                             idleMK2JogActiveLEDs = [.jogRight]
-                        case "press":
-                            idleMK2JogActiveLEDs = Set(idleMK2JogLEDs)
-                        default:
-                            idleMK2JogActiveLEDs = []
                     }
                     renderIdleMK2JogLEDs()
                 case .jogCenter:

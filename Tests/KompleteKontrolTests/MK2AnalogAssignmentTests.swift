@@ -51,8 +51,10 @@ struct MK2FourDDecodeTests {
 
     @Test("pushes decode as directions while touched")
     func pushes() {
-        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x24)) == [.jog(direction: "up")])
-        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x0c)) == [.jog(direction: "press")])
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x24)) == [.jog(direction: .up)])
+        // Center press itself is intentionally silent; its release is the only
+        // confirmation activation shared with MK3.
+        #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x04), current: report(byte6: 0x0c)) == [])
         // Center-confirm is the click bit being released; a directional push
         // release must NOT confirm (it would fire on every navigation step).
         #expect(KKMK2InputReportDecoder.events(previous: report(byte6: 0x84), current: report(byte6: 0x04)) == [])

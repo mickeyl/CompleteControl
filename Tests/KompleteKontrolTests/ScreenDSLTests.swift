@@ -138,7 +138,7 @@ struct ScreenDSLTests {
         #expect(result.lamps[.jogUp] == .off)
         #expect(result.lamps[.jogDown] == .white)
 
-        result.bindings.jog?("down")
+        result.bindings.jog?(.down)
         #expect(box.lastDelta == 4)
         result.bindings.jogScroll?(1, 0)
         #expect(box.lastDelta == 1)

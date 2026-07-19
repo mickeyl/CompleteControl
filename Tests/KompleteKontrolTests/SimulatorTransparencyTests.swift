@@ -72,9 +72,9 @@ struct MK2InputReportBuilderTests {
 
     @Test("4-D pushes and click round-trip to jog directions")
     func fourDPushes() {
-        let cases: [(MK2InputReportBuilder.FourDState, String)] = [
-            (.pushLeft, "left"), (.pushUp, "up"), (.pushDown, "down"),
-            (.pushRight, "right"), (.click, "press"),
+        let cases: [(MK2InputReportBuilder.FourDState, KK4DNavigationDirection)] = [
+            (.pushLeft, .left), (.pushUp, .up), (.pushDown, .down),
+            (.pushRight, .right),
         ]
         for (state, direction) in cases {
             let before = MK2InputReportBuilder()
