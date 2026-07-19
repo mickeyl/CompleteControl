@@ -33,15 +33,31 @@ struct ModalDialogTests {
         #expect(box.events == ["select:0", "select:2", "select:0"])
     }
 
-    @Test("4-D press confirms the selected action")
-    func pressConfirms() {
+    @Test("4-D center event confirms the selected action")
+    func centerConfirms() {
         let box = ModalDialogBox()
         let dialog = makeDialog(selectedIndex: 1, box: box)
         let bindings = dialog.scene().bindings
 
-        bindings.jog?("press")
+        bindings.jogCenter?()
 
         #expect(box.events == ["confirm:1"])
+    }
+
+    @Test("Real surface events confirm and dismiss while Shift remains held")
+    func realSurfaceEventsResolveWhileShiftRemainsHeld() async {
+        let confirmBox = ModalDialogBox()
+        let confirmSurface = MK2Surface2()
+        await confirmSurface.present(makeDialog(selectedIndex: 0, box: confirmBox).scene())
+        await confirmSurface.handleForTesting([.jogCenter])
+        #expect(confirmBox.events == ["confirm:0"])
+
+        let dismissBox = ModalDialogBox()
+        let dismissSurface = MK2Surface2()
+        await dismissSurface.handleForTesting([.button(led: .shift, pressed: true)])
+        await dismissSurface.present(makeDialog(selectedIndex: 0, box: dismissBox).scene())
+        await dismissSurface.handleForTesting([.button(led: .play, pressed: true)])
+        #expect(dismissBox.events == ["dismiss"])
     }
 
     @Test("Other hardware buttons dismiss the dialog")

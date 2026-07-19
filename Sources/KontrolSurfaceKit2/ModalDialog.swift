@@ -153,6 +153,9 @@ public struct MK2ModalDialog: Sendable {
                     break
             }
         }
+        bindings.jogCenter = {
+            confirm()
+        }
         bindings.jogScroll = { delta, _ in
             select(delta: delta)
         }

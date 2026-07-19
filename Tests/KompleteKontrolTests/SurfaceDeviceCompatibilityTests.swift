@@ -113,6 +113,22 @@ struct SurfaceDeviceCompatibilityTests {
         ])
     }
 
+    @Test("MK3 Shift and Erase lower in modifier order to MK2 Shift and Clear")
+    func shiftedEraseInputLowering() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        let baseline = surfaceReport()
+        #expect(adapter.events(for: baseline, timestampNanos: 0).isEmpty)
+
+        var current = baseline
+        current[1] = 0x40
+        current[6] = 0x04
+
+        #expect(adapter.events(for: current, timestampNanos: 1) == [
+            .button(led: .shift, pressed: true),
+            .button(led: .clear, pressed: true),
+        ])
+    }
+
     @Test("MK3 pad reports lower native strike, pressure, and release with daemon timestamps")
     func padInputLowering() {
         var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
