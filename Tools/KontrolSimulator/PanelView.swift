@@ -592,10 +592,6 @@ final class PanelView: NSView, SimulatorPanel {
         for key in keyControls where key.isBlack {
             drawKey(key)
         }
-        if let first = keyControls.first, let last = keyControls.last {
-            drawLabel(keybedSize.title, in: NSRect(x: first.rect.minX, y: first.rect.maxY + 6, width: last.rect.maxX - first.rect.minX, height: 16),
-                      color: NSColor(white: 0.58, alpha: 1), size: 11)
-        }
     }
 
     private func drawKey(_ key: KeyControl) {

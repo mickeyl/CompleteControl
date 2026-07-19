@@ -147,7 +147,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                           backing: .buffered, defer: false)
         window.title = baseWindowTitle
         window.delegate = self
-        statusBar = SimulatorStatusBarView(modelName: definition.shortName)
+        statusBar = SimulatorStatusBarView(
+            modelName: definition.shortName,
+            modelDetail: (panel as? PanelView)?.currentKeybedSize.title
+        )
         let windowContentView = NSView(frame: NSRect(origin: .zero, size: initialSize))
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         statusBar.translatesAutoresizingMaskIntoConstraints = false
@@ -657,6 +660,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
               let kontrolPanel = panel as? PanelView else { return }
         displayZoomSnapshot = nil
         kontrolPanel.setKeybedSize(size)
+        statusBar.update(modelDetail: size.title)
         UserDefaults.standard.set(size.rawValue, forKey: DefaultsKey.keybedSize)
         if zoomMode == .fitToWidth {
             updateFitToWidthMagnification()
