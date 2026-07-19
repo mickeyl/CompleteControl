@@ -166,6 +166,10 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
     /// to Group A-H; MK2 has no matching controls and safely ignores them.
     case instrument1 = 80, instrument2, instrument3, instrument4
     case instrument5 = 84, instrument6, instrument7, instrument8
+    /// A logical MASCHINE-only control for the dedicated KEYBOARD button.
+    /// Keeping it outside the MK2 report range lets Kit2 bind the physical
+    /// gesture without pretending that the keyboard family has a peer.
+    case keyboard = 88
 
     public var protocolName: String {
         switch self {
@@ -250,6 +254,7 @@ public enum KKMK2ButtonLED: Int, CaseIterable, Sendable {
             case .instrument6: "instrument6"
             case .instrument7: "instrument7"
             case .instrument8: "instrument8"
+            case .keyboard: "keyboard"
         }
     }
 

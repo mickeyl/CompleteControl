@@ -224,13 +224,15 @@ public enum KontrolSurfaceDiagnosticLED: Hashable, Sendable {
 }
 
 public struct MK2SurfaceScene2: Sendable {
-    /// Alternate surface state active while the hardware SHIFT button is held.
+    /// Alternate surface state active while one declared hardware button is held.
     ///
     /// The layer is an overlay, not a second scene: per-screen frames replace the
     /// base frames (`nil` keeps the base visible), and key colors merge over the
     /// base. `buttonPolicy` decides whether button lamps/bindings fall back to the
-    /// base or form an exclusive, complete layer.
-    public struct ShiftLayer: Sendable {
+    /// base or form an exclusive, complete layer. Layers declared later take
+    /// precedence if more than one trigger is held; the SHIFT compatibility layer
+    /// is always placed first.
+    public struct HeldButtonLayer: Sendable {
         public enum ButtonPolicy: Sendable, Equatable {
             /// Layer entries override the base; unbound buttons and unmentioned
             /// lamps continue to use the base scene.
@@ -240,6 +242,7 @@ public struct MK2SurfaceScene2: Sendable {
             case exclusive
         }
 
+        public var trigger: KKMK2ButtonLED
         public var displays: [MK2PixelFrame?]
         public var lamps: [KKMK2ButtonLED: MK2LampState2]
         public var keyColors: [Int: KKRGB]
@@ -248,6 +251,7 @@ public struct MK2SurfaceScene2: Sendable {
         public var buttonPolicy: ButtonPolicy
 
         public init(
+            trigger: KKMK2ButtonLED = .shift,
             left: MK2PixelFrame? = nil,
             right: MK2PixelFrame? = nil,
             lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
@@ -256,6 +260,7 @@ public struct MK2SurfaceScene2: Sendable {
             bindings: MK2InputBindings2 = MK2InputBindings2(),
             buttonPolicy: ButtonPolicy = .fallback
         ) {
+            self.trigger = trigger
             displays = [left, right]
             self.lamps = lamps
             self.keyColors = keyColors
@@ -264,6 +269,9 @@ public struct MK2SurfaceScene2: Sendable {
             self.buttonPolicy = buttonPolicy
         }
     }
+
+    /// Source-compatible name for the original held-SHIFT surface layer.
+    public typealias ShiftLayer = HeldButtonLayer
 
     public var displays: [MK2PixelFrame?]
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
@@ -274,7 +282,18 @@ public struct MK2SurfaceScene2: Sendable {
     public var padColors: [Int: KKRGB]
     public var padIntensities: [Int: UInt8]
     public var bindings: MK2InputBindings2
-    public var shift: ShiftLayer?
+    public var heldButtonLayers: [HeldButtonLayer]
+    /// Compatibility projection for clients that still declare a dedicated
+    /// SHIFT layer. Assigning it replaces the layer whose trigger is `.shift`.
+    public var shift: ShiftLayer? {
+        get { heldButtonLayers.first { $0.trigger == .shift } }
+        set {
+            heldButtonLayers.removeAll { $0.trigger == .shift }
+            guard var newValue else { return }
+            newValue.trigger = .shift
+            heldButtonLayers.insert(newValue, at: 0)
+        }
+    }
     /// Literal native LED bytes applied after semantic lamp lowering.
     /// Intended only for hardware calibration and protocol diagnostics.
     public var diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8]
@@ -293,6 +312,7 @@ public struct MK2SurfaceScene2: Sendable {
         padIntensities: [Int: UInt8] = [:],
         bindings: MK2InputBindings2 = MK2InputBindings2(),
         shift: ShiftLayer? = nil,
+        heldButtonLayers: [HeldButtonLayer] = [],
         diagnosticLEDBytes: [KontrolSurfaceDiagnosticLED: UInt8] = [:],
         encoderTouchOverlays: [Int: MK2EncoderTouchOverlay] = [:]
     ) {
@@ -303,7 +323,16 @@ public struct MK2SurfaceScene2: Sendable {
         self.padColors = padColors
         self.padIntensities = padIntensities.mapValues { min(3, $0) }
         self.bindings = bindings
-        self.shift = shift
+        var normalizedLayers: [HeldButtonLayer] = []
+        for layer in heldButtonLayers where layer.trigger != .shift {
+            normalizedLayers.removeAll { $0.trigger == layer.trigger }
+            normalizedLayers.append(layer)
+        }
+        if var shift {
+            shift.trigger = .shift
+            normalizedLayers.insert(shift, at: 0)
+        }
+        self.heldButtonLayers = normalizedLayers
         self.diagnosticLEDBytes = diagnosticLEDBytes
         self.encoderTouchOverlays = encoderTouchOverlays
     }

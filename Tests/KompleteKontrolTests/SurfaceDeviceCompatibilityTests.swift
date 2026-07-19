@@ -14,6 +14,7 @@ struct SurfaceDeviceCompatibilityTests {
             .shift, .tempo, .keyMode, .fixedVel, .scene, .pattern, .variation, .s, .m,
             .instrument1, .instrument2, .instrument3, .instrument4,
             .instrument5, .instrument6, .instrument7, .instrument8,
+            .keyboard,
             .clear, .play, .record, .stop, .setup, .pageRight, .mixer,
             .plugin, .track, .browser, .pageLeft, .auto,
             .function1, .function2, .function3, .function4,
@@ -29,6 +30,7 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .arrowLeft)?.input == .button(.pageLeft))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .channel)?.input == .button(.track))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .padMode)?.input == .button(.keyMode))
+        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard)?.input == .button(.keyboard))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .variation)?.input == .button(.variation))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupA)?.input == .button(.instrument1))
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .groupH)?.input == .button(.instrument8))
@@ -36,9 +38,24 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .restart) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .tap) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .noteRepeat) == nil)
-        #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .keyboard) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .chords) == nil)
         #expect(KontrolSurfaceDeviceCompatibility.mapping(for: .duplicate) == nil)
+    }
+
+    @Test("MK3 Keyboard lowers to its dedicated logical Kit2 control")
+    func keyboardInputLowering() {
+        var adapter = KontrolSurfaceInputAdapter(family: .maschineMK3)
+        let baseline = surfaceReport()
+        #expect(adapter.events(for: baseline, timestampNanos: 0).isEmpty)
+
+        var pressed = baseline
+        pressed[4] = 0x02
+        #expect(adapter.events(for: pressed, timestampNanos: 1) == [
+            .button(led: .keyboard, pressed: true),
+        ])
+        #expect(adapter.events(for: baseline, timestampNanos: 2) == [
+            .button(led: .keyboard, pressed: false),
+        ])
     }
 
     @Test("MK3 Group A-H lower to hardware-independent instrument shortcuts")
@@ -287,6 +304,7 @@ struct SurfaceDeviceCompatibilityTests {
                 .pageLeft: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .scene: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .keyMode: KontrolSurfaceLampValue(color: white, intensity: 3),
+                .keyboard: KontrolSurfaceLampValue(color: white, intensity: 2),
                 .variation: KontrolSurfaceLampValue(color: white, intensity: 1),
                 .jogRight: KontrolSurfaceLampValue(color: green, intensity: 2),
                 .strip1: KontrolSurfaceLampValue(color: white, intensity: 3),
@@ -304,7 +322,7 @@ struct SurfaceDeviceCompatibilityTests {
         #expect(buttons.payload[MaschineMK3ButtonLED.arrowLeft.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.scene.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.padMode.rawValue] == 7)
-        #expect(buttons.payload[MaschineMK3ButtonLED.keyboard.rawValue] == 0)
+        #expect(buttons.payload[MaschineMK3ButtonLED.keyboard.rawValue] == 6)
         #expect(buttons.payload[MaschineMK3ButtonLED.chords.rawValue] == 0)
         #expect(buttons.payload[MaschineMK3ButtonLED.variation.rawValue] == 4)
         #expect(buttons.payload[MaschineMK3ButtonLED.mainEncoderRight.rawValue] == 0x1e)

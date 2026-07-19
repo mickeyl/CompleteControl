@@ -3,17 +3,25 @@ import KompleteKontrol
 
 /// One labeled slot in a `MK2FunctionKeyBarElement`. An empty label (and no
 /// icon) leaves the slot dark; a disabled slot shows its content dimmed and
-/// never binds. An optional leading Phosphor icon (see `MK2HIG.IconGlyph`)
-/// makes frequent actions read faster — COPY, PASTE, CLEAR, TRIM.
+/// never binds; a selected slot uses the accent treatment. An optional leading
+/// Phosphor icon (see `MK2HIG.IconGlyph`) makes frequent actions read faster —
+/// COPY, PASTE, CLEAR, TRIM.
 public struct MK2FunctionKeySlot: Sendable, Equatable {
     public var label: String
     public var iconGlyph: String?
     public var isEnabled: Bool
+    public var isSelected: Bool
 
-    public init(_ label: String = "", iconGlyph: String? = nil, isEnabled: Bool = true) {
+    public init(
+        _ label: String = "",
+        iconGlyph: String? = nil,
+        isEnabled: Bool = true,
+        isSelected: Bool = false
+    ) {
         self.label = label
         self.iconGlyph = iconGlyph
         self.isEnabled = isEnabled
+        self.isSelected = isSelected
     }
 
     public var isEmpty: Bool { label.isEmpty && iconGlyph == nil }
@@ -51,7 +59,7 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
         case chromeBand
     }
 
-    public enum Side: Sendable {
+    public enum Side: Sendable, Equatable {
         case left
         case right
 
@@ -163,7 +171,13 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
         for (index, slot) in slots.enumerated() where !slot.isEmpty {
             let slotX = MK2ScreenLayout.encoderSlotXs[index]
             let slotWidth = MK2ScreenLayout.encoderSlotWidth
-            let color = slot.isEnabled ? labelColor : MK2HIG.Chrome.dim
+            let color: UInt16 = if !slot.isEnabled {
+                MK2HIG.Chrome.dim
+            } else if slot.isSelected {
+                0x0000
+            } else {
+                labelColor
+            }
 
             if style == .chromeBand {
                 // Embossed chip: raised bevel (lit from above), the opposite of
@@ -172,11 +186,23 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
                 frame.fillRoundedVerticalGradient(
                     chip,
                     radius: 5,
-                    top: MK2HIG.Chrome.headerFill.scaled565(by: 1.8),
-                    bottom: MK2HIG.Chrome.headerFill.scaled565(by: 0.9),
+                    top: slot.isSelected
+                        ? MK2HIG.Chrome.accent.scaled565(by: 1.25)
+                        : MK2HIG.Chrome.headerFill.scaled565(by: 1.8),
+                    bottom: slot.isSelected
+                        ? MK2HIG.Chrome.accent.scaled565(by: 0.75)
+                        : MK2HIG.Chrome.headerFill.scaled565(by: 0.9),
                     antialiased: true
                 )
-                frame.fill(MK2PixelRect(x: chip.x + 2, y: chip.y, width: chip.width - 4, height: 1), MK2HIG.Chrome.headerTopLine)
+                frame.fill(
+                    MK2PixelRect(x: chip.x + 2, y: chip.y, width: chip.width - 4, height: 1),
+                    slot.isSelected ? MK2HIG.Chrome.accent : MK2HIG.Chrome.headerTopLine
+                )
+            } else if slot.isSelected {
+                frame.fill(
+                    MK2PixelRect(x: slotX + 2, y: 2, width: slotWidth - 4, height: height - 4),
+                    MK2HIG.Chrome.accent
+                )
             }
 
             drawSlotContent(slot, slotX: slotX, slotWidth: slotWidth, height: height, color: color, renderer: renderer, into: &frame)

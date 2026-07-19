@@ -268,19 +268,22 @@ public struct MK2DoubleScreenDSL: Sendable {
     public var lamps: [KKMK2ButtonLED: MK2LampState2]
     public var keyColors: [Int: KKRGB]
     public var bindings: MK2InputBindings2
+    public var heldButtonLayers: [MK2SurfaceScene2.HeldButtonLayer]
 
     public init(
         left: MK2ScreenBuildResult,
         right: MK2ScreenBuildResult,
         lamps: [KKMK2ButtonLED: MK2LampState2] = [:],
         keyColors: [Int: KKRGB] = [:],
-        bindings: MK2InputBindings2 = MK2InputBindings2()
+        bindings: MK2InputBindings2 = MK2InputBindings2(),
+        heldButtonLayers: [MK2SurfaceScene2.HeldButtonLayer] = []
     ) {
         self.left = left
         self.right = right
         self.lamps = lamps
         self.keyColors = keyColors
         self.bindings = bindings
+        self.heldButtonLayers = heldButtonLayers
     }
 
     public func scene() -> MK2SurfaceScene2 {
@@ -312,6 +315,7 @@ public struct MK2DoubleScreenDSL: Sendable {
             keyColors: mergedKeyColors,
             bindings: mergedBindings,
             shift: shiftLayer(),
+            heldButtonLayers: heldButtonLayers,
             encoderTouchOverlays: overlays
         )
     }

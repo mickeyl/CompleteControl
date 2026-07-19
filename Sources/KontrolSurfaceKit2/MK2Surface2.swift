@@ -626,25 +626,31 @@ public actor MK2Surface2 {
         maybeCheckIdleDaemon(now: now)
     }
 
-    // Auto shift lamp: a scene with a shift layer advertises it (dim) and confirms
-    // the held state (bright) unless the scene or its layer set the lamp explicitly.
-    private static let shiftAvailableLamp: MK2LampState2 = .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
-    private static let shiftHeldLamp: MK2LampState2 = .white
+    // Auto trigger lamp: a scene with a held-button layer advertises its trigger
+    // (dim) and confirms the held state (bright) unless the scene or that layer
+    // sets the lamp explicitly.
+    private static let heldLayerAvailableLamp: MK2LampState2 = .on(KKRGB(red: 0xff, green: 0xff, blue: 0xff), intensity: 0x01)
+    private static let heldLayerActiveLamp: MK2LampState2 = .white
 
     private var activeLamps: [KKMK2ButtonLED: MK2LampState2] {
         var lamps: [KKMK2ButtonLED: MK2LampState2]
-        if let layer = activeShiftLayer, layer.buttonPolicy == .exclusive {
-            lamps = layer.lamps
+        if let active = activeHeldButtonLayer, active.layer.buttonPolicy == .exclusive {
+            lamps = active.layer.lamps
         } else {
             lamps = scene.lamps
-            if let layer = activeShiftLayer {
-                lamps.merge(layer.lamps) { _, next in next }
+            if let active = activeHeldButtonLayer {
+                lamps.merge(active.layer.lamps) { _, next in next }
             }
         }
-        if scene.shift != nil, scene.lamps[.shift] == nil, scene.shift?.lamps[.shift] == nil {
-            lamps[.shift] = pressedButtons.contains(.shift) ? Self.shiftHeldLamp : Self.shiftAvailableLamp
+        for layer in scene.heldButtonLayers
+        where scene.lamps[layer.trigger] == nil && layer.lamps[layer.trigger] == nil {
+            lamps[layer.trigger] = pressedButtons.contains(layer.trigger)
+                ? Self.heldLayerActiveLamp
+                : Self.heldLayerAvailableLamp
         }
-        let overlay = activeShiftLayer == nil ? lampOverlay : shiftLampOverlay ?? lampOverlay
+        let overlay = activeHeldButtonLayer?.trigger == .shift
+            ? shiftLampOverlay ?? lampOverlay
+            : lampOverlay
         lamps.merge(overlay) { _, overlay in overlay }
         return lamps
     }
@@ -657,7 +663,7 @@ public actor MK2Surface2 {
             light.intensity = min(3, intensity)
             lights[index] = light
         }
-        guard let layer = activeShiftLayer else { return lights }
+        guard let layer = activeHeldButtonLayer?.layer else { return lights }
         for (index, color) in layer.keyColors {
             lights[index] = MK2LightGuideColor(
                 color: color,
@@ -684,9 +690,9 @@ public actor MK2Surface2 {
     }
 
     private var activeDisplays: [MK2PixelFrame?] {
-        // Touch overlays stay suppressed while the shift layer shows: its
+        // Touch overlays stay suppressed while a held layer shows: its
         // slots carry other values, so the base highlight pixels would lie.
-        guard let layer = activeShiftLayer else { return displaysWithTouchOverlays(scene.displays) }
+        guard let layer = activeHeldButtonLayer?.layer else { return displaysWithTouchOverlays(scene.displays) }
         return scene.displays.enumerated().map { index, base in
             layer.displays.indices.contains(index) ? layer.displays[index] ?? base : base
         }
@@ -951,20 +957,20 @@ public actor MK2Surface2 {
                         buttonHandler(for: led, event: .press, resolution: resolution)?()
                     } else {
                         // Resolve the release against the layer/requirement captured at
-                        // press time: a press taken under shift must pair with its own
-                        // release even when shift went up first.
+                        // press time: a press taken under a held layer or modifier must
+                        // pair with its own release even when the trigger went up first.
                         let resolution = buttonPressResolutions[led] ?? buttonResolution(for: led)
                         let handler = buttonHandler(for: led, event: .release, resolution: resolution)
                         endButtonHold(led)
                         handler?()
                     }
-                    if led == .shift, scene.shift != nil {
+                    if scene.heldButtonLayers.contains(where: { $0.trigger == led }) {
                         // Flip the displayed layer now; waiting for the next 30 Hz tick
                         // makes a held modifier feel rubbery.
                         tick(forceDisplay: false)
                     }
                 case let .knob(index, delta, value):
-                    (activeShiftLayer?.bindings.encoder[index] ?? scene.bindings.encoder[index])?(delta, value, timestampNanos)
+                    (activeHeldButtonLayer?.layer.bindings.encoder[index] ?? scene.bindings.encoder[index])?(delta, value, timestampNanos)
                 case let .touchEncoder(index, touched):
                     if touched {
                         touchedEncoders.insert(index)
@@ -974,31 +980,31 @@ public actor MK2Surface2 {
                     } else {
                         touchedEncoders.remove(index)
                     }
-                    (activeShiftLayer?.bindings.encoderTouch[index] ?? scene.bindings.encoderTouch[index])?(touched)
+                    (activeHeldButtonLayer?.layer.bindings.encoderTouch[index] ?? scene.bindings.encoderTouch[index])?(touched)
                     if touched, lastEncoderTouchNanos.indices.contains(index) {
                         let now = DispatchTime.now().uptimeNanoseconds
                         if now &- lastEncoderTouchNanos[index] < Self.doubleTouchWindowNanos {
                             lastEncoderTouchNanos[index] = 0
-                            (activeShiftLayer?.bindings.encoderDoubleTouch[index] ?? scene.bindings.encoderDoubleTouch[index])?()
+                            (activeHeldButtonLayer?.layer.bindings.encoderDoubleTouch[index] ?? scene.bindings.encoderDoubleTouch[index])?()
                         } else {
                             lastEncoderTouchNanos[index] = now
                         }
                     }
                     if scene.encoderTouchOverlays[index] != nil {
-                        // Flip the highlight now, same as the shift layer: waiting
+                        // Flip the highlight now, same as a held layer: waiting
                         // for the next tick makes the touch feel rubbery.
                         tick(forceDisplay: false)
                     }
                 case let .jog(direction):
-                    (activeShiftLayer?.bindings.jog ?? scene.bindings.jog)?(direction)
+                    (activeHeldButtonLayer?.layer.bindings.jog ?? scene.bindings.jog)?(direction)
                 case .jogCenter:
-                    (activeShiftLayer?.bindings.jogCenter ?? scene.bindings.jogCenter)?()
+                    (activeHeldButtonLayer?.layer.bindings.jogCenter ?? scene.bindings.jogCenter)?()
                 case let .jogScroll(delta, value):
-                    (activeShiftLayer?.bindings.jogScroll ?? scene.bindings.jogScroll)?(delta, value)
+                    (activeHeldButtonLayer?.layer.bindings.jogScroll ?? scene.bindings.jogScroll)?(delta, value)
                 case let .jogTouch(touched):
-                    (activeShiftLayer?.bindings.jogTouch ?? scene.bindings.jogTouch)?(touched)
+                    (activeHeldButtonLayer?.layer.bindings.jogTouch ?? scene.bindings.jogTouch)?(touched)
                 case let .strip(position, time):
-                    (activeShiftLayer?.bindings.strip ?? scene.bindings.strip)?(position, time)
+                    (activeHeldButtonLayer?.layer.bindings.strip ?? scene.bindings.strip)?(position, time)
                 case .rawChanged:
                     break
             }
@@ -1007,7 +1013,7 @@ public actor MK2Surface2 {
 
     private func handle(_ events: [KontrolSurfacePadEvent]) {
         for event in events {
-            (activeShiftLayer?.bindings.pad ?? scene.bindings.pad)?(event)
+            (activeHeldButtonLayer?.layer.bindings.pad ?? scene.bindings.pad)?(event)
             for midiEvent in padMIDISynthesizer.receive(event) {
                 handle(midi: midiEvent)
             }
@@ -1040,24 +1046,34 @@ public actor MK2Surface2 {
     }
 
     private struct ButtonResolution {
-        var viaShiftLayer: Bool
+        var layerTrigger: KKMK2ButtonLED?
         var requirement: MK2InputBindings2.ModifierRequirement
         var allowsBaseFallback: Bool
     }
 
-    /// The shift layer of the current scene, but only while SHIFT is physically held.
-    private var activeShiftLayer: MK2SurfaceScene2.ShiftLayer? {
-        guard pressedButtons.contains(.shift) else { return nil }
-        return scene.shift
+    private struct ActiveHeldButtonLayer {
+        var trigger: KKMK2ButtonLED
+        var layer: MK2SurfaceScene2.HeldButtonLayer
+    }
+
+    /// The highest-priority declared layer whose trigger is physically held.
+    /// Later declarations are more specific; the compatibility SHIFT layer is
+    /// normalized to the first position by `MK2SurfaceScene2`.
+    private var activeHeldButtonLayer: ActiveHeldButtonLayer? {
+        guard let layer = scene.heldButtonLayers.last(where: {
+            pressedButtons.contains($0.trigger)
+        }) else { return nil }
+        return ActiveHeldButtonLayer(trigger: layer.trigger, layer: layer)
     }
 
     private func buttonResolution(for led: KKMK2ButtonLED) -> ButtonResolution {
         let shiftHeld = led != .shift && pressedButtons.contains(.shift)
-        let layer = shiftHeld ? scene.shift : nil
+        let active = activeHeldButtonLayer
+        let layer = active?.trigger == led ? nil : active
         return ButtonResolution(
-            viaShiftLayer: layer != nil,
+            layerTrigger: layer?.trigger,
             requirement: shiftHeld ? .shift : .unmodified,
-            allowsBaseFallback: layer?.buttonPolicy != .exclusive
+            allowsBaseFallback: layer?.layer.buttonPolicy != .exclusive
         )
     }
 
@@ -1067,7 +1083,8 @@ public actor MK2Surface2 {
         resolution: ButtonResolution
     ) -> (@Sendable () -> Void)? {
         let key = MK2InputBindings2.ModifiedButton(led, resolution.requirement)
-        if resolution.viaShiftLayer, let layer = scene.shift,
+        if let trigger = resolution.layerTrigger,
+           let layer = scene.heldButtonLayers.first(where: { $0.trigger == trigger }),
            let handler = Self.buttonHandler(in: layer.bindings, led: led, key: key, event: event) {
             return handler
         }

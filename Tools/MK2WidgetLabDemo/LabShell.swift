@@ -29,6 +29,7 @@ let labDemos: [any LabDemo] = [
     WaveformDemo(),
     TrackerPatternDemo(),
     ModalDialogDemo(),
+    HoldActionOverlayDemo(),
     LightGuideDemo(),
     MIDIMonitorDemo(),
     DisplayBenchmarkDemo(),
@@ -375,6 +376,14 @@ actor LabShell {
                 if variant.isEmpty, scene().shift != nil {
                     await snapshot(to: directory + "/widgetlab-\(demo.descriptor.id)-shift.png", layer: .shift)
                 }
+                if variant.isEmpty {
+                    for layer in scene().heldButtonLayers where layer.trigger != .shift {
+                        await snapshot(
+                            to: directory + "/widgetlab-\(demo.descriptor.id)-hold-\(Self.snapshotSlug(layer.trigger.protocolName)).png",
+                            layer: .held(layer.trigger)
+                        )
+                    }
+                }
             }
             demo.prepareSnapshot(variant: "")
             demo.demoWillClose()
@@ -390,6 +399,7 @@ actor LabShell {
     private enum SnapshotLayer {
         case base
         case shift
+        case held(KKMK2ButtonLED)
     }
 
     private func snapshot(to path: String?, layer: SnapshotLayer = .base) async {
@@ -422,9 +432,15 @@ actor LabShell {
     private func snapshotFrames(layer: SnapshotLayer) -> [MK2PixelFrame] {
         let currentScene = scene()
         var displays = currentScene.displays
-        if layer == .shift, let shift = currentScene.shift {
+        let overlay: MK2SurfaceScene2.HeldButtonLayer? = switch layer {
+            case .base: nil
+            case .shift: currentScene.shift
+            case let .held(trigger):
+                currentScene.heldButtonLayers.first { $0.trigger == trigger }
+        }
+        if let overlay {
             displays = displays.enumerated().map { index, base in
-                shift.displays.indices.contains(index) ? shift.displays[index] ?? base : base
+                overlay.displays.indices.contains(index) ? overlay.displays[index] ?? base : base
             }
         }
         return displays.map { $0 ?? MK2PixelFrame() }
