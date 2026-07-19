@@ -10,6 +10,7 @@ override MK2_DISPLAY_ENCODING := legacy
 endif
 DAEMON := .build/debug/ccd
 DAEMON_RELEASE := .build/release/ccd
+DAEMON_TRACE_LOG ?= /tmp/ccd-trace.log
 MK2_SURFACE_DEMO := .build/debug/MK2SurfaceDemo
 MK2_SURFACE_DEMO_RELEASE := .build/release/MK2SurfaceDemo
 MK2_WIDGET_LAB_DEMO := .build/debug/MK2WidgetLabDemo
@@ -26,10 +27,10 @@ WIDGETLAB_TEST_ARGS ?=
 ADAPTIVE_REPORT ?=
 LEGACY_REPORT ?=
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release mk2-widget-lab-demo-build mk2-widget-lab-demo-build-release mk2-widget-lab-demo mk2-widget-lab-demo-sim mk2-widget-lab-demo-release mk2-widget-lab-test-validate mk2-widget-lab-smoke mk2-widget-lab-stress mk2-widget-lab-soak mk2-widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGETLAB_TEST_SOCKET)" -v stress="$(WIDGETLAB_STRESS_DURATION)" -v soak="$(WIDGETLAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGETLAB_TEST_SOCKET=%s\n  WIDGETLAB_STRESS_DURATION=%s  WIDGETLAB_SOAK_DURATION=%s\n  WIDGETLAB_TEST_ARGS=...  additional kk-widgetlab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -143,6 +144,11 @@ daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
 	sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+
+daemon-debug-trace: ## Run the debug daemon with all Make and daemon output redirected to DAEMON_TRACE_LOG.
+	@rm -f "$(DAEMON_TRACE_LOG)"
+	@echo "Starting traced foreground daemon; output is written only to $(DAEMON_TRACE_LOG). Press Ctrl-C to stop."
+	@$(MAKE) --no-print-directory daemon-debug >"$(DAEMON_TRACE_LOG)" 2>&1
 
 daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
 	@echo "Stopping installed/foreground daemons..."

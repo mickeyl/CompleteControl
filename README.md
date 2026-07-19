@@ -112,6 +112,17 @@ Run an instrumented foreground daemon:
 make daemon-debug
 ```
 
+For timing investigations, redirect all build and daemon output directly to a
+trace file without terminal rendering or `tee`:
+
+```bash
+make daemon-debug-trace
+```
+
+The default trace path is `/tmp/ccd-trace.log`; override it with
+`DAEMON_TRACE_LOG=/path/to/trace.log`. Press Control-C to stop the foreground
+daemon.
+
 Uninstall:
 
 ```bash
