@@ -2,9 +2,17 @@
 
 ## Next up
 
-- **Replace Paulinche's stringly semantic `ControlSurfaceEvent.button(name:)` bridge with typed actions or a closed command enum (priority: high, noted 2026-07-19).** The Kit2 4-D contract is now typed and end-to-end covered, but Paulinche's adapter, router, and app-side effects can still drift through button-name strings. Preserve the command-first architecture while giving the surface port a finite action vocabulary.
+- No item is currently committed as the immediate next slice.
 
 ## Recently completed
+
+- **Typed Paulinche control-surface action bridge (completed 2026-07-19).**
+  `ControlSurfaceEvent.button` now carries a closed `ControlSurfaceAction`
+  vocabulary instead of a free-form name. Commands, scenes, soft-key layers,
+  instrument slots, navigation, paging, root-octave selection, Fixed Velocity,
+  Undo, and Redo cross the CompleteControl adapter boundary without string
+  construction or parsing. The sole ribbon event is typed as well. Router and
+  adapter regression tests cover the end-to-end mappings.
 
 - **Shared simulator core and single-device MASCHINE MK3 simulator (completed
   2026-07-19).** `KontrolSimulatorWire` now provides the versioned authoritative
