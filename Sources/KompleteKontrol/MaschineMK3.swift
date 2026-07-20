@@ -46,6 +46,58 @@ public enum MaschineMK3Protocol {
         guard position > 0 else { return nil }
         return max(0, min(stripLEDCount - 1, ((position - 1) * stripLEDCount) / 1024))
     }
+
+    /// Maps the nominal 16-hue palette (plus index 17 white) onto the
+    /// perceptually distinct MK3 representatives bench-calibrated on
+    /// bcdDevice 0x0146. Literal diagnostic bytes deliberately bypass this.
+    public static func calibratedColorHueCode(forPaletteIndex paletteIndex: UInt8) -> UInt8? {
+        if paletteIndex == 17 { return 0xff }
+        return MaschineMK3DistinctHue(sourceHueCode: paletteIndex)?.hueCode
+    }
+}
+
+/// Nine chromatic families that remain usefully distinct on the physical
+/// MASCHINE MK3 palette LEDs. Several neighbouring wire hues are visually
+/// near-identical and intentionally collapse onto one representative.
+public enum MaschineMK3DistinctHue: CaseIterable, Equatable, Sendable {
+    case red
+    case orange
+    case yellow
+    case lime
+    case green
+    case cyan
+    case blue
+    case violet
+    case magenta
+
+    public var hueCode: UInt8 {
+        switch self {
+            case .red: 1
+            case .orange: 3
+            case .yellow: 5
+            case .lime: 6
+            case .green: 7
+            case .cyan: 9
+            case .blue: 11
+            case .violet: 13
+            case .magenta: 14
+        }
+    }
+
+    public init?(sourceHueCode: UInt8) {
+        switch sourceHueCode {
+            case 1, 16: self = .red
+            case 2, 3: self = .orange
+            case 4, 5: self = .yellow
+            case 6: self = .lime
+            case 7, 8: self = .green
+            case 9: self = .cyan
+            case 10, 11: self = .blue
+            case 12, 13: self = .violet
+            case 14, 15: self = .magenta
+            default: return nil
+        }
+    }
 }
 
 /// Physical controls carried as bits in the verified 42-byte report `0x01`.

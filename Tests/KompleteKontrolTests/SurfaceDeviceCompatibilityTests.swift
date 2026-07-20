@@ -382,6 +382,31 @@ struct SurfaceDeviceCompatibilityTests {
         ) == 0xfd)
     }
 
+    @Test("semantic MK3 colours use the bench-calibrated distinct hue representatives")
+    func maschineDistinctHueOutput() {
+        let sourceColours: [(KKRGB, UInt8)] = [
+            (KKRGB(red: 0xff, green: 0x00, blue: 0x00), 1),
+            (KKRGB(red: 0xff, green: 0x3f, blue: 0x00), 3),
+            (KKRGB(red: 0xff, green: 0x7f, blue: 0x00), 3),
+            (KKRGB(red: 0xff, green: 0xcf, blue: 0x00), 5),
+            (KKRGB(red: 0xff, green: 0xff, blue: 0x00), 5),
+            (KKRGB(red: 0x7f, green: 0xff, blue: 0x00), 6),
+            (KKRGB(red: 0x00, green: 0xff, blue: 0x7f), 7),
+            (KKRGB(red: 0x00, green: 0x7f, blue: 0xff), 11),
+            (KKRGB(red: 0x3f, green: 0x00, blue: 0xff), 13),
+            (KKRGB(red: 0xff, green: 0x00, blue: 0x7f), 14),
+            (KKRGB(red: 0xff, green: 0x00, blue: 0x3f), 1),
+        ]
+
+        for (colour, representative) in sourceColours {
+            let value = KontrolSurfaceLampValue(color: colour, intensity: 3)
+            #expect(KontrolSurfaceDeviceCompatibility.maschineMK3ColorByte(for: value)
+                == (representative &<< 2) | 3)
+            #expect(KontrolSurfaceDeviceCompatibility.maschineMK3PerformancePadByte(for: value)
+                == (representative &<< 2) | 3)
+        }
+    }
+
     @Test("MK3 performance pads lower in printed panel order with four visible levels")
     func maschinePerformancePadOutput() throws {
         let red = KKRGB(red: 0xff, green: 0, blue: 0)

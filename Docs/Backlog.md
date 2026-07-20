@@ -68,9 +68,10 @@
 - **Phase 6: final MK3 bench calibration.** Compare the simulator's remaining
   estimated geometry and interaction constants with the real unit, then verify
   encoder count/touch timing, pad velocity and pressure feel, touch-strip edge
-  cases, physical colour/brightness, reconnect/shutdown, audio-interface
-  coexistence, and the final both-real four-display stress case. Simulator
-  evidence must not be promoted to USB timing or physical-feel evidence.
+  cases, reconnect/shutdown, audio-interface coexistence, and the final both-real
+  four-display stress case. Physical LED brightness curves and the nine-family
+  hue collapse were bench-calibrated by 2026-07-20. Simulator evidence must not
+  be promoted to USB timing or physical-feel evidence.
 
 - Encoder feel is nearly opaque on the simulator (noted 2026-07-14): rotation
   arrives as bare wire deltas, so acceleration/detent tuning gives almost no

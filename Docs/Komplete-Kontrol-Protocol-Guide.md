@@ -261,6 +261,14 @@ monochrome order. This bench result resolves the older public-source conflict:
 openAV-Ctlra classified Sampling as RGB, while cabl and ktemkin classified it as
 monochrome.
 
+A physical 16-pad hue-atlas pass on 2026-07-20 showed that the nominal palette
+contains nine usefully distinct chromatic families. The following neighbours
+were nearly indistinguishable on the bcdDevice `0x0146` unit: H02/H03,
+H04/H05, H07/H08, H10/H11, H12/H13, H14/H15, and the wrap pair H16/H01.
+Kit2 therefore collapses semantic RGB requests onto representatives H01, H03,
+H05, H06, H07, H09, H11, H13, and H14. Literal diagnostic bytes still pass
+through unchanged so Widget Lab can display and re-check every native hue.
+
 ### MK3 reports `0x80` and `0x81`: LED indices
 
 The output lengths come from the HID descriptor; public tables occasionally

@@ -442,6 +442,22 @@ struct MaschineMK3ProtocolTests {
         #expect(MaschineMK3PadLED.pad4.rawValue == 40)
     }
 
+    @Test("bench-calibrated MK3 hues collapse into nine distinct families")
+    func distinctLEDHueFamilies() {
+        let expected: [UInt8: UInt8] = [
+            1: 1, 2: 3, 3: 3, 4: 5, 5: 5, 6: 6, 7: 7, 8: 7,
+            9: 9, 10: 11, 11: 11, 12: 13, 13: 13, 14: 14, 15: 14, 16: 1,
+            17: 0xff,
+        ]
+
+        #expect(MaschineMK3DistinctHue.allCases.map(\.hueCode) == [1, 3, 5, 6, 7, 9, 11, 13, 14])
+        for (source, representative) in expected {
+            #expect(MaschineMK3Protocol.calibratedColorHueCode(forPaletteIndex: source) == representative)
+        }
+        #expect(MaschineMK3Protocol.calibratedColorHueCode(forPaletteIndex: 0) == nil)
+        #expect(MaschineMK3Protocol.calibratedColorHueCode(forPaletteIndex: 18) == nil)
+    }
+
     @Test("NO CLIENT echo maps documented controls to verified pad LED slots")
     func ledEchoMappings() {
         #expect(MaschineMK3Button.allCases.filter { $0.led == nil } == [.mainEncoderPress])

@@ -220,8 +220,10 @@ enum KontrolSurfaceDeviceCompatibility {
         }
     }
 
-    /// MK3 RGB slots use the same 16 hue sectors as the MK2 palette but encode
-    /// white as hue 0xff. Sampling alone routes white through the non-linear
+    /// MK3 RGB slots expose 16 hue codes, but adjacent codes collapse into nine
+    /// usefully distinct physical colours. Semantic RGB requests use the
+    /// calibrated representatives; literal diagnostic bytes remain untouched.
+    /// White uses hue 0xff. Sampling alone routes white through the non-linear
     /// monochrome curve; its coloured palette entries remain linear like pads.
     static func maschineMK3ColorByte(
         for value: KontrolSurfaceLampValue,
@@ -232,7 +234,9 @@ enum KontrolSurfaceDeviceCompatibility {
         let intensity = min(value.intensity, 3)
         let mk2Code = KompleteKontrolSSeriesMK2.paletteCode(for: value.color, intensity: intensity)
         let paletteIndex = mk2Code >> 2
-        let hue: UInt8 = paletteIndex == 17 ? 0xff : paletteIndex
+        guard let hue = MaschineMK3Protocol.calibratedColorHueCode(forPaletteIndex: paletteIndex) else {
+            return 0
+        }
         let brightnessBits = monochromeWhiteCurve && hue == 0xff
             ? maschineMK3MonochromeByte(for: intensity) & 0x03
             : intensity
@@ -247,7 +251,9 @@ enum KontrolSurfaceDeviceCompatibility {
         let intensity = min(value.intensity, 3)
         let mk2Code = KompleteKontrolSSeriesMK2.paletteCode(for: value.color, intensity: intensity)
         let paletteIndex = mk2Code >> 2
-        let hue: UInt8 = paletteIndex == 17 ? 0xff : paletteIndex
+        guard let hue = MaschineMK3Protocol.calibratedColorHueCode(forPaletteIndex: paletteIndex) else {
+            return 0
+        }
         return (hue &<< 2) | intensity
     }
 }

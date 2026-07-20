@@ -23,6 +23,8 @@
       "actions": [
         { "send": "encoder 1 42" },
         { "send": "encoder 2 96" },
+        { "tap": "variation" },
+        { "tap": "variation" },
         { "send": "encodertouch 1 on" },
         { "send": "encodertouch 1 off" },
         { "send": "encodertouch 2 on" },
