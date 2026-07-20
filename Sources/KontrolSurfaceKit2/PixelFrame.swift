@@ -79,6 +79,24 @@ public struct MK2PixelFrame: Sendable, Equatable {
         }
     }
 
+    /// Halves each RGB565 channel in a clipped rectangle. The integer mask
+    /// keeps channel bits from bleeding into one another and makes dimming a
+    /// full display body inexpensive enough for momentary overlays.
+    mutating func dimHalf(_ rect: MK2PixelRect) {
+        guard let clipped = rect.clipped(to: Self.bounds) else { return }
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for y in clipped.y..<clipped.maxY {
+                let row = y * Self.width
+                for x in clipped.x..<clipped.maxX {
+                    let index = row + x
+                    let color = UInt16(bigEndian: base[index])
+                    base[index] = ((color >> 1) & 0x7BEF).bigEndian
+                }
+            }
+        }
+    }
+
     public mutating func fillRounded(_ rect: MK2PixelRect, radius: Int, _ color: UInt16, antialiased: Bool = false) {
         let radius = max(0, min(radius, rect.width / 2, rect.height / 2))
         guard radius > 0 else {

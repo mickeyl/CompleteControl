@@ -3,25 +3,29 @@ import KompleteKontrol
 
 /// One labeled slot in a `MK2FunctionKeyBarElement`. An empty label (and no
 /// icon) leaves the slot dark; a disabled slot shows its content dimmed and
-/// never binds; a selected slot uses the accent treatment. An optional leading
-/// Phosphor icon (see `MK2HIG.IconGlyph`) makes frequent actions read faster —
-/// COPY, PASTE, CLEAR, TRIM.
+/// never binds; a selected slot uses the accent treatment; a destructive slot
+/// uses the semantic warning color. An optional leading Phosphor icon (see
+/// `MK2HIG.IconGlyph`) makes frequent actions read faster — COPY, PASTE, CLEAR,
+/// TRIM.
 public struct MK2FunctionKeySlot: Sendable, Equatable {
     public var label: String
     public var iconGlyph: String?
     public var isEnabled: Bool
     public var isSelected: Bool
+    public var isDestructive: Bool
 
     public init(
         _ label: String = "",
         iconGlyph: String? = nil,
         isEnabled: Bool = true,
-        isSelected: Bool = false
+        isSelected: Bool = false,
+        isDestructive: Bool = false
     ) {
         self.label = label
         self.iconGlyph = iconGlyph
         self.isEnabled = isEnabled
         self.isSelected = isSelected
+        self.isDestructive = isDestructive
     }
 
     public var isEmpty: Bool { label.isEmpty && iconGlyph == nil }
@@ -175,6 +179,8 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
                 MK2HIG.Chrome.dim
             } else if slot.isSelected {
                 0x0000
+            } else if slot.isDestructive {
+                MK2HIG.Chrome.destructive
             } else {
                 labelColor
             }

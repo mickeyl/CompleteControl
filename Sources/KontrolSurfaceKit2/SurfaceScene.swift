@@ -245,9 +245,12 @@ public struct MK2SurfaceScene2: Sendable {
     /// The layer is an overlay, not a second scene: per-screen frames replace the
     /// base frames (`nil` keeps the base visible), and key colors merge over the
     /// base. `buttonPolicy` decides whether button lamps/bindings fall back to the
-    /// base or form an exclusive, complete layer. Layers declared later take
+    /// base or form an exclusive, complete layer; `lampOverlayPolicy` resolves
+    /// conflicts with high-frequency lamp overlays. Layers declared later take
     /// precedence if more than one trigger is held; the SHIFT compatibility layer
-    /// is always placed first.
+    /// is always placed first. A layer becomes eligible only when it is present
+    /// in the scene at its trigger's button-down time; publishing one while that
+    /// button is already held does not activate it until the next press.
     public struct HeldButtonLayer: Sendable {
         public enum ButtonPolicy: Sendable, Equatable {
             /// Layer entries override the base; unbound buttons and unmentioned
@@ -258,6 +261,14 @@ public struct MK2SurfaceScene2: Sendable {
             case exclusive
         }
 
+        public enum LampOverlayPolicy: Sendable, Equatable {
+            /// High-frequency lamp overlays remain authoritative while held.
+            case overlayWins
+            /// Lamps explicitly declared by this layer override matching
+            /// high-frequency overlay lamps while held.
+            case layerWins
+        }
+
         public var trigger: KKMK2ButtonLED
         public var displays: [MK2PixelFrame?]
         public var lamps: [KKMK2ButtonLED: MK2LampState2]
@@ -265,6 +276,7 @@ public struct MK2SurfaceScene2: Sendable {
         public var keyIntensities: [Int: UInt8]
         public var bindings: MK2InputBindings2
         public var buttonPolicy: ButtonPolicy
+        public var lampOverlayPolicy: LampOverlayPolicy
 
         public init(
             trigger: KKMK2ButtonLED = .shift,
@@ -274,7 +286,8 @@ public struct MK2SurfaceScene2: Sendable {
             keyColors: [Int: KKRGB] = [:],
             keyIntensities: [Int: UInt8] = [:],
             bindings: MK2InputBindings2 = MK2InputBindings2(),
-            buttonPolicy: ButtonPolicy = .fallback
+            buttonPolicy: ButtonPolicy = .fallback,
+            lampOverlayPolicy: LampOverlayPolicy = .overlayWins
         ) {
             self.trigger = trigger
             displays = [left, right]
@@ -283,6 +296,7 @@ public struct MK2SurfaceScene2: Sendable {
             self.keyIntensities = keyIntensities.mapValues { min(3, $0) }
             self.bindings = bindings
             self.buttonPolicy = buttonPolicy
+            self.lampOverlayPolicy = lampOverlayPolicy
         }
     }
 

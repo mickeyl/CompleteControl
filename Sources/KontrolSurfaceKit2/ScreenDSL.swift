@@ -448,15 +448,14 @@ public struct MK2ContentText: MK2ScreenElement {
 
         if let renderer = context.renderer {
             if let maxLines, maxLines > 1,
-               (try? renderer.drawWrappedText(
-                    text,
+               (try? drawWrappedText(
+                    with: renderer,
                     into: &frame,
-                    x: boxX,
-                    y: drawY,
+                    boxX: boxX,
+                    drawY: drawY,
+                    availableWidth: availableWidth,
                     style: style,
-                    maxWidth: availableWidth,
-                    maxLines: maxLines,
-                    lineSpacing: lineSpacing
+                    maxLines: maxLines
                )) != nil {
                 return
             }
@@ -483,6 +482,42 @@ public struct MK2ContentText: MK2ScreenElement {
             let drawX = alignedX(boxX: boxX, availableWidth: availableWidth) { line.count * font.advance }
             BitmapLabel(line, font: font, color: color)
                 .draw(into: &frame, x: drawX, y: y, clip: MK2PixelRect(x: boxX, y: y, width: availableWidth, height: font.cellHeight))
+        }
+    }
+
+    private func drawWrappedText(
+        with renderer: FreeTypeTextRenderer,
+        into frame: inout MK2PixelFrame,
+        boxX: Int,
+        drawY: Int,
+        availableWidth: Int,
+        style: FreeTypeTextStyle,
+        maxLines: Int
+    ) throws {
+        let layout = try renderer.wrappedLayout(text, style: style, maxWidth: availableWidth)
+        let drawnLines = min(layout.lines.count, max(0, maxLines))
+        let lineAdvance = max(1, layout.lineHeight + lineSpacing)
+        let clip = MK2PixelRect(
+            x: boxX,
+            y: drawY,
+            width: availableWidth,
+            height: max(0, MK2PixelFrame.height - drawY)
+        )
+
+        for index in 0..<drawnLines {
+            let line = layout.lines[index]
+            let drawX = alignedX(boxX: boxX, availableWidth: availableWidth) {
+                (try? renderer.measure(line, style: style)) ?? availableWidth
+            }
+            try renderer.drawText(
+                line,
+                into: &frame,
+                x: drawX,
+                y: drawY + index * lineAdvance,
+                style: style,
+                maxWidth: availableWidth,
+                clip: clip
+            )
         }
     }
 

@@ -153,6 +153,10 @@ public actor MK2Surface2 {
     // session — that stale-callback path was the reconnect-cascade bug.
     private var daemonSessionGeneration: UInt64 = 0
     private var pressedButtons: Set<KKMK2ButtonLED> = []
+    /// A held layer may only activate when it already existed in the scene at
+    /// button-down time. This prevents a mode-switch binding from publishing
+    /// and immediately opening a layer for the same still-held trigger.
+    private var eligibleHeldLayerTriggers: Set<KKMK2ButtonLED> = []
     // Touch selection state for the scene's encoder overlays. Physical state
     // like `pressedButtons`, so it survives scene re-presents: an app that
     // re-projects while a finger rests on an encoder must not lose the
@@ -292,7 +296,8 @@ public actor MK2Surface2 {
     }
 
     /// Updates high-frequency lamp feedback without rebuilding display frames or
-    /// replacing scene bindings. Overlay lamps win over base and shift-layer lamps.
+    /// replacing scene bindings. Overlay lamps win unless the active held layer
+    /// explicitly makes its own matching lamps authoritative.
     public func presentLampOverlay(
         _ lamps: [KKMK2ButtonLED: MK2LampState2],
         shift shiftLamps: [KKMK2ButtonLED: MK2LampState2]? = nil
@@ -645,6 +650,7 @@ public actor MK2Surface2 {
         for layer in scene.heldButtonLayers
         where scene.lamps[layer.trigger] == nil && layer.lamps[layer.trigger] == nil {
             lamps[layer.trigger] = pressedButtons.contains(layer.trigger)
+                && eligibleHeldLayerTriggers.contains(layer.trigger)
                 ? Self.heldLayerActiveLamp
                 : Self.heldLayerAvailableLamp
         }
@@ -652,6 +658,10 @@ public actor MK2Surface2 {
             ? shiftLampOverlay ?? lampOverlay
             : lampOverlay
         lamps.merge(overlay) { _, overlay in overlay }
+        if let active = activeHeldButtonLayer,
+           active.layer.lampOverlayPolicy == .layerWins {
+            lamps.merge(active.layer.lamps) { _, layer in layer }
+        }
         return lamps
     }
 
@@ -1021,6 +1031,11 @@ public actor MK2Surface2 {
     }
 
     private func beginButtonHold(_ led: KKMK2ButtonLED, resolution: ButtonResolution) {
+        if scene.heldButtonLayers.contains(where: { $0.trigger == led }) {
+            eligibleHeldLayerTriggers.insert(led)
+        } else {
+            eligibleHeldLayerTriggers.remove(led)
+        }
         pressedButtons.insert(led)
         buttonHoldTasks[led]?.cancel()
         guard let handler = buttonHandler(for: led, event: .hold, resolution: resolution) else { return }
@@ -1062,6 +1077,7 @@ public actor MK2Surface2 {
     private var activeHeldButtonLayer: ActiveHeldButtonLayer? {
         guard let layer = scene.heldButtonLayers.last(where: {
             pressedButtons.contains($0.trigger)
+                && eligibleHeldLayerTriggers.contains($0.trigger)
         }) else { return nil }
         return ActiveHeldButtonLayer(trigger: layer.trigger, layer: layer)
     }
@@ -1110,6 +1126,7 @@ public actor MK2Surface2 {
 
     private func endButtonHold(_ led: KKMK2ButtonLED) {
         pressedButtons.remove(led)
+        eligibleHeldLayerTriggers.remove(led)
         buttonPressResolutions[led] = nil
         buttonHoldTokens[led] = nil
         buttonHoldTasks[led]?.cancel()
@@ -1132,6 +1149,7 @@ public actor MK2Surface2 {
             task.cancel()
         }
         pressedButtons.removeAll()
+        eligibleHeldLayerTriggers.removeAll()
         buttonPressResolutions.removeAll()
         buttonHoldTokens.removeAll()
         buttonHoldTasks.removeAll()

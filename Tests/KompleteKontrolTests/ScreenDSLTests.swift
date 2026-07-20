@@ -91,6 +91,37 @@ struct ScreenDSLTests {
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 252, y: 196, width: 90, height: 56), notMatching: MK2HIG.Chrome.background) > 10)
     }
 
+    @Test("Wrapped content text honors centered alignment")
+    func wrappedContentTextCentersEachLine() throws {
+        let renderer = try #require(try? FreeTypeTextRenderer())
+        let boxX = 100
+        let boxWidth = 120
+        let result = MK2FullScreenDSL(background: 0x0000) {
+            MK2ContentText(
+                "CENTER",
+                x: boxX,
+                y: 20,
+                maxWidth: boxWidth,
+                color: 0xffff,
+                alignment: .center,
+                relativeToContent: false,
+                maxLines: 2
+            )
+        }.build(renderer: renderer)
+
+        var minX = MK2PixelFrame.width
+        var maxX = -1
+        for y in 20..<50 {
+            for x in boxX..<(boxX + boxWidth) where result.screen.frame[x, y] != 0x0000 {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+            }
+        }
+        let inkCenter = (minX + maxX) / 2
+        #expect(maxX >= minX)
+        #expect(abs(inkCenter - (boxX + boxWidth / 2)) <= 4)
+    }
+
     @Test("Selection elements wrap existing list and grid widgets")
     func selectionElementsDrawExistingWidgets() {
         let items = [

@@ -191,6 +191,16 @@ Layout rules:
 - function-button actions use `MK2FunctionKeyBarElement`: top-flush under the
   physical F-buttons, slots on the same uniform grid as the encoder cells,
   and the element owns both drawing and the F1–F4/F5–F8 press bindings;
+- scene-owned structural command planes use `MK2HoldCommandBarElement`: it
+  pre-composites a 90-row F1-F8 header and centered, two-line quick help over
+  copies of the base frames, dims the remaining scene body to half brightness,
+  and owns all F-key presses and lamps while held. A layer is eligible only if
+  it existed in the active scene at button-down time. See
+  `Docs/Held-Command-Bar.md`. HIG terminology is semantic: this is a command
+  popup whose selection immediately performs an action;
+- persistent settings use `MK2HoldActionOverlayElement`, a setting popup whose
+  selected value remains active after release and is shown again on the next
+  hold. Do not choose between the two popup forms based only on screen space;
 - hardware labels must describe the action/value directly above the physical
   control they belong to;
 - pixel display diffs must preserve deterministic rendering and stable geometry.

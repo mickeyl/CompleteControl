@@ -2,15 +2,15 @@ import Foundation
 import KompleteKontrol
 import KontrolSurfaceKit2
 
-/// Demonstrates the momentary two-screen action layer intended for the
-/// MASCHINE MK3 KEYBOARD + F1-F8 root-octave picker.
+/// HIG reference for both held popup semantics: a persistent setting popup and
+/// an immediate command popup that preserves the active scene.
 final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
     let descriptor = DemoDescriptor(
         id: "hold-action-overlay",
-        title: "Hold Action Overlay",
+        title: "Hold Popups",
         category: .catalogue,
-        summary: "Held-button takeover with F1-F8 choices",
-        detail: "Hold the MASCHINE KEYBOARD button to replace both displays. F1-F8 select a root octave immediately; releasing KEYBOARD restores the base scene.",
+        summary: "Persistent setting and immediate command",
+        detail: "Hold MASCHINE KEYBOARD for the persistent octave setting popup, or hold SCENE for the immediate F1-F8 command popup with centered help and a dimmed scene body.",
         snapshotVariants: ["octave-5"]
     )
 
@@ -18,6 +18,8 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
     private var outcome = "Default C2 matches the current MK3 pad range"
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
+        let left = explainerScreen(context)
+        let right = stateScreen(context)
         let overlay = MK2HoldActionOverlayElement(
             trigger: .keyboard,
             title: "Root Octave",
@@ -31,12 +33,49 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
                 }
             }
         ).build(renderer: context.renderer)
+        let commandBar = referenceCommandBar(
+            left: left,
+            right: right,
+            context: context
+        )
 
         return MK2DoubleScreenDSL(
-            left: explainerScreen(context),
-            right: stateScreen(context),
-            heldButtonLayers: [overlay]
+            left: left,
+            right: right,
+            heldButtonLayers: [commandBar, overlay]
         ).scene()
+    }
+
+    /// Copyable integration pattern: render both base screens first, then
+    /// pre-compose their current frames into the held command layer.
+    private func referenceCommandBar(
+        left: MK2ScreenBuildResult,
+        right: MK2ScreenBuildResult,
+        context: LabContext
+    ) -> MK2SurfaceScene2.HeldButtonLayer {
+        MK2HoldCommandBarElement(
+            trigger: .scene,
+            title: "Arrangement Commands",
+            actions: [
+                MK2HoldAction("NEW", detail: "Blank pattern"),
+                MK2HoldAction("DUP", detail: "Independent copy"),
+                MK2HoldAction("REUSE", detail: "Linked data"),
+                MK2HoldAction("CLEAR", detail: "Erase all events", isDestructive: true),
+                MK2HoldAction("MOVE-", detail: "Earlier position", isEnabled: false),
+                MK2HoldAction("MOVE+", detail: "Later position"),
+                MK2HoldAction(""), // Reserve F7 without shifting DEL POS to F7.
+                MK2HoldAction("DEL POS", detail: "Keep pattern data", isDestructive: true),
+            ],
+            onSelect: { [weak self] index in
+                context.update { [weak self] in
+                    self?.outcome = "Selected arrangement command F\(index + 1)"
+                }
+            }
+        ).build(
+            baseLeft: left.screen.frame,
+            baseRight: right.screen.frame,
+            renderer: context.renderer
+        )
     }
 
     func prepareSnapshot(variant: String) {
@@ -56,12 +95,12 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
 
     private func explainerScreen(_ context: LabContext) -> MK2ScreenBuildResult {
         MK2RegularScreenDSL(
-            header: .title(title: "Hold Overlay", subtitle: "KEYBOARD + F1-F8"),
-            footer: .hint("MASCHINE MK3 · hold KEYBOARD to inspect")
+            header: .title(title: "Held Popups", subtitle: "SETTING / COMMAND"),
+            footer: .hint("Hold KEYBOARD for setting · SCENE for command")
         ) {
-            MK2ContentText("Momentary action layer", x: 8, y: 4, role: .title)
+            MK2ContentText("Choose by effect", x: 8, y: 4, role: .title)
             MK2ContentText(
-                "The held button replaces both screens and owns the eight function keys without creating a persistent mode.",
+                "KEYBOARD changes a persistent octave setting. SCENE performs one immediate arrangement command.",
                 x: 8,
                 y: 46,
                 maxWidth: 432,
@@ -70,7 +109,7 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
                 lineSpacing: 2
             )
             MK2ContentText(
-                "KEYBOARD itself is advertised dim and lights brightly while the overlay is active.",
+                "Both popups own F1-F8 only while their trigger is held; release returns to the base scene.",
                 x: 8,
                 y: 146,
                 maxWidth: 432,

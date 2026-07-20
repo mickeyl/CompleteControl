@@ -196,6 +196,9 @@ Add the package products needed by an application:
   controller's model name and firmware version (e.g. for an about panel);
 - `MK2ScreenDSL` regular, full-screen, and double-screen layouts;
 - parameter pages, value cells, meters, status lines, selection and modal widgets;
+- documented [held command and setting popups](Docs/Held-Command-Bar.md):
+  `MK2HoldCommandBarElement` preserves and dims the active scene for immediate
+  F1-F8 commands, while `MK2HoldActionOverlayElement` selects persistent values;
 - FreeType/HarfBuzz text plus fixed-pitch tracker rendering;
 - lamps, light-guide colors, and semantic input bindings;
 - display diffing and binary display transport.

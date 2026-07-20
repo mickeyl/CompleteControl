@@ -136,6 +136,9 @@ public enum MK2HIG {
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
         public static let accent: UInt16 = 0x7dbf // light blue (123, 182, 255)
+        /// Destructive command labels and warnings. Kept warmer and lighter
+        /// than meter danger red so small hardware captions remain legible.
+        public static let destructive: UInt16 = 0xec88
         // Shift-layer treatment: labels that only apply while SHIFT is held render
         // in this amber, the classic shifted-function idiom — deliberately not the
         // accent (call to action) and not plain text (base layer). Judged on

@@ -50,6 +50,62 @@ struct HeldButtonLayerTests {
         #expect(restored[1]?[0, 0] == 0x2222)
     }
 
+    @Test("Held command lamps override matching realtime overlays")
+    func heldCommandLampsOverrideRealtimeOverlay() async {
+        let actions = [MK2HoldAction("NEW")]
+        let layer = MK2HoldCommandBarElement(
+            trigger: .scene,
+            title: "Pattern Commands",
+            actions: actions,
+            onSelect: { _ in }
+        ).build(baseLeft: nil, baseRight: nil)
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(heldButtonLayers: [layer]))
+        await surface.presentLampOverlay([.function1: .red, .function2: .green])
+
+        var lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.function1] == .red)
+        #expect(lamps[.function2] == .green)
+
+        await surface.handleForTesting([.button(led: .scene, pressed: true)])
+        lamps = await surface.activeLampsForTesting()
+        #expect(lamps[.function1] == .on(
+            KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+            intensity: 0x01
+        ))
+        #expect(lamps[.function2] == .off)
+    }
+
+    @Test("A layer introduced by a mode switch waits for the next button press")
+    func newlyIntroducedLayerDoesNotOpenForExistingHold() async {
+        let surface = MK2Surface2()
+        await surface.present(MK2SurfaceScene2(left: MK2PixelFrame(fill: 0x1111)))
+
+        await surface.handleForTesting([.button(led: .scene, pressed: true)])
+        await surface.present(MK2SurfaceScene2(
+            left: MK2PixelFrame(fill: 0x2222),
+            heldButtonLayers: [MK2SurfaceScene2.HeldButtonLayer(
+                trigger: .scene,
+                left: MK2PixelFrame(fill: 0xAAAA)
+            )]
+        ))
+
+        var displays = await surface.activeDisplaysForTesting()
+        var lamps = await surface.activeLampsForTesting()
+        #expect(displays[0]?[0, 0] == 0x2222)
+        #expect(lamps[.scene] == .on(
+            KKRGB(red: 0xff, green: 0xff, blue: 0xff),
+            intensity: 0x01
+        ))
+
+        await surface.handleForTesting([.button(led: .scene, pressed: false)])
+        await surface.handleForTesting([.button(led: .scene, pressed: true)])
+        displays = await surface.activeDisplaysForTesting()
+        lamps = await surface.activeLampsForTesting()
+        #expect(displays[0]?[0, 0] == 0xAAAA)
+        #expect(lamps[.scene] == .white)
+    }
+
     @Test("Release stays with the held layer captured at button down")
     func releaseOwnershipSurvivesTriggerRelease() async {
         let box = HoldOverlayBox()
@@ -164,6 +220,60 @@ struct HoldActionOverlayElementTests {
         #expect(scene.heldButtonLayers.count == 1)
         #expect(scene.heldButtonLayers[0].trigger == .keyboard)
         #expect(scene.shift == nil)
+    }
+
+    @Test("The command bar dims the preserved scene body and owns all function keys")
+    func commandBarPrecomposesOverBaseFrames() {
+        let box = HoldOverlayBox()
+        var left = MK2PixelFrame(fill: 0x1111)
+        var right = MK2PixelFrame(fill: 0x2222)
+        left[42, 80] = 0xBCDE
+        left[42, 100] = 0xCDEF
+        left[42, 200] = 0xABCD
+        right[84, 220] = 0xDCBA
+
+        let layer = MK2HoldCommandBarElement(
+            trigger: .scene,
+            title: "Arrangement Commands",
+            actions: [
+                MK2HoldAction("NEW", detail: "Blank"),
+                MK2HoldAction("DUP", detail: "Independent"),
+                MK2HoldAction("REUSE", detail: "Linked"),
+                MK2HoldAction("CLEAR", detail: "Erase events", isDestructive: true),
+                MK2HoldAction("MOVE-", detail: "Earlier", isEnabled: false),
+                MK2HoldAction("MOVE+", detail: "Later"),
+                MK2HoldAction(""),
+                MK2HoldAction("DEL POS", detail: "Keep pattern", isDestructive: true),
+            ],
+            onSelect: { box.selections.append($0) }
+        ).build(baseLeft: left, baseRight: right)
+
+        let renderedLeft = layer.displays[0]!
+        let renderedRight = layer.displays[1]!
+        #expect(layer.trigger == .scene)
+        #expect(MK2HoldCommandBarElement.height == 90)
+        #expect(renderedLeft[42, 80] != 0xBCDE)
+        #expect(renderedLeft[42, 100] == (0xCDEF >> 1) & 0x7BEF)
+        #expect(renderedLeft[42, 200] == (0xABCD >> 1) & 0x7BEF)
+        #expect(renderedRight[84, 220] == (0xDCBA >> 1) & 0x7BEF)
+        #expect(renderedLeft[0, 0] != 0x1111)
+        #expect(layer.lamps[.function4] == .on(
+            KKRGB(red: 0xff, green: 0x48, blue: 0x38),
+            intensity: 0x01
+        ))
+        #expect(layer.lamps[.function5] == .off)
+        #expect(layer.lamps[.function7] == .off)
+
+        layer.bindings.buttonDown[.function1]?()
+        layer.bindings.buttonDown[.function5]?()
+        layer.bindings.buttonDown[.function7]?()
+        layer.bindings.buttonDown[.function8]?()
+        #expect(box.selections == [0, 7])
+
+        let frames = layer.displays.compactMap { $0 }
+        let png = PixelSnapshot.pngData(frames: frames)
+        #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+        #expect(png.count > 1_000)
     }
 }
 
