@@ -102,6 +102,17 @@ Key invariants:
 
 Read `Docs/daemon-usb-reactor.md` before changing scheduling.
 
+Debug logging: `make daemon-debug` traces live to stderr; `make daemon-debug-trace`
+runs the daemon as a flight recorder — `KKStderrLog` buffers formatted TRACE lines
+in an in-RAM ring (`KK_LOG_RING=<seconds>`, Makefile default `DAEMON_RING_KEEP=30`)
+and writes to `DAEMON_TRACE_LOG` only on flush: `sudo pkill -USR1 -f kk-libusb-daemon`,
+or automatically when an error-level line is logged. Use the flight recorder for
+timing-sensitive investigations (log I/O perturbs USB/display timing and can hide
+the bug); reproduce first, then flush — flushing clears the ring.
+`DAEMON_RING_KEEP=0 make daemon-debug-trace` restores direct live tracing. The ring
+lives in `KKStderrLog` (KompleteKontrol.swift) with state confined to its serial
+log queue; it deliberately has no CornucopiaCore dependency.
+
 `Scripts/kk-screenshot.py` (also available as the `/kk-screen` skill) grabs
 live PNGs of both hardware screens from the
 running daemon (hardware or simulator) and prints the file paths. It is

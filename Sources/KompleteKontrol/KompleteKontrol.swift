@@ -360,6 +360,63 @@ private enum KKStderrLog {
         return fopen(path, "a")
     }()
 
+    // Flight recorder (KK_LOG_RING=<seconds>): formatted lines stay in an in-RAM ring
+    // and reach stderr/logFile only on a flush — via SIGUSR1, or automatically when an
+    // error-level line arrives. Keeps TRACE runs free of log I/O, so timing-sensitive
+    // bugs stay reproducible while the recent history remains retrievable on demand.
+    private static let ringSeconds: Double? = {
+        guard let raw = ProcessInfo.processInfo.environment["KK_LOG_RING"],
+              let seconds = Double(raw), seconds > 0 else { return nil }
+        return seconds
+    }()
+    private static let ringCapacity = 65_536
+    private static var ringLines: [(timestamp: Date, line: String)?] = []
+    private static var ringWriteIndex = 0
+    private static let ringSignalSource: DispatchSourceSignal? = {
+        guard ringSeconds != nil else { return nil }
+        signal(SIGUSR1, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: queue)
+        source.setEventHandler { flushRing(reason: "SIGUSR1") }
+        source.resume()
+        return source
+    }()
+
+    // Only ever called on `queue`, hence no locking around the ring state.
+    private static func ringAppend(timestamp: Date, line: String) {
+        if ringLines.count != ringCapacity {
+            ringLines = Array(repeating: nil, count: ringCapacity)
+        }
+        ringLines[ringWriteIndex % ringCapacity] = (timestamp, line)
+        ringWriteIndex += 1
+    }
+
+    // Only ever called on `queue`. Replays the buffered window (original timestamps)
+    // to the regular destinations, then clears the ring so a subsequent flush never
+    // repeats lines.
+    private static func flushRing(reason: String) {
+        guard let ringSeconds else { return }
+        let cutoff = Date(timeIntervalSinceNow: -ringSeconds)
+        let count = min(ringWriteIndex, ringCapacity)
+        var lines: [String] = []
+        lines.reserveCapacity(count)
+        for index in (ringWriteIndex - count)..<ringWriteIndex {
+            guard let entry = ringLines[index % ringCapacity], entry.timestamp >= cutoff else { continue }
+            lines.append(entry.line)
+        }
+        ringLines = []
+        ringWriteIndex = 0
+        let timestamp = formatter.string(from: Date())
+        let header = "timestamp=\(timestamp) group=log level=INFO message=ring flush reason=\(reason) lines=\(lines.count) keep=\(ringSeconds)s\n"
+        fputs(header, stderr)
+        for line in lines { fputs(line, stderr) }
+        fflush(stderr)
+        if let logFile {
+            fputs(header, logFile)
+            for line in lines { fputs(line, logFile) }
+            fflush(logFile)
+        }
+    }
+
     static func write(group: String, level: KKStderrLogLevel, _ message: String) {
         lock.lock()
         guard pending < maxPending else {
@@ -385,13 +442,20 @@ private enum KKStderrLog {
                 cleanMessage = "droppedLogs=\(droppedBefore) " + cleanMessage
             }
 
-            let timestamp = formatter.string(from: Date())
+            let now = Date()
+            let timestamp = formatter.string(from: now)
             let line = "timestamp=\(timestamp) group=\(group) level=\(level.rawValue) message=\(cleanMessage)\n"
-            fputs(line, stderr)
-            fflush(stderr)
-            if let logFile {
-                fputs(line, logFile)
-                fflush(logFile)
+            if ringSeconds != nil {
+                _ = ringSignalSource
+                ringAppend(timestamp: now, line: line)
+                if level == .error { flushRing(reason: "error") }
+            } else {
+                fputs(line, stderr)
+                fflush(stderr)
+                if let logFile {
+                    fputs(line, logFile)
+                    fflush(logFile)
+                }
             }
 
             lock.lock()

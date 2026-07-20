@@ -112,14 +112,25 @@ Run an instrumented foreground daemon:
 make daemon-debug
 ```
 
-For timing investigations, redirect all build and daemon output directly to a
-trace file without terminal rendering or `tee`:
+For timing investigations, run the daemon as a flight recorder: TRACE output
+buffers in an in-RAM ring (no log I/O during operation, so timing-sensitive
+behavior stays undisturbed) and only reaches the trace file when flushed:
 
 ```bash
 make daemon-debug-trace
 ```
 
-The default trace path is `/tmp/ccd-trace.log`; override it with
+Flush the buffered window (default: the last 30 seconds, original timestamps)
+on demand:
+
+```bash
+sudo pkill -USR1 -f kk-libusb-daemon
+```
+
+An error-level log line flushes the preceding history automatically. Reproduce
+the problem first, then flush — a flush clears the buffer. Override the window
+with `DAEMON_RING_KEEP=<seconds>`; `DAEMON_RING_KEEP=0` restores direct (live)
+trace logging. The default trace path is `/tmp/ccd-trace.log`; override it with
 `DAEMON_TRACE_LOG=/path/to/trace.log`. Press Control-C to stop the foreground
 daemon.
 

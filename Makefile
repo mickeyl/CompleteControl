@@ -11,6 +11,8 @@ endif
 DAEMON := .build/debug/ccd
 DAEMON_RELEASE := .build/release/ccd
 DAEMON_TRACE_LOG ?= /tmp/ccd-trace.log
+DAEMON_RING_KEEP ?= 30
+DAEMON_LOG_RING_ENV =
 MK2_SURFACE_DEMO := .build/debug/MK2SurfaceDemo
 MK2_SURFACE_DEMO_RELEASE := .build/release/MK2SurfaceDemo
 WIDGET_LAB := .build/debug/widget-lab
@@ -143,12 +145,18 @@ daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
-	sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+	sudo env $(DAEMON_LOG_RING_ENV) KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
-daemon-debug-trace: ## Run the debug daemon with all Make and daemon output redirected to DAEMON_TRACE_LOG.
+daemon-debug-trace: ## Run the debug daemon as a flight recorder: trace output buffers in RAM; flush the last DAEMON_RING_KEEP seconds into DAEMON_TRACE_LOG via SIGUSR1 (DAEMON_RING_KEEP=0: live logging).
 	@rm -f "$(DAEMON_TRACE_LOG)"
-	@echo "Starting traced foreground daemon; output is written only to $(DAEMON_TRACE_LOG). Press Ctrl-C to stop."
-	@$(MAKE) --no-print-directory daemon-debug >"$(DAEMON_TRACE_LOG)" 2>&1
+	@if [ "$(DAEMON_RING_KEEP)" = "0" ]; then \
+		echo "Starting traced foreground daemon; output is written only to $(DAEMON_TRACE_LOG). Press Ctrl-C to stop."; \
+	else \
+		echo "Starting traced foreground daemon as flight recorder (last $(DAEMON_RING_KEEP)s buffer in RAM, no log I/O)."; \
+		echo "Flush into $(DAEMON_TRACE_LOG) with:  sudo pkill -USR1 -f kk-libusb-daemon"; \
+		echo "An error-level line flushes automatically. Press Ctrl-C to stop."; \
+	fi
+	@$(MAKE) --no-print-directory daemon-debug DAEMON_LOG_RING_ENV="KK_LOG_RING=$(DAEMON_RING_KEEP)" >"$(DAEMON_TRACE_LOG)" 2>&1
 
 daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
 	@echo "Stopping installed/foreground daemons..."
