@@ -4,6 +4,11 @@ import KompleteKontrol
 public enum MK2SurfaceConnection2: Sendable, Equatable {
     case stopped
     case connected(String)
+    /// The daemon session is healthy but no hardware is attached (switched
+    /// off or unplugged). Distinct from `retrying`, which means the daemon
+    /// itself is unreachable or misbehaving — conflating the two hid which
+    /// side actually needs attention.
+    case deviceOffline(String)
     case retrying(String)
     /// Another client took over the surface. The kit tears down and stays down —
     /// auto-reconnecting here would make two instances fight over the hardware.
@@ -512,6 +517,16 @@ public actor MK2Surface2 {
                     // registered-but-blank forever: reconcile* only sends deltas, and the
                     // delta against a cache the hardware never actually received is empty.
                     replaySurfaceState()
+                } else if message.hasPrefix("device disconnected") {
+                    // Clear the identity so ticks quiesce (see the tick guard)
+                    // instead of reconciling against the vanished device;
+                    // replaySurfaceState() re-establishes everything on the
+                    // "device reconnected" push.
+                    deviceModel = nil
+                    deviceInfo = nil
+                    deviceProfile = nil
+                    padMIDISynthesizer.reset()
+                    publish(.deviceOffline("hardware is off or unplugged; the daemon session stays registered"))
                 } else {
                     publish(.retrying(message))
                 }
@@ -576,6 +591,20 @@ public actor MK2Surface2 {
         refreshDeviceIdentity()
         if let snapshot = KKDaemonBinaryCodec.parseRegistrationInputSnapshot(eventRegistration.message) {
             inputAdapter.prime(with: snapshot.bytes)
+        }
+        if deviceInfo == nil {
+            // The protocol version already matched, so a missing device
+            // identity on a healthy registration means no hardware is attached
+            // right now. There is nothing to host-control-configure yet — with
+            // the MK2 family fallback that write even fails outright and used
+            // to flap the session into .retrying. The daemon's "device
+            // reconnected" push runs replaySurfaceState(), which performs the
+            // deferred setup and flips this to .connected once the hardware
+            // comes up.
+            preferredDaemonSocketPath = socketPath
+            lastFailedDaemonSocketPath = nil
+            publish(.deviceOffline("surface client registered with \(daemonConnectionDescription(socketPath: socketPath)); hardware not attached"))
+            return
         }
         guard configureHostControl() else {
             handleDaemonFailure("daemon host-control setup failed")
@@ -661,6 +690,14 @@ public actor MK2Surface2 {
         guard controlClient != nil else { return }
         let dt = Double(now &- lastTick) / 1_000_000_000.0
         lastTick = now
+        // No hardware attached: there is nothing to reconcile against, and the
+        // MK2 family fallback would emit reports the daemon rejects — stomping
+        // the deviceOffline state back into .retrying. replaySurfaceState()
+        // replays everything once the device reconnects.
+        guard deviceInfo != nil else {
+            maybeCheckIdleDaemon(now: now)
+            return
+        }
         let lamps = activeLamps
         advanceLamps(dt: dt, lamps: lamps)
         reconcileLamps(lamps, performancePads: activePadLights)

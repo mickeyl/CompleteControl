@@ -56,6 +56,10 @@ public struct MK2SurfaceEventRunner: Sendable {
                     if let onConnected {
                         await onConnected(detail, surface)
                     }
+                case let .deviceOffline(reason):
+                    // Daemon session is fine; the surface resumes by itself on
+                    // the daemon's "device reconnected" push.
+                    log("\(name): hardware offline (\(reason))")
                 case let .retrying(reason):
                     log("\(name): retrying (\(reason))")
                     if let onRetrying {
