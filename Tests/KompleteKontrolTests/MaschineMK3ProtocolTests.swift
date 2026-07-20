@@ -208,6 +208,69 @@ struct MaschineMK3ProtocolTests {
         ])
     }
 
+    @Test("captured slot-3 pressure zero does not split an active pad contact")
+    func capturedTrailingPressureZero() {
+        var touchReport = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        touchReport[0] = MaschineMK3Protocol.padReportID
+        touchReport[1...12] = [
+            0x0e, 0x00, 0x0d, // slot 0: Pad 3, TOUCH(13)
+            0x00, 0x00, 0x00, // slot 1
+            0x00, 0x00, 0x00, // slot 2
+            0x0e, 0x40, 0x00, // slot 3: stale Pad 3 pressure zero
+        ]
+
+        var pressureReport = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        pressureReport[0] = MaschineMK3Protocol.padReportID
+        pressureReport[1...12] = [
+            0x0e, 0x40, 0x4b, // slot 0: Pad 3, PRESSURE(75)
+            0x0f, 0x40, 0x71, // slot 1: concurrent Pad 4 pressure
+            0x00, 0x00, 0x00, // slot 2
+            0x0e, 0x40, 0x00, // slot 3: stale Pad 3 pressure zero
+        ]
+
+        var tracker = MaschineMK3PadStateTracker()
+        let touchEvents = tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: touchReport))
+        #expect(touchEvents.filter { $0.hardwareIndex == 14 } == [
+            MaschineMK3PadEvent(hardwareIndex: 14, phase: .touch, pressure: 13, encodedValue: 0x000d),
+        ])
+        #expect(tracker.heldPads[14])
+
+        let pressureEvents = tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: pressureReport))
+        #expect(pressureEvents.filter { $0.hardwareIndex == 14 } == [
+            MaschineMK3PadEvent(hardwareIndex: 14, phase: .pressure, pressure: 75, encodedValue: 0x404b),
+        ])
+        #expect(tracker.heldPads[14])
+    }
+
+    @Test("captured polyphonic Pad 2 release wins over trailing active pressure")
+    func capturedPolyphonicPad2Release() {
+        var tracker = MaschineMK3PadStateTracker()
+        let touch = MaschineMK3PadInput(
+            slotIndex: 0,
+            hardwareIndex: 13,
+            value: .touch(126),
+            encodedValue: 0x007e
+        )
+        #expect(tracker.events(for: [touch]).count == 1)
+        #expect(tracker.heldPads[13])
+
+        var releaseReport = [UInt8](repeating: 0, count: MaschineMK3Protocol.padReportSize)
+        releaseReport[0] = MaschineMK3Protocol.padReportID
+        releaseReport[1...12] = [
+            0x0d, 0x20, 0x00, // slot 0: Pad 2, TOUCH_REL
+            0x00, 0x00, 0x00, // slot 1
+            0x07, 0x42, 0x0f, // slot 2: concurrent Pad 12 pressure
+            0x0d, 0x40, 0x47, // slot 3: trailing Pad 2 pressure shadow
+        ]
+
+        let events = tracker.events(for: MaschineMK3InputReportDecoder.padInputs(in: releaseReport))
+        #expect(events.filter { $0.hardwareIndex == 13 } == [
+            MaschineMK3PadEvent(hardwareIndex: 13, phase: .up, pressure: 0, encodedValue: 0x2000),
+        ])
+        #expect(!tracker.heldPads[13])
+        #expect(tracker.pressures[13] == 0)
+    }
+
     @Test("pad tracker suppresses spurious touchRelease alongside active pressure (firmware 1.4.6 Pad 14 quirk)")
     func spuriousTouchReleaseSuppressed() {
         var tracker = MaschineMK3PadStateTracker()

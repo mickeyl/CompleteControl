@@ -339,7 +339,8 @@ public struct MaschineMK3PadRecord: Sendable, Equatable {
     }
 
     /// Bench-verified neutral record emitted by bcdDevice 0x0146 while other
-    /// pads move. It is distinct from the real index-13 stream in slot 0.
+    /// pads move. Live index-13 pressure can occupy other slots, including
+    /// slot 3, so only this exact zero-valued triplet is a sentinel.
     public var isKnownNeutralSentinel: Bool {
         slotIndex == 3 && bytes == [0x0d, 0x40, 0x00]
     }
@@ -494,20 +495,38 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     break
             }
         }
-        // bcdDevice 0x0146 (MK3 firmware 1.4.6) emits a spurious touchRelease
-        // for Pad 14 (hw idx 1) in slot 4 alongside a non-zero pressure record
-        // in slot 0 for the same pad — every report, for the entire hold. The
-        // touchRelease resets heldPads, so the next report's pressure re-triggers
-        // a .down, producing dozens of noteOn/noteOff pairs for a single hit.
-        // When a report contains both an active contact signal (touch, strike,
-        // or non-zero pressure) and a touchRelease for the same pad, the
-        // contact signal is authoritative and the touchRelease is suppressed.
+
+        // Records within one report can contradict each other. An explicit
+        // release is authoritative over trailing active pressure, except for
+        // the narrowly verified firmware 1.4.6 Pad 14 shadow: slot 4 repeats a
+        // touchRelease alongside that pad's live pressure for its entire hold.
+        var authoritativeReleaseMask: UInt16 = 0
+        for input in inputs {
+            let index = input.hardwareIndex
+            guard pressures.indices.contains(index) else { continue }
+            let padBit = UInt16(1) << UInt16(index)
+            switch input.value {
+                case .release:
+                    authoritativeReleaseMask |= padBit
+                case .touchRelease:
+                    let isPad14FirmwareShadow = index == 1
+                        && input.slotIndex == 4
+                        && activeContactMask & padBit != 0
+                    if !isPad14FirmwareShadow {
+                        authoritativeReleaseMask |= padBit
+                    }
+                case .touch, .strikeVelocity, .pressure:
+                    break
+            }
+        }
+
         for input in inputs {
             let index = input.hardwareIndex
             guard pressures.indices.contains(index) else { continue }
             let padBit = UInt16(1) << UInt16(index)
             switch input.value {
                 case let .touch(pressure):
+                    guard authoritativeReleaseMask & padBit == 0 else { continue }
                     heldPads[index] = true
                     pressures[index] = pressure
                     events.append(MaschineMK3PadEvent(
@@ -518,6 +537,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     ))
 
                 case let .strikeVelocity(rawVelocity):
+                    guard authoritativeReleaseMask & padBit == 0 else { continue }
                     heldPads[index] = true
                     pressures[index] = 0
                     events.append(MaschineMK3PadEvent(
@@ -529,6 +549,15 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     ))
 
                 case let .pressure(pressure):
+                    if pressure > 0 {
+                        // A release can be followed by a stale pressure shadow
+                        // for the same pad later in the report.
+                        guard authoritativeReleaseMask & padBit == 0 else { continue }
+                    } else {
+                        // Conversely, a zero pressure shadow can trail a live
+                        // touch/strike/pressure record and must not split it.
+                        guard activeContactMask & padBit == 0 else { continue }
+                    }
                     let previous = pressures[index]
                     guard previous != pressure else { continue }
                     pressures[index] = pressure
@@ -563,11 +592,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     }
 
                 case .touchRelease:
-                    // Suppress spurious touchRelease when the same report also
-                    // carries an active contact signal for this pad (firmware
-                    // 1.4.6 quirk on Pad 14). The pressure/touch stream is
-                    // authoritative.
-                    guard activeContactMask & padBit == 0 else { continue }
+                    guard authoritativeReleaseMask & padBit != 0 else { continue }
                     guard heldPads[index] else { continue }
                     heldPads[index] = false
                     pressures[index] = 0
@@ -772,8 +797,8 @@ public enum MaschineMK3InputReportDecoder {
         padRecords(in: report).compactMap { record in
             guard record.isSourceEncodedPadSample else { return nil }
             // bcdDevice 0x0146 emits this neutral sentinel in record slot 3
-            // throughout unrelated pad activity. The real hardware-index 13
-            // pressure stream simultaneously occupies slot 0 when Pad 2 moves.
+            // throughout unrelated pad activity. Live hardware-index 13
+            // pressure may also occupy slot 3, so match the exact zero triplet.
             guard !record.isKnownNeutralSentinel else { return nil }
             return MaschineMK3PadSample(
                 slotIndex: record.slotIndex,

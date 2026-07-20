@@ -101,11 +101,17 @@ A controlled physical Pad 1...16 pass verified the input matrix on bcdDevice
 `0x0146`: hardware indices 12-15 are Pads 1-4, 8-11 are Pads 5-8, 4-7 are Pads
 9-12, and 0-3 are Pads 13-16. Record slot 3 also carries the fixed neutral
 triplet `0d 40 00` throughout unrelated pad activity. It is padding/sentinel
-state, not a Pad 13 release or evidence of a faulty pressure sensor: a genuine
-hardware-index 13 pressure stream appears independently in slot 0 when physical
-Pad 2 is moved. The decoder filters only that exact slot/triplet combination,
-and the state tracker emits a release only after the same hardware index has
-previously reported a touch or strike.
+state, not a Pad 13 release or evidence of a faulty pressure sensor. A
+2026-07-20 polyphonic trace refined the slot interpretation: live
+hardware-index 13 pressure can also appear in slot 3, and a zero pressure shadow
+for another active pad can trail that pad's live record in the same report. The
+decoder therefore filters only the exact `0d 40 00` sentinel and reconciles the
+remaining records per pad across the whole report. A live contact wins over a
+same-report pressure zero; an explicit release wins over trailing positive
+pressure. The sole verified exception is the firmware 1.4.6 Pad 14 pattern,
+where hardware index 1 repeats a slot-4 touch release alongside live pressure
+for the entire hold. Applying those precedences prevents both false up/down
+bursts and a missed release during polyphonic playing.
 
 On macOS, a 256-byte libusb transfer buffer was observed coalescing four logical
 64-byte pad reports into one callback. The MK3 device profile therefore sizes
