@@ -121,7 +121,12 @@ record-slot-3 triplet `0d 40 00` is a neutral sentinel, not a Pad 13 release,
 but slot 3 can also carry live or stale pad pressure. Reconcile each report per
 pad: active contact wins over a trailing zero, while explicit release wins over
 trailing positive pressure except for the verified Pad 14 slot-4 firmware
-shadow. Pad input distinguishes below-trigger touch, a 12-bit strike word,
+shadow. A frozen positive-pressure slot can also keep repeating verbatim after
+a pad's explicit release (verified Pad 12 slot-2, 2026-07-20); the tracker
+snapshots that value at release time and ignores identical pressure-only
+re-onsets until a real marker or a differing value arrives, so the phantom
+cannot re-trigger and hang the pad. Pad input distinguishes below-trigger
+touch, a 12-bit strike word,
 12-bit held-pressure words, and explicit touch/strike release markers. Pad
 hardware indices 0-15 map directly to `0x81` payload offsets 25-40. Use
 `make maschine-mk3-probe` for a read-only descriptor dump and

@@ -113,6 +113,20 @@ where hardware index 1 repeats a slot-4 touch release alongside live pressure
 for the entire hold. Applying those precedences prevents both false up/down
 bursts and a missed release during polyphonic playing.
 
+A 2026-07-20 playing trace on the same unit exposed a second, worse shadow
+variant. While Pad 12 (hardware index 7) was held, slot 0 carried the live
+contact and slot 2 carried a frozen positive pressure word (`0x4308`). After
+the genuine slot-0 `0x3xxx` release, slot 2 kept repeating that identical word
+in every subsequent report, indefinitely. Without countermeasures, the
+pressure-only onset fallback re-triggers a phantom down one report after the
+release — and because the value never changes again, no further transition
+follows and the pad hangs until the next real strike. The tracker therefore
+snapshots any positive same-pad pressure word present in the release report as
+that pad's shadow value and ignores identical pressure-only re-onsets while the
+pad is up. A real contact re-arms immediately: explicit touch/strike markers
+clear the shadow, as does any differing pressure value, so a genuine
+pressure-only re-hit is delayed by at most one report.
+
 On macOS, a 256-byte libusb transfer buffer was observed coalescing four logical
 64-byte pad reports into one callback. The MK3 device profile therefore sizes
 the interrupt transfer to the endpoint's 64-byte maximum packet size; each

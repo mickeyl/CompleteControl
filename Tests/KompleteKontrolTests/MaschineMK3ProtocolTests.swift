@@ -358,6 +358,59 @@ struct MaschineMK3ProtocolTests {
         #expect(tracker.heldPads[1])
     }
 
+    @Test("stale positive-pressure slot repeating after release does not retrigger (firmware 1.4.6 Pad 12 shadow)")
+    func stalePositivePressureShadowAfterRelease() {
+        // Bench capture 2026-07-20 (bcdDevice 0x0146): while Pad 12 (hw idx 7)
+        // was held, slot 0 carried the live contact and slot 2 a frozen
+        // PRESSURE(0x308) record. After the slot-0 RELEASE, slot 2 kept
+        // repeating 0x4308 verbatim in every report, indefinitely — one report
+        // after the release this re-triggered a phantom pressure-only .down
+        // with no following .up: the pad hung.
+        var tracker = MaschineMK3PadStateTracker()
+        let shadow = MaschineMK3PadInput(slotIndex: 2, hardwareIndex: 7, value: .pressure(0x308), encodedValue: 0x4308)
+
+        let strike = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .strikeVelocity(0x1a0), encodedValue: 0x11a0)
+        #expect(tracker.events(for: [strike, shadow]).filter { $0.phase == .down }.count == 1)
+        #expect(tracker.heldPads[7])
+
+        let release = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .release, encodedValue: 0x3000)
+        #expect(tracker.events(for: [release, shadow]) == [
+            MaschineMK3PadEvent(hardwareIndex: 7, phase: .up, pressure: 0, encodedValue: 0x3000),
+        ])
+        #expect(!tracker.heldPads[7])
+
+        // The captured post-release reports: a zero record where the contact
+        // lived, plus the frozen shadow — then the shadow alone, forever.
+        let zero = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .pressure(0), encodedValue: 0x4000)
+        #expect(tracker.events(for: [zero, shadow]).isEmpty)
+        #expect(tracker.events(for: [shadow]).isEmpty)
+        #expect(tracker.events(for: [shadow]).isEmpty)
+        #expect(!tracker.heldPads[7])
+
+        // A genuine new contact announces itself with a marker and re-arms
+        // the pad normally.
+        #expect(tracker.events(for: [strike, shadow]).filter { $0.phase == .down }.count == 1)
+        #expect(tracker.heldPads[7])
+    }
+
+    @Test("pressure-only re-hit with a fresh value is not mistaken for the shadow")
+    func pressureOnlyRehitAfterShadowedRelease() {
+        var tracker = MaschineMK3PadStateTracker()
+        let shadow = MaschineMK3PadInput(slotIndex: 2, hardwareIndex: 7, value: .pressure(0x308), encodedValue: 0x4308)
+        let touch = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .touch(0x40), encodedValue: 0x0040)
+        let release = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .touchRelease, encodedValue: 0x2000)
+        _ = tracker.events(for: [touch, shadow])
+        _ = tracker.events(for: [release, shadow])
+        #expect(!tracker.heldPads[7])
+
+        // Pressure-only firmware path: a different value is a real hit.
+        let freshPressure = MaschineMK3PadInput(slotIndex: 0, hardwareIndex: 7, value: .pressure(0x211), encodedValue: 0x4211)
+        #expect(tracker.events(for: [freshPressure]) == [
+            MaschineMK3PadEvent(hardwareIndex: 7, phase: .down, pressure: 0x211, encodedValue: 0x4211),
+        ])
+        #expect(tracker.heldPads[7])
+    }
+
     @Test("pad tracker still honours a standalone touchRelease without active pressure")
     func standaloneTouchReleaseHonoured() {
         var tracker = MaschineMK3PadStateTracker()

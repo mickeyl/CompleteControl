@@ -523,10 +523,21 @@ public struct MaschineMK3PadEvent: Sendable, Equatable, CustomStringConvertible 
 public struct MaschineMK3PadStateTracker: Sendable {
     public private(set) var pressures: [Int]
     public private(set) var heldPads: [Bool]
+    /// Bench-observed firmware 1.4.6 shadow (2026-07-20, Pad 12): a stale
+    /// positive-pressure record can keep repeating in another slot after the
+    /// pad's explicit release — with the exact same encoded value in every
+    /// report, indefinitely. Without suppression it re-triggers a phantom
+    /// pressure-only down one report after the release, and since the value
+    /// never changes again, no further event follows: the pad hangs. The
+    /// shadow value is snapshotted at release time and an identical
+    /// pressure-only re-down is ignored until a real contact marker or a
+    /// different pressure value arrives.
+    private var staleShadowEncodedValues: [Int?]
 
     public init() {
         pressures = [Int](repeating: 0, count: 16)
         heldPads = [Bool](repeating: false, count: 16)
+        staleShadowEncodedValues = [Int?](repeating: nil, count: 16)
     }
 
     public mutating func events(for inputs: [MaschineMK3PadInput]) -> [MaschineMK3PadEvent] {
@@ -545,6 +556,14 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     activeContactMask |= padBit
                 case .touchRelease, .release, .pressure:
                     break
+            }
+        }
+
+        // Retained per pad for the release-time shadow snapshot below.
+        var positivePressureEncodedValues = [Int: Int]()
+        for input in inputs {
+            if case let .pressure(pressure) = input.value, pressure > 0 {
+                positivePressureEncodedValues[input.hardwareIndex] = input.encodedValue
             }
         }
 
@@ -579,6 +598,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
             switch input.value {
                 case let .touch(pressure):
                     guard authoritativeReleaseMask & padBit == 0 else { continue }
+                    staleShadowEncodedValues[index] = nil
                     heldPads[index] = true
                     pressures[index] = pressure
                     events.append(MaschineMK3PadEvent(
@@ -590,6 +610,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
 
                 case let .strikeVelocity(rawVelocity):
                     guard authoritativeReleaseMask & padBit == 0 else { continue }
+                    staleShadowEncodedValues[index] = nil
                     heldPads[index] = true
                     pressures[index] = 0
                     events.append(MaschineMK3PadEvent(
@@ -610,6 +631,14 @@ public struct MaschineMK3PadStateTracker: Sendable {
                         // touch/strike/pressure record and must not split it.
                         guard activeContactMask & padBit == 0 else { continue }
                     }
+                    if pressure > 0, !heldPads[index],
+                       staleShadowEncodedValues[index] == input.encodedValue {
+                        // The release-time shadow keeps repeating verbatim; a
+                        // genuine new contact announces itself with a marker or
+                        // at least a different pressure value.
+                        continue
+                    }
+                    staleShadowEncodedValues[index] = nil
                     let previous = pressures[index]
                     guard previous != pressure else { continue }
                     pressures[index] = pressure
@@ -645,6 +674,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
 
                 case .touchRelease:
                     guard authoritativeReleaseMask & padBit != 0 else { continue }
+                    staleShadowEncodedValues[index] = positivePressureEncodedValues[index]
                     guard heldPads[index] else { continue }
                     heldPads[index] = false
                     pressures[index] = 0
@@ -656,6 +686,7 @@ public struct MaschineMK3PadStateTracker: Sendable {
                     ))
 
                 case .release:
+                    staleShadowEncodedValues[index] = positivePressureEncodedValues[index]
                     guard heldPads[index] else { continue }
                     heldPads[index] = false
                     pressures[index] = 0
