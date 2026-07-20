@@ -73,23 +73,51 @@ private final class TickGate: @unchecked Sendable {
     }
 }
 
+/// A daemon frame plus its reader-thread reception time, so input latency can
+/// be attributed to the right pipeline stage (daemon->reader vs reader->actor).
+private struct ReceivedFrame: Sendable {
+    var frame: KKDaemonBinaryFrame
+    var readNanos: UInt64
+}
+
+/// One late input delivery, split across the client pipeline stages. Emitted
+/// through `MK2Surface2.Options.inputDelaySink` (or stderr without a sink)
+/// when the total exceeds the feel budget.
+public struct MK2InputDelayDiagnostic: Sendable, CustomStringConvertible {
+    public var totalMilliseconds: UInt64
+    public var daemonToReaderMilliseconds: UInt64
+    public var readerToActorMilliseconds: UInt64
+
+    public var description: String {
+        "input delayed \(totalMilliseconds)ms "
+            + "(daemon->reader \(daemonToReaderMilliseconds)ms, "
+            + "reader->actor \(readerToActorMilliseconds)ms)"
+    }
+}
+
 public actor MK2Surface2 {
     public struct Options: Sendable {
         public var tickHz: Int
         public var displayTimeoutMs: UInt32
         public var buttonHoldDelay: TimeInterval
         public var padMIDIMapping: KontrolPadMIDIMapping
+        /// Receives blown-feel-budget input deliveries so the host app can
+        /// route them into its own logging system. Nil falls back to stderr —
+        /// Kit2 deliberately carries no logging dependency of its own.
+        public var inputDelaySink: (@Sendable (MK2InputDelayDiagnostic) -> Void)?
 
         public init(
             tickHz: Int = 30,
             displayTimeoutMs: UInt32 = 1_000,
             buttonHoldDelay: TimeInterval = 1.0,
-            padMIDIMapping: KontrolPadMIDIMapping = KontrolPadMIDIMapping()
+            padMIDIMapping: KontrolPadMIDIMapping = KontrolPadMIDIMapping(),
+            inputDelaySink: (@Sendable (MK2InputDelayDiagnostic) -> Void)? = nil
         ) {
             self.tickHz = tickHz
             self.displayTimeoutMs = displayTimeoutMs
             self.buttonHoldDelay = buttonHoldDelay
             self.padMIDIMapping = padMIDIMapping
+            self.inputDelaySink = inputDelaySink
         }
     }
 
@@ -135,6 +163,8 @@ public actor MK2Surface2 {
     // Idle-only health checks: real daemon traffic moves this timestamp forward,
     // so playback, scrolling, and display updates suppress synthetic heartbeats.
     private var lastDaemonCommunicationNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
+    private var lastInputDelayLogNanos: UInt64 = 0
+    private static let inputDelayLogThresholdNanos: UInt64 = 100_000_000
     private var lastDaemonHeartbeatNanos: UInt64 = 0
     private var lastDaemonStartAttemptNanos: UInt64 = 0
     private var activeDaemonSocketPath: String?
@@ -142,7 +172,7 @@ public actor MK2Surface2 {
     private var lastFailedDaemonSocketPath: String?
     private let tickGate = TickGate()
     private var eventTask: Task<Void, Never>?
-    private var eventContinuation: AsyncStream<KKDaemonBinaryFrame>.Continuation?
+    private var eventContinuation: AsyncStream<ReceivedFrame>.Continuation?
     private static let doubleTouchWindowNanos: UInt64 = 350_000_000
     private static let daemonHeartbeatIdleNanos: UInt64 = 3_000_000_000
     private static let daemonReconnectIntervalNanos: UInt64 = 1_000_000_000
@@ -362,7 +392,9 @@ public actor MK2Surface2 {
         timer.schedule(deadline: .now(), repeating: .nanoseconds(Int(intervalNs)), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in
             guard let self, self.tickGate.begin() else { return }
-            Task {
+            // Same explicit priority as the input pipeline: tick jobs share the
+            // actor with input processing, so a starved tick stalls input too.
+            Task(priority: .high) {
                 await self.tick(forceDisplay: false)
                 self.tickGate.end()
             }
@@ -380,12 +412,16 @@ public actor MK2Surface2 {
         // Single ordered pipeline: the reader thread only yields into the stream and one
         // consumer task processes frames sequentially on the actor. One detached Task per
         // event would neither preserve ordering (encoder deltas!) nor bound the backlog.
-        let (stream, continuation) = AsyncStream<KKDaemonBinaryFrame>.makeStream(bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream<ReceivedFrame>.makeStream(bufferingPolicy: .unbounded)
         eventContinuation = continuation
-        eventTask = Task { [weak self] in
-            for await frame in stream {
+        // Explicit high priority: the whole input path is feel-critical, but a plain
+        // Task {} runs at default priority on the cooperative pool — bench traces
+        // (2026-07-20) showed those jobs starved for 300-700ms behind main-thread
+        // rendering, delivering pad events late and batched.
+        eventTask = Task(priority: .high) { [weak self] in
+            for await received in stream {
                 guard let self else { break }
-                await self.process(frame)
+                await self.process(received)
             }
         }
         let generation = daemonSessionGeneration
@@ -399,8 +435,7 @@ public actor MK2Surface2 {
             while !Thread.current.isCancelled {
                 switch eventClient.readEventResult(timeoutUsec: 20_000) {
                     case let .frame(frame):
-                        Task { await self?.recordDaemonCommunication() }
-                        continuation.yield(frame)
+                        continuation.yield(ReceivedFrame(frame: frame, readNanos: KKTiming.now()))
                     case .timeout:
                         continue
                     case .disconnected:
@@ -412,6 +447,7 @@ public actor MK2Surface2 {
             continuation.finish()
         }
         thread.name = "MK2Surface2 daemon reader"
+        thread.qualityOfService = .userInteractive
         daemonThread = thread
         thread.start()
     }
@@ -453,10 +489,12 @@ public actor MK2Surface2 {
         return "\(daemonKindDescription(socketPath: socketPath)) at \(socketPath)"
     }
 
-    private func process(_ frame: KKDaemonBinaryFrame) {
+    private func process(_ received: ReceivedFrame) {
+        recordDaemonCommunication()
+        let frame = received.frame
         switch frame.type {
             case .input:
-                handleSurfacePush(frame.payload)
+                handleSurfacePush(frame.payload, readNanos: received.readNanos)
             case .midi:
                 for event in Self.parseMIDIPush(frame.payload) {
                     handle(midi: event)
@@ -934,12 +972,36 @@ public actor MK2Surface2 {
         cancelButtonHolds()
     }
 
-    private func handleSurfacePush(_ payload: [UInt8]) {
+    private func handleSurfacePush(_ payload: [UInt8], readNanos: UInt64) {
         guard let event = KKDaemonBinaryCodec.parseEventPayload(payload), !event.bytes.isEmpty else { return }
+        logInputDelayIfNeeded(daemonNanos: event.timestamp, readNanos: readNanos)
         let padEvents = inputAdapter.padEvents(for: event.bytes, timestampNanos: event.timestamp)
         let events = inputAdapter.events(for: event.bytes, timestampNanos: event.timestamp)
         handle(events, timestampNanos: event.timestamp)
         handle(padEvents)
+    }
+
+    /// The daemon stamps every push with the shared uptime clock (`KKTiming.now()`),
+    /// so end-to-end input latency and its split across pipeline stages
+    /// (daemon socket -> reader thread -> actor) is directly measurable here.
+    /// Logs only when the feel budget is clearly blown, rate-limited so a
+    /// draining backlog produces one line instead of one per queued event.
+    private func logInputDelayIfNeeded(daemonNanos: UInt64, readNanos: UInt64) {
+        let now = KKTiming.now()
+        guard daemonNanos > 0, now > daemonNanos,
+              now - daemonNanos >= Self.inputDelayLogThresholdNanos else { return }
+        guard now - lastInputDelayLogNanos >= 1_000_000_000 else { return }
+        lastInputDelayLogNanos = now
+        let diagnostic = MK2InputDelayDiagnostic(
+            totalMilliseconds: (now - daemonNanos) / 1_000_000,
+            daemonToReaderMilliseconds: readNanos > daemonNanos ? (readNanos - daemonNanos) / 1_000_000 : 0,
+            readerToActorMilliseconds: now > readNanos ? (now - readNanos) / 1_000_000 : 0
+        )
+        if let sink = options.inputDelaySink {
+            sink(diagnostic)
+        } else {
+            fputs("MK2Surface2: \(diagnostic)\n", stderr)
+        }
     }
 
     func handleForTesting(_ events: [KKMK2InputEvent], timestampNanos: UInt64 = 0) {

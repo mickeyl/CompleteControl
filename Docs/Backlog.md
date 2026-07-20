@@ -121,6 +121,22 @@
 
 ## KontrolSurfaceKit2
 
+- **Move display/state ack round-trips off the `MK2Surface2` actor (noted
+  2026-07-20).** The tick performs synchronous request/ack round trips
+  (`blitDisplay` up to `displayTimeoutMs` 1000 ms, lamp/key state reports) on
+  the same actor that processes input frames, so a slow ack queues pad/button
+  events behind it — the client-side counterpart of the daemon invariant
+  "display frames must not gate feel-critical output". Bench trace 2026-07-20
+  (Paulinche + MASCHINE MK3): pad events arrived 300-700 ms late and batched
+  while displays were static, so the first confirmed cause was cooperative-pool
+  starvation of the default-priority input tasks (fixed: reader thread
+  `.userInteractive`, event/tick tasks `priority: .high`, per-frame timestamp
+  Task removed, `MK2Surface2: input delayed ...` stage-attributed stderr
+  diagnostic added, rate-limited, threshold 100 ms). The structural follow-up
+  remains: publish latest frames to a dedicated writer (latest-wins coalescing)
+  and keep every blocking ack off the input actor; re-bench pad feel during
+  active playback display updates afterwards.
+
 - Connect the MK3 Fixed Velocity button to an application-owned pad setting.
   `KontrolPadMIDIMapping.fixedVelocity` already supports a configured constant;
   the remaining decision is whether the hardware button toggles a persisted
