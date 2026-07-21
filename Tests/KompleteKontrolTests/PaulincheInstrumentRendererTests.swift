@@ -137,6 +137,129 @@ struct PaulincheInstrumentRendererTests {
         #expect(rendered.bindings.rawEncoder[8] != nil)
     }
 
+    @Test("Wavetable scene uses both function bars, page visuals, and enabled encoders")
+    func wavetableSceneUsesTheCompleteHardwareSurface() async {
+        let renderer = try? FreeTypeTextRenderer()
+        let pressed = SoftKeyBox()
+        let fixture = Self.wavetableFixture(page: .source)
+        let rendered = MK2PaulincheInstrumentRenderer.surfaceScene(
+            fixture,
+            actions: MK2PaulincheInstrumentActions(onSoftKey: { index, _ in pressed.index = index }),
+            renderer: renderer
+        )
+
+        #expect(rendered.bindings.buttonDown[.function1] != nil)
+        #expect(rendered.bindings.buttonDown[.function4] != nil)
+        #expect(rendered.bindings.buttonDown[.function5] == nil)
+        #expect(rendered.bindings.buttonDown[.function7] != nil)
+        #expect(rendered.bindings.buttonDown[.function8] != nil)
+        #expect(rendered.bindings.rawEncoder[1] != nil)
+        #expect(rendered.bindings.rawEncoder[7] != nil)
+        #expect(rendered.bindings.rawEncoder[8] == nil)
+        #expect(rendered.displays[0]?.countPixels(in: MK2PixelRect(x: 8, y: 53, width: 464, height: 151), notMatching: 0x0841) ?? 0 > 1_000)
+        #expect(rendered.displays[1]?.countPixels(in: MK2PixelRect(x: 8, y: 53, width: 464, height: 151), notMatching: 0x0841) ?? 0 > 1_000)
+
+        let surface = MK2Surface2()
+        await surface.present(rendered)
+        await surface.handleForTesting([.button(led: .function8, pressed: true)])
+        #expect(pressed.index == 7)
+
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"],
+           let left = rendered.displays[0], let right = rendered.displays[1] {
+            _ = try? PixelSnapshot.write([left, right], to: "\(dir)/paulinche-wavetable-source.png")
+        }
+    }
+
+    @Test("Every wavetable page produces a distinct dual-screen visualization")
+    func everyWavetablePageProducesAVisualization() {
+        let renderer = try? FreeTypeTextRenderer()
+        let frames = MK2PaulincheWavetablePage.allCases.map { page in
+            MK2PaulincheInstrumentRenderer.render(Self.wavetableFixture(page: page), renderer: renderer)
+        }
+
+        for index in 1..<frames.count {
+            #expect(frames[index].left.screen.frame != frames[index - 1].left.screen.frame)
+            #expect(frames[index].right.screen.frame != frames[index - 1].right.screen.frame)
+        }
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
+            for (page, rendered) in zip(MK2PaulincheWavetablePage.allCases, frames) {
+                _ = try? PixelSnapshot.write(
+                    [rendered.left.screen.frame, rendered.right.screen.frame],
+                    to: "\(dir)/paulinche-wavetable-\(page.rawValue).png"
+                )
+            }
+        }
+    }
+
+    private static func wavetableFixture(page: MK2PaulincheWavetablePage) -> MK2PaulincheInstrumentScene {
+        let samples = (0..<464).map { index in Float(sin(Double(index) * 0.08) * 0.8) }
+        let labels: [String]
+        switch page {
+            case .source: labels = ["WAVE", "BASE", "DUTY", "FRAMES", "SIZE", "OCTAVE", "FINE", ""]
+            case .attack: labels = ["SAMPLE", "LEVEL", "ROOT", "FINE", "START", "END", "HANDOFF", ""]
+            case .performance: labels = ["PITCH", "VOLUME", "WAVE PH", "BANK ST", "SCAN PH", "", "", ""]
+            case .filterBank: labels = ["TYPE", "SLOPE", "CUT ST", "CUT END", "RESON", "", "", ""]
+            case .ringAndSweep: labels = ["HARM", "DEPTH", "ACROSS", "", "START", "END", "TIME", "MODE"]
+            case .pwm, .vibrato, .frameScan, .tremolo: labels = ["SHAPE", "RATE", "SYNC", "DEPTH", "DELAY", "FADE", "", ""]
+            case .envelopes: labels = ["ATTACK", "DECAY", "SUSTAIN", "RELEASE", "P START", "P END", "P TIME", ""]
+        }
+        let values: [String] = switch page {
+            case .source: ["PULSE", "80%", "40%", "8", "64", "0", "0ct", ""]
+            case .attack: ["MALLET", "80%", "C-4", "0ct", "0", "1200", "1cy", ""]
+            case .performance: ["±7ct", "±3%", "±2", "±1", "±4%", "", "", ""]
+            case .filterBank: ["LP", "4P", "100%", "8%", "60%", "", "", ""]
+            case .ringAndSweep: ["3×", "80%", "YES", "", "100%", "0%", "0.50s", "HOLD"]
+            case .pwm: ["TRIANGLE", "0.6Hz", "FREE", "20%", "0.10s", "0.20s", "", ""]
+            case .vibrato: ["SINE", "5.0Hz", "FREE", "0.20st", "0.10s", "0.20s", "", ""]
+            case .frameScan: ["TRIANGLE", "1.0Hz", "FREE", "7.0fr", "0.10s", "0.20s", "", ""]
+            case .tremolo: ["SINE", "4.0Hz", "FREE", "35%", "0.10s", "0.20s", "", ""]
+            case .envelopes: ["0.000s", "0.180s", "0%", "0.080s", "+12.0st", "0.0st", "0.120s", ""]
+        }
+        let parameters = labels.enumerated().map { index, label in
+            MK2PaulinchePatternParameter(
+                label: label,
+                value: label.isEmpty ? "" : values[index],
+                level: Double(index + 1) / 9,
+                isEnabled: !label.isEmpty
+            )
+        }
+        let pad = MK2PaulincheSoftKey(label: "", isEnabled: false)
+        let softKeys: [MK2PaulincheSoftKey] = if page == .source {
+            [
+                MK2PaulincheSoftKey(label: "PULSE", isSelected: true),
+                MK2PaulincheSoftKey(label: "SAW"),
+                MK2PaulincheSoftKey(label: "TRI"),
+                MK2PaulincheSoftKey(label: "NOISE"),
+                pad,
+                pad,
+                MK2PaulincheSoftKey(label: "INIT"),
+                MK2PaulincheSoftKey(label: "RANDOM"),
+            ]
+        } else {
+            [
+                MK2PaulincheSoftKey(label: "ON", isSelected: true),
+                MK2PaulincheSoftKey(label: "INIT"),
+                MK2PaulincheSoftKey(label: "RANDOM"),
+                pad,
+                pad,
+                pad,
+                MK2PaulincheSoftKey(label: "INIT"),
+                MK2PaulincheSoftKey(label: "RANDOM"),
+            ]
+        }
+        return MK2PaulincheInstrumentScene(
+            title: "PULSE LAB",
+            subtitle: "01 · \(page.title)",
+            instrumentIndex: 0,
+            kind: .wavetable,
+            wavetablePage: page,
+            infoLines: ["SOUND DESIGN PAGE", "DOUBLE TOUCH RESETS"],
+            waveform: MK2WaveformEnvelope(minima: samples.map { -abs($0) }, maxima: samples.map(abs)),
+            parameters: parameters,
+            softKeys: softKeys
+        )
+    }
+
     private static func instrumentFixture() -> MK2PaulincheInstrumentScene {
         let samples = (0..<512).map { index in
             Float(sin(Double(index) * 0.29) * (0.35 + 0.65 * sin(Double(index) * 0.05)))

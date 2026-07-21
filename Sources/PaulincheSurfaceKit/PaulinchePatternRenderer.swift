@@ -46,13 +46,24 @@ public struct MK2PaulinchePatternParameter: Sendable, Equatable {
     /// `MK2ValueCell.iconGlyph`); the app chooses it by parameter semantics.
     public var iconGlyph: String?
     public var value: String
+    public var level: Double?
     public var isFocused: Bool
+    public var isEnabled: Bool
 
-    public init(label: String, iconGlyph: String? = nil, value: String, isFocused: Bool = false) {
+    public init(
+        label: String,
+        iconGlyph: String? = nil,
+        value: String,
+        level: Double? = nil,
+        isFocused: Bool = false,
+        isEnabled: Bool = true
+    ) {
         self.label = label
         self.iconGlyph = iconGlyph
         self.value = value
+        self.level = level.map { min(1, max(0, $0)) }
         self.isFocused = isFocused
+        self.isEnabled = isEnabled
     }
 }
 
@@ -81,12 +92,20 @@ public struct MK2PaulincheSoftKey: Sendable, Equatable {
     public var commandID: String?
     public var integerPayload: Int?
     public var isEnabled: Bool
+    public var isSelected: Bool
 
-    public init(label: String, commandID: String? = nil, integerPayload: Int? = nil, isEnabled: Bool = true) {
+    public init(
+        label: String,
+        commandID: String? = nil,
+        integerPayload: Int? = nil,
+        isEnabled: Bool = true,
+        isSelected: Bool = false
+    ) {
         self.label = label
         self.commandID = commandID
         self.integerPayload = integerPayload
         self.isEnabled = isEnabled
+        self.isSelected = isSelected
     }
 }
 
