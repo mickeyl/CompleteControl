@@ -2038,7 +2038,7 @@ public enum KompleteKontrolLibUSBServer {
         ) -> (status: Int32, message: String) {
             let client = RegisteredClient(pid: pid, name: name)
             lock.lock()
-            evictOtherSessionsLocked(newClientID: clientID, newPID: pid)
+            let tookOverFromAnotherClient = evictOtherSessionsLocked(newClientID: clientID, newPID: pid)
             registeredClients[clientID] = client
             if channel == .control {
                 activeClientID = clientID
@@ -2055,7 +2055,7 @@ public enum KompleteKontrolLibUSBServer {
                     (inputSnapshot.map { " inputSnapshot=\($0.bytes.count)B" } ?? "")
             )
             if channel == .control {
-                showConnectedClient(client)
+                showConnectedClient(client, precededByEviction: tookOverFromAnotherClient)
             }
             let message = inputSnapshot.map {
                 KKDaemonBinaryCodec.registrationAckMessage(
@@ -2476,7 +2476,7 @@ public enum KompleteKontrolLibUSBServer {
             }
             let client = RegisteredClient(pid: pidValue, name: name)
             lock.lock()
-            evictOtherSessionsLocked(newClientID: clientID, newPID: pidValue)
+            let tookOverFromAnotherClient = evictOtherSessionsLocked(newClientID: clientID, newPID: pidValue)
             registeredClients[clientID] = client
             activeClientID = clientID
             queuedInputMessages.removeAll()
@@ -2484,7 +2484,7 @@ public enum KompleteKontrolLibUSBServer {
             lock.unlock()
 
             daemonLog("client \(clientID) registered name=\(name) pid=\(pidValue)")
-            showConnectedClient(client)
+            showConnectedClient(client, precededByEviction: tookOverFromAnotherClient)
             return "ok registered"
         }
 
@@ -3495,9 +3495,16 @@ public enum KompleteKontrolLibUSBServer {
             }
         }
 
-        private func showConnectedClient(_ client: RegisteredClient) {
+        private func showConnectedClient(_ client: RegisteredClient, precededByEviction: Bool = false) {
             guard daemonSurfaceEnabled else { return }
             guard let session = ensureSession() else { return }
+            // A takeover overlays only the title bar; without repainting the idle background
+            // first, the evicted client's stale content would stay visible underneath the
+            // new title, instead of the clean NO CLIENT -> connected transition a fresh
+            // connect already shows.
+            if precededByEviction {
+                writeMK2NoClientDiagnostic(session: session)
+            }
             writeMK2ConnectedClientTitle(session: session, client: client)
             if session.deviceProfile.capabilities.hasLightGuide {
                 beginMK2ClientHandoffPause()
@@ -4059,7 +4066,10 @@ public enum KompleteKontrolLibUSBServer {
         // Called with `lock` held. Queues every connection of other sessions (pids) for
         // closing by the reactor and tells them why: event channels get a binary device
         // frame, legacy text control channels a text push — both before the fd closes.
-        private func evictOtherSessionsLocked(newClientID: Int, newPID: Int32) {
+        // Returns whether it actually evicted anyone, so callers can tell a takeover from
+        // a first connection.
+        @discardableResult
+        private func evictOtherSessionsLocked(newClientID: Int, newPID: Int32) -> Bool {
             let victims = KKDaemonSessionPolicy.evictionVictims(
                 registeredPIDs: registeredClients.mapValues(\.pid),
                 newClientID: newClientID,
@@ -4096,6 +4106,7 @@ public enum KompleteKontrolLibUSBServer {
                 }
                 daemonLog("client \(victim) (\(name)) evicted by pid \(newPID)")
             }
+            return !victims.isEmpty
         }
 
         func drainPendingEvictionFDs() -> [Int32] {
