@@ -191,8 +191,60 @@ struct PaulincheInstrumentRendererTests {
         }
     }
 
+    @Test("Hybrid attack page shows the active region, handoff, real body, and segmented playhead")
+    func hybridAttackPageShowsTheCompleteSignalFlow() {
+        let renderer = try? FreeTypeTextRenderer()
+        var attackScene = Self.wavetableFixture(page: .attack)
+        attackScene.hybridTimeline?.playheadSegment = .attack
+        attackScene.hybridTimeline?.playheadProgress = 0.35
+
+        let attackFrames = MK2PaulincheInstrumentRenderer.render(attackScene, renderer: renderer)
+        let left = attackFrames.left.screen.frame
+        let right = attackFrames.right.screen.frame
+        let visualization = MK2PixelRect(x: 8, y: 53, width: 464, height: 151)
+
+        #expect(left.countPixels(in: visualization, matching: MK2HIG.Waveform.regionEdge) > 100)
+        #expect(left.countPixels(in: visualization, matching: MK2PaulincheRendererSupport.Palette.orange) > 50)
+        #expect(left.countPixels(in: visualization, matching: MK2HIG.Waveform.playhead) > 50)
+        #expect(right.countPixels(in: visualization, matching: MK2HIG.Waveform.trace) > 300)
+        #expect(right.countPixels(in: visualization, matching: MK2HIG.Waveform.playhead) == 0)
+
+        var bodyScene = attackScene
+        bodyScene.hybridTimeline?.playheadSegment = .body
+        bodyScene.hybridTimeline?.playheadProgress = 0.62
+        let bodyFrames = MK2PaulincheInstrumentRenderer.render(bodyScene, renderer: renderer)
+        #expect(bodyFrames.left.screen.frame.countPixels(in: visualization, matching: MK2HIG.Waveform.playhead) == 0)
+        #expect(bodyFrames.right.screen.frame.countPixels(in: visualization, matching: MK2HIG.Waveform.playhead) > 30)
+
+        var sourceScene = Self.wavetableFixture(page: .source)
+        sourceScene.playheadProgress = 0.35
+        let sourceGraph = MK2PixelRect(x: 20, y: 84, width: 440, height: 104)
+        let sourceDuringAttack = MK2PaulincheInstrumentRenderer.render(sourceScene, renderer: renderer)
+        #expect(sourceDuringAttack.left.screen.frame.countPixels(in: sourceGraph, matching: MK2HIG.Waveform.playhead) == 0)
+        #expect(sourceDuringAttack.right.screen.frame.countPixels(in: sourceGraph, matching: MK2HIG.Waveform.playhead) == 0)
+
+        sourceScene.hybridTimeline?.playheadSegment = .body
+        sourceScene.hybridTimeline?.playheadProgress = 0.62
+        let sourceDuringBody = MK2PaulincheInstrumentRenderer.render(sourceScene, renderer: renderer)
+        #expect(sourceDuringBody.left.screen.frame.countPixels(in: sourceGraph, matching: MK2HIG.Waveform.playhead) > 50)
+        #expect(sourceDuringBody.right.screen.frame.countPixels(in: sourceGraph, matching: MK2HIG.Waveform.playhead) > 50)
+
+        if let dir = ProcessInfo.processInfo.environment["PAULINCHE_SNAPSHOT_DIR"] {
+            _ = try? PixelSnapshot.write(
+                [bodyFrames.left.screen.frame, bodyFrames.right.screen.frame],
+                to: "\(dir)/paulinche-wavetable-hybrid-body.png"
+            )
+        }
+    }
+
     private static func wavetableFixture(page: MK2PaulincheWavetablePage) -> MK2PaulincheInstrumentScene {
         let samples = (0..<464).map { index in Float(sin(Double(index) * 0.08) * 0.8) }
+        let attackSamples = (0..<464).map { index in
+            Float(sin(Double(index) * 0.17) * exp(-Double(index) / 310))
+        }
+        let bodySamples = (0..<464).map { index in
+            Float(sin(Double(index) * 0.045) * (0.3 + 0.7 * sin(Double(index) * 0.006)))
+        }
         let labels: [String]
         switch page {
             case .source: labels = ["WAVE", "BASE", "DUTY", "FRAMES", "SIZE", "OCTAVE", "FINE", ""]
@@ -255,6 +307,22 @@ struct PaulincheInstrumentRendererTests {
             wavetablePage: page,
             infoLines: ["SOUND DESIGN PAGE", "DOUBLE TOUCH RESETS"],
             waveform: MK2WaveformEnvelope(minima: samples.map { -abs($0) }, maxima: samples.map(abs)),
+            hybridTimeline: MK2PaulincheHybridTimeline(
+                attackWaveform: MK2WaveformEnvelope(
+                    minima: attackSamples.map { min(0, $0) },
+                    maxima: attackSamples.map { max(0, $0) }
+                ),
+                bodyWaveform: MK2WaveformEnvelope(
+                    minima: bodySamples.map { min(0, $0) },
+                    maxima: bodySamples.map { max(0, $0) }
+                ),
+                bodyFrameCount: 8,
+                attackStartFraction: 0.08,
+                attackEndFraction: 0.92,
+                crossfadeFraction: 0.22,
+                playheadSegment: .attack,
+                playheadProgress: 0.35
+            ),
             parameters: parameters,
             softKeys: softKeys
         )

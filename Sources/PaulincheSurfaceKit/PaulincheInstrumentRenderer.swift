@@ -35,6 +35,51 @@ public enum MK2PaulincheWavetablePage: Int, Sendable, Equatable, CaseIterable {
     }
 }
 
+public enum MK2PaulincheHybridTimelineSegment: Sendable, Equatable {
+    case attack
+    case body
+}
+
+/// Product-specific render data for the D-50-style PCM-to-wavetable signal
+/// flow. The two segments stay semantic here; the renderer adapts them to the
+/// physical pair of 480-pixel displays.
+public struct MK2PaulincheHybridTimeline: Sendable, Equatable {
+    public var attackWaveform: MK2WaveformEnvelope
+    public var bodyWaveform: MK2WaveformEnvelope
+    public var bodyFrameCount: Int
+    public var attackStartFraction: Double
+    public var attackEndFraction: Double
+    public var crossfadeFraction: Double
+    public var playheadSegment: MK2PaulincheHybridTimelineSegment?
+    public var playheadProgress: Double?
+
+    public init(
+        attackWaveform: MK2WaveformEnvelope,
+        bodyWaveform: MK2WaveformEnvelope,
+        bodyFrameCount: Int,
+        attackStartFraction: Double,
+        attackEndFraction: Double,
+        crossfadeFraction: Double,
+        playheadSegment: MK2PaulincheHybridTimelineSegment? = nil,
+        playheadProgress: Double? = nil
+    ) {
+        let start = MK2PaulincheRendererSupport.clamped01(attackStartFraction)
+        self.attackWaveform = attackWaveform
+        self.bodyWaveform = bodyWaveform
+        self.bodyFrameCount = max(1, bodyFrameCount)
+        self.attackStartFraction = start
+        self.attackEndFraction = max(start, MK2PaulincheRendererSupport.clamped01(attackEndFraction))
+        self.crossfadeFraction = MK2PaulincheRendererSupport.clamped01(crossfadeFraction)
+        if let playheadSegment, let playheadProgress {
+            self.playheadSegment = playheadSegment
+            self.playheadProgress = MK2PaulincheRendererSupport.clamped01(playheadProgress)
+        } else {
+            self.playheadSegment = nil
+            self.playheadProgress = nil
+        }
+    }
+}
+
 public struct MK2PaulincheInstrumentColorGradient: Sendable, Equatable {
     public var top: KKRGB
     public var center: KKRGB
@@ -63,6 +108,7 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
     public var infoLines: [String]
     public var playheadProgress: Double?
     public var waveform: MK2WaveformEnvelope
+    public var hybridTimeline: MK2PaulincheHybridTimeline?
     public var loopRegion: ClosedRange<Double>?
     public var markers: [Double]
     /// Fixed eight slots; the slot index is the encoder index (E1…E8).
@@ -84,6 +130,7 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         infoLines: [String] = [],
         playheadProgress: Double? = nil,
         waveform: MK2WaveformEnvelope = MK2WaveformEnvelope(minima: [], maxima: []),
+        hybridTimeline: MK2PaulincheHybridTimeline? = nil,
         loopRegion: ClosedRange<Double>? = nil,
         markers: [Double] = [],
         parameters: [MK2PaulinchePatternParameter] = [],
@@ -99,6 +146,7 @@ public struct MK2PaulincheInstrumentScene: Sendable, Equatable {
         self.infoLines = infoLines
         self.playheadProgress = playheadProgress.map { MK2PaulincheRendererSupport.clamped01($0) }
         self.waveform = waveform
+        self.hybridTimeline = hybridTimeline
         self.loopRegion = loopRegion
         self.markers = markers
         self.parameters = Array(parameters.prefix(8))
@@ -205,11 +253,27 @@ public enum MK2PaulincheInstrumentRenderer {
                 side == .left ? page.title : scene.title.uppercased(),
                 x: 8,
                 y: 27,
-                maxWidth: 330,
+                maxWidth: side == .right && scene.hybridTimeline != nil ? 246 : 330,
                 role: .custom(weight: .bold, pixelSize: 14),
                 color: Support.Palette.blue,
                 relativeToContent: false
             )
+            if side == .right, scene.hybridTimeline != nil {
+                MK2TagElement(
+                    "HYBRID",
+                    x: 270,
+                    y: 24,
+                    height: 20,
+                    minWidth: 68,
+                    pixelSize: 10,
+                    colors: MK2TagColors(
+                        text: Support.Palette.orange,
+                        fill: Support.Palette.panelFill,
+                        border: Support.Palette.border
+                    ),
+                    relativeToContent: false
+                )
+            }
             MK2ContentText(
                 String(format: "PAGE %d/%d", page.rawValue + 1, MK2PaulincheWavetablePage.allCases.count),
                 x: 356,
@@ -266,15 +330,29 @@ public enum MK2PaulincheInstrumentRenderer {
             maxWidth: rect.width - 20
         )
         let graph = MK2PixelRect(x: rect.x + 10, y: rect.y + 30, width: rect.width - 20, height: rect.height - 42)
+        if let hybridTimeline = scene.hybridTimeline {
+            drawHybridPhaseRail(hybridTimeline, side: side, in: rect, into: &frame)
+        }
         switch page {
             case .source:
                 if side == .left {
-                    MK2WaveformDisplay(envelope: scene.waveform, rect: graph).draw(into: &frame)
+                    let bodyWaveform = scene.hybridTimeline?.bodyWaveform ?? scene.waveform
+                    MK2WaveformDisplay(
+                        envelope: bodyWaveform,
+                        rect: graph,
+                        playhead: bodyPlayhead(in: scene)
+                    ).draw(into: &frame)
                 } else {
                     drawFrameBank(scene, in: graph, into: &frame)
                 }
             case .attack:
-                if side == .left {
+                if let hybridTimeline = scene.hybridTimeline {
+                    if side == .left {
+                        drawHybridAttack(hybridTimeline, in: graph, into: &frame)
+                    } else {
+                        drawHybridBody(hybridTimeline, in: graph, into: &frame)
+                    }
+                } else if side == .left {
                     MK2WaveformDisplay(envelope: scene.waveform, rect: graph).draw(into: &frame)
                 } else {
                     drawFrameBank(scene, in: graph, into: &frame)
@@ -348,6 +426,152 @@ public enum MK2PaulincheInstrumentRenderer {
         }
     }
 
+    /// The desktop keeps its hybrid timeline pinned above the complete editor.
+    /// On the dual-display surface the same overview becomes a two-part rail:
+    /// PCM on the left panel, wavetable body on the right panel. It remains
+    /// visible on every sound-design page while the larger graph stays
+    /// dedicated to that page's parameters.
+    private static func drawHybridPhaseRail(
+        _ timeline: MK2PaulincheHybridTimeline,
+        side: WavetableScreenSide,
+        in rect: MK2PixelRect,
+        into frame: inout MK2PixelFrame
+    ) {
+        typealias Support = MK2PaulincheRendererSupport
+        let rail = MK2PixelRect(x: rect.x + 10, y: rect.y + 24, width: rect.width - 20, height: 3)
+        let segmentColor = side == .left ? Support.Palette.orange : Support.Palette.blue
+        frame.fill(rail, Support.Palette.track)
+        frame.fill(MK2PixelRect(x: rail.x, y: rail.y + 1, width: rail.width, height: 1), segmentColor)
+
+        if side == .left, timeline.crossfadeFraction > 0 {
+            let crossfadeWidth = max(1, Int((Double(rail.width) * timeline.crossfadeFraction).rounded()))
+            let startX = rail.maxX - crossfadeWidth
+            for x in startX..<rail.maxX {
+                let progress = Double(x - startX) / Double(max(1, crossfadeWidth - 1))
+                frame[x, rail.y + 1] = MK2OrderedDither.lerp(
+                    Support.Palette.orange,
+                    Support.Palette.blue,
+                    t: progress,
+                    x: x,
+                    y: rail.y + 1
+                )
+            }
+        }
+
+        let matchingSegment: MK2PaulincheHybridTimelineSegment = side == .left ? .attack : .body
+        if timeline.playheadSegment == matchingSegment, let progress = timeline.playheadProgress {
+            let x = rail.x + Int((progress * Double(max(1, rail.width - 1))).rounded())
+            frame.fill(
+                MK2PixelRect(x: min(rail.maxX - 2, x), y: rail.y - 1, width: 2, height: rail.height + 2),
+                MK2HIG.Waveform.playhead
+            )
+        }
+    }
+
+    private static func drawHybridAttack(
+        _ timeline: MK2PaulincheHybridTimeline,
+        in rect: MK2PixelRect,
+        into frame: inout MK2PixelFrame
+    ) {
+        let region = timeline.attackStartFraction...timeline.attackEndFraction
+        MK2WaveformDisplay(
+            envelope: timeline.attackWaveform,
+            rect: rect,
+            region: region
+        ).draw(into: &frame)
+        drawHybridCrossfade(timeline, in: rect, into: &frame)
+        if timeline.playheadSegment == .attack, let progress = timeline.playheadProgress {
+            let position = timeline.attackStartFraction
+                + (progress * (timeline.attackEndFraction - timeline.attackStartFraction))
+            drawWaveformPlayhead(position, in: rect, into: &frame)
+        }
+    }
+
+    private static func drawHybridBody(
+        _ timeline: MK2PaulincheHybridTimeline,
+        in rect: MK2PixelRect,
+        into frame: inout MK2PixelFrame
+    ) {
+        typealias Support = MK2PaulincheRendererSupport
+        // The right screen's two info lines own the lower graph rows.
+        let waveformRect = MK2PixelRect(
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: max(24, rect.height - 34)
+        )
+        MK2WaveformDisplay(envelope: timeline.bodyWaveform, rect: waveformRect).draw(into: &frame)
+
+        let inner = waveformInnerRect(waveformRect)
+        let visibleFrameGroups = min(16, timeline.bodyFrameCount)
+        if visibleFrameGroups > 1, !inner.isEmpty {
+            for boundary in 1..<visibleFrameGroups {
+                let fraction = Double(boundary) / Double(visibleFrameGroups)
+                let x = inner.x + Int((fraction * Double(max(1, inner.width - 1))).rounded())
+                frame.fill(MK2PixelRect(x: x, y: inner.y, width: 1, height: inner.height), Support.Palette.track)
+            }
+        }
+        if timeline.playheadSegment == .body, let progress = timeline.playheadProgress {
+            drawWaveformPlayhead(progress, in: waveformRect, into: &frame)
+        }
+    }
+
+    private static func drawHybridCrossfade(
+        _ timeline: MK2PaulincheHybridTimeline,
+        in rect: MK2PixelRect,
+        into frame: inout MK2PixelFrame
+    ) {
+        typealias Support = MK2PaulincheRendererSupport
+        let inner = waveformInnerRect(rect)
+        guard !inner.isEmpty,
+              timeline.crossfadeFraction > 0,
+              timeline.attackEndFraction > timeline.attackStartFraction
+        else { return }
+
+        let activeWidth = timeline.attackEndFraction - timeline.attackStartFraction
+        let crossfadeStart = timeline.attackEndFraction - activeWidth * timeline.crossfadeFraction
+        let startX = inner.x + Int((crossfadeStart * Double(max(1, inner.width - 1))).rounded())
+        let endX = inner.x + Int((timeline.attackEndFraction * Double(max(1, inner.width - 1))).rounded())
+        guard endX >= startX else { return }
+
+        for x in startX...min(inner.maxX - 1, endX) {
+            let progress = Double(x - startX) / Double(max(1, endX - startX))
+            let tint = 0.08 + (0.22 * progress)
+            for y in inner.y..<inner.maxY {
+                frame[x, y] = MK2OrderedDither.lerp(
+                    frame[x, y],
+                    Support.Palette.orange,
+                    t: tint,
+                    x: x,
+                    y: y
+                )
+            }
+        }
+        frame.fill(
+            MK2PixelRect(x: max(inner.x, startX), y: inner.y, width: 1, height: inner.height),
+            Support.Palette.orange
+        )
+    }
+
+    private static func drawWaveformPlayhead(
+        _ progress: Double,
+        in rect: MK2PixelRect,
+        into frame: inout MK2PixelFrame
+    ) {
+        let inner = waveformInnerRect(rect)
+        guard !inner.isEmpty else { return }
+        let clamped = MK2PaulincheRendererSupport.clamped01(progress)
+        let x = inner.x + Int((clamped * Double(max(1, inner.width - 1))).rounded())
+        frame.fill(
+            MK2PixelRect(x: min(inner.maxX - 2, x), y: inner.y, width: 2, height: inner.height),
+            MK2HIG.Waveform.playhead
+        )
+    }
+
+    private static func waveformInnerRect(_ rect: MK2PixelRect) -> MK2PixelRect {
+        MK2PixelRect(x: rect.x + 2, y: rect.y + 2, width: max(0, rect.width - 4), height: max(0, rect.height - 4))
+    }
+
     private static func level(_ scene: MK2PaulincheInstrumentScene, _ index: Int) -> Double {
         guard scene.parameters.indices.contains(index) else { return 0 }
         return MK2PaulincheRendererSupport.clamped01(
@@ -372,6 +596,16 @@ public enum MK2PaulincheInstrumentRenderer {
             let y = rect.y + 5 + (rect.height - 32 - height) / 2
             frame.fill(MK2PixelRect(x: x, y: y, width: width, height: height), index % 2 == 0 ? Support.Palette.blue : Support.Palette.green)
         }
+        if let playhead = bodyPlayhead(in: scene) {
+            let playheadRect = MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: max(1, rect.height - 27))
+            drawWaveformPlayhead(playhead, in: playheadRect, into: &frame)
+        }
+    }
+
+    private static func bodyPlayhead(in scene: MK2PaulincheInstrumentScene) -> Double? {
+        guard let hybridTimeline = scene.hybridTimeline else { return scene.playheadProgress }
+        guard hybridTimeline.playheadSegment == .body else { return nil }
+        return hybridTimeline.playheadProgress
     }
 
     private static func drawVarianceBars(
