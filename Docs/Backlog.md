@@ -55,6 +55,31 @@
 
 ## Simulator
 
+- **Add a deterministic headless simulator host for end-to-end automation.**
+  Add a non-AppKit launch mode that owns `DeviceLink`, optionally starts and
+  stops the matching user-level `ccd`, and can enable the daemon automation
+  socket explicitly without consulting `UserDefaults`. A representative CLI
+  should select `--device`, `--instance`, headless operation, daemon ownership,
+  and automation in one invocation. It must publish machine-readable readiness
+  and connection state, use deterministic exit codes, shut down child processes
+  and sockets cleanly, and expose reduced display, lamp, and other output state
+  for assertions, framebuffer dumps, and visual snapshots.
+
+  Keep the two input fidelity levels explicit. The daemon automation socket is
+  the convenient path for application-level scenarios because it lowers
+  semantic commands into the same reports and client sinks as device input.
+  Device-profile validation, especially MASCHINE MK3, must additionally drive
+  `KontrolSimulatorCore`'s native gesture synthesis through the virtual-device
+  wire and production decoder instead of treating the MK2-oriented
+  `MK2InputFrameLowering` automation path as authoritative for every profile.
+  Build this on the instance-scoped paths from Phase 5 so parallel tests cannot
+  collide through the current global device, daemon, automation, log, or lock
+  paths. Acceptance: a script can launch either profile without activating a
+  window, wait until both simulator and daemon are ready, replay an input
+  scenario, assert client-visible and device-output state, and terminate without
+  stale processes or sockets. This does not replace AppKit visual acceptance,
+  physical-device feel, USB timing, or real-hardware integration checks.
+
 - **Phase 5: isolate simulator instances and enable mixed topology.** The shared
   core, authoritative handshake, native MK3 input, and visual 320x301-mm panel
   are complete. Next, replace the global device/daemon socket, log, lock, and
