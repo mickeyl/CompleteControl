@@ -21,7 +21,7 @@ rm -f /tmp/kk-smoke.sock*
 CCD_ENABLE_AUTOMATION=1 CCD_SIMULATE=/tmp/kk-smoke-sim.sock \
   .build/debug/ccd --kk-libusb-daemon /tmp/kk-smoke.sock &
 
-ls -la /tmp/kk-smoke.sock.automation   # expect: srw------- (0600)
+ls -la /tmp/kk-smoke.sock.automation   # expect: srw-rw-rw- (0666)
 
 Scripts/kk-input.py --socket /tmp/kk-smoke.sock.automation button play down
 Scripts/kk-input.py --socket /tmp/kk-smoke.sock.automation button play up
@@ -140,7 +140,7 @@ purely through synthetic hardware input, on an isolated socket pair.
 
    ```bash
    cat /tmp/kontrol-simulator-daemon.log   # "listening control/event/display/automation"
-   ls -la /tmp/kontrol-simulator-daemon.sock.automation   # srw-------
+   ls -la /tmp/kontrol-simulator-daemon.sock.automation   # srw-rw-rw-
    ```
 
 3. Launch Paulinche pointed **explicitly** at that socket — never rely on Paulinche's default

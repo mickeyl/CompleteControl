@@ -166,11 +166,12 @@ scheduling or callback behavior.
 ### Test-Automation Input Injection
 
 Set `CCD_ENABLE_AUTOMATION=1` when starting the daemon to open a fourth, opt-in socket
-(`<socket-path>.automation`, `chmod 0600`) that accepts a plain-text line REPL for synthesizing
+(<socket-path>.automation, `chmod 0666`) that accepts a plain-text line REPL for synthesizing
 button presses, encoder turns, MIDI notes, and ribbon/strip input. Injected input reaches every
 connected client (Paulinche, the widget lab, demos) exactly as real or simulated hardware input
 would — see `MK2InputFrameLowering` and `DaemonHardware.handleAutomation`. Unset (the default),
-the socket does not exist at all.
+the socket does not exist at all. The enabled socket is intentionally accessible to unprivileged
+local clients so it also works when `ccd` runs as a root-owned LaunchDaemon.
 
 ```bash
 CCD_ENABLE_AUTOMATION=1 ccd --kk-libusb-daemon /tmp/kk-test.sock

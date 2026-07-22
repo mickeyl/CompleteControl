@@ -758,10 +758,10 @@ public enum KompleteKontrolLibUSBServer {
         }
         for channel in listenChannels {
             guard let path = socketPaths[channel] else { continue }
-            // The automation socket lets a connected client inject synthetic hardware input —
-            // tighter than the other channels' 0666, owner-only by default.
-            let mode: mode_t = channel == .automation ? 0o600 : 0o666
-            guard let fd = makeDaemonServerSocket(socketPath: path, mode: mode) else {
+            // Every enabled daemon channel must remain usable by unprivileged clients even
+            // when ccd itself runs as a root-owned LaunchDaemon. Automation remains gated by
+            // CCD_ENABLE_AUTOMATION; when that opt-in is absent, this socket is never created.
+            guard let fd = makeDaemonServerSocket(socketPath: path, mode: 0o666) else {
                 exit(channel == .control ? 1 : 4)
             }
             serverFDs[fd] = channel

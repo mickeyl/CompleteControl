@@ -138,14 +138,14 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 		fi; \
 	fi
 
-daemon-debug: daemon-build ## Stop launchd daemon and run foreground daemon with structured stderr tracing.
+daemon-debug: daemon-build ## Run foreground debug daemon with tracing and automation input enabled.
 	@echo "Stopping installed/foreground daemons..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
 	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
-	sudo env $(DAEMON_LOG_RING_ENV) KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+	sudo env $(DAEMON_LOG_RING_ENV) KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) CCD_ENABLE_AUTOMATION=1 KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
 daemon-debug-trace: ## Run the debug daemon as a flight recorder: trace output buffers in RAM; flush the last DAEMON_RING_KEEP seconds into DAEMON_TRACE_LOG via SIGUSR1 (DAEMON_RING_KEEP=0: live logging).
 	@rm -f "$(DAEMON_TRACE_LOG)"
@@ -192,8 +192,8 @@ daemon-release: daemon ## Alias for daemon.
 install-daemon: daemon-build-release ## Install optimized daemon as launchd service (requires sudo).
 	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON_RELEASE)" KK_INSTALL_DAEMON_CONFIGURATION=release ./install-daemon.sh
 
-install-debug-daemon: daemon-build ## Install daemon as launchd service with trace logging enabled.
-	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DEBUG_DAEMON=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
+install-debug-daemon: daemon-build ## Install debug daemon with tracing and automation input enabled.
+	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DEBUG_DAEMON=1 CCD_ENABLE_AUTOMATION=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
 
 uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
 	@echo "Stopping and removing daemon service..."

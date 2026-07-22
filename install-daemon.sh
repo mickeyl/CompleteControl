@@ -11,6 +11,7 @@ PLIST_FILE="$SCRIPT_DIR/media.vanille.kompletekontrol-libusb.plist"
 LAUNCHD_PLIST="/Library/LaunchDaemons/$DAEMON_LABEL.plist"
 SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
 DEBUG_DAEMON="${KK_INSTALL_DEBUG_DAEMON:-0}"
+ENABLE_AUTOMATION="${CCD_ENABLE_AUTOMATION:-0}"
 BUILD_CONFIGURATION="${KK_INSTALL_DAEMON_CONFIGURATION:-release}"
 EXECUTABLE_PATH="${KK_INSTALL_DAEMON_EXECUTABLE:-$SCRIPT_DIR/.build/release/ccd}"
 RESOURCE_BUNDLE_NAME="CompleteControl_KompleteKontrol.bundle"
@@ -30,6 +31,9 @@ if [ "$DEBUG_DAEMON" = "1" ]; then
     echo "Mode: debug daemon with trace logging"
 else
     echo "Mode: normal release daemon"
+fi
+if [ "$ENABLE_AUTOMATION" = "1" ]; then
+    echo "Automation input: enabled"
 fi
 echo "Executable: $EXECUTABLE_PATH"
 echo "Resources: $RESOURCE_BUNDLE_PATH"
@@ -107,6 +111,9 @@ if [ "$DEBUG_DAEMON" = "1" ]; then
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$LAUNCHD_PLIST"
     /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_LOG string 1" "$LAUNCHD_PLIST"
+fi
+if [ "$ENABLE_AUTOMATION" = "1" ]; then
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:CCD_ENABLE_AUTOMATION string 1" "$LAUNCHD_PLIST"
 fi
 chmod 644 "$LAUNCHD_PLIST"
 
