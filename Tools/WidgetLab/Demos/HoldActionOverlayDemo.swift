@@ -10,7 +10,7 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
         title: "Hold Popups",
         category: .catalogue,
         summary: "Persistent setting and immediate command",
-        detail: "Hold MASCHINE KEYBOARD for the persistent octave setting popup, or hold SCENE for the immediate F1-F8 command popup with centered help and a dimmed scene body.",
+        detail: "Hold KEY MODE on KOMPLETE or KEYBOARD on MASCHINE for the persistent octave setting popup. Hold PATTERN for the immediate F1-F8 command popup.",
         snapshotVariants: ["octave-5"]
     )
 
@@ -18,12 +18,15 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
     private var outcome = "Default C2 matches the current MK3 pad range"
 
     func buildScene(_ context: LabContext) -> MK2SurfaceScene2 {
-        let left = explainerScreen(context)
+        let settingTrigger = settingTrigger(for: context.deviceFamily)
+        let settingTriggerLabel = settingTriggerLabel(for: context.deviceFamily)
+        let left = explainerScreen(settingTriggerLabel: settingTriggerLabel, context: context)
         let right = stateScreen(context)
         let overlay = MK2HoldActionOverlayElement(
-            trigger: .keyboard,
+            trigger: settingTrigger,
+            triggerLabel: settingTriggerLabel,
             title: "Root Octave",
-            helpText: "Press F1-F8 to choose the common note-input octave. New pad strikes use the new range immediately; release KEYBOARD to return.",
+            helpText: "Press F1-F8 to choose the common note-input octave. New notes use the new range immediately; release \(settingTriggerLabel) to return.",
             actions: (0...7).map(Self.octaveAction),
             selectedIndex: octave,
             onSelect: { [weak self] index in
@@ -54,7 +57,7 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
         context: LabContext
     ) -> MK2SurfaceScene2.HeldButtonLayer {
         MK2HoldCommandBarElement(
-            trigger: .scene,
+            trigger: .pattern,
             title: "Arrangement Commands",
             actions: [
                 MK2HoldAction("NEW", detail: "Blank pattern"),
@@ -93,14 +96,17 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
         "octave=\(octave) range=C\(octave)-D#\(octave + 1)"
     }
 
-    private func explainerScreen(_ context: LabContext) -> MK2ScreenBuildResult {
+    private func explainerScreen(
+        settingTriggerLabel: String,
+        context: LabContext
+    ) -> MK2ScreenBuildResult {
         MK2RegularScreenDSL(
             header: .title(title: "Held Popups", subtitle: "SETTING / COMMAND"),
-            footer: .hint("Hold KEYBOARD for setting · SCENE for command")
+            footer: .hint("Hold \(settingTriggerLabel) for setting · PATTERN for command")
         ) {
             MK2ContentText("Choose by effect", x: 8, y: 4, role: .title)
             MK2ContentText(
-                "KEYBOARD changes a persistent octave setting. SCENE performs one immediate arrangement command.",
+                "\(settingTriggerLabel) changes a persistent octave setting. PATTERN performs one immediate arrangement command.",
                 x: 8,
                 y: 46,
                 maxWidth: 432,
@@ -142,5 +148,13 @@ final class HoldActionOverlayDemo: LabDemo, @unchecked Sendable {
             value: "C\(octave)",
             detail: "Chromatic pads C\(octave)-D#\(octave + 1)"
         )
+    }
+
+    private func settingTrigger(for family: KontrolDeviceFamily) -> KKMK2ButtonLED {
+        family == .maschineMK3 ? .keyboard : .keyMode
+    }
+
+    private func settingTriggerLabel(for family: KontrolDeviceFamily) -> String {
+        family == .maschineMK3 ? "KEYBOARD" : "KEY MODE"
     }
 }

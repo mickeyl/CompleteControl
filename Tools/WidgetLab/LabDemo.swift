@@ -101,6 +101,7 @@ extension KontrolDeviceFamily {
 /// state mutation on the shell's executor followed by a re-present. Demos
 /// never talk to the surface directly.
 struct LabContext: Sendable {
+    let deviceFamily: KontrolDeviceFamily
     let renderer: FreeTypeTextRenderer?
     /// Run a mutation on the shell's executor, then re-present.
     let update: @Sendable (_ mutation: @escaping @Sendable () -> Void) -> Void

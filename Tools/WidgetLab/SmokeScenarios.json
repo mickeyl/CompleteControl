@@ -148,9 +148,21 @@
       "demo": "hold-action-overlay",
       "variant": "octave-5",
       "actions": [
-        { "send": "button keyboard down" },
+        { "send": "button keymode down" },
         { "tap": "function6" },
-        { "send": "button keyboard up" }
+        { "send": "button keymode up" },
+        { "send": "button pattern down" },
+        { "tap": "function1" },
+        { "send": "button pattern up" }
+      ]
+    },
+    {
+      "demo": "popup-overlay",
+      "variant": "left",
+      "actions": [
+        { "tap": "function1" },
+        { "tap": "function1" },
+        { "tap": "function2" }
       ]
     },
     {

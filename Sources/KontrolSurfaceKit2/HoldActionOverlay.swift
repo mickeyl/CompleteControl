@@ -40,6 +40,7 @@ public struct MK2HoldAction: Equatable, Sendable {
 /// down; releasing the trigger restores the base scene.
 public struct MK2HoldActionOverlayElement: Sendable {
     public var trigger: KKMK2ButtonLED
+    public var triggerLabel: String?
     public var title: String
     public var helpText: String?
     public var actions: [MK2HoldAction]
@@ -50,6 +51,7 @@ public struct MK2HoldActionOverlayElement: Sendable {
 
     public init(
         trigger: KKMK2ButtonLED,
+        triggerLabel: String? = nil,
         title: String,
         helpText: String? = nil,
         actions: [MK2HoldAction],
@@ -59,6 +61,7 @@ public struct MK2HoldActionOverlayElement: Sendable {
         onSelect: @escaping @Sendable (_ index: Int) -> Void
     ) {
         self.trigger = trigger
+        self.triggerLabel = triggerLabel
         self.title = title
         self.helpText = helpText
         let boundedActions = Array(actions.prefix(8))
@@ -169,7 +172,7 @@ public struct MK2HoldActionOverlayElement: Sendable {
                 }
             } else {
                 MK2ContentText(
-                    "HOLD \(trigger.protocolName.uppercased())",
+                    "HOLD \(triggerLabel ?? trigger.protocolName.uppercased())",
                     x: 12,
                     y: 54,
                     maxWidth: 456,

@@ -30,6 +30,7 @@ let labDemos: [any LabDemo] = [
     TrackerPatternDemo(),
     ModalDialogDemo(),
     HoldActionOverlayDemo(),
+    PopupOverlayDemo(),
     LightGuideDemo(),
     MIDIMonitorDemo(),
     DisplayBenchmarkDemo(),
@@ -117,6 +118,7 @@ actor LabShell {
 
     private func labContext() -> LabContext {
         LabContext(
+            deviceFamily: deviceFamily,
             renderer: freeTypeRenderer,
             update: { [weak self] mutation in
                 Task { await self?.applyDemoMutation(mutation, rerender: true) }

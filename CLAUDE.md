@@ -217,6 +217,11 @@ Layout rules:
 - persistent settings use `MK2HoldActionOverlayElement`, a setting popup whose
   selected value remains active after release and is shown again on the next
   hold. Do not choose between the two popup forms based only on screen space;
+- passive prompts use `MK2PopupOverlayElement`: it preserves the current scene's
+  lamps and bindings, dims each targeted OLED background to half RGB565
+  brightness, then composites a stable popup card on the left display, right
+  display, or both. Clients own the prompt lifecycle and supply only semantic
+  left/right content;
 - hardware labels must describe the action/value directly above the physical
   control they belong to;
 - pixel display diffs must preserve deterministic rendering and stable geometry.
