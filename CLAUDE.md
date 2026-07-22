@@ -27,6 +27,7 @@ change as the implementation. Keep `README.md` user-facing and
 | `MK2SurfaceDemo` | Compact hardware feature demo |
 | `widget-lab` | Device-independent Kit2 demo browser (Calibration, Look & Feel, Kit Catalogue, Diagnostics): per-file `LabDemo`s, snapshot harness, LED/light-guide REPL |
 | `KontrolSimulator` | Profile-driven S61 MK2/MASCHINE MK3 panel and simulator-daemon host |
+| `kontrol-sim-host` | Deterministic headless simulator host with instance-isolated paths and a JSON-Lines control plane |
 | `MK2USBSpy` | Direct descriptor/input diagnostic with safe per-interface MK3 capture |
 
 ## Build And Test
@@ -321,10 +322,18 @@ magnifiable hardware document. Preserve the MK3 320x301-mm calibrated geometry,
 the shared combined click/Command-rotate main encoder, multi-held keyboard pads,
 accessibility controls, and the profile keyboard cheat sheet.
 
-The default device and daemon socket paths are still global. `--instance` is
-descriptor provenance only; it does not isolate paths or permit two simulator
-daemons. Real/simulated mixed operation and simultaneous KONTROL+MASCHINE remain
-Phase 5 of `Docs/Maschine-MK3-Simulator-Plan.md`.
+The GUI simulator's device and daemon socket paths are still global; its
+`--instance` is descriptor provenance only. For automation, `kontrol-sim-host`
+runs either profile without AppKit under fully instance-isolated paths
+(`/tmp/kksim-<instance>/`, `SimulatorInstancePaths` + `flock`-guarded lease):
+parallel headless runs, the GUI simulator, and a hardware daemon can never
+collide, and instance sockets are invisible to client auto-discovery. It
+publishes a JSON-Lines control plane (readiness events, native MK3 gestures,
+lamp/framebuffer assertions) with stable exit codes — see
+`Docs/automation-testing.md` section 5. Child-daemon ownership is shared with
+the GUI through `SimulatorDaemonController`. Real/simulated mixed operation and
+simultaneous KONTROL+MASCHINE remain Phase 5 of
+`Docs/Maschine-MK3-Simulator-Plan.md`.
 
 For visual acceptance snapshots, set `KONTROLSIM_SNAPSHOT_PATH`; optional
 `KONTROLSIM_SNAPSHOT_SCALE`, `KONTROLSIM_SNAPSHOT_DELAY`, and

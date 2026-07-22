@@ -6,6 +6,23 @@
 
 ## Recently completed
 
+- **Deterministic headless simulator host (completed 2026-07-22).**
+  `kontrol-sim-host` launches either profile without AppKit, owns `DeviceLink`,
+  optionally starts/stops a matching user-level `ccd` with the automation
+  socket enabled per flag (no `UserDefaults`), and speaks a JSON-Lines control
+  plane: machine-readable readiness and connection events, native MK3 gesture
+  synthesis through the production decoder, lamp snapshots, and post-wire
+  decoded framebuffer dumps (PNG/RGB565 plus SHA-256). All paths live in
+  `flock`-guarded per-instance directories (`/tmp/kksim-<id>/`,
+  `SimulatorInstancePaths`), so parallel runs never collide with the GUI
+  simulator, each other, or a hardware daemon; exit codes are a stable
+  contract and shutdown escalates a hung child to SIGKILL. Child-daemon
+  ownership was extracted into `SimulatorDaemonController`, shared with the
+  GUI. End-to-end regression: `KontrolSimHostIntegrationTests` (gesture
+  round trip via daemon NO CLIENT mirroring, two-instance isolation, busy
+  refusal). See `Docs/automation-testing.md` section 5 and
+  `Docs/Headless-Simulator-Host-Plan.md`.
+
 - **Dedicated MASCHINE PAD MODE control identity (completed 2026-07-19).**
   MK3 PAD MODE no longer masquerades as KONTROL KEY MODE in Kit2's
   compatibility plane. Paulinche can bind normal PAD MODE to its
@@ -55,40 +72,24 @@
 
 ## Simulator
 
-- **Add a deterministic headless simulator host for end-to-end automation.**
-  Add a non-AppKit launch mode that owns `DeviceLink`, optionally starts and
-  stops the matching user-level `ccd`, and can enable the daemon automation
-  socket explicitly without consulting `UserDefaults`. A representative CLI
-  should select `--device`, `--instance`, headless operation, daemon ownership,
-  and automation in one invocation. It must publish machine-readable readiness
-  and connection state, use deterministic exit codes, shut down child processes
-  and sockets cleanly, and expose reduced display, lamp, and other output state
-  for assertions, framebuffer dumps, and visual snapshots.
-
-  Keep the two input fidelity levels explicit. The daemon automation socket is
-  the convenient path for application-level scenarios because it lowers
-  semantic commands into the same reports and client sinks as device input.
-  Device-profile validation, especially MASCHINE MK3, must additionally drive
-  `KontrolSimulatorCore`'s native gesture synthesis through the virtual-device
-  wire and production decoder instead of treating the MK2-oriented
-  `MK2InputFrameLowering` automation path as authoritative for every profile.
-  Build this on the instance-scoped paths from Phase 5 so parallel tests cannot
-  collide through the current global device, daemon, automation, log, or lock
-  paths. Acceptance: a script can launch either profile without activating a
-  window, wait until both simulator and daemon are ready, replay an input
-  scenario, assert client-visible and device-output state, and terminate without
-  stale processes or sockets. This does not replace AppKit visual acceptance,
-  physical-device feel, USB timing, or real-hardware integration checks.
+- **Native MK2 gesture synthesis in `SimulatorDeviceRuntime`.** The headless
+  host's `gesture` command is MASCHINE MK3-only because the MK2 panel still
+  builds semantic frames inside the AppKit `PanelView`. Move MK2 report
+  synthesis (buttons, encoders, 4-D, touch strip) into the shared runtime so
+  the panel delegates to it and headless MK2 scenarios gain native-report
+  fidelity; until then the daemon automation socket is the MK2 input plane
+  (slice 4 of `Headless-Simulator-Host-Plan.md`).
 
 - **Phase 5: isolate simulator instances and enable mixed topology.** The shared
   core, authoritative handshake, native MK3 input, and visual 320x301-mm panel
-  are complete. Next, replace the global device/daemon socket, log, lock, and
-  defaults paths with validated instance-scoped paths; make child-daemon
-  ownership profile-aware; and add real KONTROL + simulated MASCHINE,
-  simulated KONTROL + real MASCHINE, and both-simulated harnesses. Paulinche
-  must attach the two explicit endpoints through stable `SurfaceID`s without
-  daemon auto-discovery. See Phase 5 of
-  [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md).
+  are complete, and the headless host delivered the instance-path substrate
+  (`SimulatorInstancePaths`, `SimulatorDaemonController`). Next, migrate the
+  GUI simulator's global device/daemon socket, log, lock, and defaults paths
+  onto validated instance-scoped paths; make child-daemon ownership
+  profile-aware; and add real KONTROL + simulated MASCHINE, simulated KONTROL +
+  real MASCHINE, and both-simulated harnesses. Paulinche must attach the two
+  explicit endpoints through stable `SurfaceID`s without daemon auto-discovery.
+  See Phase 5 of [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md).
 
 - **Phase 6: final MK3 bench calibration.** Compare the simulator's remaining
   estimated geometry and interaction constants with the real unit, then verify

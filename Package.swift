@@ -18,6 +18,7 @@ let package = Package(
         .executable(name: "MK2SurfaceDemo", targets: ["MK2SurfaceDemo"]),
         .executable(name: "widget-lab", targets: ["WidgetLab"]),
         .executable(name: "KontrolSimulator", targets: ["KontrolSimulator"]),
+        .executable(name: "kontrol-sim-host", targets: ["KontrolSimHost"]),
         .executable(name: "MK2USBSpy", targets: ["MK2USBSpy"]),
     ],
     dependencies: [],
@@ -152,6 +153,14 @@ let package = Package(
             name: "KontrolSimulator",
             dependencies: ["KompleteKontrol", "KontrolSimulatorCore"],
             path: "Tools/KontrolSimulator",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "KontrolSimHost",
+            dependencies: ["KompleteKontrol", "KontrolSimulatorCore"],
+            path: "Tools/KontrolSimHost",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

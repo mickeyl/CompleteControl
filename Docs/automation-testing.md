@@ -253,9 +253,10 @@ when a byte-for-byte workload comparison matters.
 
 The exact live check compares the Widget Lab's logical RGB565 frame with the daemon shadow after a
 display barrier. This verifies client rendering, diffing, completed daemon writes, and transport
-health. It does not optically read back a physical OLED. On the simulator it also does not yet
-capture the panel's post-wire decoded pixels; codec round-trip tests remain the wire-decoder check
-until the simulator exposes a live decoded-panel snapshot endpoint.
+health. It does not optically read back a physical OLED. On the GUI simulator it also does not
+capture the panel's post-wire decoded pixels; the headless host's `framebuffer` command
+(section 5) provides exactly that view for automation, while codec round-trip tests remain the
+wire-decoder check inside the test suite.
 
 ### Why the Widget Lab REPL remains
 
@@ -265,7 +266,67 @@ runner use the actual input plane. `--control-stdin` is a JSON-Lines protocol us
 catalogue discovery, deterministic setup, state queries, and expected snapshots; it never injects
 user actions directly.
 
-## 5. Full loop against real hardware
+## 5. Headless simulator host (`kontrol-sim-host`)
+
+For deterministic end-to-end automation without AppKit, a window, or a WindowServer
+session, `kontrol-sim-host` replaces the GUI simulator + Daemon menu with one CLI
+invocation. Every run is isolated by construction: all sockets, logs, and locks live in
+`/tmp/kksim-<instance>/`, which is disjoint from the GUI simulator's global paths and
+invisible to client auto-discovery — parallel runs, a running GUI simulator, and a live
+hardware daemon can never collide. The host never consults `UserDefaults`.
+
+```bash
+make sim-host             # MK3 profile, owned daemon, automation socket
+# Equivalent:
+swift build --product ccd --product kontrol-sim-host
+.build/debug/kontrol-sim-host --device maschine-mk3 --automation --instance ci-42
+```
+
+The control plane is JSON Lines on stdin/stdout. Scripts wait for the `ready` event
+instead of sleeping; it carries all paths a client needs:
+
+```json
+{"event":"ready","device":"maschine-mk3","instance":"ci-42",
+ "deviceSocket":"/tmp/kksim-ci-42/device.sock",
+ "daemonSocket":"/tmp/kksim-ci-42/daemon.sock",
+ "automationSocket":"/tmp/kksim-ci-42/daemon.sock.automation",
+ "clientEnv":{"KK_DAEMON_SOCKET":"/tmp/kksim-ci-42/daemon.sock"}}
+```
+
+With `--own-daemon`/`--automation` the `ready` event is emitted only after the owned
+daemon completed the device handshake, so the daemon sockets are guaranteed to be
+listening. `daemonConnected`/`daemonDisconnected` events report the live link state.
+
+Commands (each answered with `{"ok":true,...}` or `{"ok":false,"error":...}`; an `id`
+field is echoed back for correlation):
+
+| Command | Purpose |
+| --- | --- |
+| `{"cmd":"gesture","gesture":"button","button":"play","pressed":true}` | Native MK3 input synthesis through the production decoder. Also: `encoder` (index 0-8, delta), `encoderTouch`, `strip` (finger 1-2, position or null), `padTouch`/`padStrike`/`padPressure`/`padRelease` (pad 1-16), `releaseAll`. |
+| `{"cmd":"lamps"}` | Reduced device-output state as hex strings (buttons, strip/pads, light guide). |
+| `{"cmd":"framebuffer","display":0,"format":"png","path":"/tmp/a.png"}` | Post-wire decoded panel pixels; always returns width/height and a `sha256` of the raw RGB565 for cheap assertions, `path`/`format` (`png`/`rgb565`) are optional. |
+| `{"cmd":"identity","firmware":"1.4.6","name":"…"}` | Runtime identity override, like the GUI dialog but without defaults persistence. |
+| `{"cmd":"status"}` | Connection state and instance paths. |
+| `{"cmd":"quit"}` | Clean shutdown; stdin EOF, SIGTERM, and SIGINT do the same. |
+
+The two input fidelity levels stay explicit: `gesture` is native-report synthesis (the
+profile-validation plane, MASCHINE MK3); the daemon automation socket
+(`kk-input.py --socket /tmp/kksim-<id>/daemon.sock.automation`) is the semantic
+application-scenario plane and currently the only plane for KONTROL MK2, whose panel
+still speaks semantic frames on the simulator wire.
+
+Exit codes are a stable contract: `0` clean shutdown, `64` usage, `69` instance busy
+(a live host holds the same `--instance`), `71` device-socket bind failure, `72` daemon
+start failure, `73` owned daemon exited unexpectedly. Shutdown escalates a
+non-responding owned daemon to SIGKILL after a grace period and removes the instance
+directory; a stale directory from a killed host is reclaimed on the next acquire.
+
+`Scripts/kk-screenshot.py --socket /tmp/kksim-<id>/daemon.sock` still reads the daemon's
+display shadow (completed daemon writes); the `framebuffer` command complements it with
+what actually survived the simulator wire and decode. The end-to-end regression lives in
+`Tests/KompleteKontrolTests/KontrolSimHostIntegrationTests.swift`.
+
+## 6. Full loop against real hardware
 
 Only once the currently running long-term test daemon is intentionally stopped. Add
 `CCD_ENABLE_AUTOMATION=1` to whatever starts it:

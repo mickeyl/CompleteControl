@@ -29,7 +29,7 @@ WIDGET_LAB_TEST_ARGS ?=
 ADAPTIVE_REPORT ?=
 LEGACY_REPORT ?=
 
-.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release widget-lab-build widget-lab-build-release widget-lab widget-lab-sim widget-lab-release widget-lab-test-validate widget-lab-smoke widget-lab-stress widget-lab-soak widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator run-mk3-simulator daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
+.PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release widget-lab-build widget-lab-build-release widget-lab widget-lab-sim widget-lab-release widget-lab-test-validate widget-lab-smoke widget-lab-stress widget-lab-soak widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator run-mk3-simulator sim-host-build sim-host daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
 	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGET_LAB_TEST_SOCKET)" -v stress="$(WIDGET_LAB_STRESS_DURATION)" -v soak="$(WIDGET_LAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGET_LAB_TEST_SOCKET=%s\n  WIDGET_LAB_STRESS_DURATION=%s  WIDGET_LAB_SOAK_DURATION=%s\n  WIDGET_LAB_TEST_ARGS=...  additional widget-lab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
@@ -178,6 +178,12 @@ run-mk3-simulator: daemon-build ## Build and run the MASCHINE MK3 simulator (sin
 	swift build --product KontrolSimulator
 	@echo "Launching MASCHINE MK3. Start its user-level ccd from the Daemon menu."
 	KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) .build/debug/KontrolSimulator --device maschine-mk3
+
+sim-host-build: daemon-build ## Build the headless simulator host and its ccd.
+	swift build --product kontrol-sim-host
+
+sim-host: sim-host-build ## Build and run the headless simulator host (MK3, own daemon, automation socket).
+	.build/debug/kontrol-sim-host --device maschine-mk3 --automation
 
 daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
 	@echo "Stopping installed/foreground daemons..."

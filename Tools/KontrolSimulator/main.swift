@@ -39,7 +39,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // attach by exporting KK_DAEMON_SOCKET to the same path.
     static let simulatorDaemonSocketPath = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
     static let simulatorDaemonLogPath = "/tmp/kontrol-simulator-daemon.log"
-    private var daemonProcess: Process?
+    private let daemonController = SimulatorDaemonController()
     private var restartDaemonAfterTermination = false
     private var daemonConnected = false
     private var terminationSignalSources: [DispatchSourceSignal] = []
@@ -285,7 +285,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         restartDaemonAfterTermination = false
-        daemonProcess?.terminate()
+        daemonController.stopAndWait()
         link.stop()
     }
 
@@ -355,37 +355,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Simulator daemon control
 
     @objc private func startSimulatorDaemon() {
-        guard daemonProcess == nil else { return }
-        let ccdURL = Bundle.main.executableURL!
-            .deletingLastPathComponent()
-            .appendingPathComponent("ccd")
-        guard FileManager.default.isExecutableFile(atPath: ccdURL.path) else {
-            let alert = NSAlert()
-            alert.messageText = "ccd is not built"
-            alert.informativeText = "Expected the daemon next to the simulator at \(ccdURL.path). Run: swift build --product ccd"
-            alert.runModal()
-            return
-        }
-
-        FileManager.default.createFile(atPath: Self.simulatorDaemonLogPath, contents: nil)
-        let log = FileHandle(forWritingAtPath: Self.simulatorDaemonLogPath)
-
-        let process = Process()
-        process.executableURL = ccdURL
-        process.arguments = ["--kk-libusb-daemon", Self.simulatorDaemonSocketPath]
-        var environment = ProcessInfo.processInfo.environment
-        environment["CCD_SIMULATE"] = link.socketPath
-        environment["LOGLEVEL"] = environment["LOGLEVEL"] ?? "INFO"
-        if UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutomationEnabled) {
-            environment["CCD_ENABLE_AUTOMATION"] = "1"
-        }
-        process.environment = environment
-        process.standardOutput = log
-        process.standardError = log
-        process.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async {
+        guard !daemonController.isRunning else { return }
+        daemonController.onTermination = { [weak self] _ in
+            MainActor.assumeIsolated {
                 guard let self else { return }
-                self.daemonProcess = nil
                 let shouldRestart = self.restartDaemonAfterTermination
                     && UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart)
                 self.restartDaemonAfterTermination = false
@@ -396,8 +369,22 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         do {
-            try process.run()
-            daemonProcess = process
+            try daemonController.start(SimulatorDaemonController.Configuration(
+                ccdURL: SimulatorDaemonController.defaultCCDURL(),
+                daemonSocketPath: Self.simulatorDaemonSocketPath,
+                deviceSocketPath: link.socketPath,
+                automationEnabled: UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutomationEnabled),
+                logPath: Self.simulatorDaemonLogPath
+            ))
+        } catch let error as SimulatorDaemonController.StartError {
+            if case .daemonBinaryMissing = error {
+                let alert = NSAlert()
+                alert.messageText = "ccd is not built"
+                alert.informativeText = "\(error)"
+                alert.runModal()
+            } else {
+                NSLog("KontrolSimulator: failed to start daemon — %@", "\(error)")
+            }
         } catch {
             NSLog("KontrolSimulator: failed to start daemon — %@", "\(error)")
         }
@@ -406,7 +393,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func stopSimulatorDaemon() {
         restartDaemonAfterTermination = false
-        daemonProcess?.terminate()
+        daemonController.stop()
     }
 
     /// SIGTERM/SIGINT (kill, Ctrl-C from the launching terminal) bypass
@@ -430,7 +417,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         defaults.set(enabled, forKey: DefaultsKey.daemonAutostart)
         updateDaemonMenuState()
         // "If not running" applies right now, not just at the next launch.
-        if enabled, !daemonConnected, daemonProcess == nil {
+        if enabled, !daemonConnected, !daemonController.isRunning {
             startSimulatorDaemon()
         }
     }
@@ -443,7 +430,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart),
               ProcessInfo.processInfo.environment["KONTROLSIM_SNAPSHOT_PATH"] == nil else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self, !self.daemonConnected, self.daemonProcess == nil else { return }
+            guard let self, !self.daemonConnected, !self.daemonController.isRunning else { return }
             self.startSimulatorDaemon()
         }
     }
@@ -456,9 +443,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let enabled = !defaults.bool(forKey: DefaultsKey.daemonAutomationEnabled)
         defaults.set(enabled, forKey: DefaultsKey.daemonAutomationEnabled)
         updateDaemonMenuState()
-        if defaults.bool(forKey: DefaultsKey.daemonAutostart), daemonProcess != nil {
+        if defaults.bool(forKey: DefaultsKey.daemonAutostart), daemonController.isRunning {
             restartDaemonAfterTermination = true
-            daemonProcess?.terminate()
+            daemonController.stop()
         } else if defaults.bool(forKey: DefaultsKey.daemonAutostart), !daemonConnected {
             startSimulatorDaemon()
         }
@@ -534,7 +521,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let status: SimulatorDaemonStatus
         if daemonConnected {
             status = .connected
-        } else if daemonProcess != nil {
+        } else if daemonController.isRunning {
             status = .starting
         } else {
             status = .none
@@ -545,11 +532,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func updateDaemonMenuState() {
-        daemonStartItem?.isEnabled = daemonProcess == nil
-        daemonStopItem?.isEnabled = daemonProcess != nil
+        daemonStartItem?.isEnabled = !daemonController.isRunning
+        daemonStopItem?.isEnabled = daemonController.isRunning
         daemonAutostartItem?.state = UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutostart) ? .on : .off
         daemonAutomationItem?.state = UserDefaults.standard.bool(forKey: DefaultsKey.daemonAutomationEnabled) ? .on : .off
-        daemonStartItem?.title = daemonConnected && daemonProcess == nil
+        daemonStartItem?.title = daemonConnected && !daemonController.isRunning
             ? "Start Simulator Daemon (external daemon attached)"
             : "Start Simulator Daemon"
     }
@@ -948,7 +935,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let daemonState: String
         if daemonConnected {
             daemonState = "daemon connected"
-        } else if daemonProcess != nil {
+        } else if daemonController.isRunning {
             daemonState = "starting daemon …"
         } else {
             daemonState = "no daemon"
