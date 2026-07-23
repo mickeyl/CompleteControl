@@ -16,9 +16,9 @@ enum Palette {
     static let page: UInt16 = 0x0841       // near-black blue
     static let text: UInt16 = 0xffff
     static let dim: UInt16 = 0x8410        // mid grey
-    static let accent: UInt16 = 0x7dbf     // light blue, mirrors MK2HIG.Chrome.accent
+    static let accent = MK2HIG.Chrome.accent
     static let border: UInt16 = 0x4208     // faint frame
-    static let blue: UInt16 = 0x7dbf
+    static let blue = MK2HIG.Chrome.accent
     static let green: UInt16 = 0x464f
     static let orange: UInt16 = 0xec88
     static let question: UInt16 = 0x9a7f

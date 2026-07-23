@@ -54,7 +54,7 @@ public struct MK2OverviewScrollbarColors: Sendable, Equatable {
     public init(
         track: UInt16 = 0x2126,
         playhead: UInt16 = 0x464f,
-        active: UInt16 = 0x7dbf,
+        active: UInt16 = MK2HIG.Chrome.accent,
         inactive: UInt16 = 0x632e
     ) {
         self.track = track

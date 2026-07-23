@@ -11,7 +11,7 @@ enum MK2PaulincheRendererSupport {
         static let credit: UInt16 = 0xbdf7
         static let creditDim: UInt16 = 0x632c
         static let border: UInt16 = 0x4208
-        static let blue: UInt16 = 0x7dbf
+        static let blue = MK2HIG.Chrome.accent
         static let green: UInt16 = 0x464f
         static let orange: UInt16 = 0xec88
         static let solo: UInt16 = 0x03ff
