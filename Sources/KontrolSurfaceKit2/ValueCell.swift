@@ -122,11 +122,24 @@ public struct MK2ValueCell: Sendable {
             )
         }
 
+        // Center the value's figure band (probed via "0") in the well, not its
+        // glyph box: the mono cell reserves descender space that digits and
+        // caps never use, so box centering rides ~2px high — the same trap as
+        // the icon boxes (MK2IconAlignment). One shared probe keeps every cell
+        // on a common baseline regardless of the individual value's ink.
         let glyph = BitmapLabel(value, font: valueFont, color: isFocused ? colors.focusedValue : colors.value)
+        let valueY: Int
+        if let renderer,
+           let figures = try? renderer.inkExtent("0", style: valueFont.measurementStyle),
+           figures.height > 0 {
+            valueY = rect.y + rect.height / 2 - valueFont.ascent - figures.top - figures.height / 2
+        } else {
+            valueY = rect.y + max(0, (rect.height - glyph.height) / 2)
+        }
         glyph.draw(
             into: &frame,
             x: rect.x + 6,
-            y: rect.y + max(0, (rect.height - glyph.height) / 2),
+            y: valueY,
             clip: MK2PixelRect(x: rect.x + 4, y: rect.y, width: max(0, rect.width - 8), height: rect.height)
         )
     }
