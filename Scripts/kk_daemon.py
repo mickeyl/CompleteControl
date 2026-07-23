@@ -11,9 +11,13 @@ MAGIC = 0x00324B4B  # "KK2\0"
 PROTOCOL_VERSION = 1
 CHANNEL_CONTROL = 1
 CHANNEL_DISPLAY = 3
+TYPE_DISPLAY_BLIT = 5
 TYPE_ACK = 6
 TYPE_DISPLAY_SNAPSHOT = 7
 TYPE_DISPLAY_BARRIER = 9
+
+DISPLAY_WIDTH = 480
+DISPLAY_HEIGHT = 272
 HEADER = struct.Struct("<IBBHHHII")
 
 HARDWARE_SOCKET = "/var/run/kompletekontrol-libusb.sock"
@@ -267,8 +271,7 @@ class DaemonControlClient:
             raise CLIError("Display snapshot pixel count mismatch.", EXIT_CONNECTION)
         return width, height, pixels
 
-    def _display_barrier(self, action=None, deadline=None):
-        deadline = time.monotonic() + self.timeout if deadline is None else deadline
+    def _display_request(self, frame_type, payload, label):
         if self._display_socket is None:
             connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             connection.settimeout(self.timeout)
@@ -286,23 +289,45 @@ class DaemonControlClient:
         sequence = self._display_sequence
         try:
             self._display_socket.sendall(
-                encode_frame(
-                    TYPE_DISPLAY_BARRIER,
-                    sequence,
-                    payload=b"" if action is None else bytes([action]),
-                    channel=CHANNEL_DISPLAY,
-                )
+                encode_frame(frame_type, sequence, payload=payload, channel=CHANNEL_DISPLAY)
             )
-            response_type, response_sequence, payload = read_frame(self._display_socket)
+            response_type, response_sequence, response_payload = read_frame(self._display_socket)
         except (OSError, socket.timeout) as error:
             self._display_socket.close()
             self._display_socket = None
-            raise CLIError("Daemon display barrier failed: %s" % error, EXIT_CONNECTION) from error
+            raise CLIError("Daemon %s failed: %s" % (label, error), EXIT_CONNECTION) from error
         if response_sequence != sequence:
-            raise CLIError("Out-of-sequence display barrier response.", EXIT_CONNECTION)
+            raise CLIError("Out-of-sequence %s response." % label, EXIT_CONNECTION)
         if response_type != TYPE_ACK:
-            raise CLIError("Malformed display barrier response.", EXIT_CONNECTION)
-        status, message = parse_ack(payload)
+            raise CLIError("Malformed %s response." % label, EXIT_CONNECTION)
+        return parse_ack(response_payload)
+
+    def display_blit(self, screen, pixels_rgb565be, x=0, y=0,
+                     width=DISPLAY_WIDTH, height=DISPLAY_HEIGHT, timeout_ms=1000):
+        """Queue one blit; like every display client the daemon coalesces per
+        screen and a later frame from the registered client simply overwrites
+        it — this is a preview, not a takeover."""
+        expected = width * height * 2
+        if len(pixels_rgb565be) != expected:
+            raise CLIError(
+                "Display blit needs %d RGB565 bytes for %dx%d, got %d."
+                % (expected, width, height, len(pixels_rgb565be)),
+                EXIT_USAGE,
+            )
+        payload = struct.pack("<BBHHHHI", screen, 0, x, y, width, height, timeout_ms)
+        status, message = self._display_request(
+            TYPE_DISPLAY_BLIT, payload + bytes(pixels_rgb565be), "display blit"
+        )
+        if status != 0:
+            raise CLIError("Display blit refused: %s (%s)" % (message, status), EXIT_COMMAND)
+
+    def _display_barrier(self, action=None, deadline=None):
+        deadline = time.monotonic() + self.timeout if deadline is None else deadline
+        status, message = self._display_request(
+            TYPE_DISPLAY_BARRIER,
+            b"" if action is None else bytes([action]),
+            "display barrier",
+        )
         if status == -11 and time.monotonic() < deadline:
             time.sleep(0.01)
             return self._display_barrier(action=action, deadline=deadline)

@@ -86,8 +86,8 @@ public struct MK2ScenePreviewColors: Sendable, Equatable {
     public var playhead: UInt16
 
     public init(
-        background: UInt16 = 0x0841,
-        border: UInt16 = 0x4208,
+        background: UInt16 = MK2HIG.Chrome.background,
+        border: UInt16 = MK2HIG.Chrome.border,
         beat: UInt16 = 0x1083,
         marker: UInt16 = 0x95f2,
         playhead: UInt16 = 0x464f

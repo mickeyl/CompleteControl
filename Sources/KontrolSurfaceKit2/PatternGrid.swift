@@ -255,7 +255,7 @@ public struct MK2PatternGridColors: Sendable, Equatable {
         empty: UInt16 = 0x4a69,
         highlightedText: UInt16 = 0xffff,
         channelLabel: UInt16 = 0x8410,
-        channelLabelFocused: UInt16 = 0x7dbf,
+        channelLabelFocused: UInt16 = MK2HIG.Chrome.accent,
         ruler: UInt16 = 0x632e,
         separator: UInt16 = 0x4208,
         muteAccent: UInt16 = 0xf8c3,

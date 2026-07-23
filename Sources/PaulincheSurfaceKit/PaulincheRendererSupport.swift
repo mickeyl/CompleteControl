@@ -5,13 +5,13 @@ import KontrolSurfaceKit2
 enum MK2PaulincheRendererSupport {
     // The tracker palette developed in Widget Lab (Tools/WidgetLab).
     enum Palette {
-        static let background: UInt16 = 0x0841 // near-black blue
-        static let text: UInt16 = 0xffff
-        static let dim: UInt16 = 0x8410
+        static let background = MK2HIG.Chrome.background
+        static let text = MK2HIG.Chrome.text
+        static let dim = MK2HIG.Chrome.dim
         static let credit: UInt16 = 0xbdf7
         static let creditDim: UInt16 = 0x632c
-        static let border: UInt16 = 0x4208
-        static let blue: UInt16 = 0x7dbf
+        static let border = MK2HIG.Chrome.border
+        static let blue = MK2HIG.Chrome.accent
         static let green: UInt16 = 0x464f
         static let orange: UInt16 = 0xec88
         static let solo: UInt16 = 0x03ff

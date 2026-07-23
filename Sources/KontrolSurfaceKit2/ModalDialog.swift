@@ -24,14 +24,14 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
 
     public init(
         background: UInt16 = 0x0000,
-        text: UInt16 = 0xffff,
-        dim: UInt16 = 0x8410,
-        accent: UInt16 = 0x7dbf,
-        destructive: UInt16 = 0xec88,
-        warning: UInt16 = 0xfe00,
+        text: UInt16 = MK2HIG.Chrome.text,
+        dim: UInt16 = MK2HIG.Chrome.dim,
+        accent: UInt16 = MK2HIG.Chrome.accent,
+        destructive: UInt16 = MK2HIG.Chrome.destructive,
+        warning: UInt16 = MK2HIG.Palette.warn,
         question: UInt16 = 0x9a7f,
-        selectionFill: UInt16 = 0x2126,
-        border: UInt16 = 0x4208
+        selectionFill: UInt16 = MK2HIG.Selection.fill,
+        border: UInt16 = MK2HIG.Chrome.border
     ) {
         self.background = background
         self.text = text
@@ -215,7 +215,7 @@ public struct MK2ModalDialog: Sendable {
             let rect = MK2PixelRect(x: 24, y: 62 + index * 74, width: 432, height: 62)
             let selected = index == selectedIndex
             if selected {
-                frame.drawRoundedPanel(rect, fill: colors.selectionFill, border: tone, radius: 7)
+                frame.drawSelectionHighlight(rect, radius: 7, fill: colors.selectionFill, accent: tone)
             }
             drawTitle(action.title, renderer: renderer, into: &frame, x: 44, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: 392)
             if let detail = action.detail {

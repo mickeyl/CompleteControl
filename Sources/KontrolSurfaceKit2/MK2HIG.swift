@@ -123,6 +123,48 @@ public enum MK2HIG {
         }
     }
 
+    /// Aurora semantic accents (design review 2026-07-22, bench-pending):
+    /// color carries meaning, never decoration — cyan navigates, violet marks
+    /// loop regions, mint confirms, amber warns, coral clips. Quantized from
+    /// the review's sRGB values (#55c7ff, #7668ff, #63e6be, #ffb454, #ff6d6d).
+    /// Deliberately separate from `Chrome.accent`/`Chrome.shiftAccent`: those
+    /// stay the shipped identity until a scene adopts a role explicitly.
+    public enum Palette {
+        public static let navigation: UInt16 = 0x563f
+        public static let loop: UInt16 = 0x735f
+        public static let confirm: UInt16 = 0x6737
+        public static let warn: UInt16 = 0xfd8a
+        public static let clip: UInt16 = 0xfb6d
+    }
+
+    /// The Aurora selection treatment: hierarchy through light, not through
+    /// inversion or extra frames. Factors are relative to the scene's
+    /// `selectionFill` so every scene keeps its own tone. History: flat
+    /// `selectionFill` panel until 2026-07-23; the gradient+edge form comes
+    /// from the accepted parts of the 2026-07-22 design review.
+    public enum Selection {
+        /// The shared base tone under the highlight gradient — one value for
+        /// selection lists, grids and dialog actions.
+        public static let fill: UInt16 = 0x2126
+        /// Vertical falloff endpoints — lit from the shared top-left source.
+        public static let fillTopLift = 1.5
+        public static let fillBottomDrop = 0.72
+        /// The 1px light edge directly under the accent ring.
+        public static let lightEdgeLift = 2.2
+    }
+
+    /// The debossed encoder well. Deeper than the pre-Aurora deboss
+    /// (ring 0.45→1.8, fill 0.7→1.2 until 2026-07-23) so the cell reads as a
+    /// physical recess bound to the encoder beneath the display.
+    public enum Well {
+        /// Border ring: shadow rim at the top falling to a lit bottom edge.
+        public static let rimShadow = 0.35
+        public static let rimLight = 2.1
+        /// Interior falloff: occluded at the top, catching light below.
+        public static let fillTopDrop = 0.5
+        public static let fillBottomLift = 1.35
+    }
+
     public enum Chrome {
         public static let background: UInt16 = 0x0841
         // Raised-band bevel for header and footer. Deliberately neutral graphite —
@@ -136,9 +178,15 @@ public enum MK2HIG {
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
         public static let accent: UInt16 = 0x7dbf // light blue (123, 182, 255)
-        /// Destructive command labels and warnings. Kept warmer and lighter
-        /// than meter danger red so small hardware captions remain legible.
-        public static let destructive: UInt16 = 0xec88
+        /// Destructive command labels and warnings — the single warn-family
+        /// amber, shared with `Palette.warn`. History: 0xec88 until
+        /// 2026-07-23, when the bench confirmed the four amber-family tones
+        /// (0xec88, 0xfe00, shiftAccent, warn) read as one hue anyway and
+        /// consolidated warnings and destructive labels onto `Palette.warn`;
+        /// `shiftAccent` stays deliberately separate (verified
+        /// distinguishable side by side on the OLEDs). The tracker FX column
+        /// keeps its own 0xec88 — that is syntax coloring, not a warning.
+        public static let destructive: UInt16 = Palette.warn
         // Shift-layer treatment: labels that only apply while SHIFT is held render
         // in this amber, the classic shifted-function idiom — deliberately not the
         // accent (call to action) and not plain text (base layer). Judged on

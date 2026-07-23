@@ -100,23 +100,24 @@ public struct MK2ValueCell: Sendable {
 
         // The value well is debossed into the panel: the border ring runs from a dark
         // shadow rim at the top into a lit edge at the bottom, and the fill falls
-        // slightly the same way — pressed in, lit from above. Both gradients quantize
-        // dithered so the ramps stay band-free on the OLED.
+        // the same way — pressed in, lit from above. The `MK2HIG.Well` depth makes
+        // the recess read as physically bound to the encoder beneath the display.
+        // Both gradients quantize dithered so the ramps stay band-free on the OLED.
         let fill = isFocused ? colors.focusedFill : colors.fill
         let border = isFocused ? colors.focusedBorder : colors.border
         frame.fillRoundedVerticalGradient(
             rect,
             radius: cornerRadius,
-            top: border.scaled565(by: 0.45),
-            bottom: border.scaled565(by: 1.8),
+            top: border.scaled565(by: MK2HIG.Well.rimShadow),
+            bottom: border.scaled565(by: MK2HIG.Well.rimLight),
             antialiased: true
         )
         if rect.width > 2, rect.height > 2 {
             frame.fillRoundedVerticalGradient(
                 MK2PixelRect(x: rect.x + 1, y: rect.y + 1, width: rect.width - 2, height: rect.height - 2),
                 radius: max(0, cornerRadius - 1),
-                top: fill.scaled565(by: 0.7),
-                bottom: fill.scaled565(by: 1.2),
+                top: fill.scaled565(by: MK2HIG.Well.fillTopDrop),
+                bottom: fill.scaled565(by: MK2HIG.Well.fillBottomLift),
                 antialiased: true
             )
         }
@@ -139,7 +140,9 @@ public struct MK2ValueCell: Sendable {
         let style = MK2HIG.iconStyle(pixelSize: pixelSize, color: colors.icon ?? colors.label.scaled565(by: 1.6))
         guard let width = try? renderer.measure(iconGlyph, style: style), width > 0 else { return 0 }
         let x = iconPosition == .leading ? rect.x : rect.maxX - width
-        let y = labelY - 2
+        let y = MK2IconAlignment.capBandCenter(labelTop: labelY, font: labelFont, renderer: renderer)
+            .flatMap { MK2IconAlignment.iconTop(glyph: iconGlyph, style: style, centeredOn: $0, renderer: renderer) }
+            ?? labelY - 2
         guard (try? renderer.drawText(iconGlyph, into: &frame, x: x, y: y, style: style, maxWidth: width + pixelSize)) != nil else { return 0 }
         return iconPosition == .leading ? width + Self.iconGap : 0
     }

@@ -118,7 +118,7 @@ public struct MK2MeterElement: MK2ScreenElement {
 
     private func drawHorizontalBar(_ channel: MK2MeterChannel, in rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
         frame.fill(rect, trackColor)
-        frame.stroke(rect, borderColor)
+        frame.strokeInset(rect, borderColor)
         let inner = rect.insetBy(dx: 1, dy: 1)
         let level = channel.level.clamped01()
         let fillWidth = Int((Double(inner.width) * level).rounded())
@@ -132,7 +132,7 @@ public struct MK2MeterElement: MK2ScreenElement {
         }
         if showsPeak, let peak = channel.peak {
             let peakX = inner.x + Int((Double(max(0, inner.width - 1)) * peak.clamped01()).rounded())
-            frame.fill(MK2PixelRect(x: peakX, y: inner.y, width: 2, height: inner.height), peakColor)
+            frame.fill(MK2PixelRect(x: peakX, y: inner.y, width: 1, height: inner.height), peakColor)
         }
     }
 
@@ -148,7 +148,7 @@ public struct MK2MeterElement: MK2ScreenElement {
 
     private func drawVerticalBar(_ channel: MK2MeterChannel, in rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
         frame.fill(rect, trackColor)
-        frame.stroke(rect, borderColor)
+        frame.strokeInset(rect, borderColor)
         let inner = rect.insetBy(dx: 1, dy: 1)
         let level = channel.level.clamped01()
         let fillHeight = Int((Double(inner.height) * level).rounded())
@@ -162,7 +162,7 @@ public struct MK2MeterElement: MK2ScreenElement {
         }
         if showsPeak, let peak = channel.peak {
             let peakY = inner.maxY - 1 - Int((Double(max(0, inner.height - 1)) * peak.clamped01()).rounded())
-            frame.fill(MK2PixelRect(x: inner.x, y: peakY, width: inner.width, height: 2), peakColor)
+            frame.fill(MK2PixelRect(x: inner.x, y: peakY, width: inner.width, height: 1), peakColor)
         }
     }
 

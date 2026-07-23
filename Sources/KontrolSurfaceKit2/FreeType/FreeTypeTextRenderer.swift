@@ -57,6 +57,15 @@ public struct FreeTypeTextMetrics: Sendable, Equatable {
     public var bodyHeight: Int { ascender - descender }
 }
 
+/// The measured vertical ink box of a shaped run — exact for the pixels
+/// `drawText` will place, unlike the style metrics, which describe the em.
+/// `top` is relative to the baseline (negative above it); `drawText`'s `y`
+/// parameter maps to `baseline - ascender`.
+public struct FreeTypeInkExtent: Sendable, Equatable {
+    public var top: Int
+    public var height: Int
+}
+
 public struct FreeTypeTextLayout: Sendable, Equatable {
     public var lines: [String]
     public var lineHeight: Int
@@ -253,6 +262,17 @@ public final class FreeTypeTextRenderer: @unchecked Sendable {
         defer { renderLock.unlock() }
 
         return try cachedRun(text, style: style, layout: .proportional).advanceWidth
+    }
+
+    /// Vertical ink extent of `text`, baseline-relative (see
+    /// `FreeTypeInkExtent`). Whitespace-only runs report `height == 0`.
+    /// Backed by the run cache, so repeated probes are cheap.
+    public func inkExtent(_ text: String, style: FreeTypeTextStyle) throws -> FreeTypeInkExtent {
+        renderLock.lock()
+        defer { renderLock.unlock() }
+
+        let run = try cachedRun(text, style: style, layout: .proportional)
+        return FreeTypeInkExtent(top: run.boundsY, height: run.height)
     }
 
     public func drawText(

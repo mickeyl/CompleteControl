@@ -10,8 +10,11 @@ target, daemon branch, diagnostic tool, or device descriptor.
 
 `Docs/Komplete-Kontrol-Protocol-Guide.md` is the canonical hardware protocol
 reference. Bench-verified protocol findings must be added there in the same
-change as the implementation. Keep `README.md` user-facing and
-`Docs/Backlog.md` limited to deferred work.
+change as the implementation. `Docs/HIG.md` is the canonical hardware UI
+specification (tokens, materials, chrome, components, interaction); visual
+or interaction changes to Kit2 must update it — including regenerated
+`Docs/images/hig/` snapshots — in the same change. Keep `README.md`
+user-facing and `Docs/Backlog.md` limited to deferred work.
 
 ## Products
 

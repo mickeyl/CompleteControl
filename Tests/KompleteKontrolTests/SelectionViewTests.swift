@@ -8,10 +8,13 @@ import KompleteKontrol
 /// worked for yellow, which saturates under the gradient's clamp). Count
 /// bright pixels instead.
 private func countBrightPixels(_ frame: MK2PixelFrame, in rect: MK2PixelRect) -> Int {
+    // `pixels(in:)` returns wire-order (big-endian) values — convert before
+    // splitting channels, or the threshold classifies swapped colors.
     frame.pixels(in: rect).filter { pixel in
-        let r = Int((pixel >> 11) & 0x1f)
-        let g = Int((pixel >> 5) & 0x3f)
-        let b = Int(pixel & 0x1f)
+        let value = UInt16(bigEndian: pixel)
+        let r = Int((value >> 11) & 0x1f)
+        let g = Int((value >> 5) & 0x3f)
+        let b = Int(value & 0x1f)
         return r + g + b > 55
     }.count
 }
@@ -213,7 +216,9 @@ struct SelectionViewTests {
             background: 0x0000,
             selectionFill: 0xffff
         )
-        let rowRect = MK2PixelRect(x: 8, y: 68, width: 464, height: 29)
+        // Row origin + 3: the highlight sits 3px below the row band (was +1
+        // until the 2026-07-23 baseline-clearance shift).
+        let rowRect = MK2PixelRect(x: 8, y: 70, width: 464, height: 29)
         var frame = MK2PixelFrame()
 
         MK2SelectionList(
@@ -261,10 +266,13 @@ struct SelectionViewTests {
             colors: colors
         ).draw(into: &frame)
 
+        // The highlight is a dithered vertical gradient over `selectionFill`
+        // (Aurora), so exact-color counting no longer applies — the descender
+        // band is covered when it is not background.
         #expect(
             frame.countPixels(
                 in: MK2PixelRect(x: 32, y: 80, width: 416, height: 1),
-                matching: colors.selectionFill
+                where: { $0 != colors.background }
             ) > 300
         )
     }
@@ -370,13 +378,17 @@ struct SelectionViewTests {
 
         let contentY = MK2SelectionLayout.contentY
         // The header band renders above the rows: caption pixels in the
-        // trailing ROWS header region.
-        #expect(countBrightPixels(frame, in: MK2PixelRect(x: 20 + 300, y: contentY, width: 44, height: 18)) > 0)
+        // trailing ROWS header region. The muted caption tone sits below the
+        // brightness threshold, so probe for any non-background ink.
+        let headerBand = MK2PixelRect(x: 20 + 300, y: contentY, width: 44, height: 18)
+        #expect(frame.countPixels(in: headerBand, where: { $0 != MK2SelectionViewColors().background }) > 0)
         // Trailing-aligned fixed-pitch value: pixels hug the column's right
         // edge, the leading half stays empty.
         let rowY = contentY + 18
         let posColumn = MK2PixelRect(x: 20, y: rowY, width: 36, height: 30)
-        let posLeading = MK2PixelRect(x: 20, y: rowY, width: 16, height: 30)
+        // The leading-empty probe starts below the selection ring and light
+        // edge, which now cross the top of the selected row (Aurora).
+        let posLeading = MK2PixelRect(x: 20, y: rowY + 4, width: 16, height: 22)
         #expect(countBrightPixels(frame, in: posColumn) > 0)
         #expect(countBrightPixels(frame, in: posLeading) == 0)
         // The proportional title column renders too.
@@ -459,10 +471,14 @@ private let sampleItems = [
 
 private extension MK2PixelFrame {
     func countPixels(in rect: MK2PixelRect, matching color: UInt16) -> Int {
+        countPixels(in: rect, where: { $0 == color })
+    }
+
+    func countPixels(in rect: MK2PixelRect, where predicate: (UInt16) -> Bool) -> Int {
         guard let clipped = rect.clipped(to: MK2PixelFrame.bounds) else { return 0 }
         var count = 0
         for y in clipped.y..<clipped.maxY {
-            for x in clipped.x..<clipped.maxX where self[x, y] == color {
+            for x in clipped.x..<clipped.maxX where predicate(self[x, y]) {
                 count += 1
             }
         }
