@@ -143,6 +143,9 @@ public enum MK2HIG {
     /// `selectionFill` panel until 2026-07-23; the gradient+edge form comes
     /// from the accepted parts of the 2026-07-22 design review.
     public enum Selection {
+        /// The shared base tone under the highlight gradient — one value for
+        /// selection lists, grids and dialog actions.
+        public static let fill: UInt16 = 0x2126
         /// Vertical falloff endpoints — lit from the shared top-left source.
         public static let fillTopLift = 1.5
         public static let fillBottomDrop = 0.72

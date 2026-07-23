@@ -24,14 +24,14 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
 
     public init(
         background: UInt16 = 0x0000,
-        text: UInt16 = 0xffff,
-        dim: UInt16 = 0x8410,
+        text: UInt16 = MK2HIG.Chrome.text,
+        dim: UInt16 = MK2HIG.Chrome.dim,
         accent: UInt16 = MK2HIG.Chrome.accent,
         destructive: UInt16 = MK2HIG.Chrome.destructive,
         warning: UInt16 = MK2HIG.Palette.warn,
         question: UInt16 = 0x9a7f,
-        selectionFill: UInt16 = 0x2126,
-        border: UInt16 = 0x4208
+        selectionFill: UInt16 = MK2HIG.Selection.fill,
+        border: UInt16 = MK2HIG.Chrome.border
     ) {
         self.background = background
         self.text = text

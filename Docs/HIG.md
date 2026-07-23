@@ -189,7 +189,7 @@ shadow, blur, vignette) is out of vocabulary.
 | --- | --- | --- |
 | **Raised band** | fill `headerFill`, 1px `headerTopLine` top edge, 1px true-black bottom shadow | headers, footers, function-key chips |
 | **Debossed well** (`MK2HIG.Well`) | border ring top×0.35 → bottom×2.1, interior fill top×0.5 → bottom×1.35, both dithered | value cells, filter cells |
-| **Selection highlight** (`MK2HIG.Selection`, `drawSelectionHighlight`) | 1px accent ring, interior gradient top×1.5 → bottom×0.72 over `selectionFill`, 1px light edge (×2.2) under the ring, radius 7 | list rows, grid cells, dialog actions |
+| **Selection highlight** (`MK2HIG.Selection`, `drawSelectionHighlight`) | 1px accent ring, interior gradient top×1.5 → bottom×0.72 over the shared base tone `Selection.fill` (0x2126), 1px light edge (×2.2) under the ring, radius 7 | list rows, grid cells, dialog actions |
 | **Inset stroke** (`strokeInset`) | 1px frame: top×0.55 (shadow), bottom×1.7 (lit), sides ×1.0 | meter tracks, sunk frames |
 
 History: selection was a flat `selectionFill` panel and wells used
@@ -333,6 +333,7 @@ so lines continue optically across the physical seam.
 | Meter inset track + 1px peak | **adopted 2026-07-23**, bench-pending |
 | Semantic palette tokens | tokens present, not wired into `Chrome` |
 | `Chrome.accent` centralization (six literal copies) | **adopted 2026-07-23** — theme tokens only work when there is exactly one |
+| Chrome-mirror literal sweep (background/text/dim/border/footerFill/headerFill, `Selection.fill` token) | **adopted 2026-07-23**, pixel-neutral over all 75 renders. Deliberately not centralized: the approved tracker palette (`PatternGrid`, note/instrument/effect, stripe/fills), decorative oranges, and the daemon's NO CLIENT drawing (below the Kit2 layer) — value coincidence is not role identity |
 | `Chrome.accent` → `Palette.navigation` recolor | **rejected 2026-07-23** — indistinguishable on the OLEDs (side-by-side and flip-flop); identity stays 0x7dbf |
 | Amber conflict (`warn` vs `shiftAccent`) | **resolved 2026-07-23** — four ambers collapsed to two: `warn` (warnings + destructive) and `shiftAccent` (shift layer), bench-verified distinguishable |
 | Waveform Aurora ramp | rejected until app+hardware change jointly |

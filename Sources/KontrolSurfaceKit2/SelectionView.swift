@@ -282,15 +282,15 @@ public struct MK2SelectionViewColors: Sendable, Equatable {
     public var filterValue: UInt16
 
     public init(
-        background: UInt16 = 0x0841,
-        text: UInt16 = 0xffff,
-        dim: UInt16 = 0x8410,
+        background: UInt16 = MK2HIG.Chrome.background,
+        text: UInt16 = MK2HIG.Chrome.text,
+        dim: UInt16 = MK2HIG.Chrome.dim,
         muted: UInt16 = 0x4a69,
         accent: UInt16 = MK2HIG.Chrome.accent,
-        selectionFill: UInt16 = 0x2126,
-        border: UInt16 = 0x4208,
-        filterFill: UInt16 = 0x1083,
-        filterValue: UInt16 = 0xffff
+        selectionFill: UInt16 = MK2HIG.Selection.fill,
+        border: UInt16 = MK2HIG.Chrome.border,
+        filterFill: UInt16 = MK2HIG.Chrome.footerFill,
+        filterValue: UInt16 = MK2HIG.Chrome.text
     ) {
         self.background = background
         self.text = text
