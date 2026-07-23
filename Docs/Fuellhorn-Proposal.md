@@ -1,10 +1,12 @@
 # Füllhorn — a greenfield visual direction
 
-**Status: proposal** (exploration 2026-07-23, bench first look: enthusiastic —
-"die Farbverläufe kommen extrem gut zum Tragen"). This document specifies the
-direction completely so it can be judged, partially grafted, or adopted; the
-shipped identity remains `Docs/HIG.md` (Aurora Graphite) until a bench
-decision says otherwise.
+**Status: decided — Füllhorn is the next HIG** (bench decision 2026-07-23:
+"100%, ich möchte mit Füllhorn als HIG gehen"). Execution is deliberately
+deferred: the full renewal starts once the interaction concept carries and
+every dialog exists on both app and hardware, so the redesign works from the
+complete UI vocabulary — all verbs and adjectives — instead of guessing it.
+Until then the shipped identity remains `Docs/HIG.md` (Aurora Graphite) and
+no further design rounds happen; feature work has priority.
 
 All renderings are pixel-honest: 480×272, the identity fonts, every gradient
 Bayer-4×4-dithered and RGB565-quantized. What you see here is byte-for-byte
