@@ -338,6 +338,8 @@ so lines continue optically across the physical seam.
 | Amber conflict (`warn` vs `shiftAccent`) | **resolved 2026-07-23** — four ambers collapsed to two: `warn` (warnings + destructive) and `shiftAccent` (shift layer), bench-verified distinguishable |
 | Waveform Aurora ramp | rejected until app+hardware change jointly |
 | Full-screen washes / vignettes / soft glows | rejected permanently (§1, §6) |
+| Object-identity colors (NI-inspired, 2026-07-23) | **proposed** — a second, orthogonal color axis: user/group/instrument colors carried by *content* (pattern channels, arranger rows, tiles, selection tint in content contexts), as on the MASCHINE MK3 factory UI. Does not touch the semantic accents; lives inside the 15% structuring share of the 80/15/5 rule. Needs a Paulinche-side data model (per-instrument color) first |
+| Chrome diet (NI-inspired, 2026-07-23) | **proposed** — measured on the MK3 factory UI (normalized to 480×272): function chips ~26px vs our 32px raised header, knob zone ~42–50px vs our 62px encoder footer. Candidate: slim the well (`encoderSlotHeight` 38→~33, footer derives 62→~57) without giving up the deboss; every saved row is tracker content. Bench A/B pending |
 
 Bench rounds happen per `hardware-feel` practice: one variable at a time,
 constants annotated with what was tried and why the current value won.
