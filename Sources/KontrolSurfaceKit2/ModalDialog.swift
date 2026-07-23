@@ -27,8 +27,8 @@ public struct MK2ModalDialogColors: Sendable, Equatable {
         text: UInt16 = 0xffff,
         dim: UInt16 = 0x8410,
         accent: UInt16 = MK2HIG.Chrome.accent,
-        destructive: UInt16 = 0xec88,
-        warning: UInt16 = 0xfe00,
+        destructive: UInt16 = MK2HIG.Chrome.destructive,
+        warning: UInt16 = MK2HIG.Palette.warn,
         question: UInt16 = 0x9a7f,
         selectionFill: UInt16 = 0x2126,
         border: UInt16 = 0x4208

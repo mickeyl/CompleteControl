@@ -175,9 +175,15 @@ public enum MK2HIG {
         public static let text: UInt16 = 0xffff
         public static let dim: UInt16 = 0x8410
         public static let accent: UInt16 = 0x7dbf // light blue (123, 182, 255)
-        /// Destructive command labels and warnings. Kept warmer and lighter
-        /// than meter danger red so small hardware captions remain legible.
-        public static let destructive: UInt16 = 0xec88
+        /// Destructive command labels and warnings — the single warn-family
+        /// amber, shared with `Palette.warn`. History: 0xec88 until
+        /// 2026-07-23, when the bench confirmed the four amber-family tones
+        /// (0xec88, 0xfe00, shiftAccent, warn) read as one hue anyway and
+        /// consolidated warnings and destructive labels onto `Palette.warn`;
+        /// `shiftAccent` stays deliberately separate (verified
+        /// distinguishable side by side on the OLEDs). The tracker FX column
+        /// keeps its own 0xec88 — that is syntax coloring, not a warning.
+        public static let destructive: UInt16 = Palette.warn
         // Shift-layer treatment: labels that only apply while SHIFT is held render
         // in this amber, the classic shifted-function idiom — deliberately not the
         // accent (call to action) and not plain text (base layer). Judged on
