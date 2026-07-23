@@ -12,14 +12,14 @@ struct ScreenLayoutTests {
         #expect(headerless.contentRect == MK2PixelRect(x: 8, y: 8, width: 464, height: 256))
 
         let titled = MK2ScreenLayout.regular(header: .title(title: "T"))
-        #expect(titled.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 32))
-        #expect(titled.contentRect.y == 37)
+        #expect(titled.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 28))
+        #expect(titled.contentRect.y == 33)
     }
 
     @Test("Header and hint footer heights derive from the chrome typography")
     func chromeBandHeightsDeriveFromTypography() {
         let defaults = MK2ScreenLayout.regular(header: .title(title: "T"), footer: .hint("h"))
-        #expect(defaults.headerRect?.height == 32)
+        #expect(defaults.headerRect?.height == 28)
         #expect(defaults.footerRect?.height == 25)
 
         let compact = MK2ScreenLayout.regular(
@@ -27,8 +27,8 @@ struct ScreenLayoutTests {
             footer: .hint("h"),
             typography: MK2ScreenChromeTypography(captionPixelSize: 12, footnotePixelSize: 12)
         )
-        #expect(compact.headerRect?.height == 26)
-        #expect(compact.contentRect.y == 31)
+        #expect(compact.headerRect?.height == 22)
+        #expect(compact.contentRect.y == 27)
         #expect(compact.footerRect?.height == 24)
     }
 
@@ -49,8 +49,8 @@ struct ScreenLayoutTests {
     @Test("Progress bar hugs the header bottom or the top edge")
     func progressBarTopPlacement() {
         let withHeader = MK2ScreenLayout.regular(header: .title(title: "T"), progress: .top)
-        #expect(withHeader.progressRect == MK2PixelRect(x: 0, y: 32, width: 480, height: 2))
-        #expect(withHeader.contentRect.y == 37)
+        #expect(withHeader.progressRect == MK2PixelRect(x: 0, y: 28, width: 480, height: 2))
+        #expect(withHeader.contentRect.y == 33)
 
         let withoutHeader = MK2ScreenLayout.regular(progress: .top)
         #expect(withoutHeader.progressRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 2))
@@ -81,11 +81,11 @@ struct ScreenLayoutTests {
             Int((color >> 11) & 0x1f) + Int((color >> 5) & 0x3f) + Int(color & 0x1f)
         }
 
-        // Header band 0..31 is debossed (2026-07-23): shadow edge at the top,
+        // Header band 0..27 is debossed (2026-07-23): shadow edge at the top,
         // gradient rising toward the lit edge that faces the content.
         #expect(frame[300, 0] == MK2HIG.Chrome.headerBottomLine)
-        #expect(luminance(frame[300, 2]) < luminance(frame[300, 29]))
-        #expect(frame[300, 31] == MK2HIG.Chrome.headerTopLine)
+        #expect(luminance(frame[300, 2]) < luminance(frame[300, 25]))
+        #expect(frame[300, 27] == MK2HIG.Chrome.headerTopLine)
         // Footer band 215..271 gets the same treatment.
         #expect(frame[300, 215] == MK2HIG.Chrome.headerTopLine)
         #expect(luminance(frame[300, 218]) > luminance(frame[300, 268]))
@@ -100,7 +100,7 @@ struct ScreenLayoutTests {
         ) {}.build(renderer: try? FreeTypeTextRenderer())
 
         let frame = result.screen.frame
-        let barRect = MK2PixelRect(x: 0, y: 32, width: 480, height: 2)
+        let barRect = MK2PixelRect(x: 0, y: 28, width: 480, height: 2)
         var fillCount = 0
         var trackCount = 0
         var distinctFillColors = Set<UInt16>()
@@ -119,7 +119,7 @@ struct ScreenLayoutTests {
         #expect(trackCount == 240 * 2)
         // The fill ramps from fillStart to fillEnd instead of being one flat color.
         #expect(distinctFillColors.count > 8)
-        #expect(frame[0, 32] == MK2HIG.Chrome.progressFillStart)
-        #expect(frame[239, 32] == MK2HIG.Chrome.progressFillEnd)
+        #expect(frame[0, 28] == MK2HIG.Chrome.progressFillStart)
+        #expect(frame[239, 28] == MK2HIG.Chrome.progressFillEnd)
     }
 }

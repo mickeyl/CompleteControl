@@ -60,17 +60,20 @@ public enum MK2ScreenHeader: Sendable {
 
     /// The band height derives from the caption style the header text is set in,
     /// so tuning `MK2ScreenChromeTypography.captionPixelSize` resizes the header.
-    /// A leading subtitle adds a second text line.
+    /// A leading subtitle adds a second text line. History: `× 2 + 2` (32px)
+    /// until 2026-07-23 — the chrome-diet header round tightened the band to
+    /// the MASCHINE-factory-UI proportion; text stays centered because the
+    /// header centers its cap band metrically, not by formula.
     public func height(for typography: MK2ScreenChromeTypography = MK2ScreenChromeTypography()) -> Int {
         switch self {
             case .none:
                 return 0
             case let .title(_, subtitle, alignment):
-                let base = typography.captionPixelSize * 2 + 2
+                let base = typography.captionPixelSize * 2 - 2
                 guard subtitle != nil, alignment == .leading else { return base }
                 return base + typography.captionPixelSize + 2
             case .status:
-                return typography.captionPixelSize * 2 + 2
+                return typography.captionPixelSize * 2 - 2
         }
     }
 }
@@ -324,7 +327,8 @@ public struct MK2RegularScreenChrome: Sendable {
             case .none:
                 return
             case let .title(title, subtitle, subtitleAlignment):
-                let lineY = Self.titleHeaderTextY(for: typography)
+                let lines = (subtitle != nil && subtitleAlignment == .leading) ? 2 : 1
+                let lineY = captionLineY(renderer: renderer, lines: lines) ?? Self.titleHeaderTextY(for: typography)
                 drawHeaderBackdrop(into: &frame)
                 drawCaption(title, into: &frame, renderer: renderer, x: 8, y: lineY, color: colors.accent, maxWidth: 220)
                 guard let subtitle else { return }
@@ -336,8 +340,38 @@ public struct MK2RegularScreenChrome: Sendable {
                 }
             case let .status(items):
                 drawHeaderBackdrop(into: &frame)
-                MK2StatusLine(y: Self.statusHeaderTextY(for: typography), items: items).draw(into: &frame)
+                let statusY = statusLineY(renderer: renderer) ?? Self.statusHeaderTextY(for: typography)
+                MK2StatusLine(y: statusY, items: items).draw(into: &frame)
         }
+    }
+
+    /// Header text centers its measured cap band on the band's mid-height.
+    /// The static formulas below only know the caption size, so any change to
+    /// the band height silently pushed the text off-center — bench-caught at
+    /// the 28px tightening; the same box-vs-ink trap as icons and well
+    /// values. The static forms remain as the renderer-less fallback.
+    private func captionLineY(renderer: FreeTypeTextRenderer?, lines: Int) -> Int? {
+        guard let renderer, let headerRect = layout.headerRect else { return nil }
+        let style = MK2HIG.textStyle(
+            weight: MK2HIG.Fonts.captionWeight,
+            pixelSize: typography.captionPixelSize,
+            color: 0xffff
+        )
+        guard let metrics = try? renderer.metrics(style: style),
+              let cap = try? renderer.inkExtent("H", style: style),
+              cap.height > 0 else { return nil }
+        let blockHeight = (lines - 1) * (typography.captionPixelSize + 2) + cap.height
+        let inkTop = headerRect.y + (headerRect.height - blockHeight) / 2
+        return inkTop - metrics.ascender - cap.top
+    }
+
+    private func statusLineY(renderer: FreeTypeTextRenderer?) -> Int? {
+        guard let renderer, let headerRect = layout.headerRect else { return nil }
+        let font = SurfaceFont.grid
+        guard let figures = try? renderer.inkExtent("0", style: font.measurementStyle),
+              figures.height > 0 else { return nil }
+        let inkTop = headerRect.y + (headerRect.height - figures.height) / 2
+        return inkTop - font.ascent - figures.top
     }
 
     private func drawHeaderBackdrop(into frame: inout MK2PixelFrame) {

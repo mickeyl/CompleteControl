@@ -119,12 +119,12 @@ struct SelectionViewTests {
         let filtered = MK2SelectionLayout.contentRect(hasFilters: true)
         let iconCell = MK2SelectionCellSize(width: 58, height: 58)
 
-        #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 32))
+        #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 28))
         #expect(regular.contentRect == full)
         #expect(filteredScreen.contentRect == filtered)
         #expect(filteredScreen.footerRect == MK2PixelRect(x: 0, y: 215, width: 480, height: 57))
-        #expect(full == MK2PixelRect(x: 8, y: 37, width: 464, height: 227))
-        #expect(filtered == MK2PixelRect(x: 8, y: 37, width: 464, height: 171))
+        #expect(full == MK2PixelRect(x: 8, y: 33, width: 464, height: 231))
+        #expect(filtered == MK2PixelRect(x: 8, y: 33, width: 464, height: 175))
         #expect(MK2SelectionLayout.gridColumnCount(for: iconCell) == 8)
         #expect(MK2SelectionLayout.gridRowStep(for: iconCell) == 8)
         #expect(MK2SelectionGrid.columnCount(for: iconCell) == MK2SelectionLayout.gridColumnCount(for: iconCell))
@@ -143,9 +143,9 @@ struct SelectionViewTests {
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 8, y: 6, width: 80, height: 14)) > 10)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 420, y: 6, width: 52, height: 14)) > 10)
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
-        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 30)) > 13_000)
-        #expect(frame[300, 2] != frame[300, 29])
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 31, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
+        #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 1, width: 480, height: 26)) > 11_000)
+        #expect(frame[300, 2] != frame[300, 25])
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 27, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 211, width: 480, height: 60)) > 25_000)
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 215, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
     }
@@ -271,7 +271,7 @@ struct SelectionViewTests {
         // band is covered when it is not background.
         #expect(
             frame.countPixels(
-                in: MK2PixelRect(x: 32, y: 80, width: 416, height: 1),
+                in: MK2PixelRect(x: 32, y: 76, width: 416, height: 1),
                 where: { $0 != colors.background }
             ) > 300
         )

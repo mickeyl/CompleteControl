@@ -85,10 +85,10 @@ struct ScreenDSLTests {
             ])
         }.build(renderer: renderer)
 
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 90, width: 148, height: 44), notMatching: MK2HIG.Chrome.background) > 20)
-        #expect(result.screen.frame[16, 164] != MK2HIG.Chrome.background)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 117, y: 165, width: 60, height: 12), matching: MK2HIG.Chrome.accent) > 10)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 252, y: 196, width: 90, height: 56), notMatching: MK2HIG.Chrome.background) > 10)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 86, width: 148, height: 44), notMatching: MK2HIG.Chrome.background) > 20)
+        #expect(result.screen.frame[16, 160] != MK2HIG.Chrome.background)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 117, y: 161, width: 60, height: 12), matching: MK2HIG.Chrome.accent) > 10)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 252, y: 192, width: 90, height: 56), notMatching: MK2HIG.Chrome.background) > 10)
     }
 
     @Test("Wrapped content text honors centered alignment")
@@ -341,8 +341,8 @@ struct ScreenDSLTests {
 
         #expect(box.touched)
         #expect(box.lastValue == 5)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 76, width: 440, height: 40), notMatching: MK2HIG.Chrome.background) > 80)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 420, y: 148, width: 32, height: 10), matching: MK2HIG.Chrome.accent) > 0)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 8, y: 72, width: 440, height: 40), notMatching: MK2HIG.Chrome.background) > 80)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 420, y: 144, width: 32, height: 10), matching: MK2HIG.Chrome.accent) > 0)
     }
 
     @Test("Meter element draws levels and peak markers")

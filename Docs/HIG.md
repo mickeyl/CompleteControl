@@ -57,13 +57,13 @@ Layout tokens (`MK2ScreenLayout`):
 | --- | --- | --- |
 | `bounds` | 480×272 | one display |
 | `margin` / `contentInset` | 8 | outer margin, content inset |
-| header height (`.title`, `.status`) | 32 | `captionPixelSize × 2 + 2`; leading subtitle adds `captionPixelSize + 2` |
+| header height (`.title`, `.status`) | 28 | `captionPixelSize × 2 − 2` (32 until the 2026-07-23 header diet); leading subtitle adds `captionPixelSize + 2`. Header text centers its cap band metrically on the band — never by formula |
 | hint footer height | 25 | `footnotePixelSize + 12` |
 | `encoderFooterHeight` | 57 | derived: slot 33 + bottom inset 2 + label 13 + gap 3 + 6 — never a literal |
 | `encoderSlotXs` | 8, 126, 244, 362 | four bottom-flush slots per display |
 | `encoderSlotWidth` × `Height` | 110×33 | value well size (38 until the 2026-07-23 chrome diet; filter cells share the slot height) |
 | `MK2ScreenProgressBar.height` | 2 | top or bottom placement |
-| content rect (title + hint) | 8,37 → 464×203 | `contentRect` for the regular layout |
+| content rect (title + hint) | 8,33 → 464×207 | `contentRect` for the regular layout |
 
 Encoder cells are **bottom-flush** (E5–E8 under the right display, E1–E4
 top-flush channel encoders in the tracker scene); function-key labels are
@@ -200,7 +200,7 @@ are bench-tunable; record changes in `MK2HIG` comments.
 ## 7. Chrome families
 
 Headers: `.title` (proportional title, trailing or leading subtitle) and
-`.status` (fixed-pitch status items) share the same 32px **debossed** band
+`.status` (fixed-pitch status items) share the same 28px **debossed** band
 (inverted light curve, lit edge toward the content — bench decision
 2026-07-23; raised until then). Full-screen surfaces (tracker, pattern,
 editorial) use the **flat** variants: no band, a hairline rule only.
@@ -343,7 +343,7 @@ so lines continue optically across the physical seam.
 | Object-identity colors (NI-inspired, 2026-07-23) | **proposed** — a second, orthogonal color axis: user/group/instrument colors carried by *content* (pattern channels, arranger rows, tiles, selection tint in content contexts), as on the MASCHINE MK3 factory UI. Does not touch the semantic accents; lives inside the 15% structuring share of the 80/15/5 rule. Needs a Paulinche-side data model (per-instrument color) first |
 | Chrome diet, footer (NI-inspired) | **adopted 2026-07-23** — well 38→33, footer derives 62→57, filter cells unified onto the slot height; +5 content rows per screen with the deboss intact. Prerequisite was figure-band value centering, so the slimmer well stays optically centered |
 | Debossed header band | **adopted 2026-07-23** — header light curve inverted (footer stays raised), both lit edges frame the content plane. Symmetric inversion of both bands was tried and rejected on the bench |
-| Chrome diet, header | **open** — the MK3 chip bar measures ~26px vs our 32px band; tightening round pending |
+| Chrome diet, header | **adopted 2026-07-23** — band 32→28 on the debossed form; prerequisite was metric cap-band centering of the header text (the static formula ignored band height and rode +1.5px low at 28, bench-caught). Total chrome diet: +9px content per screen |
 
 Bench rounds happen per `hardware-feel` practice: one variable at a time,
 constants annotated with what was tried and why the current value won.
