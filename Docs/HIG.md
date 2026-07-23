@@ -259,7 +259,7 @@ Headers: `.title` (proportional title, trailing or leading subtitle) and
 editorial) use the **flat** variants: no band, a hairline rule only.
 
 Footers: `.hint` (25px, secondary help text), `.encoderArea` /
-`.filters` (62px, bottom-flush wells). The hint stays visually secondary;
+`.filters` (57px, bottom-flush wells). The hint stays visually secondary;
 status data stays flat and exact — only wells get depth.
 
 ![Title + hint](images/hig/hig-chrome-slots-title-hint.png)
