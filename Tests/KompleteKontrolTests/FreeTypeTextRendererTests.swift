@@ -158,6 +158,52 @@ struct FreeTypeTextRendererTests {
         #expect(drawn == 2)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 20, y: 60, width: maxWidth, height: 28)) > 0)
     }
+
+    @Test("Ink extent predicts the rendered pixel rows")
+    func inkExtentMatchesRenderedInk() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let style = MK2HIG.iconStyle(pixelSize: 22, color: 0xffff)
+        let glyph = MK2HIG.IconGlyph.musicNote
+
+        let metrics = try renderer.metrics(style: style)
+        let ink = try renderer.inkExtent(glyph, style: style)
+        #expect(ink.height > 0)
+
+        let top = 100
+        var frame = MK2PixelFrame()
+        try renderer.drawText(glyph, into: &frame, x: 40, y: top, style: style, maxWidth: 60)
+
+        var rows: [Int] = []
+        for y in 0..<MK2PixelFrame.height where frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: y, width: MK2PixelFrame.width, height: 1)) > 0 {
+            rows.append(y)
+        }
+        let predictedTop = top + metrics.ascender + ink.top
+        #expect(rows.first == predictedTop)
+        #expect(rows.count == ink.height)
+    }
+
+    @Test("Metric icon alignment centers icon ink on the cap band")
+    func iconAlignmentCentersInkOnCapBand() throws {
+        let renderer = try FreeTypeTextRenderer()
+        let textStyle = MK2HIG.bodyTextStyle(color: 0xffff)
+        let iconStyle = MK2HIG.iconStyle(pixelSize: 22, color: 0xffff)
+        let glyph = MK2HIG.IconGlyph.musicNote
+        let textTop = 80
+
+        let center = try #require(MK2IconAlignment.capBandCenter(textTop: textTop, style: textStyle, renderer: renderer))
+        let iconTop = try #require(MK2IconAlignment.iconTop(glyph: glyph, style: iconStyle, centeredOn: center, renderer: renderer))
+
+        // The cap band center derives from real metrics: baseline − capHeight/2.
+        let textMetrics = try renderer.metrics(style: textStyle)
+        let cap = try renderer.inkExtent("H", style: textStyle)
+        #expect(center == textTop + textMetrics.ascender + cap.top + cap.height / 2)
+
+        // The placed icon's ink midpoint hits the anchor within rounding.
+        let iconMetrics = try renderer.metrics(style: iconStyle)
+        let ink = try renderer.inkExtent(glyph, style: iconStyle)
+        let inkCenter = iconTop + iconMetrics.ascender + ink.top + ink.height / 2
+        #expect(abs(inkCenter - center) <= 1)
+    }
 }
 
 private extension MK2PixelFrame {

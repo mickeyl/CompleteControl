@@ -140,7 +140,9 @@ public struct MK2ValueCell: Sendable {
         let style = MK2HIG.iconStyle(pixelSize: pixelSize, color: colors.icon ?? colors.label.scaled565(by: 1.6))
         guard let width = try? renderer.measure(iconGlyph, style: style), width > 0 else { return 0 }
         let x = iconPosition == .leading ? rect.x : rect.maxX - width
-        let y = labelY - 2
+        let y = MK2IconAlignment.capBandCenter(labelTop: labelY, font: labelFont, renderer: renderer)
+            .flatMap { MK2IconAlignment.iconTop(glyph: iconGlyph, style: style, centeredOn: $0, renderer: renderer) }
+            ?? labelY - 2
         guard (try? renderer.drawText(iconGlyph, into: &frame, x: x, y: y, style: style, maxWidth: width + pixelSize)) != nil else { return 0 }
         return iconPosition == .leading ? width + Self.iconGap : 0
     }

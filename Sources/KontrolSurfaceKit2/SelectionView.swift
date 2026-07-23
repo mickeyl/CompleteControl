@@ -405,12 +405,24 @@ public struct MK2SelectionList: Sendable {
         }
         if let iconGlyph = item.iconGlyph {
             let iconSize = min(22, rowHeight - 6)
+            let iconStyle = MK2HIG.iconStyle(pixelSize: iconSize, color: colors.text)
+            // Single-line rows anchor the icon ink to the title's cap band;
+            // rows with a detail line center it on the two-line block.
+            let anchor = rowHeight >= 44 && item.detail != nil
+                ? y + rowHeight / 2
+                : MK2IconAlignment.capBandCenter(
+                    textTop: y + Self.primaryTextTopInset,
+                    style: MK2HIG.bodyTextStyle(color: colors.text),
+                    renderer: renderer
+                ) ?? y + rowHeight / 2
+            let iconY = MK2IconAlignment.iconTop(glyph: iconGlyph, style: iconStyle, centeredOn: anchor, renderer: renderer)
+                ?? y + max(0, (rowHeight - iconSize) / 2)
             MK2SelectionDrawing.drawIcon(
                 iconGlyph,
                 into: &frame,
                 renderer: renderer,
                 x: 20,
-                y: y + max(0, (rowHeight - iconSize) / 2),
+                y: iconY,
                 size: iconSize,
                 color: selected ? colors.text : colors.dim
             )
@@ -586,12 +598,18 @@ public struct MK2SelectionGrid: Sendable {
             let size = max(12, min(iconSize, min(rect.width, rect.height) - 12))
             let color = selected ? colors.text : colors.dim
             if let iconGlyph = item.iconGlyph {
+                let iconY = MK2IconAlignment.iconTop(
+                    glyph: iconGlyph,
+                    style: MK2HIG.iconStyle(pixelSize: size, color: color),
+                    centeredOn: rect.y + rect.height / 2,
+                    renderer: renderer
+                ) ?? rect.y + max(0, (rect.height - size) / 2) - 1
                 MK2SelectionDrawing.drawIcon(
                     iconGlyph,
                     into: &frame,
                     renderer: renderer,
                     x: rect.x + max(0, (rect.width - size) / 2),
-                    y: rect.y + max(0, (rect.height - size) / 2) - 1,
+                    y: iconY,
                     size: size,
                     color: color
                 )
@@ -609,7 +627,14 @@ public struct MK2SelectionGrid: Sendable {
             return
         }
         if let iconGlyph = item.iconGlyph, rect.height >= 56 {
-            MK2SelectionDrawing.drawIcon(iconGlyph, into: &frame, renderer: renderer, x: rect.x + 10, y: rect.y + 6, size: 22, color: selected ? colors.text : colors.dim)
+            let iconY = MK2IconAlignment.capBandCenter(
+                textTop: rect.y + 8,
+                style: MK2HIG.bodyTextStyle(color: colors.text),
+                renderer: renderer
+            ).flatMap {
+                MK2IconAlignment.iconTop(glyph: iconGlyph, style: MK2HIG.iconStyle(pixelSize: 22, color: colors.text), centeredOn: $0, renderer: renderer)
+            } ?? rect.y + 6
+            MK2SelectionDrawing.drawIcon(iconGlyph, into: &frame, renderer: renderer, x: rect.x + 10, y: iconY, size: 22, color: selected ? colors.text : colors.dim)
             MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: rect.x + 42, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: max(0, rect.width - 48))
         } else {
             MK2SelectionDrawing.drawBody(item.title, into: &frame, renderer: renderer, x: rect.x + 8, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: max(0, rect.width - 16))

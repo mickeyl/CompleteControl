@@ -238,14 +238,20 @@ public struct MK2FunctionKeyBarElement: MK2ScreenElement {
         let totalWidth = iconWidth + spacing + labelWidth
         var x = slotX + max(0, (slotWidth - totalWidth) / 2)
         let clip = MK2PixelRect(x: slotX, y: 0, width: slotWidth, height: height)
+        let textY = max(0, (height - 1 - font.cellHeight) / 2) + 1
 
         if let iconGlyph = slot.iconGlyph, let iconStyle, let renderer, iconWidth > 0 {
-            let iconY = max(0, (height - iconSize) / 2) - 1
+            // Icon-only chips center the ink in the chip; labelled chips
+            // anchor it to the label's cap band.
+            let anchor = slot.label.isEmpty
+                ? height / 2
+                : MK2IconAlignment.capBandCenter(labelTop: textY, font: font, renderer: renderer) ?? height / 2
+            let iconY = MK2IconAlignment.iconTop(glyph: iconGlyph, style: iconStyle, centeredOn: anchor, renderer: renderer)
+                ?? max(0, (height - iconSize) / 2) - 1
             _ = try? renderer.drawText(iconGlyph, into: &frame, x: x, y: iconY, style: iconStyle, maxWidth: iconWidth + 4)
             x += iconWidth + spacing
         }
         if !slot.label.isEmpty {
-            let textY = max(0, (height - 1 - font.cellHeight) / 2) + 1
             glyph.draw(into: &frame, x: x, y: textY, clip: clip)
         }
     }

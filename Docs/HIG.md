@@ -159,6 +159,25 @@ label color. One icon position (leading or trailing) per screen — never
 mixed. Icons name the parameter's semantics; the physical control is
 identified by position, so labels never say "E3".
 
+**Vertical placement is metric-driven, never hand-nudged**
+(`MK2IconAlignment`, 2026-07-23). Phosphor ink sits on the baseline and
+fills its em asymmetrically, so centering the layout box hangs every icon
+visibly high. The rules:
+
+- An icon beside a text line centers its *measured ink*
+  (`FreeTypeTextRenderer.inkExtent`, baseline-relative, run-cached) on the
+  line's **cap band center** (`capBandCenter` — baseline − cap height/2,
+  probed via "H"); works for proportional lines and `BitmapLabel` mono
+  lines alike.
+- An icon alone in a panel or cell centers its ink on the panel's
+  mid-height (`iconTop(centeredOn:)`).
+- An icon beside a multi-line text block centers its ink on the block.
+
+Both cap band and ink extents come from the fonts, so a face or size
+change re-centers every use without retuning. New drawing code must route
+through `MK2IconAlignment`; a literal pixel nudge next to an icon draw is
+a defect.
+
 ![Icon catalogue](images/hig/hig-icon-browser-grid.png)
 
 ## 6. Material and depth vocabulary
