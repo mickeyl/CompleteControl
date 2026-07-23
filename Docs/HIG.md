@@ -187,7 +187,8 @@ shadow, blur, vignette) is out of vocabulary.
 
 | Treatment | Recipe | Where |
 | --- | --- | --- |
-| **Raised band** | fill `headerFill`, 1px `headerTopLine` top edge, 1px true-black bottom shadow | headers, footers, function-key chips |
+| **Raised band** | fill `headerFill`, 1px `headerTopLine` top edge, 1px true-black bottom shadow | footers, function-key chips |
+| **Debossed band** | the raised band's light curve inverted: shadow edge on top, fill rising toward a 1px lit edge that faces the content | headers (since 2026-07-23) — together with the raised footer, both lit edges frame the content plane and the chrome recedes at both screen edges |
 | **Debossed well** (`MK2HIG.Well`) | border ring top×0.35 → bottom×2.1, interior fill top×0.5 → bottom×1.35, both dithered | value cells, filter cells |
 | **Selection highlight** (`MK2HIG.Selection`, `drawSelectionHighlight`) | 1px accent ring, interior gradient top×1.5 → bottom×0.72 over the shared base tone `Selection.fill` (0x2126), 1px light edge (×2.2) under the ring, radius 7 | list rows, grid cells, dialog actions |
 | **Inset stroke** (`strokeInset`) | 1px frame: top×0.55 (shadow), bottom×1.7 (lit), sides ×1.0 | meter tracks, sunk frames |
@@ -199,9 +200,10 @@ are bench-tunable; record changes in `MK2HIG` comments.
 ## 7. Chrome families
 
 Headers: `.title` (proportional title, trailing or leading subtitle) and
-`.status` (fixed-pitch status items) share the same 32px raised band, bevel
-and light source. Full-screen surfaces (tracker, pattern, editorial) use
-the **flat** variants: no raised band, a hairline rule only.
+`.status` (fixed-pitch status items) share the same 32px **debossed** band
+(inverted light curve, lit edge toward the content — bench decision
+2026-07-23; raised until then). Full-screen surfaces (tracker, pattern,
+editorial) use the **flat** variants: no band, a hairline rule only.
 
 Footers: `.hint` (25px, secondary help text), `.encoderArea` /
 `.filters` (62px, bottom-flush wells). The hint stays visually secondary;
@@ -340,7 +342,8 @@ so lines continue optically across the physical seam.
 | Full-screen washes / vignettes / soft glows | rejected permanently (§1, §6) |
 | Object-identity colors (NI-inspired, 2026-07-23) | **proposed** — a second, orthogonal color axis: user/group/instrument colors carried by *content* (pattern channels, arranger rows, tiles, selection tint in content contexts), as on the MASCHINE MK3 factory UI. Does not touch the semantic accents; lives inside the 15% structuring share of the 80/15/5 rule. Needs a Paulinche-side data model (per-instrument color) first |
 | Chrome diet, footer (NI-inspired) | **adopted 2026-07-23** — well 38→33, footer derives 62→57, filter cells unified onto the slot height; +5 content rows per screen with the deboss intact. Prerequisite was figure-band value centering, so the slimmer well stays optically centered |
-| Chrome diet, header | **open** — the MK3 chip bar measures ~26px vs our 32px band; a tightening round plus the debossed-band thought experiment (inverted light curve so the *content* reads raised) awaits bench renders |
+| Debossed header band | **adopted 2026-07-23** — header light curve inverted (footer stays raised), both lit edges frame the content plane. Symmetric inversion of both bands was tried and rejected on the bench |
+| Chrome diet, header | **open** — the MK3 chip bar measures ~26px vs our 32px band; tightening round pending |
 
 Bench rounds happen per `hardware-feel` practice: one variable at a time,
 constants annotated with what was tried and why the current value won.

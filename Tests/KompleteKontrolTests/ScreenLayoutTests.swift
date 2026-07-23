@@ -81,10 +81,11 @@ struct ScreenLayoutTests {
             Int((color >> 11) & 0x1f) + Int((color >> 5) & 0x3f) + Int(color & 0x1f)
         }
 
-        // Header band 0..31: bevel, gradient rows falling toward the shadow.
-        #expect(frame[300, 0] == MK2HIG.Chrome.headerTopLine)
-        #expect(luminance(frame[300, 2]) > luminance(frame[300, 29]))
-        #expect(frame[300, 31] == MK2HIG.Chrome.headerBottomLine)
+        // Header band 0..31 is debossed (2026-07-23): shadow edge at the top,
+        // gradient rising toward the lit edge that faces the content.
+        #expect(frame[300, 0] == MK2HIG.Chrome.headerBottomLine)
+        #expect(luminance(frame[300, 2]) < luminance(frame[300, 29]))
+        #expect(frame[300, 31] == MK2HIG.Chrome.headerTopLine)
         // Footer band 215..271 gets the same treatment.
         #expect(frame[300, 215] == MK2HIG.Chrome.headerTopLine)
         #expect(luminance(frame[300, 218]) > luminance(frame[300, 268]))

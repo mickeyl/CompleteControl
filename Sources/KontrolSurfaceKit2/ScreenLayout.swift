@@ -342,7 +342,7 @@ public struct MK2RegularScreenChrome: Sendable {
 
     private func drawHeaderBackdrop(into frame: inout MK2PixelFrame) {
         guard let headerRect = layout.headerRect else { return }
-        drawChromeBand(headerRect, into: &frame)
+        drawChromeBand(headerRect, into: &frame, debossed: true)
     }
 
     public func drawFooter(into frame: inout MK2PixelFrame, renderer: FreeTypeTextRenderer? = nil) {
@@ -371,21 +371,30 @@ public struct MK2RegularScreenChrome: Sendable {
         rect.y + max(1, (rect.height - typography.footnotePixelSize) / 2 + footerTextOpticalOffset)
     }
 
-    // Shared raised-band look for header and footer: a bright bevel on the top edge,
-    // a subtle vertical fill gradient (lit from above, falling into the bottom
-    // shadow), and a shadow line on the bottom edge. The gradient is derived from
-    // the single fill color so custom chrome palettes keep working, and renders
-    // through the dithered gradient tile cache — per-row 565 quantization banded
-    // visibly on bands taller than the header.
-    private func drawChromeBand(_ rect: MK2PixelRect, into frame: inout MK2PixelFrame) {
+    // Shared band painter. The footer keeps the raised look (lit top bevel,
+    // bottom shadow). The header inverts the curve since 2026-07-23 (bench
+    // decision from the MASCHINE factory-UI round): a debossed band whose lit
+    // edge faces the content, so header and footer frame the content plane
+    // with light from both sides and the chrome recedes at both screen edges.
+    // The gradient derives from the single fill color so custom chrome
+    // palettes keep working, and renders through the dithered gradient tile
+    // cache — per-row 565 quantization banded visibly on bands taller than
+    // the header.
+    private func drawChromeBand(_ rect: MK2PixelRect, into frame: inout MK2PixelFrame, debossed: Bool = false) {
         frame.fillRoundedVerticalGradient(
             rect,
             radius: 0,
-            top: colors.headerFill.scaled565(by: 1.4),
-            bottom: colors.headerFill.scaled565(by: 0.6)
+            top: colors.headerFill.scaled565(by: debossed ? 0.6 : 1.4),
+            bottom: colors.headerFill.scaled565(by: debossed ? 1.4 : 0.6)
         )
-        frame.fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), colors.headerTopLine)
-        frame.fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), colors.headerRule)
+        frame.fill(
+            MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1),
+            debossed ? colors.headerRule : colors.headerTopLine
+        )
+        frame.fill(
+            MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1),
+            debossed ? colors.headerTopLine : colors.headerRule
+        )
     }
 
     private func drawProgressBar(into frame: inout MK2PixelFrame) {

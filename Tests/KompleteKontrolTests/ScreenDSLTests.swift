@@ -23,7 +23,7 @@ struct ScreenDSLTests {
 
         #expect(result.screen.kind == .regular)
         #expect(result.lamps[.browser] == .white)
-        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
+        #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 0, y: 0, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
         #expect(result.screen.frame.countPixels(in: MK2PixelRect(x: 16, y: 54, width: 140, height: 32), notMatching: MK2HIG.Chrome.background) > 10)
 
         result.bindings.buttonDown[.browser]?()
