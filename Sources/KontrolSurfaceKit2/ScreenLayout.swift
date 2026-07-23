@@ -146,7 +146,11 @@ public enum MK2ScreenLayout {
     // `margin`, which the slot width fills exactly (8 + 4×110 + 3×8 + 8 = 480).
     public static let encoderSlotXs = [8, 126, 244, 362]
     public static let encoderSlotWidth = 110
-    public static let encoderSlotHeight = 38
+    /// History: 38 until 2026-07-23 — the chrome-diet round (prompted by the
+    /// MASCHINE MK3 factory-UI comparison) slimmed the well; the freed rows go
+    /// to content, and the figure-band centering keeps values optically
+    /// centered at any height. Bench-approved on the OLEDs.
+    public static let encoderSlotHeight = 33
     public static let encoderSlotBottomInset = 2
     public static var encoderSlotBottom: Int { bounds.height - encoderSlotBottomInset }
 

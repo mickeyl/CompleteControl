@@ -59,9 +59,9 @@ Layout tokens (`MK2ScreenLayout`):
 | `margin` / `contentInset` | 8 | outer margin, content inset |
 | header height (`.title`, `.status`) | 32 | `captionPixelSize × 2 + 2`; leading subtitle adds `captionPixelSize + 2` |
 | hint footer height | 25 | `footnotePixelSize + 12` |
-| `encoderFooterHeight` | 62 | derived: slot 38 + bottom inset 2 + label 13 + gap 3 + 6 — never a literal |
+| `encoderFooterHeight` | 57 | derived: slot 33 + bottom inset 2 + label 13 + gap 3 + 6 — never a literal |
 | `encoderSlotXs` | 8, 126, 244, 362 | four bottom-flush slots per display |
-| `encoderSlotWidth` × `Height` | 110×38 | value well size |
+| `encoderSlotWidth` × `Height` | 110×33 | value well size (38 until the 2026-07-23 chrome diet; filter cells share the slot height) |
 | `MK2ScreenProgressBar.height` | 2 | top or bottom placement |
 | content rect (title + hint) | 8,37 → 464×203 | `contentRect` for the regular layout |
 
@@ -339,7 +339,8 @@ so lines continue optically across the physical seam.
 | Waveform Aurora ramp | rejected until app+hardware change jointly |
 | Full-screen washes / vignettes / soft glows | rejected permanently (§1, §6) |
 | Object-identity colors (NI-inspired, 2026-07-23) | **proposed** — a second, orthogonal color axis: user/group/instrument colors carried by *content* (pattern channels, arranger rows, tiles, selection tint in content contexts), as on the MASCHINE MK3 factory UI. Does not touch the semantic accents; lives inside the 15% structuring share of the 80/15/5 rule. Needs a Paulinche-side data model (per-instrument color) first |
-| Chrome diet (NI-inspired, 2026-07-23) | **proposed** — measured on the MK3 factory UI (normalized to 480×272): function chips ~26px vs our 32px raised header, knob zone ~42–50px vs our 62px encoder footer. Candidate: slim the well (`encoderSlotHeight` 38→~33, footer derives 62→~57) without giving up the deboss; every saved row is tracker content. Bench A/B pending |
+| Chrome diet, footer (NI-inspired) | **adopted 2026-07-23** — well 38→33, footer derives 62→57, filter cells unified onto the slot height; +5 content rows per screen with the deboss intact. Prerequisite was figure-band value centering, so the slimmer well stays optically centered |
+| Chrome diet, header | **open** — the MK3 chip bar measures ~26px vs our 32px band; a tightening round plus the debossed-band thought experiment (inverted light curve so the *content* reads raised) awaits bench renders |
 
 Bench rounds happen per `hardware-feel` practice: one variable at a time,
 constants annotated with what was tried and why the current value won.

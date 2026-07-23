@@ -60,9 +60,9 @@ struct ScreenLayoutTests {
     @Test("Progress bar hugs the footer top or the bottom edge")
     func progressBarBottomPlacement() {
         let withFooter = MK2ScreenLayout.regular(footer: .filters(), progress: .bottom)
-        #expect(withFooter.footerRect == MK2PixelRect(x: 0, y: 210, width: 480, height: 62))
-        #expect(withFooter.progressRect == MK2PixelRect(x: 0, y: 208, width: 480, height: 2))
-        #expect(withFooter.contentRect.maxY == 203)
+        #expect(withFooter.footerRect == MK2PixelRect(x: 0, y: 215, width: 480, height: 57))
+        #expect(withFooter.progressRect == MK2PixelRect(x: 0, y: 213, width: 480, height: 2))
+        #expect(withFooter.contentRect.maxY == 208)
 
         let withoutFooter = MK2ScreenLayout.regular(progress: .bottom)
         #expect(withoutFooter.progressRect == MK2PixelRect(x: 0, y: 270, width: 480, height: 2))
@@ -85,9 +85,9 @@ struct ScreenLayoutTests {
         #expect(frame[300, 0] == MK2HIG.Chrome.headerTopLine)
         #expect(luminance(frame[300, 2]) > luminance(frame[300, 29]))
         #expect(frame[300, 31] == MK2HIG.Chrome.headerBottomLine)
-        // Footer band 210..271 gets the same treatment.
-        #expect(frame[300, 210] == MK2HIG.Chrome.headerTopLine)
-        #expect(luminance(frame[300, 213]) > luminance(frame[300, 268]))
+        // Footer band 215..271 gets the same treatment.
+        #expect(frame[300, 215] == MK2HIG.Chrome.headerTopLine)
+        #expect(luminance(frame[300, 218]) > luminance(frame[300, 268]))
         #expect(frame[300, 271] == MK2HIG.Chrome.headerBottomLine)
     }
 

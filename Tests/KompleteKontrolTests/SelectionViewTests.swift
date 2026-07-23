@@ -122,9 +122,9 @@ struct SelectionViewTests {
         #expect(regular.headerRect == MK2PixelRect(x: 0, y: 0, width: 480, height: 32))
         #expect(regular.contentRect == full)
         #expect(filteredScreen.contentRect == filtered)
-        #expect(filteredScreen.footerRect == MK2PixelRect(x: 0, y: 210, width: 480, height: 62))
+        #expect(filteredScreen.footerRect == MK2PixelRect(x: 0, y: 215, width: 480, height: 57))
         #expect(full == MK2PixelRect(x: 8, y: 37, width: 464, height: 227))
-        #expect(filtered == MK2PixelRect(x: 8, y: 37, width: 464, height: 166))
+        #expect(filtered == MK2PixelRect(x: 8, y: 37, width: 464, height: 171))
         #expect(MK2SelectionLayout.gridColumnCount(for: iconCell) == 8)
         #expect(MK2SelectionLayout.gridRowStep(for: iconCell) == 8)
         #expect(MK2SelectionGrid.columnCount(for: iconCell) == MK2SelectionLayout.gridColumnCount(for: iconCell))
@@ -147,7 +147,7 @@ struct SelectionViewTests {
         #expect(frame[300, 2] != frame[300, 29])
         #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 31, width: 480, height: 1), matching: MK2HIG.Chrome.headerBottomLine) == 480)
         #expect(frame.countNonBackgroundPixels(in: MK2PixelRect(x: 0, y: 211, width: 480, height: 60)) > 25_000)
-        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 210, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
+        #expect(frame.countPixels(in: MK2PixelRect(x: 0, y: 215, width: 480, height: 1), matching: MK2HIG.Chrome.headerTopLine) == 480)
     }
 
     @Test("Regular screen hint footer uses body typography")

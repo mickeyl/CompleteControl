@@ -692,7 +692,14 @@ private enum MK2SelectionDrawing {
             // Bottom-flush like every encoder-bound value cell: the filter maps to a
             // physical encoder below the display. The label names the filter, not
             // the encoder (HIG: the cell already sits above its physical control).
-            let rect = MK2PixelRect(x: x, y: MK2ScreenLayout.encoderSlotBottom - 34, width: slotWidth - 16, height: 34)
+            // Same height as every encoder-bound well (was a fixed 34 until the
+            // 2026-07-23 chrome diet unified it with the slot derivation).
+            let rect = MK2PixelRect(
+                x: x,
+                y: MK2ScreenLayout.encoderSlotBottom - MK2ScreenLayout.encoderSlotHeight,
+                width: slotWidth - 16,
+                height: MK2ScreenLayout.encoderSlotHeight
+            )
             MK2ValueCell(
                 label: filter.label,
                 iconGlyph: filter.iconGlyph,
