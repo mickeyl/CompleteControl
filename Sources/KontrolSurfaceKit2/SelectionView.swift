@@ -390,9 +390,13 @@ public struct MK2SelectionList: Sendable {
         into frame: inout MK2PixelFrame,
         renderer: FreeTypeTextRenderer?
     ) {
+        // The highlight sits 3px below the row origin (was +1 until 2026-07-23):
+        // the row's text block is top-heavy — title ink starts ~8px into the
+        // band while detail descenders reach its bottom edge — so a top-flush
+        // box reads as hanging too high over the baseline (bench feedback).
         let rect = MK2PixelRect(
             x: MK2SelectionLayout.contentX,
-            y: y + 1,
+            y: y + 3,
             width: MK2SelectionLayout.contentWidth,
             height: max(1, rowHeight - 1)
         )
@@ -459,9 +463,10 @@ public struct MK2SelectionList: Sendable {
         // with the proportional (IBM Plex) columns. The two fonts have different
         // ascenders, so a common top `y` would drop the proportional text below
         // the mono digits — they must be aligned on the baseline, not the top.
-        // +1 optically centres the visibly top-heavy glyphs (ascent 12 vs
-        // descent 4 leaves the ink sitting high in the cell) in the highlight.
-        let monoTop = y + max(0, (rowHeight - SurfaceFont.grid.cellHeight) / 2) + 1
+        // +3 optically centres the visibly top-heavy glyphs (ascent 12 vs
+        // descent 4 leaves the ink sitting high in the cell) in the highlight,
+        // which itself sits 3px below the row origin (see drawRow).
+        let monoTop = y + max(0, (rowHeight - SurfaceFont.grid.cellHeight) / 2) + 3
         let baseline = monoTop + SurfaceFont.grid.ascent
         let bodyAscender = renderer.flatMap { try? $0.metrics(style: MK2HIG.bodyTextStyle(color: colors.text)).ascender } ?? SurfaceFont.grid.ascent
         for (index, column) in columns.enumerated() {

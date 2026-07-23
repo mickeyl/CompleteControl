@@ -216,7 +216,9 @@ struct SelectionViewTests {
             background: 0x0000,
             selectionFill: 0xffff
         )
-        let rowRect = MK2PixelRect(x: 8, y: 68, width: 464, height: 29)
+        // Row origin + 3: the highlight sits 3px below the row band (was +1
+        // until the 2026-07-23 baseline-clearance shift).
+        let rowRect = MK2PixelRect(x: 8, y: 70, width: 464, height: 29)
         var frame = MK2PixelFrame()
 
         MK2SelectionList(
