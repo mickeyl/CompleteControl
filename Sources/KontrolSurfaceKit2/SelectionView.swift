@@ -397,7 +397,7 @@ public struct MK2SelectionList: Sendable {
             height: max(1, rowHeight - 1)
         )
         if selected {
-            frame.fillRounded(rect, radius: 7, colors.selectionFill, antialiased: true)
+            frame.drawSelectionHighlight(rect, radius: 7, fill: colors.selectionFill, accent: colors.accent)
         }
         if let iconGlyph = item.iconGlyph {
             let iconSize = min(22, rowHeight - 6)
@@ -575,12 +575,7 @@ public struct MK2SelectionGrid: Sendable {
         renderer: FreeTypeTextRenderer?
     ) {
         if selected {
-            frame.drawRoundedPanel(
-                rect,
-                fill: colors.selectionFill,
-                border: colors.accent,
-                radius: 7
-            )
+            frame.drawSelectionHighlight(rect, radius: 7, fill: colors.selectionFill, accent: colors.accent)
         }
         if case let .iconOnly(iconSize) = cellContent {
             let size = max(12, min(iconSize, min(rect.width, rect.height) - 12))

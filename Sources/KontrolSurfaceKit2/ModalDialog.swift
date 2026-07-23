@@ -215,7 +215,7 @@ public struct MK2ModalDialog: Sendable {
             let rect = MK2PixelRect(x: 24, y: 62 + index * 74, width: 432, height: 62)
             let selected = index == selectedIndex
             if selected {
-                frame.drawRoundedPanel(rect, fill: colors.selectionFill, border: tone, radius: 7)
+                frame.drawSelectionHighlight(rect, radius: 7, fill: colors.selectionFill, accent: tone)
             }
             drawTitle(action.title, renderer: renderer, into: &frame, x: 44, y: rect.y + 8, color: selected ? colors.text : colors.dim, maxWidth: 392)
             if let detail = action.detail {

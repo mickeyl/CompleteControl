@@ -52,4 +52,40 @@ extension MK2PixelFrame {
         )
         fillRounded(inner, radius: max(0, radius - inset), fill, antialiased: true)
     }
+
+    /// The Aurora selection highlight: an accent ring around a vertically
+    /// falling gradient with a bright light edge under the ring — the
+    /// selection reads as illuminated, never as pressed-in or inverted. One
+    /// treatment for every selectable surface (list rows, grid cells, dialog
+    /// actions), so selection stays recognizable across scenes.
+    public mutating func drawSelectionHighlight(_ rect: MK2PixelRect, radius: Int, fill: UInt16, accent: UInt16) {
+        fillRounded(rect, radius: radius, accent, antialiased: true)
+        let inner = rect.insetBy(dx: 1, dy: 1)
+        guard inner.width > 2, inner.height > 2 else { return }
+        fillRoundedVerticalGradient(
+            inner,
+            radius: max(0, radius - 1),
+            top: fill.scaled565(by: MK2HIG.Selection.fillTopLift),
+            bottom: fill.scaled565(by: MK2HIG.Selection.fillBottomDrop),
+            antialiased: true
+        )
+        // The light edge sits inside the corner arcs so it never cuts through
+        // the antialiased radius.
+        let edgeInset = max(1, radius - 1)
+        self.fill(
+            MK2PixelRect(x: inner.x + edgeInset, y: inner.y, width: max(0, inner.width - edgeInset * 2), height: 1),
+            fill.scaled565(by: MK2HIG.Selection.lightEdgeLift)
+        )
+    }
+
+    /// A debossed 1px stroke: the top edge falls into shadow, the bottom edge
+    /// catches the light — under the shared top-left light source the framed
+    /// area reads as sunk into the panel (meter tracks, wells).
+    public mutating func strokeInset(_ rect: MK2PixelRect, _ color: UInt16) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        fill(MK2PixelRect(x: rect.x, y: rect.y, width: rect.width, height: 1), color.scaled565(by: 0.55))
+        fill(MK2PixelRect(x: rect.x, y: rect.maxY - 1, width: rect.width, height: 1), color.scaled565(by: 1.7))
+        fill(MK2PixelRect(x: rect.x, y: rect.y + 1, width: 1, height: max(0, rect.height - 2)), color)
+        fill(MK2PixelRect(x: rect.maxX - 1, y: rect.y + 1, width: 1, height: max(0, rect.height - 2)), color)
+    }
 }
