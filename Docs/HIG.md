@@ -17,6 +17,55 @@ fonts, both screens side by side with a 1px seam), regenerated with
 
 ---
 
+## 0. Orientation — if you are new here
+
+The hardware: Komplete Kontrol S-Series MK2 keyboards and MASCHINE MK3
+carry **two 480×272 RGB565 OLED displays**, eight buttons above and eight
+encoders below them, plus a 4-D navigation wheel. The `ccd` daemon owns
+the USB device; applications never talk USB — they declare *scenes*
+through **KontrolSurfaceKit2** ("Kit2"), the middleware this document
+specifies.
+
+The mental model in sixty seconds: a scene is two screens plus input
+bindings plus button lamps. Screens are composed declaratively from the
+elements in §8, framed by the chrome in §7; every color is a token from
+§3, every text a role from §4, every depth cue one of the four treatments
+in §6. Nothing is styled ad hoc.
+
+A minimal screen, taken from the real Meter demo:
+
+```swift
+MK2RegularScreenDSL(
+    header: .title(title: "Meter", subtitle: styleSubtitle),
+    footer: .hint(footerHint)
+) {
+    MK2ContentText("Meter Elements", x: 8, y: 0, role: .title)
+    MK2MeterElement(
+        channels: [MK2MeterChannel(label: "L", level: level, peak: peak)],
+        rect: MK2PixelRect(x: 8, y: 112, width: 420, height: 34),
+        style: .protracker
+    )
+}
+```
+
+Where things live:
+
+| You want | Go to |
+| --- | --- |
+| every color/typography/geometry token | `Sources/KontrolSurfaceKit2/MK2HIG.swift` |
+| chrome bands, layout, content rects | `ScreenLayout.swift` (`MK2ScreenLayout`, `MK2RegularScreenChrome`) |
+| one element | one file — `Meter.swift`, `SelectionView.swift`, `ValueCell.swift`, … (§8 cites each) |
+| a live playground | `widget-lab` (`make widget-lab-sim` starts it against the simulator; 4-D browses, SCENE exits) |
+| renderings without hardware | `WIDGET_LAB_SNAPSHOT_DIR=<dir> widget-lab` writes every demo as PNG |
+| what the real panels show | `Scripts/kk-screenshot.py` (or the `kk-screen` skill); `Scripts/kk-display.py` pushes PNG previews *to* the panels |
+
+House rules you will meet immediately: compose only from public Kit2 API
+(if a demo needs something new, the capability goes into the kit first);
+never hand-tune vertical text/icon positions — measured ink centers on
+measured anchors (`FreeTypeTextRenderer.inkExtent`, `MK2IconAlignment`),
+a literal pixel nudge is a defect; and every visual change updates this
+document and its gallery in the same commit.
+
 ## 1. Principles
 
 1. **True-black canvas.** `0x0000` means pixels off — the OLED's contrast
@@ -149,6 +198,8 @@ logs and protocol strings use plain ASCII punctuation.
 ![Type specimen](images/hig/hig-type-specimen.png)
 ![Typography variant](images/hig/hig-type-specimen-typography.png)
 
+*Code:* `MK2HIG.swift` (`Fonts`, `Typography`, `SurfaceFontMetrics`), `Fonts/SurfaceFont.swift`, `FreeType/FreeTypeTextRenderer.swift` · *Demo:* `type-specimen`
+
 ## 5. Iconography
 
 Phosphor Regular only, via curated `MK2HIG.IconGlyph` cases (grown on
@@ -179,6 +230,8 @@ through `MK2IconAlignment`; a literal pixel nudge next to an icon draw is
 a defect.
 
 ![Icon catalogue](images/hig/hig-icon-browser-grid.png)
+
+*Code:* `MK2HIG.swift` (`IconGlyph`), `IconAlignment.swift` · *Demo:* `icon-browser`
 
 ## 6. Material and depth vocabulary
 
@@ -217,6 +270,8 @@ status data stays flat and exact — only wells get depth.
 ![Band alignment across the pair](images/hig/hig-forms.png)
 ![Separators](images/hig/hig-forms-separators.png)
 
+*Code:* `ScreenLayout.swift` (`MK2ScreenHeader`, `MK2ScreenFooter`, `MK2RegularScreenChrome`), `FunctionKeyBar.swift`, `Separator.swift` · *Demos:* `chrome-slots` (INSTANCE cycles the combinations), `forms`
+
 ## 8. Components
 
 ### 8.1 Value cells and encoders (`MK2ValueCell`, `MK2EncoderDiscreteValueElement`)
@@ -230,6 +285,8 @@ to anything destructive). Raw 1:1 encoders are escape hatches that state
 their reason at the call site.
 
 ![Encoder wells and adaptive throw](images/hig/hig-encoder-feel.png)
+
+*Code:* `ValueCell.swift`, `EncoderDiscreteValue.swift`, `ParameterPage.swift`, `EncoderScaler.swift` · *Demo:* `encoder-feel`
 
 ### 8.2 Selection (`MK2SelectionList`, `MK2SelectionGrid`, columns, filters)
 
@@ -245,6 +302,8 @@ baseline.
 ![Tabular list](images/hig/hig-selection-browser-table.png)
 ![List with filter footer](images/hig/hig-selection-browser-filtered.png)
 
+*Code:* `SelectionView.swift` (`MK2SelectionList`, `MK2SelectionGrid`, `MK2SelectionColumn`, `MK2SelectionFilter`), `SelectionFilterEncoder.swift` · *Demo:* `selection-browser` (INSTANCE cycles list/grid/table/filtered)
+
 ### 8.3 Dialogs (`MK2ModalDialog`, `MK2DialogCard`)
 
 The modal dialog owns both displays and all bindings: 4-D moves selection,
@@ -256,6 +315,8 @@ severity tone. Secondary destructive actions stay visually recessive.
 
 ![Warning dialog](images/hig/hig-modal-dialog-warning.png)
 ![Info dialog](images/hig/hig-modal-dialog-info.png)
+
+*Code:* `ModalDialog.swift`, `DialogCard.swift` · *Demo:* `modal-dialog` (INSTANCE cycles the severities)
 
 ### 8.4 Popups and layers
 
@@ -277,6 +338,8 @@ Semantics decide the form, never available screen space
 ![Passive popup](images/hig/hig-popup-overlay-both.png)
 ![Shift layer](images/hig/hig-tracker-pattern-shift.png)
 
+*Code:* `HoldActionOverlay.swift`, `PopupOverlay.swift`, the shift layer in `ScreenDSL.swift` (`MK2ShiftBranch`) · *Demos:* `hold-action-overlay`, `popup-overlay`, `tracker-pattern` (hold SHIFT)
+
 ### 8.5 Meters (`MK2MeterElement`)
 
 Five fill styles — solid, gradient, segmented, segmented-gradient,
@@ -292,6 +355,8 @@ anything but level.
 ![Segmented gradient](images/hig/hig-meter-segmented-gradient.png)
 ![ProTracker](images/hig/hig-meter-protracker.png)
 
+*Code:* `Meter.swift` (`MK2MeterElement`), `MeterBallistics.swift` · *Demo:* `meter` (INSTANCE cycles the styles)
+
 ### 8.6 Waveform (`MK2WaveformDisplayElement`)
 
 Black canvas, blue trace, green start/end beacons, white playhead —
@@ -299,6 +364,8 @@ identical to the Paulinche app (§3.3). Region shading at 12% trace over
 black; markers are structural (mint/green), the loop region is state.
 
 ![Waveform](images/hig/hig-waveform.png)
+
+*Code:* `WaveformDisplay.swift` · *Demo:* `waveform`
 
 ### 8.7 Tracker pattern (`MK2PatternGridElement`, `MK2OverviewScrollbarElement`)
 
@@ -309,12 +376,16 @@ selects the channel, rotation moves the cursor row.
 
 ![Tracker pattern](images/hig/hig-tracker-pattern.png)
 
+*Code:* `PatternGrid.swift`, `OverviewScrollbar.swift` · *Demo:* `tracker-pattern`
+
 ### 8.8 Cross-display artwork
 
 Full-bleed imagery spanning both panels must skip the calibrated bezel gap
 so lines continue optically across the physical seam.
 
 ![Panorama](images/hig/hig-panorama-hero.png)
+
+*Code:* `PixelImage.swift`, gap-aware composition in the demo · *Demo:* `panorama`
 
 ## 9. Interaction invariants (summary)
 
