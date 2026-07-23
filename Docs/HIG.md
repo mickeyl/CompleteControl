@@ -101,7 +101,7 @@ approval.
 
 | Token | RGB565 | Source sRGB | Role |
 | --- | --- | --- | --- |
-| `navigation` | 0x563f | #55c7ff | navigation and focus (candidate successor to `Chrome.accent`) |
+| `navigation` | 0x563f | #55c7ff | navigation and focus. **Not** replacing `Chrome.accent`: bench 2026-07-23 (side-by-side and flip-flop on the OLEDs) found the two indistinguishable in situ — the recolor buys nothing. Reserved for future semantic splits (e.g. navigation vs. focus) |
 | `loop` | 0x735f | #7668ff | loop/region marking — **not** focus (resolved against the review, which overloaded violet) |
 | `confirm` | 0x6737 | #63e6be | confirmations, structural markers |
 | `warn` | 0xfd8a | #ffb454 | warnings ⚠ open conflict: near-collision with `Chrome.shiftAccent` at caption sizes — unify or separate before adoption |
@@ -332,7 +332,8 @@ so lines continue optically across the physical seam.
 | Debossed wells deepened | **adopted 2026-07-23**, bench-pending |
 | Meter inset track + 1px peak | **adopted 2026-07-23**, bench-pending |
 | Semantic palette tokens | tokens present, not wired into `Chrome` |
-| `Chrome.accent` → `Palette.navigation` recolor | open, bench decision |
+| `Chrome.accent` centralization (six literal copies) | **adopted 2026-07-23** — theme tokens only work when there is exactly one |
+| `Chrome.accent` → `Palette.navigation` recolor | **rejected 2026-07-23** — indistinguishable on the OLEDs (side-by-side and flip-flop); identity stays 0x7dbf |
 | Amber conflict (`warn` vs `shiftAccent`) | open, must resolve before `warn` adoption |
 | Waveform Aurora ramp | rejected until app+hardware change jointly |
 | Full-screen washes / vignettes / soft glows | rejected permanently (§1, §6) |
