@@ -128,12 +128,16 @@ lives in `KKStderrLog` (KompleteKontrol.swift) with state confined to its serial
 log queue; it deliberately has no CornucopiaCore dependency.
 
 `Scripts/kk-screenshot.py` (also available as the `/kk-screen` skill) grabs
-live PNGs of both hardware screens from the
-running daemon (hardware or simulator) and prints the file paths. It is
-out-of-band: it reads the daemon's display shadow over an unregistered control
-connection (`displaySnapshot`), so it never evicts, stalls, or otherwise
-disturbs the connected client. The shadow is recorded at the
-`KontrolDeviceSession` seam, so all display paths are mirrored.
+live PNGs of the hardware screens from the running daemon(s) and prints the
+file paths. `--device kontrol|maschine|all` selects the product-bound
+daemon(s); `all` captures every reachable surface and adds a labeled
+`kk-fleet.png` contact sheet, while the legacy no-`--device` invocation keeps
+its historical single-daemon resolution and file names. It is out-of-band: it
+reads the daemon's display shadow over an unregistered control connection
+(`displaySnapshot`), so it never evicts, stalls, or otherwise disturbs the
+connected client. The shadow is recorded at the `KontrolDeviceSession` seam,
+so all display paths are mirrored. `Scripts/kk-display.py` (the skill's
+preview direction) accepts the same `--device` tokens but refuses `all`.
 
 The NO CLIENT mode is an active hardware test. Surface controls drive their
 lamps, MIDI keys drive the light guide, and both displays show decoded and raw

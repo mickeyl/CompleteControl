@@ -1,4 +1,4 @@
 interface:
   display_name: "KK Screen"
-  short_description: "Live Komplete Kontrol MK2 screen capture"
-  default_prompt: "Use $kk-screen to capture and inspect both Komplete Kontrol MK2 displays."
+  short_description: "Live KONTROL MK2 + MASCHINE MK3 screen capture"
+  default_prompt: "Use $kk-screen to capture and inspect the displays of every connected KONTROL/MASCHINE surface."

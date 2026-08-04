@@ -26,6 +26,46 @@ class SocketPathTests(unittest.TestCase):
         )
 
 
+class DeviceResolutionTests(unittest.TestCase):
+    def test_device_aliases_normalize_and_unknown_tokens_fail(self):
+        for token in ("kontrol", "KK", "mk2"):
+            self.assertEqual(kk_daemon.normalize_device(token), "kontrol")
+        for token in ("maschine", "MK3"):
+            self.assertEqual(kk_daemon.normalize_device(token), "maschine")
+        self.assertEqual(kk_daemon.normalize_device("all"), "all")
+        with self.assertRaises(kk_daemon.CLIError):
+            kk_daemon.normalize_device("maschine-studio")
+
+    def test_kontrol_slot_keeps_historical_resolution(self):
+        self.assertEqual(
+            kk_daemon.device_socket_candidates("kontrol", environ={}),
+            [kk_daemon.HARDWARE_SOCKET, kk_daemon.SIMULATOR_SOCKET],
+        )
+        self.assertEqual(
+            kk_daemon.device_socket_candidates(
+                "kontrol", environ={"KK_DAEMON_SOCKET": "/tmp/sim.sock"}
+            ),
+            ["/tmp/sim.sock"],
+        )
+
+    def test_maschine_slot_is_the_fixed_product_bound_socket_only(self):
+        self.assertEqual(
+            kk_daemon.device_socket_candidates(
+                "maschine", environ={"KK_DAEMON_SOCKET": "/tmp/sim.sock"}
+            ),
+            [kk_daemon.MASCHINE_SOCKET],
+        )
+
+    def test_resolve_device_socket_returns_none_for_offline_devices(self):
+        self.assertIsNone(
+            kk_daemon.resolve_device_socket(
+                "maschine",
+                environ={},
+                reachable=lambda path, timeout=0.5: False,
+            )
+        )
+
+
 class BinaryClientTests(unittest.TestCase):
     def test_display_snapshot_parses_rgb565_payload(self):
         client_socket, daemon_socket = socket.socketpair()

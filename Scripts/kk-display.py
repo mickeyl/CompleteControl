@@ -8,7 +8,7 @@ its next repaint overwrites the pushed image. That is the point: this is a
 bench preview, not a takeover.
 
 Usage:
-    kk-display.py image.png [image2.png] [--screen 0|1] [--socket PATH]
+    kk-display.py image.png [image2.png] [--screen 0|1] [--device kontrol|maschine] [--socket PATH]
 
 Accepted geometries:
     480x272          one screen (--screen selects it, default 0)
@@ -31,7 +31,11 @@ from kk_daemon import (  # noqa: E402
     DISPLAY_WIDTH,
     CLIError,
     DaemonControlClient,
+    EXIT_CONNECTION,
     EXIT_USAGE,
+    device_socket_candidates,
+    normalize_device,
+    resolve_device_socket,
     resolve_socket_path,
 )
 
@@ -95,6 +99,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("images", nargs="+", metavar="image.png", help="one or two PNGs (see geometries above)")
     parser.add_argument("--screen", choices=["0", "1"], help="target screen for a single 480x272 image (default 0)")
+    parser.add_argument(
+        "--device",
+        help="kontrol|kk|mk2 or maschine|mk3 — push through that product-bound daemon "
+        "(a preview belongs on one deliberately chosen surface, so 'all' is refused)",
+    )
     parser.add_argument("--socket", help="daemon control socket (default: KK_DAEMON_SOCKET, hardware, then simulator)")
     parser.add_argument(
         "--hold",
@@ -111,8 +120,27 @@ def main():
         print("error: pass one or two images", file=sys.stderr)
         return EXIT_USAGE
 
+    if args.device and args.socket:
+        print("error: --device and --socket are mutually exclusive", file=sys.stderr)
+        return EXIT_USAGE
+
     try:
-        socket_path = resolve_socket_path(args.socket)
+        if args.device:
+            device = normalize_device(args.device)
+            if device == "all":
+                raise CLIError(
+                    "Refusing to push a preview to every surface — pick one device.",
+                    EXIT_USAGE,
+                )
+            socket_path = resolve_device_socket(device)
+            if socket_path is None:
+                candidates = ", ".join(path for path in device_socket_candidates(device) if path)
+                raise CLIError(
+                    "%s daemon is not reachable (tried: %s)." % (device.upper(), candidates),
+                    EXIT_CONNECTION,
+                )
+        else:
+            socket_path = resolve_socket_path(args.socket)
         frames = frames_for(args.images, args.screen)
         with DaemonControlClient(socket_path) as client:
             # The drain barrier only answers inside a measurement session.

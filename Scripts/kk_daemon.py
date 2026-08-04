@@ -21,7 +21,20 @@ DISPLAY_HEIGHT = 272
 HEADER = struct.Struct("<IBBHHHII")
 
 HARDWARE_SOCKET = "/var/run/kompletekontrol-libusb.sock"
+MASCHINE_SOCKET = "/var/run/kompletekontrol-maschine.sock"
 SIMULATOR_SOCKET = "/tmp/kontrol-simulator-daemon.sock"
+
+# Canonical device tokens for the product-bound daemon pair, plus their
+# accepted CLI spellings. "all" fans a capture out to every reachable device.
+DEVICE_ALIASES = {
+    "kontrol": "kontrol",
+    "kk": "kontrol",
+    "mk2": "kontrol",
+    "maschine": "maschine",
+    "mk3": "maschine",
+    "all": "all",
+}
+DEVICE_ORDER = ["kontrol", "maschine"]
 
 EXIT_COMMAND = 1
 EXIT_USAGE = 2
@@ -79,6 +92,41 @@ def resolve_socket_path(explicit=None, environ=None, reachable=socket_is_reachab
         % ", ".join(path for path in candidates if path),
         EXIT_CONNECTION,
     )
+
+
+def normalize_device(token):
+    device = DEVICE_ALIASES.get((token or "").lower())
+    if device is None:
+        raise CLIError(
+            "Unknown device %r. Use kontrol|kk|mk2, maschine|mk3, or all." % token,
+            EXIT_USAGE,
+        )
+    return device
+
+
+def device_socket_candidates(device, environ=None):
+    """Socket candidates for one canonical device token.
+
+    The KONTROL slot keeps the historical resolution (KK_DAEMON_SOCKET
+    override, then hardware socket, then simulator). The MASCHINE slot is the
+    fixed product-bound daemon socket only — composite setups address exact
+    endpoints, never discovery.
+    """
+    environ = os.environ if environ is None else environ
+    if device == "kontrol":
+        configured = environ.get("KK_DAEMON_SOCKET")
+        return [configured] if configured else [HARDWARE_SOCKET, SIMULATOR_SOCKET]
+    if device == "maschine":
+        return [MASCHINE_SOCKET]
+    raise CLIError("Unknown device %r." % device, EXIT_USAGE)
+
+
+def resolve_device_socket(device, environ=None, reachable=socket_is_reachable):
+    """The reachable socket for one device, or None when it is offline."""
+    for path in device_socket_candidates(device, environ):
+        if path and os.path.exists(path) and reachable(path):
+            return path
+    return None
 
 
 def resolve_automation_socket_path(explicit=None, environ=None, reachable=socket_is_reachable):
@@ -396,6 +444,89 @@ def write_png(path, width, height, rgb):
         handle.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)))
         handle.write(chunk(b"IDAT", zlib.compress(raw, 6)))
         handle.write(chunk(b"IEND", b""))
+
+
+# 5x7 uppercase bitmap glyphs (one int per row, 5 bits wide) — just enough to
+# caption the fleet sheet without a Pillow dependency.
+CAPTION_GLYPHS = {
+    "A": (0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11),
+    "C": (0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E),
+    "E": (0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F),
+    "H": (0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11),
+    "I": (0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E),
+    "K": (0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11),
+    "L": (0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F),
+    "M": (0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11),
+    "N": (0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11),
+    "O": (0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E),
+    "R": (0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11),
+    "S": (0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E),
+    "T": (0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04),
+    " ": (0, 0, 0, 0, 0, 0, 0),
+}
+
+CAPTION_HEIGHT = 20
+CAPTION_SCALE = 2
+CAPTION_BACKGROUND = (24, 24, 24)
+CAPTION_FOREGROUND = (220, 220, 220)
+
+
+def caption_band(width, text):
+    band = bytearray(width * CAPTION_HEIGHT * 3)
+    for index in range(0, len(band), 3):
+        band[index : index + 3] = bytes(CAPTION_BACKGROUND)
+    glyph_height = 7 * CAPTION_SCALE
+    top = (CAPTION_HEIGHT - glyph_height) // 2
+    x = 8
+    for character in text.upper():
+        glyph = CAPTION_GLYPHS.get(character, CAPTION_GLYPHS[" "])
+        for row, bits in enumerate(glyph):
+            for column in range(5):
+                if not bits & (0x10 >> column):
+                    continue
+                for dy in range(CAPTION_SCALE):
+                    for dx in range(CAPTION_SCALE):
+                        px = x + column * CAPTION_SCALE + dx
+                        py = top + row * CAPTION_SCALE + dy
+                        if px >= width:
+                            continue
+                        offset = (py * width + px) * 3
+                        band[offset : offset + 3] = bytes(CAPTION_FOREGROUND)
+        x += 6 * CAPTION_SCALE
+    return bytes(band)
+
+
+def write_fleet_png(directory, name, device_rows):
+    """One labeled contact sheet: per device a caption band plus its
+    side-by-side display pair. Returns the path, or None when the rows do not
+    share a width (unexpected mixed geometries)."""
+    rows = []
+    sheet_width = None
+    for label, screens in device_rows:
+        width0, height0, pixels0 = screens[0]
+        width1, height1, pixels1 = screens[1]
+        if height0 != height1:
+            return None
+        row_width = width0 + width1
+        if sheet_width is None:
+            sheet_width = row_width
+        elif sheet_width != row_width:
+            return None
+        left = rgb565be_to_rgb888(pixels0)
+        right = rgb565be_to_rgb888(pixels1)
+        body = bytearray()
+        for y in range(height0):
+            body += left[y * width0 * 3 : (y + 1) * width0 * 3]
+            body += right[y * width1 * 3 : (y + 1) * width1 * 3]
+        rows.append(caption_band(row_width, label) + bytes(body))
+    if not rows or sheet_width is None:
+        return None
+    sheet = b"".join(rows)
+    height = len(sheet) // (sheet_width * 3)
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, "%s.png" % name)
+    write_png(path, sheet_width, height, sheet)
+    return path
 
 
 def write_display_pngs(directory, prefix, screens, combined_prefix=None):
