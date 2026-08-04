@@ -185,11 +185,21 @@
   250 ms retry cooldown; consecutive session failures back the redial off
   (1→2→4→8 s). Verification: identical 15-min four-OLED stress with ~3510
   injected events — zero input-delay diagnostics, zero blit
-  timeouts/retries, app RSS flat 263-266 MB, daemons ~2 % CPU. Remaining
-  follow-ups from the original item: small lamp/light-guide state-report
-  acks still round-trip on the actor (50 ms ceiling; benign on the bench),
-  and MK3 pad-feel should be re-benched hands-on during active playback
-  display updates. The tick performs synchronous request/ack round trips
+  timeouts/retries, app RSS flat 263-266 MB, daemons ~2 % CPU. Hands-on
+  follow-up incident (same day, during manual play): a display send was
+  abandoned mid-frame ("stream desynced") because the display channel's
+  few-KB kernel send buffer forces a ~261 KB frame through dozens of daemon
+  drain rounds inside one send budget; the new convergence machinery
+  recovered in ~20 s instead of livelocking. Hardened since: the display
+  connection carries a 1 MB `SO_SNDBUF` (a whole dual-screen batch fits
+  without depending on momentary drain pace) and blit sends get a patient
+  1 s send budget separate from the ack budget — a slow write is
+  backpressure, not failure. The partial-write regression test now fills
+  the enlarged buffer before expecting desync. Remaining follow-ups from
+  the original item: small lamp/light-guide state-report acks still
+  round-trip on the actor (50 ms ceiling; benign on the bench), and MK3
+  pad-feel should be re-benched hands-on during active playback display
+  updates. The tick performs synchronous request/ack round trips
   (`blitDisplay` up to `displayTimeoutMs` 1000 ms, lamp/key state reports) on
   the same actor that processes input frames, so a slow ack queues pad/button
   events behind it — the client-side counterpart of the daemon invariant

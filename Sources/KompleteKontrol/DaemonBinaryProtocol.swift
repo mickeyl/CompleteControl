@@ -540,6 +540,16 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
         }
         var noSigPipe: Int32 = 1
         _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        if channel == .display {
+            // A full 480x272 RGB565 frame is ~261 KB; with the default few-KB
+            // unix-socket send buffer, writing it requires dozens of daemon
+            // drain rounds inside the send budget, and a brief reactor stall
+            // mid-frame desyncs the stream permanently (bench 2026-08-04). A
+            // buffer that holds a whole dual-screen batch makes large sends
+            // complete without depending on the daemon's momentary drain pace.
+            var sendBufferBytes: Int32 = 1 << 20
+            _ = setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sendBufferBytes, socklen_t(MemoryLayout<Int32>.size))
+        }
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
         self.channel = channel
         self.fd = fd
@@ -552,14 +562,18 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
     public func request(
         type: KKDaemonBinaryMessageType,
         payload: [UInt8] = [],
-        timeoutUsec: useconds_t = 250_000
+        timeoutUsec: useconds_t = 250_000,
+        sendTimeoutUsec: useconds_t? = nil
     ) -> (status: Int32, message: String)? {
         lock.lock()
         defer { lock.unlock() }
         nextSequence &+= 1
         let sequence = nextSequence
         let frame = KKDaemonBinaryFrame(channel: channel, type: type, sequence: sequence, payload: payload)
-        guard send(frame.encoded(), timeoutUsec: timeoutUsec) else { return nil }
+        // A slow write is backpressure, not failure — abandoning it mid-frame is
+        // what desyncs the stream for good. Callers with large payloads pass a
+        // patient send budget separate from their ack expectation.
+        guard send(frame.encoded(), timeoutUsec: sendTimeoutUsec ?? timeoutUsec) else { return nil }
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutUsec) / 1_000_000.0)
         while Date() < deadline {
             if let frame = readFrame(until: deadline) {
@@ -599,7 +613,14 @@ public final class KompleteKontrolDaemonBinaryClient: @unchecked Sendable {
             timeoutMs: timeoutMs,
             pixelsRGB565BE: pixelsRGB565BE
         )
-        guard let response = request(type: .displayBlit, payload: payload, timeoutUsec: timeoutUsec) else {
+        // Writing a large frame into a momentarily slow-draining daemon is
+        // ordinary backpressure; only the ack keeps the caller's tighter budget.
+        guard let response = request(
+            type: .displayBlit,
+            payload: payload,
+            timeoutUsec: timeoutUsec,
+            sendTimeoutUsec: 1_000_000
+        ) else {
             return false
         }
         return response.status == 0

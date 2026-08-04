@@ -65,40 +65,49 @@ struct DaemonBinaryClientPartialWriteTests {
             return result
         }
 
-        // Large enough to exceed the kernel socket buffer (nothing reads the accepted end,
-        // so a single write() call fills it) and time out inside sendDisplayBlit's default
-        // 50ms budget — exactly the "daemon momentarily busy, client bursts a repaint"
-        // scenario a reconnect storm produces.
-        let firstPayloadByteCount = 20_000
-        let firstFrameTotalByteCount = KKDaemonBinaryFrame.headerByteCount + 14 + firstPayloadByteCount
-        let firstSendSucceeded = client.sendDisplayBlit(
-            screen: 0, x: 0, y: 0, width: 480, height: 272,
-            timeoutMs: 1_000,
-            pixelsRGB565BE: [UInt8](repeating: 0xab, count: firstPayloadByteCount)
-        )
-        #expect(firstSendSucceeded == false, "nothing drains the socket, so this must time out")
+        // The display channel now carries a 1 MB send buffer and a patient send
+        // budget precisely so single frames survive a momentarily stalled
+        // daemon, so triggering the mid-write abandonment takes a sustained
+        // stall: keep sending full frames with nothing draining until a write
+        // genuinely cannot complete and the client marks the stream desynced.
+        let framePayloadByteCount = 261_120
+        let firstFrameTotalByteCount = KKDaemonBinaryFrame.headerByteCount + 14 + framePayloadByteCount
+        var fillSends = 0
+        while !client.isDesynced, fillSends < 12 {
+            _ = client.sendDisplayBlit(
+                screen: 0, x: 0, y: 0, width: 480, height: 272,
+                timeoutMs: 1_000,
+                pixelsRGB565BE: [UInt8](repeating: 0xab, count: framePayloadByteCount),
+                timeoutUsec: 20_000
+            )
+            fillSends += 1
+        }
+        #expect(client.isDesynced, "a sustained un-drained stall must eventually abandon a frame mid-write")
 
         // Simulate the daemon catching up — draining what actually made it onto the wire —
         // and then the client sending further, ordinary, fully-valid frames on the same
-        // connection (the real MK2Surface2.reconcileDisplays retry path, repeated a few
-        // times as later ticks each contribute their own blits). Every one of these is a
-        // completely well-formed frame in isolation; the corruption is purely a consequence
-        // of where they land relative to the first frame's still-unmet declared length.
-        var received: [UInt8] = []
-        var iterations = 0
-        while received.count <= firstFrameTotalByteCount, iterations < 10 {
-            received.append(contentsOf: drainAvailable())
+        // connection (the real MK2Surface2.reconcileDisplays retry path, repeated as later
+        // ticks each contribute their own blits). Every one of these is a completely
+        // well-formed frame in isolation; the corruption is purely a consequence of where
+        // they land relative to the abandoned frame's still-unmet declared length. Enough
+        // follow-up bytes must accumulate to cross that declared length, so the small
+        // frames are sent in bulk.
+        var received: [UInt8] = drainAvailable()
+        for index in 0..<70 {
             _ = client.sendDisplayBlit(
                 screen: 1, x: 0, y: 0, width: 64, height: 32,
                 timeoutMs: 1_000,
-                pixelsRGB565BE: [UInt8](repeating: 0x11, count: 64 * 32 * 2)
+                pixelsRGB565BE: [UInt8](repeating: 0x11, count: 64 * 32 * 2),
+                timeoutUsec: 1_000
             )
-            iterations += 1
+            if index % 10 == 9 {
+                received.append(contentsOf: drainAvailable())
+            }
         }
         received.append(contentsOf: drainAvailable())
         #expect(
             received.count > firstFrameTotalByteCount,
-            "expected enough follow-up frames to cross the abandoned frame's declared length, got \(received.count) of \(firstFrameTotalByteCount)"
+            "expected enough bytes to cross the abandoned frame's declared length, got \(received.count) of \(firstFrameTotalByteCount)"
         )
 
         var rejection: KKDaemonBinaryDecodeRejection?
