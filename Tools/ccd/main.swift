@@ -1,7 +1,7 @@
 import Foundation
 import KompleteKontrol
 
-let usage = "usage: ccd --kk-libusb-daemon [socket-path] | --revision | --version"
+let usage = "usage: ccd --kk-libusb-daemon [socket-path] [--product kontrol-mk2|maschine-mk3] | --revision | --version"
 if let argument = CommandLine.arguments.dropFirst().first {
     if argument == "-h" || argument == "--help" || argument == "help" {
         print(usage)

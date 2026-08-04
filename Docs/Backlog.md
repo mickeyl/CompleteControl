@@ -6,6 +6,26 @@
 
 ## Recently completed
 
+- **Product-bound daemon endpoints for simultaneous KONTROL+MASCHINE
+  (completed 2026-08-04).** `ccd --kk-libusb-daemon <socket> --product
+  kontrol-mk2|maschine-mk3` binds a daemon's libusb session (initial open and
+  every reconnect via `ensureSession`) to one device family;
+  `LibUSBDeviceSession.open(family:)` probes only that family's PIDs through
+  `KontrolUSBLibUSBSessionOpenForProduct`. An invalid `--product` refuses to
+  start instead of silently opening another family's device.
+  `MK2Surface2.Options.daemonSocketPath` pins a client to exactly one base
+  socket — no auto-discovery, no simulator fallback — so two surfaces in one
+  process address their own daemons. `install-daemon.sh` installs the pair
+  `media.vanille.kompletekontrol-libusb` (KONTROL, stock socket) and
+  `media.vanille.kompletekontrol-maschine`
+  (`/var/run/kompletekontrol-maschine.sock`); Makefile daemon targets and
+  `daemon-preflight` are endpoint-scoped and never pkill the other product's
+  daemon. Paulinche attaches both endpoints through its new
+  `CompositeControlSurfacePort` (per-surface `SurfaceID` event provenance,
+  output fan-out, fleet connection status). Bench-verified on real S61 MK2 +
+  MASCHINE MK3: both daemons own exactly their device and Paulinche renders
+  all four displays in mirror operation.
+
 - **Deterministic headless simulator host (completed 2026-07-22).**
   `kontrol-sim-host` launches either profile without AppKit, owns `DeviceLink`,
   optionally starts/stops a matching user-level `ccd` with the automation
@@ -80,16 +100,20 @@
   fidelity; until then the daemon automation socket is the MK2 input plane
   (slice 4 of `Headless-Simulator-Host-Plan.md`).
 
-- **Phase 5: isolate simulator instances and enable mixed topology.** The shared
-  core, authoritative handshake, native MK3 input, and visual 320x301-mm panel
-  are complete, and the headless host delivered the instance-path substrate
-  (`SimulatorInstancePaths`, `SimulatorDaemonController`). Next, migrate the
-  GUI simulator's global device/daemon socket, log, lock, and defaults paths
-  onto validated instance-scoped paths; make child-daemon ownership
-  profile-aware; and add real KONTROL + simulated MASCHINE, simulated KONTROL +
-  real MASCHINE, and both-simulated harnesses. Paulinche must attach the two
-  explicit endpoints through stable `SurfaceID`s without daemon auto-discovery.
-  See Phase 5 of [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md).
+- **Phase 5 remainder: isolate simulator instances and the mixed real/sim
+  matrices.** The both-real leg is delivered (2026-08-04): product-bound `ccd`
+  endpoints, explicit `MK2Surface2.Options.daemonSocketPath`, and Paulinche's
+  `CompositeControlSurfacePort` with stable `SurfaceID`s and no daemon
+  auto-discovery. Still open: migrate the GUI simulator's global device/daemon
+  socket, log, lock, and defaults paths onto validated instance-scoped paths
+  (`SimulatorInstancePaths`, `SimulatorDaemonController` exist); make
+  child-daemon ownership profile-aware; and add real KONTROL + simulated
+  MASCHINE, simulated KONTROL + real MASCHINE, and both-simulated harnesses
+  (Paulinche side: `PAULINCHE_KONTROL_SOCKET`/`PAULINCHE_MASCHINE_SOCKET`
+  already select explicit endpoints). Also still open from the Phase 5 gate:
+  one-surface loss/restart/sleep-wake soak, identical-note ownership across
+  surfaces, and the four-display stress evidence. See Phase 5 of
+  [Maschine-MK3-Simulator-Plan.md](Maschine-MK3-Simulator-Plan.md).
 
 - **Phase 6: final MK3 bench calibration.** Compare the simulator's remaining
   estimated geometry and interaction constants with the real unit, then verify

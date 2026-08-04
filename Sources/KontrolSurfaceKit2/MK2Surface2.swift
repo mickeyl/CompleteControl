@@ -110,19 +110,26 @@ public actor MK2Surface2 {
         /// route them into its own logging system. Nil falls back to stderr —
         /// Kit2 deliberately carries no logging dependency of its own.
         public var inputDelaySink: (@Sendable (MK2InputDelayDiagnostic) -> Void)?
+        /// Explicit daemon endpoint. When set, this surface talks to exactly
+        /// that base socket — no auto-discovery, no simulator fallback, no
+        /// alternation — so two surfaces in one process can each address their
+        /// own product-bound daemon. Nil keeps the historical discovery.
+        public var daemonSocketPath: String?
 
         public init(
             tickHz: Int = 30,
             displayTimeoutMs: UInt32 = 1_000,
             buttonHoldDelay: TimeInterval = 1.0,
             padMIDIMapping: KontrolPadMIDIMapping = KontrolPadMIDIMapping(),
-            inputDelaySink: (@Sendable (MK2InputDelayDiagnostic) -> Void)? = nil
+            inputDelaySink: (@Sendable (MK2InputDelayDiagnostic) -> Void)? = nil,
+            daemonSocketPath: String? = nil
         ) {
             self.tickHz = tickHz
             self.displayTimeoutMs = displayTimeoutMs
             self.buttonHoldDelay = buttonHoldDelay
             self.padMIDIMapping = padMIDIMapping
             self.inputDelaySink = inputDelaySink
+            self.daemonSocketPath = daemonSocketPath
         }
     }
 
@@ -458,6 +465,9 @@ public actor MK2Surface2 {
     }
 
     private func daemonSocketPathForNextAttempt() -> String {
+        if let explicit = options.daemonSocketPath {
+            return explicit
+        }
         let configured = KompleteKontrolLibUSBServer.defaultDaemonSocketPath
         let simulator = KompleteKontrolLibUSBServer.simulatorDaemonSocketPath
         if configured == simulator {

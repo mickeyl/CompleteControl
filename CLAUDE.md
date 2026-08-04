@@ -73,9 +73,19 @@ worktree state it actually tested; later changes still need focused validation.
 
 ## Daemon
 
-The normal hardware daemon is `ccd --kk-libusb-daemon [socket-path]`. It owns
-one persistent profile-driven libusb session and exposes independent control,
-event, and display channels to clients.
+The normal hardware daemon is `ccd --kk-libusb-daemon [socket-path]
+[--product kontrol-mk2|maschine-mk3]`. It owns one persistent profile-driven
+libusb session and exposes independent control, event, and display channels to
+clients. `--product` binds the session (initial open and every reconnect) to
+one device family; simultaneous KONTROL+MASCHINE operation runs one
+product-bound daemon per surface. The installed pair is
+`media.vanille.kompletekontrol-libusb` (KONTROL,
+`/var/run/kompletekontrol-libusb.sock`) and
+`media.vanille.kompletekontrol-maschine` (MASCHINE,
+`/var/run/kompletekontrol-maschine.sock`); `install-daemon.sh` installs both.
+Clients address a specific daemon through
+`MK2Surface2.Options.daemonSocketPath`, which disables auto-discovery for that
+surface; composite configurations must always use explicit endpoints.
 
 Adaptive MK2 display encoding is the production default. The device-session
 backend owns its successfully-written framebuffer shadow and chooses the smallest
@@ -334,8 +344,10 @@ collide, and instance sockets are invisible to client auto-discovery. It
 publishes a JSON-Lines control plane (readiness events, native MK3 gestures,
 lamp/framebuffer assertions) with stable exit codes — see
 `Docs/automation-testing.md` section 5. Child-daemon ownership is shared with
-the GUI through `SimulatorDaemonController`. Real/simulated mixed operation and
-simultaneous KONTROL+MASCHINE remain Phase 5 of
+the GUI through `SimulatorDaemonController`. Simultaneous KONTROL+MASCHINE on
+real hardware is delivered via product-bound daemons plus Paulinche's
+`CompositeControlSurfacePort`; GUI-simulator instance isolation and the mixed
+real/simulated harnesses remain Phase 5 of
 `Docs/Maschine-MK3-Simulator-Plan.md`.
 
 For visual acceptance snapshots, set `KONTROLSIM_SNAPSHOT_PATH`; optional

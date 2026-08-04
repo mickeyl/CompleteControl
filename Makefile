@@ -1,6 +1,15 @@
 .DEFAULT_GOAL := help
 
 SOCKET ?= /var/run/kompletekontrol-libusb.sock
+MASCHINE_SOCKET := /var/run/kompletekontrol-maschine.sock
+SOCKET_LOCK = $(SOCKET:.sock=.lock)
+# Optional family binding for the foreground daemon targets, e.g.
+#   make daemon-debug SOCKET=$(MASCHINE_SOCKET) DAEMON_PRODUCT=maschine-mk3
+DAEMON_PRODUCT ?=
+DAEMON_PRODUCT_ARGS = $(if $(DAEMON_PRODUCT),--product $(DAEMON_PRODUCT),)
+# The launchd label that owns the selected socket, so daemon targets never
+# touch the other product-bound daemon.
+LAUNCHD_LABEL = $(if $(filter $(SOCKET),$(MASCHINE_SOCKET)),media.vanille.kompletekontrol-maschine,media.vanille.kompletekontrol-libusb)
 MK2_DISPLAY_ENCODING ?= adaptive
 ifeq ($(MK2_DISPLAY_ENCODING),legacy)
 else ifeq ($(MK2_DISPLAY_ENCODING),adaptive)
@@ -94,10 +103,10 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 	target_socket="$${KK_DAEMON_SOCKET:-$(SOCKET)}"; \
 	simulator_pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") == 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
 	simulator_count="$$(printf '%s\n' "$$simulator_pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
-	pids="$$(ps -axo pid=,command= | awk '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") > 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
+	pids="$$(ps -axo pid=,command= | awk -v sock="$$target_socket" '/--kk-libusb-daemon|--libusb-daemon/ { if (index($$0, "kontrol-simulator-daemon.sock") > 0) next; if (index($$0, sock) == 0) next; command = $$0; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", command); split(command, argv, /[[:space:]]+/); n = split(argv[1], path, "/"); executable = path[n]; if (executable != "sudo" && executable != "sh" && executable != "zsh" && executable != "bash" && executable != "make" && executable != "awk" && executable != "env") print $$1 }')"; \
 	count="$$(printf '%s\n' "$$pids" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
 	if [ "$$count" -gt 1 ]; then \
-		echo "Refusing to run: multiple KompleteKontrol daemons are active:" >&2; \
+		echo "Refusing to run: multiple KompleteKontrol daemons own $$target_socket:" >&2; \
 		for pid in $$pids; do ps -o pid,user,command -p "$$pid" >&2; done; \
 		echo "Run: make install-daemon" >&2; \
 		exit 1; \
@@ -139,13 +148,13 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 	fi
 
 daemon-debug: daemon-build ## Run foreground debug daemon with tracing and automation input enabled.
-	@echo "Stopping installed/foreground daemons..."
-	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
-	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
-	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Stopping the daemon that owns $(SOCKET)..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) $(SOCKET_LOCK)
 	@echo "Starting foreground daemon with structured stderr tracing. Press Ctrl-C to stop."
 	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
-	sudo env $(DAEMON_LOG_RING_ENV) KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) CCD_ENABLE_AUTOMATION=1 KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
+	sudo env $(DAEMON_LOG_RING_ENV) KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) CCD_ENABLE_AUTOMATION=1 KK_DAEMON_DEBUG=1 KK_USB_DEBUG=1 LOGLEVEL=TRACE "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)" $(DAEMON_PRODUCT_ARGS)
 
 daemon-debug-trace: ## Run the debug daemon as a flight recorder: trace output buffers in RAM; flush the last DAEMON_RING_KEEP seconds into DAEMON_TRACE_LOG via SIGUSR1 (DAEMON_RING_KEEP=0: live logging).
 	@rm -f "$(DAEMON_TRACE_LOG)"
@@ -159,13 +168,13 @@ daemon-debug-trace: ## Run the debug daemon as a flight recorder: trace output b
 	@$(MAKE) --no-print-directory daemon-debug DAEMON_LOG_RING_ENV="KK_LOG_RING=$(DAEMON_RING_KEEP)" >"$(DAEMON_TRACE_LOG)" 2>&1
 
 daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
-	@echo "Stopping installed/foreground daemons..."
-	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
-	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
-	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Stopping the daemon that owns $(SOCKET)..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) $(SOCKET_LOCK)
 	@echo "Starting quiet optimized foreground daemon. Press Ctrl-C to stop."
 	@echo "MK2 display encoding: $(MK2_DISPLAY_ENCODING)"
-	@sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)"
+	@sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) "$$(pwd)/$(DAEMON_RELEASE)" --kk-libusb-daemon "$(SOCKET)" $(DAEMON_PRODUCT_ARGS)
 
 SIM_SOCKET := /tmp/kontrol-simulator.sock
 
@@ -186,10 +195,10 @@ sim-host: sim-host-build ## Build and run the headless simulator host (MK3, own 
 	.build/debug/kontrol-sim-host --device maschine-mk3 --automation
 
 daemon-simulate: daemon-build ## Stop launchd daemon and run the foreground daemon in simulation mode (needs run-simulator).
-	@echo "Stopping installed/foreground daemons..."
-	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
-	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
-	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	@echo "Stopping the daemon that owns $(SOCKET)..."
+	-sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist 2>/dev/null || true
+	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
+	-sudo rm -f $(SOCKET) $(SOCKET_LOCK)
 	@echo "Starting foreground daemon in SIMULATION mode (device = $(SIM_SOCKET)). Launch 'make run-simulator' first. Ctrl-C to stop."
 	sudo env KK_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) CCD_SIMULATE=$(SIM_SOCKET) KK_DAEMON_DEBUG=1 LOGLEVEL=INFO "$$(pwd)/$(DAEMON)" --kk-libusb-daemon "$(SOCKET)"
 
@@ -201,31 +210,33 @@ install-daemon: daemon-build-release ## Install optimized daemon as launchd serv
 install-debug-daemon: daemon-build ## Install debug daemon with tracing and automation input enabled.
 	sudo env KK_INSTALL_MK2_DISPLAY_ENCODING=$(MK2_DISPLAY_ENCODING) KK_INSTALL_DEBUG_DAEMON=1 CCD_ENABLE_AUTOMATION=1 KK_INSTALL_DAEMON_EXECUTABLE="$$(pwd)/$(DAEMON)" KK_INSTALL_DAEMON_CONFIGURATION=debug ./install-daemon.sh
 
-uninstall-daemon: ## Uninstall daemon launchd service (requires sudo).
-	@echo "Stopping and removing daemon service..."
-	-sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
-	-sudo launchctl unload /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true
-	-sudo rm -f /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
+uninstall-daemon: ## Uninstall both daemon launchd services (requires sudo).
+	@echo "Stopping and removing daemon services..."
+	@for label in media.vanille.kompletekontrol-libusb media.vanille.kompletekontrol-maschine; do \
+		sudo launchctl bootout system /Library/LaunchDaemons/$$label.plist 2>/dev/null || true; \
+		sudo launchctl unload /Library/LaunchDaemons/$$label.plist 2>/dev/null || true; \
+		sudo rm -f /Library/LaunchDaemons/$$label.plist; \
+		sudo rm -f /tmp/$$label.stdout.log /tmp/$$label.stderr.log; \
+	done
 	-sudo rm -f /usr/local/bin/ccd
 	-sudo rm -rf /usr/local/bin/CompleteControl_KompleteKontrol.bundle
 	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
-	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
-	-sudo rm -f /tmp/media.vanille.kompletekontrol-libusb.stdout.log /tmp/media.vanille.kompletekontrol-libusb.stderr.log
-	@echo "Daemon service uninstalled."
+	-sudo rm -f $(SOCKET) $(SOCKET_LOCK) $(MASCHINE_SOCKET) $(MASCHINE_SOCKET:.sock=.lock)
+	@echo "Daemon services uninstalled."
 
 daemon-status: ## Show daemon status.
 	@sudo launchctl list | grep kompletekontrol || echo "Daemon not running or not installed."
 	@mode="$$(sudo /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING' /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true)"; \
 	if [ -n "$$mode" ]; then echo "MK2 display encoding: $$mode"; else echo "MK2 display encoding: adaptive (default)"; fi
 
-daemon-start: ## Start daemon via launchctl.
-	@sudo launchctl bootstrap system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
+daemon-start: ## Start the daemon owning SOCKET via launchctl.
+	@sudo launchctl bootstrap system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist
 
-daemon-stop: ## Stop daemon via launchctl.
-	@sudo launchctl bootout system /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist
+daemon-stop: ## Stop the daemon owning SOCKET via launchctl.
+	@sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist
 
-daemon-restart: ## Restart daemon via launchctl.
-	@sudo launchctl kickstart -k system/media.vanille.kompletekontrol-libusb
+daemon-restart: ## Restart the daemon owning SOCKET via launchctl.
+	@sudo launchctl kickstart -k system/$(LAUNCHD_LABEL)
 
 mk2-surface-demo: mk2-surface-demo-build ## Run the MK2 hardware-only SurfaceKit2 feature demo.
 	@$(MAKE) daemon-preflight
@@ -267,11 +278,11 @@ kk-input: ## Open the interactive automation-input REPL with automatic socket di
 
 kk-reset: kk-stop kk-clean-socket ## Stop foreground daemon leftovers and remove stale socket.
 
-kk-stop: ## Stop any foreground KK libusb daemon process.
-	-sudo pkill -f 'kk-libusb-daemon' 2>/dev/null || true
+kk-stop: ## Stop the foreground KK libusb daemon owning SOCKET.
+	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
 
 kk-clean-socket: ## Remove the daemon socket.
-	-sudo rm -f $(SOCKET) /var/run/kompletekontrol-libusb.lock
+	-sudo rm -f $(SOCKET) $(SOCKET_LOCK)
 
 kk-status: ## Show running CompleteControl daemon processes.
 	@pgrep -fl 'ccd|--kk-libusb-daemon' || true

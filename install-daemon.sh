@@ -6,10 +6,16 @@ set -e
 # without requiring password prompts each time.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DAEMON_LABEL="media.vanille.kompletekontrol-libusb"
-PLIST_FILE="$SCRIPT_DIR/media.vanille.kompletekontrol-libusb.plist"
-LAUNCHD_PLIST="/Library/LaunchDaemons/$DAEMON_LABEL.plist"
-SOCKET_PATH="/var/run/kompletekontrol-libusb.sock"
+# One product-bound daemon per surface: the historical label keeps the KONTROL
+# MK2 on the stock socket, a second label owns the MASCHINE MK3. The MASCHINE
+# daemon is optional: pass KK_INSTALL_MASCHINE_DAEMON=0 to skip it.
+DAEMON_LABELS=("media.vanille.kompletekontrol-libusb")
+SOCKET_PATHS=("/var/run/kompletekontrol-libusb.sock")
+INSTALL_MASCHINE="${KK_INSTALL_MASCHINE_DAEMON:-1}"
+if [ "$INSTALL_MASCHINE" = "1" ]; then
+    DAEMON_LABELS+=("media.vanille.kompletekontrol-maschine")
+    SOCKET_PATHS+=("/var/run/kompletekontrol-maschine.sock")
+fi
 DEBUG_DAEMON="${KK_INSTALL_DEBUG_DAEMON:-0}"
 ENABLE_AUTOMATION="${CCD_ENABLE_AUTOMATION:-0}"
 BUILD_CONFIGURATION="${KK_INSTALL_DAEMON_CONFIGURATION:-release}"
@@ -70,10 +76,12 @@ if [ ! -d "$RESOURCE_BUNDLE_PATH" ]; then
     exit 1
 fi
 
-# Stop any existing daemon
-echo "Stopping any existing daemon..."
-launchctl bootout system "$LAUNCHD_PLIST" 2>/dev/null || true
-launchctl unload "$LAUNCHD_PLIST" 2>/dev/null || true
+# Stop any existing daemons
+echo "Stopping any existing daemons..."
+for label in "${DAEMON_LABELS[@]}"; do
+    launchctl bootout system "/Library/LaunchDaemons/$label.plist" 2>/dev/null || true
+    launchctl unload "/Library/LaunchDaemons/$label.plist" 2>/dev/null || true
+done
 
 daemon_pids="$(pgrep -f "kk-libusb-daemon" || true)"
 if [ -n "$daemon_pids" ]; then
@@ -90,7 +98,9 @@ if [ -n "$daemon_pids" ]; then
         echo "$daemon_pids" | xargs kill -9 2>/dev/null || true
     fi
 fi
-rm -f "$SOCKET_PATH" /var/run/kompletekontrol-libusb.lock
+for socket_path in "${SOCKET_PATHS[@]}"; do
+    rm -f "$socket_path" "${socket_path%.sock}.lock"
+done
 
 # Copy executable to /usr/local/bin
 echo "Installing ccd to /usr/local/bin..."
@@ -100,47 +110,63 @@ echo "Installing ccd resources..."
 ditto "$RESOURCE_BUNDLE_PATH" "$INSTALLED_RESOURCE_BUNDLE"
 chmod -R a+rX "$INSTALLED_RESOURCE_BUNDLE"
 
-# Update plist with correct executable path
-echo "Installing launchd plist..."
-cp "$PLIST_FILE" "$LAUNCHD_PLIST"
-/usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$LAUNCHD_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LAUNCHD_PLIST"
-/usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING string $DISPLAY_ENCODING" "$LAUNCHD_PLIST"
-if [ "$DEBUG_DAEMON" = "1" ]; then
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:LOGLEVEL string TRACE" "$LAUNCHD_PLIST"
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$LAUNCHD_PLIST"
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$LAUNCHD_PLIST"
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_LOG string 1" "$LAUNCHD_PLIST"
-fi
-if [ "$ENABLE_AUTOMATION" = "1" ]; then
-    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:CCD_ENABLE_AUTOMATION string 1" "$LAUNCHD_PLIST"
-fi
-chmod 644 "$LAUNCHD_PLIST"
+# Update plists with the shared environment and load each daemon
+for label in "${DAEMON_LABELS[@]}"; do
+    plist_file="$SCRIPT_DIR/$label.plist"
+    launchd_plist="/Library/LaunchDaemons/$label.plist"
+    echo "Installing launchd plist $label..."
+    cp "$plist_file" "$launchd_plist"
+    /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$launchd_plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$launchd_plist"
+    /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING string $DISPLAY_ENCODING" "$launchd_plist"
+    if [ "$DEBUG_DAEMON" = "1" ]; then
+        /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:LOGLEVEL string TRACE" "$launchd_plist"
+        /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_DEBUG string 1" "$launchd_plist"
+        /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_USB_DEBUG string 1" "$launchd_plist"
+        /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:KK_DAEMON_LOG string 1" "$launchd_plist"
+    fi
+    if [ "$ENABLE_AUTOMATION" = "1" ]; then
+        /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:CCD_ENABLE_AUTOMATION string 1" "$launchd_plist"
+    fi
+    chmod 644 "$launchd_plist"
 
-# Load the daemon
-echo "Loading daemon..."
-launchctl bootstrap system "$LAUNCHD_PLIST" 2>/dev/null || launchctl load "$LAUNCHD_PLIST"
-launchctl kickstart -k "system/$DAEMON_LABEL" 2>/dev/null || true
+    echo "Loading daemon $label..."
+    launchctl bootstrap system "$launchd_plist" 2>/dev/null || launchctl load "$launchd_plist"
+    launchctl kickstart -k "system/$label" 2>/dev/null || true
+done
 
-# Wait for socket to appear
-echo "Waiting for daemon to start..."
+# Wait for every socket to appear
+echo "Waiting for daemons to start..."
+all_ready=0
 for i in {1..10}; do
-    if [ -S "$SOCKET_PATH" ]; then
-        echo -e "${GREEN}Daemon started successfully!${NC}"
-        echo "Socket: $SOCKET_PATH"
-        echo "Stdout log: /tmp/media.vanille.kompletekontrol-libusb.stdout.log"
-        echo "Stderr log: /tmp/media.vanille.kompletekontrol-libusb.stderr.log"
-        echo ""
-        echo "To control the daemon:"
-        echo "  Start:   sudo launchctl bootstrap system $LAUNCHD_PLIST"
-        echo "  Stop:    sudo launchctl bootout system $LAUNCHD_PLIST"
-        echo "  Restart: sudo launchctl kickstart -k system/$DAEMON_LABEL"
-        echo "  Status:  sudo launchctl print system/$DAEMON_LABEL"
-        exit 0
+    all_ready=1
+    for socket_path in "${SOCKET_PATHS[@]}"; do
+        if [ ! -S "$socket_path" ]; then
+            all_ready=0
+        fi
+    done
+    if [ "$all_ready" = "1" ]; then
+        break
     fi
     sleep 0.5
 done
 
-echo -e "${RED}Error: Daemon failed to start within 5 seconds${NC}"
-echo "Check logs: /tmp/media.vanille.kompletekontrol-libusb.stderr.log"
+if [ "$all_ready" = "1" ]; then
+    echo -e "${GREEN}Daemons started successfully!${NC}"
+    for index in "${!DAEMON_LABELS[@]}"; do
+        echo "  ${DAEMON_LABELS[$index]} -> ${SOCKET_PATHS[$index]}"
+    done
+    echo ""
+    echo "To control a daemon (substitute its label):"
+    echo "  Start:   sudo launchctl bootstrap system /Library/LaunchDaemons/<label>.plist"
+    echo "  Stop:    sudo launchctl bootout system /Library/LaunchDaemons/<label>.plist"
+    echo "  Restart: sudo launchctl kickstart -k system/<label>"
+    echo "  Status:  sudo launchctl print system/<label>"
+    exit 0
+fi
+
+echo -e "${RED}Error: Not every daemon socket appeared within 5 seconds${NC}"
+for label in "${DAEMON_LABELS[@]}"; do
+    echo "Check logs: /tmp/$label.stderr.log"
+done
 exit 1

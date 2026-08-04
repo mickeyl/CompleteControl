@@ -1,8 +1,30 @@
 import Foundation
 
-public enum KontrolDeviceFamily: String, Sendable {
+public enum KontrolDeviceFamily: String, Sendable, CaseIterable {
     case kompleteKontrolMK2 = "komplete-kontrol-mk2"
     case maschineMK3 = "maschine-mk3"
+
+    /// Product IDs in the same order `KontrolUSB`'s device table declares them,
+    /// so a family-bound open probes deterministically.
+    public var productIDs: [UInt16] {
+        switch self {
+            case .kompleteKontrolMK2: return [0x1610, 0x1620, 0x1630]
+            case .maschineMK3: return [0x1600]
+        }
+    }
+
+    /// Accepts the canonical raw value plus the short spellings used on the
+    /// `ccd --product` command line and in the simulator's device vocabulary.
+    public init?(cliToken: String) {
+        switch cliToken.lowercased() {
+            case KontrolDeviceFamily.kompleteKontrolMK2.rawValue, "kontrol-mk2", "kontrol", "mk2":
+                self = .kompleteKontrolMK2
+            case KontrolDeviceFamily.maschineMK3.rawValue, "maschine", "mk3":
+                self = .maschineMK3
+            default:
+                return nil
+        }
+    }
 }
 
 public struct KontrolDeviceCapabilities: Sendable, Equatable {

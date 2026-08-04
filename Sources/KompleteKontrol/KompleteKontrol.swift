@@ -652,6 +652,46 @@ public enum KompleteKontrolLibUSBServer {
         }
     }
 
+    /// Parsed daemon command line. Internal so the option grammar has focused
+    /// tests without spinning up a daemon.
+    struct DaemonInvocation: Equatable {
+        var socketPath: String
+        var product: KontrolDeviceFamily?
+
+        enum ParseOutcome: Equatable {
+            case success(DaemonInvocation)
+            case failure(String)
+        }
+
+        /// Parses the tokens after `--kk-libusb-daemon`: an optional positional
+        /// socket path and an optional `--product <family>`. An invalid product
+        /// is a hard error — silently opening another family's device would be
+        /// worse than refusing to start.
+        static func parse(argumentsAfterFlag tokens: [String]) -> ParseOutcome {
+            var invocation = DaemonInvocation(socketPath: defaultDaemonSocketPath, product: nil)
+            var index = 0
+            while index < tokens.count {
+                let token = tokens[index]
+                if token == "--product" {
+                    guard index + 1 < tokens.count else {
+                        return .failure("--product requires a value (kontrol-mk2 | maschine-mk3)")
+                    }
+                    guard let family = KontrolDeviceFamily(cliToken: tokens[index + 1]) else {
+                        return .failure("unknown --product '\(tokens[index + 1])' (kontrol-mk2 | maschine-mk3)")
+                    }
+                    invocation.product = family
+                    index += 2
+                } else if token.hasPrefix("-") {
+                    return .failure("unknown daemon option '\(token)'")
+                } else {
+                    invocation.socketPath = token
+                    index += 1
+                }
+            }
+            return .success(invocation)
+        }
+    }
+
     public static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
         let args = Array(arguments.dropFirst())
         if args.first == "--revision" {
@@ -662,8 +702,13 @@ public enum KompleteKontrolLibUSBServer {
             exit(0)
         }
         if args.first == "--kk-libusb-daemon" || args.first == "--libusb-daemon" {
-            let socketPath = args.dropFirst().first ?? defaultDaemonSocketPath
-            runDaemon(socketPath: socketPath)
+            switch DaemonInvocation.parse(argumentsAfterFlag: Array(args.dropFirst())) {
+                case let .success(invocation):
+                    runDaemon(socketPath: invocation.socketPath, product: invocation.product)
+                case let .failure(message):
+                    fputs("ccd: \(message)\n", stderr)
+                    exit(2)
+            }
         }
         return false
     }
@@ -703,11 +748,11 @@ public enum KompleteKontrolLibUSBServer {
         return serverFD
     }
 
-    public static func runDaemon(socketPath: String = defaultDaemonSocketPath) -> Never {
+    public static func runDaemon(socketPath: String = defaultDaemonSocketPath, product: KontrolDeviceFamily? = nil) -> Never {
         signal(SIGPIPE, SIG_IGN)
         signal(SIGINT, SIG_IGN)
         signal(SIGTERM, SIG_IGN)
-        daemonDebugLog("process start pid=\(getpid()) socket=\(socketPath)", group: "daemon")
+        daemonDebugLog("process start pid=\(getpid()) socket=\(socketPath) product=\(product?.rawValue ?? "any")", group: "daemon")
         daemonDebugLog("process scan begin", group: "daemon")
         let otherPIDs = runningDaemonPIDs(socketPath: socketPath).filter { $0 != getpid() }
         daemonDebugLog("process scan complete otherPIDs=\(otherPIDs.map(String.init).joined(separator: ","))", group: "daemon")
@@ -742,7 +787,7 @@ public enum KompleteKontrolLibUSBServer {
             unlink(path)
         }
         let displayEncoding = MK2DisplayEncodingSelection.resolve()
-        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-") automation=\(socketPaths[.automation] ?? "-") displayEncoding=\(displayEncoding.mode.rawValue)")
+        daemonLog("starting kqueue daemon control=\(socketPaths[.control] ?? socketPath) event=\(socketPaths[.event] ?? "-") display=\(socketPaths[.display] ?? "-") automation=\(socketPaths[.automation] ?? "-") product=\(product?.rawValue ?? "any") displayEncoding=\(displayEncoding.mode.rawValue)")
         if displayEncoding.fellBackToLegacy {
             daemonLog(
                 "invalid \(MK2DisplayEncodingSelection.environmentKey)=\(displayEncoding.requestedValue ?? ""); using legacy",
@@ -768,7 +813,7 @@ public enum KompleteKontrolLibUSBServer {
         }
         daemonLog("listening control/event/display\(automationEnabled ? "/automation" : "")")
 
-        let hardware = DaemonHardware()
+        let hardware = DaemonHardware(boundProduct: product)
         hardware.runStartupAnimationThenIdle()
         hardware.startAsyncTransfers()
 
@@ -1521,6 +1566,9 @@ public enum KompleteKontrolLibUSBServer {
         private let sessionIOLock = SessionUseLock()
         private let maxQueuedPushes = 64
         private let daemonSurfaceEnabled = ProcessInfo.processInfo.environment["KK_DAEMON_DISABLE_SURFACE"] != "1"
+        /// Restricts session opens (initial and every reconnect) to one device
+        /// family, so product-bound daemons never steal each other's hardware.
+        private let boundProduct: KontrolDeviceFamily?
         private var libusbSession: (any KontrolDeviceSession)?
         private var asyncTransfersStarted = false
         private let initialOpenRetryDelayNs: UInt64 = 1_000_000_000
@@ -1604,6 +1652,10 @@ public enum KompleteKontrolLibUSBServer {
             static let idleInput: UInt16 = 0xffe0
             static let clientConnected: UInt16 = 0x07e0
             static let footer: UInt16 = 0x2104
+        }
+
+        init(boundProduct: KontrolDeviceFamily? = nil) {
+            self.boundProduct = boundProduct
         }
 
         deinit {
@@ -2532,7 +2584,7 @@ public enum KompleteKontrolLibUSBServer {
                 let opened = SimulatorDeviceSession.open(socketPath: path)
                 return (opened.session, opened.result)
             }
-            let opened = LibUSBDeviceSession.open()
+            let opened = boundProduct.map(LibUSBDeviceSession.open(family:)) ?? LibUSBDeviceSession.open()
             return (opened.session, opened.result)
         }
 

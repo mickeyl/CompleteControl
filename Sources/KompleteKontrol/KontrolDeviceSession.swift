@@ -59,12 +59,28 @@ final class LibUSBDeviceSession: KontrolDeviceSession {
         displayPacketEncoder = displayEncodingSelection.mode == .adaptive ? MK2DisplayPacketEncoder() : nil
     }
 
-    /// Open a real session, or nil with the failing result.
-    static func open() -> (session: LibUSBDeviceSession?, result: KontrolUSBResult) {
+    /// Open a real session, or nil with the failing result. Product 0 keeps the
+    /// historical "first supported device wins" behavior.
+    static func open(productID: UInt16 = 0) -> (session: LibUSBDeviceSession?, result: KontrolUSBResult) {
         var raw: KontrolUSBLibUSBSessionRef?
-        let result = KontrolUSBLibUSBSessionOpen(&raw)
+        let result = KontrolUSBLibUSBSessionOpenForProduct(productID, &raw)
         guard result.status == 0, let raw else { return (nil, result) }
         return (LibUSBDeviceSession(ref: raw, displayEncodingSelection: .resolve()), result)
+    }
+
+    /// Open the first attached device of one family. A product-bound daemon must
+    /// never fall through to another family's device, so this probes only the
+    /// family's own product IDs and reports the last failure otherwise.
+    static func open(family: KontrolDeviceFamily) -> (session: LibUSBDeviceSession?, result: KontrolUSBResult) {
+        var lastFailure: (session: LibUSBDeviceSession?, result: KontrolUSBResult)?
+        for productID in family.productIDs {
+            let opened = open(productID: productID)
+            if opened.result.status == 0, opened.session != nil {
+                return opened
+            }
+            lastFailure = opened
+        }
+        return lastFailure ?? open(productID: family.productIDs[0])
     }
 
     var productID: UInt16 { KontrolUSBLibUSBSessionProductID(ref) }

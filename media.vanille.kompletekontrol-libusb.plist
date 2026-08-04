@@ -9,6 +9,8 @@
         <string>/usr/local/bin/ccd</string>
         <string>--kk-libusb-daemon</string>
         <string>/var/run/kompletekontrol-libusb.sock</string>
+        <string>--product</string>
+        <string>kontrol-mk2</string>
     </array>
     <key>StandardOutPath</key>
     <string>/tmp/media.vanille.kompletekontrol-libusb.stdout.log</string>
