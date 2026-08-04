@@ -171,20 +171,25 @@
 
 ## KontrolSurfaceKit2
 
-- **Move display/state ack round-trips off the `MK2Surface2` actor (noted
-  2026-07-20; escalated 2026-08-04 — now bench-reproducible with unbounded
-  client memory growth).** Dual-surface stress evidence (real S61 MK2 +
-  MASCHINE MK3, looped playback on four OLEDs, ~3500 synthetic MK2 input
-  events over 15 min): flawless for ~13.8 min (zero >100 ms input-delay
-  diagnostics, both daemons ~2 % CPU, app RSS flat at 264 MB), then a KONTROL
-  `display blit timed out` tipped the client into a non-converging
-  retry/re-register/replay loop; the app grew 264 MB → 1.4 GB+ within ~5 min
-  (suspect: the unbounded `ReceivedFrame` AsyncStream plus repeated replay
-  allocations while acks block the actor) until it was quit. The daemon side
-  stayed healthy throughout — after the client quit, both daemons repainted
-  their idle surfaces immediately. The planned fix (latest-wins display
-  writer off the input actor, no blocking acks) should also bound the
-  reconnect loop's memory; add a stress-length regression once landed. The tick performs synchronous request/ack round trips
+- **Display ack round-trips moved off the `MK2Surface2` actor (noted
+  2026-07-20; fixed and bench-verified 2026-08-04).** The 2026-08-04
+  dual-surface stress reproduced the failure: after ~13.8 flawless minutes a
+  KONTROL `display blit timed out` (flat 50 ms ack budget hit by a ~261 KB
+  full-frame payload) tipped the actor-blocking design into a non-converging
+  timeout → full-frame-resend → longer-ack loop with unbounded app memory
+  growth (264 MB → 1.4 GB+), while the daemon stayed healthy. Fix:
+  `MK2DisplayBlitWriter` owns all blit round-trips on a dedicated serial
+  queue with one in-flight batch (ticks skip reconciliation while busy —
+  latest-wins at frame granularity, no lost diffs); the ack budget scales
+  with payload size (50 ms + 0.2 µs/byte, 1 s cap); display timeouts arm a
+  250 ms retry cooldown; consecutive session failures back the redial off
+  (1→2→4→8 s). Verification: identical 15-min four-OLED stress with ~3510
+  injected events — zero input-delay diagnostics, zero blit
+  timeouts/retries, app RSS flat 263-266 MB, daemons ~2 % CPU. Remaining
+  follow-ups from the original item: small lamp/light-guide state-report
+  acks still round-trip on the actor (50 ms ceiling; benign on the bench),
+  and MK3 pad-feel should be re-benched hands-on during active playback
+  display updates. The tick performs synchronous request/ack round trips
   (`blitDisplay` up to `displayTimeoutMs` 1000 ms, lamp/key state reports) on
   the same actor that processes input frames, so a slow ack queues pad/button
   events behind it — the client-side counterpart of the daemon invariant

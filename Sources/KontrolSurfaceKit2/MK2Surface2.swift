@@ -144,6 +144,18 @@ public actor MK2Surface2 {
     /// Hardware-neutral capabilities for the connected controller.
     public private(set) var deviceProfile: KontrolDeviceProfile?
     private var displayReconciler = PixelDisplayReconciler2()
+    /// Blocking blit round trips live on this writer's queue, never on the
+    /// actor. See MK2DisplayBlitWriter for the bench evidence behind this.
+    private let displayWriter = MK2DisplayBlitWriter()
+    /// Cooldown after a display write failure: retrying full frames on the
+    /// very next tick was the resend storm that kept the failure alive.
+    private var displayRetryNotBeforeNanos: UInt64 = 0
+    /// A forced replay that arrived while the writer was busy is honored on
+    /// the next reconciling tick instead of being dropped.
+    private var pendingForcedDisplayReplay = false
+    /// Escalates the redial interval so a failing daemon session is not
+    /// hammered with full state replays at 1 Hz forever.
+    private var consecutiveDaemonFailures = 0
     private var timer: DispatchSourceTimer?
     private var running = false
     private var lastTick = DispatchTime.now().uptimeNanoseconds
@@ -232,6 +244,7 @@ public actor MK2Surface2 {
         running = false
         timer?.cancel()
         timer = nil
+        displayWriter.deactivate()
         unregisterDaemonClient()
         daemonSessionGeneration &+= 1
         controlClient = nil
@@ -274,6 +287,9 @@ public actor MK2Surface2 {
         guard running, let displayClient else {
             throw MK2DisplayMeasurementError.disconnected
         }
+        // Barrier requests share the display connection with the writer; the
+        // measurement paths deliberately accept an actor stall for exclusivity.
+        displayWriter.waitUntilIdle()
         guard let snapshot = displayClient.beginDisplayMeasurementSession() else {
             throw MK2DisplayMeasurementError.barrierUnavailable
         }
@@ -287,6 +303,7 @@ public actor MK2Surface2 {
             throw MK2DisplayMeasurementError.sessionInactive
         }
         defer { displayMeasurementSessionActive = false }
+        displayWriter.waitUntilIdle()
         guard let snapshot = displayClient.endDisplayMeasurementSession() else {
             throw MK2DisplayMeasurementError.barrierUnavailable
         }
@@ -305,6 +322,7 @@ public actor MK2Surface2 {
         guard displayMeasurementSessionActive else {
             throw MK2DisplayMeasurementError.sessionInactive
         }
+        displayWriter.waitUntilIdle()
         guard let before = displayClient.waitForDisplayBarrier() else {
             throw MK2DisplayMeasurementError.barrierUnavailable
         }
@@ -318,6 +336,9 @@ public actor MK2Surface2 {
         guard reconciliation.succeeded else {
             throw MK2DisplayMeasurementError.disconnected
         }
+        // The blits travel via the writer queue; the barrier below must not
+        // interleave with them on the shared display connection.
+        displayWriter.waitUntilIdle()
         guard let after = displayClient.waitForDisplayBarrier(),
               after.encoding == before.encoding else {
             throw MK2DisplayMeasurementError.barrierUnavailable
@@ -553,6 +574,7 @@ public actor MK2Surface2 {
         running = false
         timer?.cancel()
         timer = nil
+        displayWriter.deactivate()
         daemonSessionGeneration &+= 1
         controlClient = nil
         eventClient = nil
@@ -598,6 +620,9 @@ public actor MK2Surface2 {
             return
         }
         recordDaemonCommunication()
+        consecutiveDaemonFailures = 0
+        displayRetryNotBeforeNanos = 0
+        displayWriter.activate(display)
         refreshDeviceIdentity()
         if let snapshot = KKDaemonBinaryCodec.parseRegistrationInputSnapshot(eventRegistration.message) {
             inputAdapter.prime(with: snapshot.bytes)
@@ -895,40 +920,66 @@ public actor MK2Surface2 {
         force: Bool,
         frames: [MK2PixelFrame?]? = nil
     ) -> DisplayReconciliation {
-        let blits = displayReconciler.reconcile(frames: frames ?? activeDisplays, force: force)
-        var logicalPixelBytes = 0
-        for blit in blits {
-            logicalPixelBytes += blit.pixels.count * MemoryLayout<UInt16>.size
-            let response = blitDisplay(
-                screen: blit.screen,
-                x: blit.rect.x,
-                y: blit.rect.y,
-                width: blit.rect.width,
-                height: blit.rect.height,
-                pixelsRGB565: blit.pixels,
-                timeoutMs: options.displayTimeoutMs
-            )
-            if response != "ok" {
-                if let response {
-                    handleDaemonFailure(response)
-                } else {
-                    // The reconciler already advanced its last-sent state, so force a
-                    // clean resend on the next tick before the soft retry.
-                    displayReconciler.reset()
-                    handleWriteTimeout("display blit timed out", client: displayClient)
-                }
-                return DisplayReconciliation(
-                    blitCount: blits.count,
-                    logicalPixelBytes: logicalPixelBytes,
-                    succeeded: false
-                )
-            }
+        // The writer holds one in-flight batch; while it drains, desired frames
+        // simply stay unreconciled and the next tick retries — latest-wins at
+        // frame granularity, never queued diffs.
+        if force {
+            pendingForcedDisplayReplay = true
         }
+        guard !displayWriter.isBusy else {
+            return DisplayReconciliation(blitCount: 0, logicalPixelBytes: 0, succeeded: true)
+        }
+        guard DispatchTime.now().uptimeNanoseconds >= displayRetryNotBeforeNanos else {
+            return DisplayReconciliation(blitCount: 0, logicalPixelBytes: 0, succeeded: true)
+        }
+        let replayForce = pendingForcedDisplayReplay
+        let blits = displayReconciler.reconcile(frames: frames ?? activeDisplays, force: replayForce)
+        guard !blits.isEmpty else {
+            pendingForcedDisplayReplay = false
+            return DisplayReconciliation(blitCount: 0, logicalPixelBytes: 0, succeeded: true)
+        }
+        let logicalPixelBytes = blits.reduce(0) { $0 + $1.pixels.count * MemoryLayout<UInt16>.size }
+        let generation = daemonSessionGeneration
+        let submitted = displayWriter.submit(blits, deviceTimeoutMs: options.displayTimeoutMs) { [weak self] outcome in
+            guard let self else { return }
+            Task(priority: .high) { await self.finishDisplayWrite(outcome, generation: generation) }
+        }
+        guard submitted else {
+            // No transport attached (session tearing down). The reconciler
+            // already advanced past these pixels, so make the next session
+            // resend everything.
+            displayReconciler.reset()
+            return DisplayReconciliation(blitCount: blits.count, logicalPixelBytes: logicalPixelBytes, succeeded: false)
+        }
+        pendingForcedDisplayReplay = false
         return DisplayReconciliation(
             blitCount: blits.count,
             logicalPixelBytes: logicalPixelBytes,
             succeeded: true
         )
+    }
+
+    private func finishDisplayWrite(_ outcome: MK2DisplayBlitWriter.Outcome, generation: UInt64) {
+        guard generation == daemonSessionGeneration else { return }
+        switch outcome {
+            case .completed:
+                recordDaemonCommunication()
+            case .inactive:
+                break
+            case let .rejected(message):
+                handleDaemonFailure(message)
+            case let .timedOut(desynced):
+                // The reconciler advanced past the failed batch: resend cleanly,
+                // but only after a cooldown — an immediate full-frame retry is
+                // exactly the load that made the original ack slow.
+                displayReconciler.reset()
+                displayRetryNotBeforeNanos = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+                if desynced {
+                    handleDaemonFailure("display blit timed out (stream desynced)")
+                } else {
+                    handleWriteTimeout("display blit timed out", client: displayClient)
+                }
+        }
     }
 
     // A slow reply is not a dead daemon — same reasoning as handleWriteTimeout's probe,
@@ -951,7 +1002,12 @@ public actor MK2Surface2 {
 
     private func maybeRestartDaemonClient(now: UInt64) {
         guard running, daemonThread == nil else { return }
-        guard now &- lastDaemonStartAttemptNanos >= Self.daemonReconnectIntervalNanos else { return }
+        // Escalating backoff (1 s, 2 s, 4 s, 8 s cap): every reconnect replays
+        // the full surface state, and hammering that replay at 1 Hz into a
+        // struggling session was part of the observed non-converging flap.
+        let backoffShift = UInt64(min(max(consecutiveDaemonFailures - 1, 0), 3))
+        let interval = Self.daemonReconnectIntervalNanos << backoffShift
+        guard now &- lastDaemonStartAttemptNanos >= interval else { return }
         startDaemonClient()
     }
 
@@ -990,11 +1046,13 @@ public actor MK2Surface2 {
         guard running else { return }
         if let generation, generation != daemonSessionGeneration { return }
         lastFailedDaemonSocketPath = activeDaemonSocketPath
+        consecutiveDaemonFailures += 1
         publish(.retrying("\(reason) (\(daemonConnectionDescription(socketPath: activeDaemonSocketPath)))"))
         resetDaemonSession()
     }
 
     private func resetDaemonSession() {
+        displayWriter.deactivate()
         daemonSessionGeneration &+= 1
         controlClient = nil
         eventClient = nil
@@ -1317,31 +1375,6 @@ public actor MK2Surface2 {
         guard let response else { return nil }
         recordDaemonCommunication()
         return response.status == 0 ? "ok" : "err \(response.status) \(response.message)"
-    }
-
-    private func blitDisplay(
-        screen: Int,
-        x: Int,
-        y: Int,
-        width: Int,
-        height: Int,
-        pixelsRGB565: [UInt16],
-        timeoutMs: UInt32
-    ) -> String? {
-        // Frame storage is already wire byte order (see MK2PixelFrame) — one memcpy.
-        let data = pixelsRGB565.withUnsafeBytes { Array($0) }
-        let ok = displayClient?.sendDisplayBlit(
-            screen: UInt8(screen & 0xff),
-            x: UInt16(x & 0xffff),
-            y: UInt16(y & 0xffff),
-            width: UInt16(width & 0xffff),
-            height: UInt16(height & 0xffff),
-            timeoutMs: timeoutMs,
-            pixelsRGB565BE: data
-        )
-        guard ok == true else { return nil }
-        recordDaemonCommunication()
-        return "ok"
     }
 
     private static func parseMIDIPush(_ payload: [UInt8]) -> [KKMIDIEvent] {
