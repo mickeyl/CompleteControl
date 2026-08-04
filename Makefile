@@ -1,15 +1,40 @@
 .DEFAULT_GOAL := help
 
-SOCKET ?= /var/run/kompletekontrol-libusb.sock
+KONTROL_SOCKET := /var/run/kompletekontrol-libusb.sock
 MASCHINE_SOCKET := /var/run/kompletekontrol-maschine.sock
-SOCKET_LOCK = $(SOCKET:.sock=.lock)
-# Optional family binding for the foreground daemon targets, e.g.
-#   make daemon-debug SOCKET=$(MASCHINE_SOCKET) DAEMON_PRODUCT=maschine-mk3
+KONTROL_LABEL := media.vanille.kompletekontrol-libusb
+MASCHINE_LABEL := media.vanille.kompletekontrol-maschine
+
+# DEVICE selects which product-bound daemon a target addresses:
+#   DEVICE=kontrol | DEVICE=maschine — that daemon only
+#   DEVICE unset — lifecycle targets (daemon-start/stop/restart/status,
+#   kk-stop, kk-clean-socket, kk-reset) address BOTH daemons; the
+#   single-process foreground targets (daemon, daemon-debug,
+#   daemon-debug-trace, daemon-simulate) take over only the KONTROL endpoint
+#   and bind no product (historical behavior). With DEVICE set they derive
+#   socket and --product automatically, e.g. make daemon-debug DEVICE=maschine.
+DEVICE ?=
+ifeq ($(DEVICE),maschine)
+SOCKET ?= $(MASCHINE_SOCKET)
+DAEMON_PRODUCT ?= maschine-mk3
+else ifeq ($(DEVICE),kontrol)
+SOCKET ?= $(KONTROL_SOCKET)
+DAEMON_PRODUCT ?= kontrol-mk2
+else ifeq ($(DEVICE),)
+SOCKET ?= $(KONTROL_SOCKET)
 DAEMON_PRODUCT ?=
+else
+$(error Invalid DEVICE='$(DEVICE)'; use kontrol or maschine)
+endif
+SOCKET_LOCK = $(SOCKET:.sock=.lock)
 DAEMON_PRODUCT_ARGS = $(if $(DAEMON_PRODUCT),--product $(DAEMON_PRODUCT),)
-# The launchd label that owns the selected socket, so daemon targets never
-# touch the other product-bound daemon.
-LAUNCHD_LABEL = $(if $(filter $(SOCKET),$(MASCHINE_SOCKET)),media.vanille.kompletekontrol-maschine,media.vanille.kompletekontrol-libusb)
+# The launchd label that owns the selected socket, so the foreground takeover
+# targets never touch the other product-bound daemon.
+LAUNCHD_LABEL = $(if $(filter $(SOCKET),$(MASCHINE_SOCKET)),$(MASCHINE_LABEL),$(KONTROL_LABEL))
+# Labels and sockets the lifecycle targets iterate: the selected device, or
+# both when DEVICE is unset.
+LIFECYCLE_LABELS = $(if $(filter maschine,$(DEVICE)),$(MASCHINE_LABEL),$(if $(filter kontrol,$(DEVICE)),$(KONTROL_LABEL),$(KONTROL_LABEL) $(MASCHINE_LABEL)))
+LIFECYCLE_SOCKETS = $(if $(filter maschine,$(DEVICE)),$(MASCHINE_SOCKET),$(if $(filter kontrol,$(DEVICE)),$(KONTROL_SOCKET),$(KONTROL_SOCKET) $(MASCHINE_SOCKET)))
 MK2_DISPLAY_ENCODING ?= adaptive
 ifeq ($(MK2_DISPLAY_ENCODING),legacy)
 else ifeq ($(MK2_DISPLAY_ENCODING),adaptive)
@@ -41,7 +66,7 @@ LEGACY_REPORT ?=
 .PHONY: help vendor-init clean build build-release display-codec-benchmark mk2-surface-demo-build mk2-surface-demo-build-release mk2-surface-demo mk2-surface-demo-release widget-lab-build widget-lab-build-release widget-lab widget-lab-sim widget-lab-release widget-lab-test-validate widget-lab-smoke widget-lab-stress widget-lab-soak widget-lab-compare daemon-build daemon-build-release mk2-usb-spy-build mk2-usb-spy mk2-usb-spy-display-repl maschine-mk3-probe maschine-mk3-input-spy daemon-preflight daemon daemon-debug daemon-debug-trace daemon-release run-simulator run-mk3-simulator sim-host-build sim-host daemon-simulate install-daemon install-debug-daemon uninstall-daemon daemon-status daemon-start daemon-stop daemon-restart kk-input kk-reset kk-stop kk-clean-socket kk-status
 
 help: ## Show this help.
-	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGET_LAB_TEST_SOCKET)" -v stress="$(WIDGET_LAB_STRESS_DURATION)" -v soak="$(WIDGET_LAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGET_LAB_TEST_SOCKET=%s\n  WIDGET_LAB_STRESS_DURATION=%s  WIDGET_LAB_SOAK_DURATION=%s\n  WIDGET_LAB_TEST_ARGS=...  additional widget-lab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
+	@awk -v encoding="$(MK2_DISPLAY_ENCODING)" -v traceLog="$(DAEMON_TRACE_LOG)" -v testSocket="$(WIDGET_LAB_TEST_SOCKET)" -v stress="$(WIDGET_LAB_STRESS_DURATION)" -v soak="$(WIDGET_LAB_SOAK_DURATION)" 'BEGIN { printf "CompleteControl developer targets\n\nUsage:\n  make <target>\n\nConfiguration:\n  DEVICE=kontrol|maschine  narrow daemon targets to one product-bound daemon\n                           (lifecycle targets default to both; foreground\n                           targets default to the KONTROL endpoint)\n  MK2_DISPLAY_ENCODING=%s  adaptive (default) or legacy (fail-safe)\n  DAEMON_TRACE_LOG=%s\n  WIDGET_LAB_TEST_SOCKET=%s\n  WIDGET_LAB_STRESS_DURATION=%s  WIDGET_LAB_SOAK_DURATION=%s\n  WIDGET_LAB_TEST_ARGS=...  additional widget-lab-test options\n\nTargets:\n", encoding, traceLog, testSocket, stress, soak } /^[a-zA-Z0-9_.-]+:.*##/ { split($$0, a, ":.*## "); printf "  %-24s %s\n", a[1], a[2] }' $(MAKEFILE_LIST)
 
 vendor-init: ## Initialize pinned vendored dependencies.
 	git submodule update --init --recursive Vendor/libusb
@@ -147,7 +172,7 @@ daemon-preflight: ## Refuse stale or duplicate daemon state (queries the install
 		fi; \
 	fi
 
-daemon-debug: daemon-build ## Run foreground debug daemon with tracing and automation input enabled.
+daemon-debug: daemon-build ## Run one foreground debug daemon with tracing and automation input (endpoint via DEVICE=kontrol|maschine).
 	@echo "Stopping the daemon that owns $(SOCKET)..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
@@ -167,7 +192,7 @@ daemon-debug-trace: ## Run the debug daemon as a flight recorder: trace output b
 	fi
 	@$(MAKE) --no-print-directory daemon-debug DAEMON_LOG_RING_ENV="KK_LOG_RING=$(DAEMON_RING_KEEP)" >"$(DAEMON_TRACE_LOG)" 2>&1
 
-daemon: daemon-build-release ## Stop launchd daemon and run quiet optimized foreground daemon.
+daemon: daemon-build-release ## Stop one launchd daemon and run the quiet optimized foreground daemon in its place (DEVICE=kontrol|maschine).
 	@echo "Stopping the daemon that owns $(SOCKET)..."
 	-sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist 2>/dev/null || true
 	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
@@ -224,19 +249,30 @@ uninstall-daemon: ## Uninstall both daemon launchd services (requires sudo).
 	-sudo rm -f $(SOCKET) $(SOCKET_LOCK) $(MASCHINE_SOCKET) $(MASCHINE_SOCKET:.sock=.lock)
 	@echo "Daemon services uninstalled."
 
-daemon-status: ## Show daemon status.
-	@sudo launchctl list | grep kompletekontrol || echo "Daemon not running or not installed."
-	@mode="$$(sudo /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING' /Library/LaunchDaemons/media.vanille.kompletekontrol-libusb.plist 2>/dev/null || true)"; \
-	if [ -n "$$mode" ]; then echo "MK2 display encoding: $$mode"; else echo "MK2 display encoding: adaptive (default)"; fi
+daemon-status: ## Show status of both daemons (narrow with DEVICE=kontrol|maschine).
+	@sudo launchctl list | grep kompletekontrol || echo "No daemon running or installed."
+	@for label in $(LIFECYCLE_LABELS); do \
+		mode="$$(sudo /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KK_MK2_DISPLAY_ENCODING' /Library/LaunchDaemons/$$label.plist 2>/dev/null || true)"; \
+		if [ -n "$$mode" ]; then echo "$$label: display encoding $$mode"; else echo "$$label: not installed or default encoding"; fi; \
+	done
 
-daemon-start: ## Start the daemon owning SOCKET via launchctl.
-	@sudo launchctl bootstrap system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist
+daemon-start: ## Start both daemons via launchctl (narrow with DEVICE=kontrol|maschine).
+	@for label in $(LIFECYCLE_LABELS); do \
+		echo "starting $$label"; \
+		sudo launchctl bootstrap system /Library/LaunchDaemons/$$label.plist || echo "  $$label: start failed (already running or not installed?)"; \
+	done
 
-daemon-stop: ## Stop the daemon owning SOCKET via launchctl.
-	@sudo launchctl bootout system /Library/LaunchDaemons/$(LAUNCHD_LABEL).plist
+daemon-stop: ## Stop both daemons via launchctl (narrow with DEVICE=kontrol|maschine).
+	@for label in $(LIFECYCLE_LABELS); do \
+		echo "stopping $$label"; \
+		sudo launchctl bootout system /Library/LaunchDaemons/$$label.plist || echo "  $$label: stop failed (not running or not installed?)"; \
+	done
 
-daemon-restart: ## Restart the daemon owning SOCKET via launchctl.
-	@sudo launchctl kickstart -k system/$(LAUNCHD_LABEL)
+daemon-restart: ## Restart both daemons via launchctl (narrow with DEVICE=kontrol|maschine).
+	@for label in $(LIFECYCLE_LABELS); do \
+		echo "restarting $$label"; \
+		sudo launchctl kickstart -k system/$$label || echo "  $$label: restart failed (not running or not installed?)"; \
+	done
 
 mk2-surface-demo: mk2-surface-demo-build ## Run the MK2 hardware-only SurfaceKit2 feature demo.
 	@$(MAKE) daemon-preflight
@@ -278,11 +314,15 @@ kk-input: ## Open the interactive automation-input REPL with automatic socket di
 
 kk-reset: kk-stop kk-clean-socket ## Stop foreground daemon leftovers and remove stale socket.
 
-kk-stop: ## Stop the foreground KK libusb daemon owning SOCKET.
-	-sudo pkill -f 'kk-libusb-daemon $(SOCKET)' 2>/dev/null || true
+kk-stop: ## Stop foreground daemons on both sockets (narrow with DEVICE=kontrol|maschine).
+	@for socket in $(LIFECYCLE_SOCKETS); do \
+		sudo pkill -f "kk-libusb-daemon $$socket" 2>/dev/null || true; \
+	done
 
-kk-clean-socket: ## Remove the daemon socket.
-	-sudo rm -f $(SOCKET) $(SOCKET_LOCK)
+kk-clean-socket: ## Remove both daemon sockets (narrow with DEVICE=kontrol|maschine).
+	@for socket in $(LIFECYCLE_SOCKETS); do \
+		sudo rm -f "$$socket" "$${socket%.sock}.lock"; \
+	done
 
 kk-status: ## Show running CompleteControl daemon processes.
 	@pgrep -fl 'ccd|--kk-libusb-daemon' || true
