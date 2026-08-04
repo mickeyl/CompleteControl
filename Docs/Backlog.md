@@ -172,7 +172,19 @@
 ## KontrolSurfaceKit2
 
 - **Move display/state ack round-trips off the `MK2Surface2` actor (noted
-  2026-07-20).** The tick performs synchronous request/ack round trips
+  2026-07-20; escalated 2026-08-04 — now bench-reproducible with unbounded
+  client memory growth).** Dual-surface stress evidence (real S61 MK2 +
+  MASCHINE MK3, looped playback on four OLEDs, ~3500 synthetic MK2 input
+  events over 15 min): flawless for ~13.8 min (zero >100 ms input-delay
+  diagnostics, both daemons ~2 % CPU, app RSS flat at 264 MB), then a KONTROL
+  `display blit timed out` tipped the client into a non-converging
+  retry/re-register/replay loop; the app grew 264 MB → 1.4 GB+ within ~5 min
+  (suspect: the unbounded `ReceivedFrame` AsyncStream plus repeated replay
+  allocations while acks block the actor) until it was quit. The daemon side
+  stayed healthy throughout — after the client quit, both daemons repainted
+  their idle surfaces immediately. The planned fix (latest-wins display
+  writer off the input actor, no blocking acks) should also bound the
+  reconnect loop's memory; add a stress-length regression once landed. The tick performs synchronous request/ack round trips
   (`blitDisplay` up to `displayTimeoutMs` 1000 ms, lamp/key state reports) on
   the same actor that processes input frames, so a slow ack queues pad/button
   events behind it — the client-side counterpart of the daemon invariant
