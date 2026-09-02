@@ -423,10 +423,18 @@ public struct MK2PixelFrame: Sendable, Equatable {
     public mutating func blit(_ sourcePixels: [UInt16], into rect: MK2PixelRect) {
         guard rect.clipped(to: Self.bounds) == rect,
               sourcePixels.count == rect.width * rect.height else { return }
-        for row in 0..<rect.height {
-            let destination = (rect.y + row) * Self.width + rect.x
-            let source = row * rect.width
-            pixels.replaceSubrange(destination..<(destination + rect.width), with: sourcePixels[source..<(source + rect.width)])
+        pixels.withUnsafeMutableBufferPointer { destination in
+            sourcePixels.withUnsafeBufferPointer { source in
+                guard let destinationBase = destination.baseAddress,
+                      let sourceBase = source.baseAddress else { return }
+                for row in 0..<rect.height {
+                    memcpy(
+                        destinationBase + (rect.y + row) * Self.width + rect.x,
+                        sourceBase + row * rect.width,
+                        rect.width * 2
+                    )
+                }
+            }
         }
     }
 

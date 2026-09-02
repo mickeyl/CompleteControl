@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import KompleteKontrol
+@testable import KompleteKontrol
 @testable import KontrolSurfaceKit2
 
 // Not assertions — a measurement harness for the per-event pixel pipeline cost in
@@ -61,6 +61,59 @@ struct PixelPipelinePerfTests {
         let fullPixels = [UInt16](repeating: 0x1234, count: 480 * 272)
         measure("wire bytes full frame (memcpy)") {
             _ = fullPixels.withUnsafeBytes { Array($0) }
+        }
+
+        // The overlay composite's blit step (memcpy), next to the
+        // replaceSubrange loop it replaced for comparison.
+        var blitFrame = MK2PixelFrame(fill: 0x0000)
+        let blitSource = [UInt16](repeating: 0x1234, count: 464 * 57)
+        let blitRect = MK2PixelRect(x: 8, y: 215, width: 464, height: 57)
+        measure("overlay blit 464x57 (memcpy)") {
+            blitFrame.blit(blitSource, into: blitRect)
+        }
+        var referencePixels = blitFrame.pixels
+        measure("overlay blit 464x57 (replaceSubrange ref)") {
+            for row in 0..<blitRect.height {
+                let destination = (blitRect.y + row) * MK2PixelFrame.width + blitRect.x
+                let source = row * blitRect.width
+                referencePixels.replaceSubrange(destination..<(destination + blitRect.width), with: blitSource[source..<(source + blitRect.width)])
+            }
+        }
+
+        // Steady-state tick with a held overlay: "fresh identity" replicates the
+        // uncached path (a full CoW copy per tick plus a whole-frame dirty scan
+        // that finds nothing); "cached identity" is the composite-cache tick.
+        var holdReconciler = PixelDisplayReconciler2()
+        let holdBase = MK2PixelFrame(fill: 0x0000)
+        _ = holdReconciler.reconcile(frames: [holdBase, nil])
+        measure("held-overlay tick (fresh identity)") {
+            var fresh = holdBase
+            fresh[0, 0] = fresh[0, 0]
+            _ = holdReconciler.reconcile(frames: [fresh, nil])
+        }
+        let heldFrame = holdBase
+        _ = holdReconciler.reconcile(frames: [heldFrame, nil])
+        measure("held-overlay tick (cached identity)") {
+            _ = holdReconciler.reconcile(frames: [heldFrame, nil])
+        }
+
+        // Full-frame replay payload assembly, with and without the up-front
+        // capacity reservation.
+        let fullFrameBE = [UInt8](repeating: 0x12, count: 480 * 272 * 2)
+        measure("display payload full frame (reserved)") {
+            _ = KKDaemonBinaryCodec.displayBlitPayload(
+                screen: 0, x: 0, y: 0, width: 480, height: 272, timeoutMs: 1000, pixelsRGB565BE: fullFrameBE
+            )
+        }
+        measure("display payload full frame (unreserved ref)") {
+            var payload: [UInt8] = [0, 0]
+            payload.appendUInt16LE(0)
+            payload.appendUInt16LE(0)
+            payload.appendUInt16LE(480)
+            payload.appendUInt16LE(272)
+            payload.appendUInt32LE(1000)
+            payload.append(contentsOf: fullFrameBE)
+            _ = payload
         }
 
         // The light-guide page's extra work per change: 88 HSV key colours (demo side)

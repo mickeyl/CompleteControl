@@ -370,6 +370,10 @@ public enum KKDaemonBinaryCodec {
         pixelsRGB565BE: [UInt8]
     ) -> [UInt8] {
         var payload: [UInt8] = [screen, 0]
+        // Full-frame replays are exactly the payloads that once fed the ack-timeout
+        // spiral; growing that array geometrically from capacity 2 adds allocator
+        // churn to the worst possible moment.
+        payload.reserveCapacity(14 + pixelsRGB565BE.count)
         payload.appendUInt16LE(x)
         payload.appendUInt16LE(y)
         payload.appendUInt16LE(width)

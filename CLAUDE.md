@@ -242,7 +242,13 @@ Layout rules:
   left/right content;
 - hardware labels must describe the action/value directly above the physical
   control they belong to;
-- pixel display diffs must preserve deterministic rendering and stable geometry.
+- pixel display diffs must preserve deterministic rendering and stable geometry;
+- the touch-overlay composite (`activeDisplays` → `displaysWithTouchOverlays`)
+  is cached by CoW buffer identity, and the key is content-complete: base
+  frames plus each active overlay's screen, rect, and pixel-buffer identity —
+  a scene swap may hand identical base buffers back with changed overlay
+  pixels. A held-overlay steady tick must stay O(1); never reintroduce per-tick
+  re-composition.
 
 Interaction and rendering rules:
 

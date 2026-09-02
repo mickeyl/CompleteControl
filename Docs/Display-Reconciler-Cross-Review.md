@@ -1,7 +1,7 @@
 # Display-Reconciler: Cross-Review gegen den Stream-Deck-Stack
 
 **Stand:** 2026-08-23
-**Status:** Vorschlag
+**Status:** Teilweise umgesetzt — Ü1, Ü2, Ü3-Stufe 1 auf `wip/performance`; siehe Umsetzungsstand
 
 Dieses Dokument hält einen Quervergleich zwischen `PixelDisplayReconciler2`
 (hier) und dem `PageReconciler` des Stream-Deck-Projekts
@@ -11,6 +11,52 @@ weit zusammengefasst, wie sie den Kontext der Vorschläge trägt.
 
 Die beiden Reconciler lösen dasselbe Problem auf verschiedenen Ebenen, weil die
 Hardware es erzwingt. Nichts hier ist ein Aufruf, die Architekturen anzugleichen.
+
+## Umsetzungsstand
+
+**2026-09-02, Branch `wip/performance`:** Ü1, Ü2 und die `reserveCapacity`-Zeile
+aus Ü3 sind umgesetzt. Ü3 Stufe 2/3 bleiben bewusst offen — die Entscheidung soll
+die Hardware-Messung des Kopieranteils am Full-Frame-Replay tragen — und Ü4
+(AP2) bleibt wie geplant auf die Phase-1-Telemetrie gegated.
+
+Zwei Korrekturen gegenüber diesem Dokument:
+
+- Der Default-Tick liegt bei 30 Hz (`MK2Surface2.Options.tickHz`), nicht 60; die
+  Absolutwerte in Ü1 sind damit etwa halbiert. Das Strukturargument bleibt.
+- Ü3 sind vier Kopien, nicht drei: `KKDaemonBinaryFrame.encoded()` materialisiert
+  den Payload ein viertes Mal (kapazitätsreserviert, aber vollständig).
+
+Der Komposit-Cache ist ein selbstvalidierender Cache in
+`displaysWithTouchOverlays`: Basis-Frames (CoW-Identität) plus jedes aktive
+Overlay (Screen, Rect, Pixel-Buffer-Identität) bilden den Key. Overlay-Inhalt
+ist Teil des Keys, weil ein Szenewechsel dieselben Basis-Buffer mit getauschten
+Overlay-Pixeln zurückgeben kann — der oben vorgeschlagene Key „Basis-Identität +
+Overlay-Menge“ hätte diese Lücke. Held-Layer-Wechsel braucht keine explizite
+Invalidierung (Layer-Frames haben andere Identität, `?? base` fällt auf die
+unveränderte Basis zurück); beides ist durch Tests gepinnt
+(`TouchOverlayCompositeCacheTests`). `blit(_:into:)` kopiert zeilenweise per
+`memcpy` (Guard unverändert, Differenzial-Test über 100 deterministische
+Rects), und die Overlay-Komposition läuft deterministisch in aufsteigender
+Encoder-Ordnung statt in Dictionary-Ordnung.
+
+Messpunkte aus `PixelPipelinePerfTests` (arm64) — jedes Paar misst die neue
+Implementierung gegen die Referenzimplementierung des alten Pfads im selben
+Lauf:
+
+| Messpunkt | Debug | Release |
+|---|---|---|
+| Overlay-Blit 464×57: memcpy vs. replaceSubrange | 0,008 vs. 0,011 ms/op | 0,001 vs. 0,001 ms/op |
+| Held-Overlay-Tick: Cache vs. frische Identität | 0,001 vs. 0,038 ms/op | ~0,000 vs. 0,011 ms/op |
+| Display-Payload Full-Frame: reserviert vs. unreserviert | 0,005 vs. 0,005 ms/op | 0,004 vs. 0,004 ms/op |
+
+Einordnung: Der Held-Overlay-Tick wird um den Faktor ~30–40 billiger — absolut
+kein Notfall (~0,01–0,04 ms pro Tick und Screen), wie schon in Ü1 vermutet. Das
+`reserveCapacity` ist medianneutral; sein Gewinn ist Allokations-Churn und
+Tail-Varianz im Timeout-kritischen Replay-Pfad, nicht Medianzeit. Der
+Blit-Memcpy ist vor allem Debug-Build-Konsistenz mit der Bulk-Policy der Datei.
+Die laufrelevante Frage — der Kopieranteil am Full-Frame-Replay und damit Ü3
+Stufe 2/3 — beantwortet der Hardware-Benchmark im Branch-Vergleich
+(`DisplayBenchmarkDemo`, Fixtures „FULL SOLID“/„FULL NOISE“).
 
 ## Ausgangslage
 
@@ -183,8 +229,11 @@ Vollständigkeit):
 
 ## Offene Messungen
 
-- Kosten eines Ticks mit gehaltenem Overlay, vor und nach Ü1.
-- `replaceSubrange` vs. zeilenweises `memcpy` in `blit(_:into:)`, Debug und
-  Release.
+- ~~Kosten eines Ticks mit gehaltenem Overlay, vor und nach Ü1.~~ Beantwortet
+  (siehe Umsetzungsstand): Faktor ~30–40 billiger, absolut ~0,01–0,04 ms pro
+  Tick und Screen.
+- ~~`replaceSubrange` vs. zeilenweises `memcpy` in `blit(_:into:)`, Debug und
+  Release.~~ Beantwortet (siehe Umsetzungsstand): Debug ~1,4×, Release neutral.
 - Anteil der Kopierzeit am Full-Frame-Replay, um zu entscheiden, ob Ü3 über die
-  `reserveCapacity`-Zeile hinaus lohnt.
+  `reserveCapacity`-Zeile hinaus lohnt — jetzt gegen den Hardware-Benchmark im
+  Branch-Vergleich (`DisplayBenchmarkDemo`, Fixtures „FULL SOLID“/„FULL NOISE“).

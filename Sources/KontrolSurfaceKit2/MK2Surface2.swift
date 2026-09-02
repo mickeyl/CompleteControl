@@ -144,6 +144,12 @@ public actor MK2Surface2 {
     /// Hardware-neutral capabilities for the connected controller.
     public private(set) var deviceProfile: KontrolDeviceProfile?
     private var displayReconciler = PixelDisplayReconciler2()
+    /// Cached `displaysWithTouchOverlays` result, keyed on the CoW identity of
+    /// every participating buffer — the same contract the reconciler's O(1)
+    /// unchanged-frame check relies on. Without it, a latched overlay re-copies
+    /// the full framebuffer on every tick and forces a whole-frame dirty scan
+    /// for a standstill image.
+    private var touchOverlayComposite: TouchOverlayComposite?
     /// Blocking blit round trips live on this writer's queue, never on the
     /// actor. See MK2DisplayBlitWriter for the bench evidence behind this.
     private let displayWriter = MK2DisplayBlitWriter()
@@ -818,8 +824,40 @@ public actor MK2Surface2 {
         }
     }
 
+    /// Self-validating composite cache: a hit requires every base frame and
+    /// every active overlay to be buffer-identical to the cached inputs, so no
+    /// separate invalidation on scene or overlay replacement is needed. Overlay
+    /// content is part of the key because a scene swap can hand the same base
+    /// buffers back with different overlay pixels.
+    private struct TouchOverlayComposite {
+        var base: [MK2PixelFrame?]
+        var overlays: [Int: MK2EncoderTouchOverlay]
+        var composite: [MK2PixelFrame?]
+
+        func matches(base: [MK2PixelFrame?], overlays: [Int: MK2EncoderTouchOverlay]) -> Bool {
+            guard self.base.count == base.count, self.overlays.count == overlays.count else { return false }
+            for (screen, frame) in base.enumerated() {
+                switch (self.base[screen], frame) {
+                    case (nil, nil):
+                        continue
+                    case let (cached?, current?):
+                        if !cached.pixels.span.isIdentical(to: current.pixels.span) { return false }
+                    default:
+                        return false
+                }
+            }
+            for (encoder, overlay) in overlays {
+                guard let cached = self.overlays[encoder],
+                      cached.screen == overlay.screen,
+                      cached.rect == overlay.rect,
+                      cached.pixels.span.isIdentical(to: overlay.pixels.span) else { return false }
+            }
+            return true
+        }
+    }
+
     private func displaysWithTouchOverlays(_ base: [MK2PixelFrame?]) -> [MK2PixelFrame?] {
-        var displays = base
+        var active: [Int: MK2EncoderTouchOverlay] = [:]
         for (encoder, overlay) in scene.encoderTouchOverlays {
             let isActive = switch overlay.behavior {
                 case .none:
@@ -829,12 +867,23 @@ public actor MK2Surface2 {
                 case .latched:
                     latchedEncoder == encoder || touchedEncoders.contains(encoder)
             }
-            guard isActive,
-                  displays.indices.contains(overlay.screen),
+            if isActive {
+                active[encoder] = overlay
+            }
+        }
+        if let cached = touchOverlayComposite, cached.matches(base: base, overlays: active) {
+            return cached.composite
+        }
+        var displays = base
+        // Ascending encoder order keeps the z-order deterministic when
+        // overlays share a screen; dictionary iteration order is not.
+        for (_, overlay) in active.sorted(by: { $0.key < $1.key }) {
+            guard displays.indices.contains(overlay.screen),
                   var frame = displays[overlay.screen] else { continue }
             frame.blit(overlay.pixels, into: overlay.rect)
             displays[overlay.screen] = frame
         }
+        touchOverlayComposite = TouchOverlayComposite(base: base, overlays: active, composite: displays)
         return displays
     }
 
