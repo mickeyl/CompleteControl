@@ -1,7 +1,7 @@
 # Display-Reconciler: Cross-Review gegen den Stream-Deck-Stack
 
 **Stand:** 2026-08-23
-**Status:** Teilweise umgesetzt — Ü1, Ü2, Ü3-Stufe 1 auf `wip/performance`; siehe Umsetzungsstand
+**Status:** Umgesetzt und durch Messung abgeschlossen — Ü1, Ü2, Ü3-Stufe 1 auf `wip/performance`; Ü3-Stufe 2/3 und Ü4 (AP2) am 2026-09-06 durch Benchmark geschlossen bzw. verworfen; siehe Umsetzungsstand
 
 Dieses Dokument hält einen Quervergleich zwischen `PixelDisplayReconciler2`
 (hier) und dem `PageReconciler` des Stream-Deck-Projekts
@@ -15,14 +15,17 @@ Hardware es erzwingt. Nichts hier ist ein Aufruf, die Architekturen anzugleichen
 ## Umsetzungsstand
 
 **2026-09-02, Branch `wip/performance`:** Ü1, Ü2 und die `reserveCapacity`-Zeile
-aus Ü3 sind umgesetzt. Ü3 Stufe 2/3 bleiben bewusst offen — die Entscheidung soll
-die Hardware-Messung des Kopieranteils am Full-Frame-Replay tragen — und Ü4
-(AP2) bleibt wie geplant auf die Phase-1-Telemetrie gegated.
+aus Ü3 sind umgesetzt. Der Hardware-Benchmark vom 2026-09-06 (Branch gegen
+Master, je 12 Iterationen pro Fixture, adaptive) hat danach beide offenen
+Fragen entschieden: Ü3 Stufe 2/3 sind latenzseitig bedeutungslos und damit
+geschlossen, und Ü4 (AP2) ist durch Messung verworfen — siehe unten.
 
 Zwei Korrekturen gegenüber diesem Dokument:
 
-- Der Default-Tick liegt bei 30 Hz (`MK2Surface2.Options.tickHz`), nicht 60; die
-  Absolutwerte in Ü1 sind damit etwa halbiert. Das Strukturargument bleibt.
+- Der Kit2-Default-Tick liegt bei 30 Hz (`MK2Surface2.Options.tickHz`), nicht
+  60; Paulinche betreibt die Surface aber mit 60 Hz (siehe
+  Transport-Review), sodass die Absolutwerte in Ü1 für den Hauptclient
+  gültig bleiben. Das Strukturargument ist davon unberührt.
 - Ü3 sind vier Kopien, nicht drei: `KKDaemonBinaryFrame.encoded()` materialisiert
   den Payload ein viertes Mal (kapazitätsreserviert, aber vollständig).
 
@@ -54,9 +57,51 @@ kein Notfall (~0,01–0,04 ms pro Tick und Screen), wie schon in Ü1 vermutet. D
 `reserveCapacity` ist medianneutral; sein Gewinn ist Allokations-Churn und
 Tail-Varianz im Timeout-kritischen Replay-Pfad, nicht Medianzeit. Der
 Blit-Memcpy ist vor allem Debug-Build-Konsistenz mit der Bulk-Policy der Datei.
-Die laufrelevante Frage — der Kopieranteil am Full-Frame-Replay und damit Ü3
-Stufe 2/3 — beantwortet der Hardware-Benchmark im Branch-Vergleich
-(`DisplayBenchmarkDemo`, Fixtures „FULL SOLID“/„FULL NOISE“).
+
+### Hardware-Benchmark 2026-09-06: Branch gegen Master
+
+Je 12 Iterationen pro Fixture, adaptive Encodierung, Release-Builds, S61 MK2.
+Ergebnis: **Transport-Bytes über alle sieben Fixtures byte-identisch**;
+USB-Median und Wall-P90 innerhalb des Einzel-Lauf-Rauschens beidseitig
+gestreut (kleine Fixtures scheinbar −18…−43 %, große +5…+7 %; P90-Treffer wie
+rotary 2,32 ms bei 0,33 ms Median sind Einzel-Sample-Hiccups). `usbMedian`
+stammt aus den physischen Transportzählern des Daemons und ist vom Client-Zweig
+prinzipiell unbeeinflussbar — kein Mechanismus des Branches kann diese Deltas
+erzeugt haben. Damit:
+
+- **Sicherheitsgate bestanden**: null Transport-Fehler, byte-identische
+  Payloads — die `reserveCapacity`-Abnahme ist erledigt.
+- **Ü3 Stufe 2/3 geschlossen**: der Kopieranteil am Full-Frame-Replay liegt bei
+  ≤0,2 % der Wand-Zeit (vier Materialisierungen à 261 KB ≈ 25–50 µs gegen ~21 ms
+  Transfer); ein Restwert wäre reine Allocator-Hygiene.
+- **Ü4 (AP2) verworfen**: das Gap-Fixture schickt 190 080 logische Bytes als
+  **368 Transport-Bytes in 0,742 ms USB** über den Draht. Die adaptive
+  Skip-Encodierung kollabiert saubere Lücken auf Wire-Ebene und liefert damit
+  bereits, was AP2 mit Protokolländerung, atomarer Daemon-Queue-Semantik und
+  Hardware-Abnahme erreichen wollte. AP2s eigene Phase-1-Gate („nur weiter,
+  wenn … die daraus vermeidbare USB-Zeit relevant ist") ist damit negativ
+  beantwortet; der historische Motivator („Band verschmilzt bis zur vollen
+  Frame-Höhe → ~24 ms") greift nur bei inkompressiblen Bändern — und die haben
+  keine sauberen Lücken zum Splitten.
+
+**Zur Attribution, ehrlich:** Das Transport-Review (2026-07-09) war zum
+Schreibzeitpunkt korrekt — seine Prämisse (rohe Band-Bytes über USB) wurde erst
+am 2026-07-15 durch den Default-Wechsel auf adaptive Encodierung entfernt. Aber
+der Protokoll-Guide dokumentiert genau seit dem 15.07., dass verkettete
+skip/literal/repeat-Segmente den AP2-Zweck in *einem* Transfer billiger
+erreichen (AP2 zahlte pro Rect 16-Byte-Header + 12-Byte-Trailer + einen eigenen
+`libusb_bulk_transfer`). Die Ü4-Aussage dieses Reviews („bestätigt die
+Priorisierung nur") hat die im Repo vorhandene Gegenstelle nicht abgewogen und
+dachte in Client-Band- statt in Wire-Segment-Granularität. Das ist der
+eigentliche Fehler dieses Dokuments; die Empfehlung ist zurückgezogen.
+
+**Nebenbefund (im Protokoll-Guide festgehalten):** USB-Zeit ist paketgranular,
+nicht bytegranular — Meter-Step 11 646 B in 7,21 ms (~620 ns/B) gegen
+Large-Noise 153 632 B in 14,72 ms (~96 ns/B). Der einzig verbliebene messbare
+Display-Pfad-Hebel ist Segment-Koaleszierung im adaptiven Encoder (Literal über
+kleine Lücken ziehen, wenn das Segment-Overhead die ersparten Bytes übersteigt)
+— daemon-intern, gleiches Wire-Format; als Beobachtung ins Backlog, nicht
+implementiert.
 
 ## Ausgangslage
 
@@ -176,6 +221,11 @@ Die letzte Stufe berührt den Blit-Typ und die Tests; sie lohnt sich nur, wenn
 
 ## Ü4: Multi-Rect — keine neue Idee, nur ein Zusatzargument
 
+*(Zurückgezogen am 2026-09-06 — die adaptive Skip-Encodierung erfüllt den Zweck
+bereits auf Wire-Ebene; siehe Umsetzungsstand sowie den Ergebnisblock in
+`transport-latency-optimization-review.md` AP2. Der folgende Text bleibt als
+historische Begründung stehen.)*
+
 `Docs/transport-latency-optimization-review.md` AP2 plant das bereits
 vollständig (Schwelle 12 Zeilen, maximal vier Full-Width-Rects, atomare
 Pending-Einheit im Daemon). Der Quervergleich bestätigt die Priorisierung nur:
@@ -234,6 +284,7 @@ Vollständigkeit):
   Tick und Screen.
 - ~~`replaceSubrange` vs. zeilenweises `memcpy` in `blit(_:into:)`, Debug und
   Release.~~ Beantwortet (siehe Umsetzungsstand): Debug ~1,4×, Release neutral.
-- Anteil der Kopierzeit am Full-Frame-Replay, um zu entscheiden, ob Ü3 über die
-  `reserveCapacity`-Zeile hinaus lohnt — jetzt gegen den Hardware-Benchmark im
-  Branch-Vergleich (`DisplayBenchmarkDemo`, Fixtures „FULL SOLID“/„FULL NOISE“).
+- ~~Anteil der Kopierzeit am Full-Frame-Replay, um zu entscheiden, ob Ü3 über
+  die `reserveCapacity`-Zeile hinaus lohnt.~~ Beantwortet (Hardware-Benchmark
+  2026-09-06, siehe Umsetzungsstand): ≤0,2 % der Wand-Zeit — Ü3 Stufe 2/3
+  geschlossen, AP2 verworfen.

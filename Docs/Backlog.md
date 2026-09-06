@@ -6,6 +6,25 @@
 
 ## Recently completed
 
+- **Display-pipeline performance slice and measurement closure (completed
+  2026-09-06).** `wip/performance` landed the touch-overlay composite cache
+  (`displaysWithTouchOverlays`, keyed on the CoW identity of the base frames
+  plus each active overlay's screen, rect, and pixel-buffer identity, so a
+  latched-overlay steady tick is O(1) again), the row-memcpy `blit(_:into:)`
+  matching PixelFrame's bulk policy, and the up-front-reserved
+  `displayBlitPayload`. A hardware branch A/B (master vs branch, 12 iterations
+  per fixture, adaptive encoding) showed byte-identical transport payloads
+  across all seven fixtures and time parity within single-run noise —
+  client-side micro-work cannot move the device-paced USB metrics, and
+  byte-identity is the acceptance check for send-path changes. The same run
+  closed the open measurement questions: the copy share of a full-frame
+  replay is ≤0.2% of wall time (deep copy elimination rejected), and AP2
+  multi-rect blits are rejected because the adaptive skip encoding already
+  collapses clean gaps at the wire (gap fixture: 190,080 logical bytes →
+  368 transport bytes → 0.742 ms USB median). See the Umsetzungsstand in
+  `Display-Reconciler-Cross-Review.md`, the result block in
+  `transport-latency-optimization-review.md` AP2, and the Protocol Guide's
+  display-cost section.
 - **Product-bound daemon endpoints for simultaneous KONTROL+MASCHINE
   (completed 2026-08-04).** `ccd --kk-libusb-daemon <socket> --product
   kontrol-mk2|maschine-mk3` binds a daemon's libusb session (initial open and
@@ -132,6 +151,19 @@
 
 ## Daemon / libusb architecture
 
+- **Segment coalescing in the adaptive display encoder (observed 2026-09-06,
+  not committed).** The 2026-09-06 hardware benchmark shows USB time is
+  per-segment, not per-byte: a meter step moves 11,646 bytes in 7.21 ms
+  (~620 ns/byte) while contiguous noise moves 153,632 bytes in 14.72 ms
+  (~96 ns/byte) — fragmented literal runs pay fixed per-segment device costs.
+  Candidate: widen a literal across a small clean run whenever the segment
+  overhead exceeds the saved bytes — a daemon-internal encoder policy inside
+  the same `0x84` wire format, no protocol change, legacy fallback unchanged.
+  Before building it, sample how often real Paulinche sessions emit
+  meter-class fragmented bands (`KONTROL_SURFACE_KIT2_RECONCILER_TELEMETRY=1`
+  plus a segment-count counter). Acceptance: meter-fixture USB-median drop on
+  the same Widget Lab benchmark with every other fixture unchanged and
+  byte-identical encoding for gap/solid fixtures.
 - **Blank daemon-owned NO CLIENT displays after inactivity (noted
   2026-07-16).** Add a small visible/blanked state machine to the existing idle
   diagnostic, with a default timeout around 10 minutes and a configurable

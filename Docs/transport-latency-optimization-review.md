@@ -3,6 +3,10 @@
 **Stand:** 2026-07-09
 **Status:** Beschlossen
 
+**Update 2026-09-06:** AP2 ist durch Hardwaremessung geschlossen, ohne
+implementiert zu werden — siehe den Ergebnisblock in AP2. Die übrigen
+Maßnahmen bleiben unverändert.
+
 Dieses Dokument enthält ausschließlich die geplanten Latenzmaßnahmen und die
 bewusst verworfenen Alternativen. Die aktuelle Architektur bleibt grundsätzlich
 bestehen: asynchrone libusb-IN-Transfers, kqueue für USB- und Socket-Readiness,
@@ -59,6 +63,25 @@ die alte Szene ausgeben.
   erzeugt keinen Actor-Backlog und endet auf dem korrekten Wert.
 
 ## AP2: Dirty-Row-Messung und atomare Multi-Rect-Blits
+
+**Ergebnis (2026-09-06): geschlossen ohne Implementierung.** Die Prämisse
+dieses Vorhabens — rohe Band-Bytes über USB — wurde am 2026-07-15 mit dem
+Default-Wechsel auf die adaptive Encodierung entfernt; der Protokoll-Guide
+dokumentiert seither, dass verkettete skip/literal/repeat-Segmente den Zweck
+in einem Transfer erreichen, ohne AP2s per-Rect Fixkosten (16-Byte-Header +
+12-Byte-Trailer + je einen `libusb_bulk_transfer`). Der Widget-Lab-Benchmark
+vom 2026-09-06 bestätigt das mit Zahlen: das Gap-Fixture (190 080 logische
+Bytes, zwei weit getrennte Streifen) geht als **368 Transport-Bytes in
+0,742 ms USB-Median** über den Draht — die durch Lücken-Splitting vermeidbare
+USB-Zeit ist gegen Null gegangen, und die eigene Gate-Bedingung der Phase 1
+(„Die Umsetzung geht nur weiter, wenn … die daraus vermeidbare USB-Zeit
+relevant ist") ist damit negativ entschieden. Inkompressible Bänder — der
+einzige Fall mit echter Millisekunden-Zeit — haben keine sauberen Lücken zum
+Splitten. Übrig blieben Socket-Bytes und Daemon-Scan-Anteile unter 1 ms pro
+Update. Der einzig verbliebene messbare Display-Pfad-Hebel ist
+Segment-Koaleszierung im adaptiven Encoder (siehe Backlog): fragmentierte
+Meter-artige Literal-Runs zahlen ~620 ns/Byte gegen ~96 ns/Byte bei
+zusammenhängendem Inhalt.
 
 ### Ziel
 

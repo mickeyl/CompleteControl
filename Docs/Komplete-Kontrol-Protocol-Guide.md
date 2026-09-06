@@ -870,6 +870,24 @@ incompressible-payload regression. A prior 896-update Paulinche hardware session
 predicted a more workload-representative 27.1% aggregate USB wire-time reduction
 from skip encoding alone, before repeat-pair savings.
 
+A 2026-09-06 branch A/B (master vs `wip/performance`, which added the
+touch-overlay composite cache, the row-memcpy `blit`, and a reserved blit
+payload) reproduced the adaptive numbers above within single-run noise and kept
+transport bytes byte-identical across all seven fixtures. Client-side
+micro-optimizations cannot move the device-paced transport metrics; the
+byte-identical payload is the acceptance check for any change on the send path.
+
+The same run quantified the remaining cost shape: USB time is per-segment, not
+per-byte. A meter step (fragmented literal runs) moved 11,646 bytes in
+7.21 ms (~620 ns/byte) while contiguous noise moved 153,632 bytes in 14.72 ms
+(~96 ns/byte). Sparse and solid content already sits near the floor (cursor
+198 B / 0.148 ms, internal-gap fixture 368 B / 0.742 ms, full solid 36 B /
+0.52 ms). The one measurable display-path lever left is segment coalescing in
+the adaptive encoder — widening a literal across a small clean run when the
+segment overhead exceeds the saved bytes. That is a daemon-internal policy
+choice inside the same wire format; it is an observation from this bench, not
+an implemented change.
+
 ---
 
 ## CompleteControl transport architecture
