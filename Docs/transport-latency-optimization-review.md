@@ -1,199 +1,200 @@
-# Transport-Latenz: Maßnahmenplan
+# Transport Latency: Action Plan
 
-**Stand:** 2026-07-09
-**Status:** Beschlossen
+**Date:** 2026-07-09
+**Status:** Decided
 
-**Update 2026-09-06:** AP2 ist durch Hardwaremessung geschlossen, ohne
-implementiert zu werden — siehe den Ergebnisblock in AP2. Die übrigen
-Maßnahmen bleiben unverändert.
+**Update 2026-09-06:** AP2 is closed by hardware measurement, without being
+implemented — see the result block in AP2. The remaining measures are
+unchanged.
 
-Dieses Dokument enthält ausschließlich die geplanten Latenzmaßnahmen und die
-bewusst verworfenen Alternativen. Die aktuelle Architektur bleibt grundsätzlich
-bestehen: asynchrone libusb-IN-Transfers, kqueue für USB- und Socket-Readiness,
-drei getrennte Unix-Sockets sowie unabhängige Display- und State-Report-Queues.
+This document contains exclusively the planned latency measures and the
+deliberately rejected alternatives. The current architecture fundamentally
+stays: asynchronous libusb IN transfers, kqueue for USB and socket
+readiness, three separate Unix sockets, and independent display and state
+report queues.
 
-## Reihenfolge
+## Order
 
-1. Tick-on-Present implementieren und auf Hardware messen.
-2. Dirty-Row-Verteilung in einer echten Paulinche-Session erfassen.
-3. Multi-Rect-Blits nur bei bestätigter Laufzeitrelevanz implementieren.
-4. Den Hex-Roundtrip beim nächsten Eingriff in den Push-Pfad nebenbei entfernen.
+1. Implement tick-on-present and measure on hardware.
+2. Capture the dirty-row distribution in a real Paulinche session.
+3. Implement multi-rect blits only once runtime relevance is confirmed.
+4. Remove the hex round trip in passing on the next intervention in the
+   push path.
 
 ## AP1: Tick-on-Present
 
-### Ziel
+### Goal
 
-`MK2Surface2.present(_:)` ersetzt heute nur die Szene. Die Ausgabe wartet danach
-auf den nächsten 60-Hz-Timer-Tick. Paulinche verliert dadurch strukturell
-0–16,7 ms, im Mittel etwa 8,3 ms. Eine neue Szene soll nach Ruhe sofort
-reconciliert werden, ohne bei schnellen Updates eine Tick-Warteschlange zu
-erzeugen.
+`MK2Surface2.present(_:)` today only replaces the scene. Output then waits
+for the next 60 Hz timer tick. Paulinche thereby loses 0–16.7 ms
+structurally, on average about 8.3 ms. A new scene should be reconciled
+immediately after idle, without producing a tick queue under rapid updates.
 
-### Umsetzung
+### Implementation
 
-- `present(_:)` ruft nach dem Setzen von `scene` einen actor-isolierten
-  `requestPresentTick()` auf.
-- Der erste Tick nach mindestens 8 ms Ruhe läuft sofort auf dem Surface-Actor.
-- Weitere Presents innerhalb dieses 8-ms-Fensters werden in genau einem
-  Trailing-Tick zusammengefasst. Das begrenzt Present-Ticks auf 125 Hz und stellt
-  trotzdem sicher, dass der letzte Zustand eines Bursts ausgegeben wird.
-- Der Trailing-Task wird gespeichert, in `stop()` abgebrochen und prüft vor dem
-  Tick erneut `running`.
-- `lastTick` bleibt die gemeinsame Zeitbasis für Timer- und Present-Ticks.
-- Der bestehende Timer bleibt für Lampenanimationen, Heartbeat, Reconnect und als
-  Sicherheitsnetz aktiv.
-- Der bestehende `TickGate` bleibt auf dem Timer-Pfad. Ein Present-Tick braucht
-  keinen zusätzlichen Task-Hop, weil `present(_:)` bereits auf dem Actor läuft.
+- `present(_:)` calls an actor-isolated `requestPresentTick()` after
+  setting `scene`.
+- The first tick after at least 8 ms of idle runs immediately on the
+  surface actor.
+- Further presents within that 8 ms window are coalesced into exactly one
+  trailing tick. That caps present ticks at 125 Hz and still guarantees
+  that the last state of a burst is emitted.
+- The trailing task is stored, cancelled in `stop()`, and re-checks
+  `running` before ticking.
+- `lastTick` stays the shared time base for timer and present ticks.
+- The existing timer stays active for lamp animations, heartbeat,
+  reconnect, and as a safety net.
+- The existing `TickGate` stays on the timer path. A present tick needs no
+  additional task hop, because `present(_:)` already runs on the actor.
 
-Der Trigger gehört ausdrücklich in `present(_:)`, nicht ans Ende der
-Input-Verarbeitung: Ein Binding mutiert das App-Modell und präsentiert die neue
-Szene erst in einem späteren Actor-Job. Ein Tick direkt nach dem Input würde noch
-die alte Szene ausgeben.
+The trigger explicitly belongs in `present(_:)`, not at the end of input
+processing: a binding mutates the app model and only presents the new scene
+in a later actor job. A tick directly after input would still emit the old
+scene.
 
-### Tests und Abnahme
+### Tests and acceptance
 
-- Unit-Test: erstes Present nach Ruhe tickt sofort.
-- Unit-Test: mehrere Presents innerhalb von 8 ms erzeugen höchstens einen
-  Trailing-Tick und geben den letzten Zustand aus.
-- Unit-Test: `stop()` verhindert einen noch armierten Trailing-Tick.
-- Bestehende Timer-, Reconnect- und Display-Reconciler-Tests bleiben grün.
-- Hardware: Bei einem einzelnen Encoder-Detent beginnt der zugehörige
-  `display worker` im Ruhefall innerhalb von ungefähr 5 ms nach `push surface`.
-- Hardware: Schneller Encoder-Spin bleibt bei höchstens 125 Present-Ticks/s,
-  erzeugt keinen Actor-Backlog und endet auf dem korrekten Wert.
+- Unit test: the first present after idle ticks immediately.
+- Unit test: several presents within 8 ms produce at most one trailing tick
+  and emit the last state.
+- Unit test: `stop()` prevents an already armed trailing tick.
+- The existing timer, reconnect, and display reconciler tests stay green.
+- Hardware: on a single encoder detent, the corresponding
+  `display worker` starts within roughly 5 ms after `push surface` in the
+  idle case.
+- Hardware: fast encoder spin stays at most 125 present ticks/s, produces
+  no actor backlog, and ends on the correct value.
 
-## AP2: Dirty-Row-Messung und atomare Multi-Rect-Blits
+## AP2: Dirty-Row Measurement and Atomic Multi-Rect Blits
 
-**Ergebnis (2026-09-06): geschlossen ohne Implementierung.** Die Prämisse
-dieses Vorhabens — rohe Band-Bytes über USB — wurde am 2026-07-15 mit dem
-Default-Wechsel auf die adaptive Encodierung entfernt; der Protokoll-Guide
-dokumentiert seither, dass verkettete skip/literal/repeat-Segmente den Zweck
-in einem Transfer erreichen, ohne AP2s per-Rect Fixkosten (16-Byte-Header +
-12-Byte-Trailer + je einen `libusb_bulk_transfer`). Der Widget-Lab-Benchmark
-vom 2026-09-06 bestätigt das mit Zahlen: das Gap-Fixture (190 080 logische
-Bytes, zwei weit getrennte Streifen) geht als **368 Transport-Bytes in
-0,742 ms USB-Median** über den Draht — die durch Lücken-Splitting vermeidbare
-USB-Zeit ist gegen Null gegangen, und die eigene Gate-Bedingung der Phase 1
-(„Die Umsetzung geht nur weiter, wenn … die daraus vermeidbare USB-Zeit
-relevant ist") ist damit negativ entschieden. Inkompressible Bänder — der
-einzige Fall mit echter Millisekunden-Zeit — haben keine sauberen Lücken zum
-Splitten. Übrig blieben Socket-Bytes und Daemon-Scan-Anteile unter 1 ms pro
-Update. Der einzig verbliebene messbare Display-Pfad-Hebel ist
-Segment-Koaleszierung im adaptiven Encoder (siehe Backlog): fragmentierte
-Meter-artige Literal-Runs zahlen ~620 ns/Byte gegen ~96 ns/Byte bei
-zusammenhängendem Inhalt.
+**Result (2026-09-06): closed without implementation.** This project's
+premise — raw band bytes over USB — was removed on 2026-07-15, when adaptive
+encoding became the default; the Protocol Guide has since documented that
+chained skip/literal/repeat segments reach the goal in one transfer,
+without AP2's per-rect fixed costs (16-byte header + 12-byte trailer + one
+`libusb_bulk_transfer` each). The 2026-09-06 Widget Lab benchmark confirms
+it with numbers: the gap fixture (190,080 logical bytes, two widely
+separated strips) goes over the wire as **368 transport bytes in 0.742 ms
+USB median** — the USB time avoidable by gap splitting has gone towards
+zero, and the phase-1 gate condition below ("implementation only continues
+if … the avoidable USB time from them is relevant") is thereby decided
+negatively. Incompressible bands — the only case with real millisecond
+time — have no clean gaps to split. What would have remained are socket
+bytes and daemon scan shares under 1 ms per update. The only remaining
+measurable display-path lever is segment coalescing in the adaptive encoder
+(see Backlog): fragmented meter-like literal runs pay ~620 ns/byte against
+~96 ns/byte for contiguous content.
 
-### Ziel
+### Goal
 
-`PixelDisplayReconciler2` sendet heute pro Screen ein volles, breites Band von
-der ersten bis zur letzten geänderten Zeile. Weit auseinanderliegende kleine
-Änderungen übertragen deshalb auch alle sauberen Zeilen dazwischen. Der aktuelle
-Paulinche-Renderer kann solche Formen erzeugen; beispielsweise wurden bei einer
-Cursorbewegung 44 geänderte Zeilen innerhalb eines 194-Zeilen-Bands mit einer
-140-Zeilen-Lücke beobachtet.
+`PixelDisplayReconciler2` today sends one full-width band per screen,
+spanning the first through the last changed row. Widely separated small
+changes therefore also transport all clean rows in between. The current
+Paulinche renderer can produce such shapes; for example, a cursor movement
+was observed with 44 changed rows inside a 194-row band with a 140-row gap.
 
-### Phase 1: Produktionsdaten messen
+### Phase 1: Measure production data
 
-Vor der Protokolländerung wird in einem Debug-Build pro erzeugtem Blit geloggt:
+Before the protocol change, a debug build logs per emitted blit:
 
-- Screen und Bandhöhe,
-- Anzahl tatsächlich geänderter Zeilen,
-- größte saubere Lücke im Band,
-- resultierende Payload-Größe.
+- screen and band height,
+- number of actually changed rows,
+- largest clean gap in the band,
+- resulting payload size.
 
-Gemessen werden normales Editieren, Encoder-Spins, Playback, Scrubbing und
-Szenenwechsel in Paulinche. Die Umsetzung geht nur weiter, wenn große saubere
-Lücken regelmäßig auftreten und die daraus vermeidbare USB-Zeit relevant ist.
-Als Richtwert gelten wiederkehrende Lücken von mehr als ungefähr 50 Zeilen.
+Measured are normal editing, encoder spins, playback, scrubbing, and scene
+changes in Paulinche. Implementation only continues if large clean gaps
+occur regularly and the avoidable USB time from them is relevant. Recurring
+gaps of more than roughly 50 rows serve as the guideline.
 
-### Phase 2: Reconciler und Protokoll
+### Phase 2: Reconciler and protocol
 
-Falls Phase 1 den Nutzen bestätigt:
+If phase 1 confirms the benefit:
 
-- Dirty Rows werden an sauberen Lücken von mindestens 12 Zeilen getrennt.
-- Es bleiben höchstens vier Full-Width-Rects pro Screen und Tick. Bei mehr
-  Kandidaten werden die kleinsten Lücken wieder zusammengeführt.
-- Die Full-Width-Geometrie bleibt erhalten; das Panel verarbeitet breite Bänder
-  schneller als schmale Fenster.
-- Der Binärcodec erhält einen Multi-Rect-Displayframe mit Screen, Rect-Liste und
-  den zugehörigen RGB565-Payloads.
-- Der Daemon behandelt alle Rects eines Screens und Ticks als eine atomare
-  Pending-Einheit. Newest-wins ersetzt immer ein vollständiges Rect-Set.
-- Bestehende Einzel-Blits bleiben für ältere Clients gültig.
+- Dirty rows are split at clean gaps of at least 12 rows.
+- At most four full-width rects remain per screen and tick. With more
+  candidates, the smallest gaps are merged back together.
+- Full-width geometry is preserved; the panel processes wide bands faster
+  than narrow windows.
+- The binary codec gains a multi-rect display frame with screen, rect list,
+  and the associated RGB565 payloads.
+- The daemon treats all rects of one screen and tick as one atomic pending
+  unit. Newest-wins always replaces a complete rect set.
+- Existing single blits remain valid for older clients.
 
-Die atomare Einheit ist zwingend: Die heutige Daemon-Queue hält pro Screen nur
-einen Pending-Blit. Mehrere lose Split-Blits desselben Ticks könnten einander
-ersetzen und dauerhaft nicht übertragene Regionen hinterlassen.
+The atomic unit is mandatory: today's daemon queue holds only one pending
+blit per screen. Several loose split blits of the same tick could replace
+each other and permanently leave untransported regions behind.
 
-### Tests und Abnahme
+### Tests and acceptance
 
-- Reconciler-Tests für Schwelle, Bandlimit, eine Zeile, Full-Frame und exakt auf
-  der Schwelle liegende Lücken.
-- Codec-Tests für mehrere Rects, Payload-Längen und fehlerhafte Geometrie.
-- Daemon-Tests: Newest-wins ersetzt vollständige Sets, niemals einzelne Rects.
-- Hardware: Die Summe der Transferzeiten liegt im gemessenen Paulinche-Szenario
-  deutlich unter der bisherigen Einzelband-Zeit.
-- Hardware: Kein Tearing und keine stale Regionen bei schnellem Scrubbing.
+- Reconciler tests for threshold, band limit, single row, full frame, and
+  gaps lying exactly on the threshold.
+- Codec tests for multiple rects, payload lengths, and invalid geometry.
+- Daemon tests: newest-wins replaces complete sets, never individual rects.
+- Hardware: the sum of transfer times in the measured Paulinche scenario
+  is clearly below the previous single-band time.
+- Hardware: no tearing and no stale regions during fast scrubbing.
 
-## AP3: Binären Event-Payload direkt erzeugen
+## AP3: Build the binary event payload directly
 
-Kein eigenes Optimierungsprojekt. Beim nächsten Eingriff in
-`pushInputToClients` oder `pushMidiToClients` wird der bereits vorhandene
-Timestamp zusammen mit den Raw-Bytes direkt an
-`KKDaemonBinaryCodec.eventPayload(timestamp:bytes:)` übergeben.
+Not a standalone optimization project. On the next intervention in
+`pushInputToClients` or `pushMidiToClients`, pass the already existing
+timestamp together with the raw bytes directly to
+`KKDaemonBinaryCodec.eventPayload(timestamp:bytes:)`.
 
-Der Hex-Text bleibt für Logs und alte Text-Clients erhalten. Nur der heutige
-Raw-Bytes → Hex-String → Split → Raw-Bytes-Roundtrip für Binärclients entfällt,
-und die binäre Payload wird vor dem Daemon-Lock aufgebaut. Erwarteter Gewinn:
-Mikrosekunden, keine wahrnehmbare Latenzänderung.
+The hex text stays for logs and old text clients. Only today's
+raw bytes → hex string → split → raw bytes round trip for binary clients
+disappears, and the binary payload is built before the daemon lock.
+Expected gain: microseconds, no perceptible latency change.
 
-## Machen wir nicht
+## What we are not doing
 
-### Keine Änderungen am Input-Transport
+### No changes to the input transport
 
-Surface- und MIDI-IN laufen bereits über dauerhaft resubmittete asynchrone
-libusb-Transfers. Der Daemon beobachtet die libusb-pollfds mit kqueue und pumpt
-Events ohne Polling-Intervall. Socket-`poll()` wacht bei Daten sofort auf; sein
-Timeout ist nur eine Leerlaufgrenze. Hier gibt es keinen strukturellen
-Millisekunden-Hebel.
+Surface and MIDI IN already run over permanently resubmitted asynchronous
+libusb transfers. The daemon watches the libusb pollfds with kqueue and
+pumps events without a polling interval. Socket `poll()` wakes immediately
+on data; its timeout is only an idle bound. There is no structural
+millisecond lever here.
 
-### Keine asynchronen USB-OUT-Transfers
+### No asynchronous USB OUT transfers
 
-Display und State Reports besitzen bereits getrennte Queues und dürfen libusb
-parallel auf verschiedenen Endpoints benutzen. Ein asynchroner Display-OUT-Pfad
-würde Buffer-Lifetime, Completion- und Fehlerlogik erheblich verkomplizieren,
-ohne die Gerätezeit zu verkürzen oder andere Arbeit freizugeben.
+Display and state reports already have separate queues and may use libusb
+in parallel on different endpoints. An asynchronous display OUT path would
+complicate buffer lifetime, completion, and error logic considerably,
+without shortening device time or freeing other work.
 
-### Keine Fire-and-forget-Socket-Schreibweise ohne Ack
+### No fire-and-forget socket writes without acks
 
-Display- und State-Report-Acks bestätigen bereits nur das Enqueue, nicht den
-USB-Abschluss. Die kurze Roundtrip-Prüfung erhält Fehlererkennung sowie die
-Timeout-/Probe-/Reconnect-Logik. Ihr Wegfall spart zu wenig und schwächt die
-Session-Sicherheit.
+Display and state report acks already confirm only enqueueing, not USB
+completion. The short round trip check carries error detection plus the
+timeout/probe/reconnect logic. Removing it saves too little and weakens
+session safety.
 
-### Keine höhere Default-Tickrate
+### No higher default tick rate
 
-Paulinche setzt bereits 60 Hz. Nach AP1 hängen Inhaltsänderungen nicht mehr vom
-Timer-Raster ab. Der 30-Hz-Default bleibt für andere Clients bestehen; später
-kann für Paulinche sogar geprüft werden, ob 30 Hz für Animationen und Heartbeat
-genügen.
+Paulinche already uses 60 Hz. After AP1, content changes no longer depend
+on the timer raster. The 30 Hz default stays for other clients; later it
+can even be checked for Paulinche whether 30 Hz suffices for animations and
+heartbeat.
 
-### Keine Kompression
+### No compression
 
-Das Display erwartet rohes RGB565. Kompression könnte nur den schnellen
-Unix-Socket-Weg verkürzen; vor USB müsste der Daemon wieder dekomprimieren und
-dieselbe Pixelmenge übertragen. Row-Diffing und gegebenenfalls Multi-Rect-Blits
-reduzieren die Daten dort, wo es zählt: vor dem USB-Transfer.
+The display expects raw RGB565. Compression could only shorten the fast
+Unix socket leg; before USB, the daemon would have to decompress again and
+transfer the same amount of pixels. Row diffing and, where applicable,
+multi-rect blits reduce the data where it counts: before the USB transfer.
 
-### Kein Shared-Memory-Framebuffer und kein In-Process-Daemon
+### No shared-memory framebuffer and no in-process daemon
 
-Der gemessene IPC-Anteil liegt unter 1 ms, während USB und Panel mehrere
-Millisekunden benötigen. Privilegtrennung, Crash-Isolation und eine über
-Client-Neustarts stabile Hardware-Session sind wertvoller. Shared Memory bleibt
-nur ein Escape-Hatch, falls zukünftiges Profiling den Socket-Transport wider
-Erwarten als Engpass ausweist.
+The measured IPC share is below 1 ms, while USB and panel need several
+milliseconds. Privilege separation, crash isolation, and a hardware session
+stable across client restarts are worth more. Shared memory stays only as
+an escape hatch, should future profiling unexpectedly identify the socket
+transport as the bottleneck.
 
-### Kein Spalten-Cropping
+### No column cropping
 
-Display-Diffs bleiben Full-Width. Die Hardwaremessungen zeigen einen
-Ingest-Penalty für schmale Fenster; AP2 trennt nur Zeilenbänder.
+Display diffs stay full-width. The hardware measurements show an ingest
+penalty for narrow windows; AP2 only splits row bands.

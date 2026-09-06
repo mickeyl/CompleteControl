@@ -21,8 +21,8 @@
   replay is ≤0.2% of wall time (deep copy elimination rejected), and AP2
   multi-rect blits are rejected because the adaptive skip encoding already
   collapses clean gaps at the wire (gap fixture: 190,080 logical bytes →
-  368 transport bytes → 0.742 ms USB median). See the Umsetzungsstand in
-  `Display-Reconciler-Cross-Review.md`, the result block in
+  368 transport bytes → 0.742 ms USB median). See the implementation status
+  in `Display-Reconciler-Cross-Review.md`, the result block in
   `transport-latency-optimization-review.md` AP2, and the Protocol Guide's
   display-cost section.
 - **Product-bound daemon endpoints for simultaneous KONTROL+MASCHINE

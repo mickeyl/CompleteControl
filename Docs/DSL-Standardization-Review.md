@@ -1,50 +1,52 @@
-# DSL-Standardisierungs-Review
+# DSL Standardization Review
 
-Review von 2026-07-11, abgearbeitet bis 2026-07-13. Umgesetzt sind die
-Empfehlungen A1–A5, B1, B2, B3 und D2 (A1/A2 wurden durch die Entfernung des
-Song-Renderers gegenstandslos), dazu backlog-seitig die per-Ebene-Lampen, der
-`isHardwareShiftPressed`-Abbau und das `ControlLampName`-Enum. Die vollständige
-Analyse und die erledigten Punkte stehen in der git-Historie dieses Dokuments.
+Review from 2026-07-11, worked through by 2026-07-13. Implemented are
+recommendations A1–A5, B1, B2, B3, and D2 (A1/A2 became moot when the song
+renderer was removed), plus, from the backlog side, the per-level lamps, the
+removal of `isHardwareShiftPressed`, and the `ControlLampName` enum. The
+complete analysis and the finished items are in this document's git history.
 
-**Alle Punkte abgearbeitet (D1 erledigt 2026-07-13).**
+**All items worked off (D1 done 2026-07-13).**
 
-## C1 — Tracker-Grid + Minimap ins Kit (erledigt 2026-07-13)
+## C1 — Tracker grid + minimap into the kit (done 2026-07-13)
 
-`MK2PatternGridElement` (Tracker-Grid) und `MK2OverviewScrollbarElement`
-(Minimap) leben jetzt im Kit, mit `MK2PatternGridColors`/
-`MK2OverviewScrollbarColors` als Single-Source der hardware-approved Palette
-(2026-07-13). WidgetLab `TrackerPatternDemo` und Paulinche
-`PaulinchePatternRenderer` konsumieren beide — die je fünf Draw-Helfer und die
-inline-Geometrie-Konstanten sind weg. Vor/Nach pixel-identisch (Snapshot-Diff 0
-Pixel für Base und Shift; die sechs Paulinche-Renderer-Tests unverändert grün),
-plus acht neue fokussierte Kit-Tests.
+`MK2PatternGridElement` (tracker grid) and `MK2OverviewScrollbarElement`
+(minimap) now live in the kit, with `MK2PatternGridColors`/
+`MK2OverviewScrollbarColors` as the single source of the hardware-approved
+palette (2026-07-13). Widget Lab's `TrackerPatternDemo` and Paulinche's
+`PaulinchePatternRenderer` both consume them — the five draw helpers on each
+side and the inline geometry constants are gone. Before/after
+pixel-identical (snapshot diff of 0 pixels for base and shift; the six
+Paulinche renderer tests unchanged green), plus eight new focused kit tests.
 
-Sorgfältige Divergenz-Prüfung vorab (Nutzer-Verdacht: Paulinche-only Beat-Zellen):
-Die Beat-Stripe war bereits pixel-identisch in beiden (alle 4 Rows, 0x1083). Die
-eine echte Divergenz war die Zell-Färbung — WidgetLab färbte ganze Zellen
-(`isEmpty`), Paulinche pro Feld (`== nil`); das gemeinsame Element übernimmt die
-korrektere Per-Feld-Variante. Das Datenmodell ist Paulinches Optional-Triade
-(`note?/instrument?/effect?`); WidgetLabs totes `volume`-Grid-Feld entfällt. Neu:
-`BeatStripe` ist konfigurierbar (`.every(interval, phase:)`/`.none`), damit
-ungerade Taktarten auf dem Beat streifen — App-seitige Verdrahtung an die
-Taktart steht im Backlog.
+Careful divergence check beforehand (user suspicion: Paulinche-only beat
+cells): the beat stripe was already pixel-identical in both (all 4 rows,
+0x1083). The one real divergence was cell coloring — Widget Lab colored
+whole cells (`isEmpty`), Paulinche per field (`== nil`); the shared element
+adopts the more correct per-field variant. The data model is Paulinche's
+optional triad (`note?/instrument?/effect?`); Widget Lab's dead `volume`
+grid field is dropped. New: `BeatStripe` is configurable
+(`.every(interval, phase:)`/`.none`), so odd time signatures stripe on the
+beat — wiring it to the time signature on the app side is in the backlog.
 
-## D1 — Kit-interne Helfer-Konsolidierung (erledigt 2026-07-13)
+## D1 — Kit-internal helper consolidation (done 2026-07-13)
 
-Vier byte-identisch duplizierte Helfer leben jetzt einmal in
-`DrawingSupport.swift`: `scaled565(by:)` (Farb-Skalierung, war 4× in
-FunctionKeyBar/ValueCell/Tag/ScreenLayout), `MK2PixelRect.insetBy(dx:dy:)` (2×,
-Meter/ScreenDSL), `Int.wrapped(to:)` (2×, EncoderDiscreteValue/SelectionView) und
-`MK2PixelFrame.drawRoundedPanel(…)` (2×, ModalDialog/SelectionView; das Superset
-mit `borderWidth` + `max(0,…)`-Sicherung). Alle 238 Tests unverändert grün.
+Four byte-identically duplicated helpers now live exactly once in
+`DrawingSupport.swift`: `scaled565(by:)` (color scaling, was 4× in
+FunctionKeyBar/ValueCell/Tag/ScreenLayout), `MK2PixelRect.insetBy(dx:dy:)`
+(2×, Meter/ScreenDSL), `Int.wrapped(to:)` (2×,
+EncoderDiscreteValue/SelectionView), and
+`MK2PixelFrame.drawRoundedPanel(…)` (2×, ModalDialog/SelectionView; the
+superset with `borderWidth` + the `max(0,…)` guard). All 238 tests unchanged
+green.
 
-Bewusst *nicht* zusammengeführt: die beiden `wrappedBitmapLines` (ModalDialog vs
-ScreenDSL) sind unterschiedliche Algorithmen — pixel-genau via `font.measure`
-gegen zeichen-basiert mit `maxLines` und Hard-Wrap — kein echtes Duplikat.
+Deliberately *not* merged: the two `wrappedBitmapLines` (ModalDialog vs
+ScreenDSL) are different algorithms — pixel-exact via `font.measure` versus
+character-based with `maxLines` and a hard wrap — not a real duplicate.
 
-## Anhang: Verworfene Ideen
+## Appendix: rejected ideas
 
-- **`FunctionKeyBar` mit `edge: .bottom`** — verworfen: Die Hardware hat
-  Function-Keys nur oben; eine Bottom-Variante würde Labels ohne räumlich
-  zugeordnete Taste erzeugen. Der Footer gehört Encoder-Zellen (bottom-flush,
-  gleiche X-Slots), nicht F-Key-Labels.
+- **`FunctionKeyBar` with `edge: .bottom`** — rejected: the hardware has
+  function keys only at the top; a bottom variant would produce labels
+  without a spatially associated key. The footer belongs to encoder cells
+  (bottom-flush, same x slots), not to F-key labels.
