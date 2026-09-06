@@ -1,7 +1,7 @@
-# Füllhorn — a greenfield visual direction
+# Fuellhorn — a greenfield visual direction
 
-**Status: decided — Füllhorn is the next HIG** (bench decision 2026-07-23:
-"100%, ich möchte mit Füllhorn als HIG gehen"). Execution is deliberately
+**Status: decided — Fuellhorn is the next HIG** (bench decision 2026-07-23:
+"100%, ich möchte mit Fuellhorn als HIG gehen"). Execution is deliberately
 deferred: the full renewal starts once the interaction concept carries and
 every dialog exists on both app and hardware, so the redesign works from the
 complete UI vocabulary — all verbs and adjectives — instead of guessing it.
@@ -141,7 +141,7 @@ label, separated by a 2px gap — an echo of the physical F-button sitting
 above the display, reduced to a tick. Selected slot: label inverts onto a
 solid hue chip *and* its stripe runs at full brightness; unselected stripes
 idle at 30%. The stripe row doubles as the only horizontal structure line a
-Füllhorn screen has.
+Fuellhorn screen has.
 
 **Brightness-as-level meters**: level is fill height, loudness is hue
 brightness, clip is a Tangerine cap, peak a 1px Paper line. Semantic zones
@@ -150,7 +150,7 @@ traffic-light bands.
 
 **Playhead**: always Lime, always a field + 2px edge, in every zone.
 
-## 6. What Füllhorn keeps, breaks, and risks
+## 6. What Fuellhorn keeps, breaks, and risks
 
 Keeps from the canonical HIG: true-black base for density, identity
 typography, dither discipline, the layout physics (labels at their physical
@@ -158,7 +158,7 @@ controls, bottom-flush knob mapping, top F-slots), metric ink centering.
 
 Breaks deliberately: the §6 material vocabulary (no raised/debossed
 machinery — depth exists only as the edge-lit top line), the meter
-traffic-light convention, the 80/15/5 budget (Füllhorn runs nearer
+traffic-light convention, the 80/15/5 budget (Fuellhorn runs nearer
 60/25/15), and the wash prohibition — **zone fields are washes with
 semantics**. That prohibition was written against *decorative* washes;
 whether a semantic field earns its raised black level is exactly what the
@@ -173,10 +173,10 @@ harder to scan than the traffic light under stage light.
 1. **Graft** (low risk): object colors, the knob-row tick form, edge-lit
    blocks and the slot stripe are compatible with Aurora today and could
    enter the canonical HIG as elements.
-2. **Perform split**: Aurora stays the editing identity; Füllhorn becomes
+2. **Perform split**: Aurora stays the editing identity; Fuellhorn becomes
    the performance/overlay language (field-hero screens are all
    perform/modal moments already).
-3. **Full succession**: Füllhorn replaces Aurora as the system — the
+3. **Full succession**: Fuellhorn replaces Aurora as the system — the
    largest step; requires re-benching every density screen and the meter
    convention.
 
