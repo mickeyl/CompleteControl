@@ -419,3 +419,14 @@ so lines continue optically across the physical seam.
 
 Bench rounds happen per `hardware-feel` practice: one variable at a time,
 constants annotated with what was tried and why the current value won.
+
+### Paulinche instrument sequence page
+
+The product-specific `PaulincheSurfaceKit` pitch/volume page keeps all eight
+encoder slots aligned with the physical controls: STEP, PITCH, VOLUME, TICKS,
+LOOP, FROM, LENGTH, ENABLED. E1 selects a step; E2/E3 edit semitones and the
+0...64 volume scale. The waveform and bank remain visible as sound context.
+The `instrument-sequence` Widget Lab realization exercises selection, pitch,
+volume, and tick speed without requiring a Paulinche document.
+
+![Instrument sequence page](images/hig/paulinche-instrument-sequence.png)

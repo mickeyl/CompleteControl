@@ -18,6 +18,7 @@ public enum MK2PaulincheWavetablePage: Int, Sendable, Equatable, CaseIterable {
     case frameScan
     case tremolo
     case envelopes
+    case stepSequence
 
     var title: String {
         switch self {
@@ -31,6 +32,7 @@ public enum MK2PaulincheWavetablePage: Int, Sendable, Equatable, CaseIterable {
             case .frameScan: "FRAME SCAN"
             case .tremolo: "TREMOLO"
             case .envelopes: "ENVELOPES"
+            case .stepSequence: "PITCH / VOLUME"
         }
     }
 }
@@ -379,6 +381,12 @@ public enum MK2PaulincheInstrumentRenderer {
                 } else {
                     drawModulationOnset(scene, in: graph, into: &frame)
                 }
+            case .stepSequence:
+                if side == .left {
+                    MK2WaveformDisplay(envelope: scene.waveform, rect: graph).draw(into: &frame)
+                } else {
+                    drawFrameBank(scene, in: graph, into: &frame)
+                }
             case .envelopes:
                 if side == .left {
                     drawAmplitudeEnvelope(scene, in: graph, into: &frame)
@@ -421,6 +429,8 @@ public enum MK2PaulincheInstrumentRenderer {
             case (.frameScan, .right): "FRAME RANGE"
             case (.tremolo, .left): "LEVEL LFO"
             case (.tremolo, .right): "TREMOLO ONSET"
+            case (.stepSequence, .left): "WAVEFORM CONTEXT"
+            case (.stepSequence, .right): "BANK CONTEXT"
             case (.envelopes, .left): "AMPLITUDE ADSR"
             case (.envelopes, .right): "PITCH ENVELOPE"
         }

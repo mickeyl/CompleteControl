@@ -253,6 +253,7 @@ struct PaulincheInstrumentRendererTests {
             case .filterBank: labels = ["TYPE", "SLOPE", "CUT ST", "CUT END", "RESON", "", "", ""]
             case .ringAndSweep: labels = ["HARM", "DEPTH", "ACROSS", "", "START", "END", "TIME", "MODE"]
             case .pwm, .vibrato, .frameScan, .tremolo: labels = ["SHAPE", "RATE", "SYNC", "DEPTH", "DELAY", "FADE", "", ""]
+            case .stepSequence: labels = ["STEP", "PITCH", "VOLUME", "TICKS", "LOOP", "FROM", "LENGTH", "ENABLED"]
             case .envelopes: labels = ["ATTACK", "DECAY", "SUSTAIN", "RELEASE", "P START", "P END", "P TIME", ""]
         }
         let values: [String] = switch page {
@@ -265,6 +266,7 @@ struct PaulincheInstrumentRendererTests {
             case .vibrato: ["SINE", "5.0Hz", "FREE", "0.20st", "0.10s", "0.20s", "", ""]
             case .frameScan: ["TRIANGLE", "1.0Hz", "FREE", "7.0fr", "0.10s", "0.20s", "", ""]
             case .tremolo: ["SINE", "4.0Hz", "FREE", "35%", "0.10s", "0.20s", "", ""]
+            case .stepSequence: ["2", "+12st", "48", "3", "LOOP", "2", "8", "ON"]
             case .envelopes: ["0.000s", "0.180s", "0%", "0.080s", "+12.0st", "0.0st", "0.120s", ""]
         }
         let parameters = labels.enumerated().map { index, label in

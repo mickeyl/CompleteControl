@@ -138,7 +138,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "WidgetLab",
-            dependencies: ["KontrolSurfaceKit2", "KompleteKontrol"],
+            dependencies: ["KontrolSurfaceKit2", "KompleteKontrol", "PaulincheSurfaceKit"],
             path: "Tools/WidgetLab",
             exclude: ["SmokeScenarios.json"],
             resources: [
