@@ -27,6 +27,7 @@ let labDemos: [any LabDemo] = [
     SelectionBrowserDemo(),
     MeterDemo(),
     WaveformDemo(),
+    MusicWidgetsDemo(),
     InstrumentSequenceDemo(),
     TrackerPatternDemo(),
     ModalDialogDemo(),

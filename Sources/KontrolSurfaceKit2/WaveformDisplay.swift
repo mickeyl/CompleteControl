@@ -74,6 +74,8 @@ public struct MK2WaveformDisplay: Sendable {
     public var region: ClosedRange<Double>?
     /// Vertical marker lines at fraction positions (e.g. the start offset).
     public var markers: [Double]
+    /// Additional slice ranges; the primary `region` remains the selected range.
+    public var additionalRegions: [ClosedRange<Double>]
     /// Playhead line at a fraction position.
     public var playhead: Double?
     public var cornerRadius: Int
@@ -84,6 +86,7 @@ public struct MK2WaveformDisplay: Sendable {
         rect: MK2PixelRect,
         region: ClosedRange<Double>? = nil,
         markers: [Double] = [],
+        additionalRegions: [ClosedRange<Double>] = [],
         playhead: Double? = nil,
         cornerRadius: Int = MK2HIG.Waveform.cornerRadius,
         colors: Colors = Colors()
@@ -92,6 +95,7 @@ public struct MK2WaveformDisplay: Sendable {
         self.rect = rect
         self.region = region.map { Self.clamped01($0.lowerBound)...Self.clamped01(max($0.lowerBound, $0.upperBound)) }
         self.markers = markers.map(Self.clamped01)
+        self.additionalRegions = additionalRegions.map { Self.clamped01($0.lowerBound)...Self.clamped01(max($0.lowerBound, $0.upperBound)) }
         self.playhead = playhead.map(Self.clamped01)
         self.cornerRadius = max(0, cornerRadius)
         self.colors = colors
@@ -108,6 +112,10 @@ public struct MK2WaveformDisplay: Sendable {
         let inner = MK2PixelRect(x: rect.x + 2, y: rect.y + 2, width: rect.width - 4, height: rect.height - 4)
         guard !inner.isEmpty else { return }
 
+        for slice in additionalRegions {
+            let columns = columnRange(for: slice, width: inner.width)
+            frame.fill(MK2PixelRect(x: inner.x + columns.lowerBound, y: inner.y, width: columns.count, height: inner.height), colors.regionFill)
+        }
         let regionColumns = region.map { columnRange(for: $0, width: inner.width) }
         if let regionColumns {
             frame.fill(
@@ -126,6 +134,11 @@ public struct MK2WaveformDisplay: Sendable {
         if let regionColumns {
             frame.fill(MK2PixelRect(x: inner.x + regionColumns.lowerBound, y: inner.y, width: 1, height: inner.height), colors.regionEdge)
             frame.fill(MK2PixelRect(x: inner.x + min(inner.width - 1, regionColumns.upperBound), y: inner.y, width: 1, height: inner.height), colors.regionEdge)
+        }
+        for slice in additionalRegions {
+            let columns = columnRange(for: slice, width: inner.width)
+            frame.fill(MK2PixelRect(x: inner.x + columns.lowerBound, y: inner.y, width: 1, height: inner.height), colors.regionEdge)
+            frame.fill(MK2PixelRect(x: inner.x + min(inner.width - 1, columns.upperBound), y: inner.y, width: 1, height: inner.height), colors.regionEdge)
         }
         for marker in markers {
             let x = inner.x + column(for: marker, width: inner.width)

@@ -200,6 +200,22 @@
         { "tap": "stop" },
         { "wait_state": "ready", "timeout": 10 }
       ]
+    },
+    {
+      "demo": "instrument-sequence",
+      "actions": [
+        { "send": "encoder 1 1" },
+        { "send": "encoder 2 2" },
+        { "send": "encoder 3 -2" }
+      ]
+    },
+    {
+      "demo": "music-widgets",
+      "actions": [
+        { "send": "fourdwheel 2" },
+        { "tap": "instance" },
+        { "send": "encoder 5 8" }
+      ]
     }
   ]
 }
