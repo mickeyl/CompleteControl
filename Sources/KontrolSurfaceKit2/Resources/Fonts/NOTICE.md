@@ -1,13 +1,12 @@
-# Bundled Production UI Fonts
+# Bundled Fonts
 
-These fonts are bundled for MK2 FreeType UI rendering:
+These fonts are bundled for MK2 FreeType UI rendering. They keep their own
+licenses; the MIT license of CompleteControl does not apply to them.
 
-- IBM Plex Sans Condensed Regular and Medium OTF cuts from
-  `$HOME/Documents/late/misc/plex/packages/plex-sans-condensed/fonts/complete/otf/`
-- Phosphor Regular TTF (icon font) from the `@phosphor-icons/web` 2.1.2 npm package
-  (`src/regular/Phosphor.ttf`), MIT licensed — https://phosphoricons.com
-- JetBrains Mono Regular and Bold TTF from
-  `$HOME/Documents/late/misc/JetBrainsMono/fonts/ttf/`
+| Files | Upstream | License |
+| --- | --- | --- |
+| `IBMPlexSansCondensed-Regular.otf`, `IBMPlexSansCondensed-Medium.otf` | [IBM Plex](https://github.com/IBM/plex) | SIL OFL 1.1 — `OFL-IBMPlex.txt` |
+| `JetBrainsMono-Regular.ttf`, `JetBrainsMono-Bold.ttf` | [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) | SIL OFL 1.1 — `OFL-JetBrainsMono.txt` |
+| `Phosphor.ttf` (regular icon font, `@phosphor-icons/web` 2.1.2) | [Phosphor Icons](https://phosphoricons.com) | MIT — `LICENSE-Phosphor.txt` |
 
-IBM Plex and JetBrains Mono are distributed under the SIL Open Font License;
-Phosphor is distributed under the MIT license.
+The font files are unmodified upstream releases.

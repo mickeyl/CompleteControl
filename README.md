@@ -7,6 +7,41 @@ USB-MIDI delivery for S-Series, and a hardware-free simulator.
 
 This is an independent project and is not endorsed by Native Instruments.
 
+![Komplete Kontrol S61 MK2 running a tracker on both displays](Docs/images/mk2-hardware-tracker.jpg)
+
+## Why
+
+The Komplete Kontrol S-Series MK2 and MASCHINE MK3 are superb pieces of
+hardware: two crisp colour displays, touch-sensitive encoders, a 4-D encoder,
+RGB lamps everywhere and, on the keyboards, a light guide above every key.
+Out of the box, however, all of that only comes to life inside Native
+Instruments' own software. Your own application gets a MIDI keyboard at best;
+the screens stay dark or show someone else's UI.
+
+We wanted these controllers to be a first-class, fully programmable surface for
+our own music software — in particular Paulinche, an Amiga-inspired tracker and
+wavetable synth — with pixel-exact control over every display, lamp and input,
+and without any proprietary middleware running in between.
+
+CompleteControl is the result. It talks to the devices directly over USB,
+documents everything learned about the protocol along the way, and exposes the
+hardware through a declarative Swift UI layer with its own HIG. A hardware-free
+simulator makes it possible to develop for the surface without a controller on
+the desk. We are publishing it so that other developers can give these
+instruments a second life in their own tools.
+
+## Gallery
+
+| | |
+| --- | --- |
+| ![Tracker pattern editor rendered by KontrolSurfaceKit2](Docs/images/hig/hig-tracker-pattern.png) | ![Browser grid widget](Docs/images/hig/hig-selection-browser-grid.png) |
+| Tracker pattern editor across both displays | Selection and browser widgets |
+
+![KontrolSimulator emulating an S61 MK2](Docs/images/kontrolsimulator-window.png)
+
+*KontrolSimulator: develop and test against the production daemon protocol
+without hardware.*
+
 ## Supported Hardware
 
 | Model | VID | PID | Controls | Status |
@@ -327,3 +362,23 @@ swift build -c release --product ccd
 Protocol changes belong in the canonical protocol guide, not only in handover
 notes. Architecture experiments and deferred work belong in
 [Docs/Backlog.md](Docs/Backlog.md).
+
+## License
+
+CompleteControl is released under the [MIT License](LICENSE).
+
+Third-party components keep their own licenses:
+
+- [libusb](https://github.com/libusb/libusb) (`Vendor/libusb`, compiled into
+  the `ccd` daemon) is licensed under the GNU LGPL 2.1 or later. If you
+  distribute binaries that contain it, you must comply with the LGPL — in
+  particular, make the libusb source available and allow users to relink
+  against a modified libusb.
+- The bundled fonts (IBM Plex Sans Condensed, JetBrains Mono, Phosphor) are
+  licensed under the SIL Open Font License 1.1 and MIT respectively; see
+  [Sources/KontrolSurfaceKit2/Resources/Fonts/NOTICE.md](Sources/KontrolSurfaceKit2/Resources/Fonts/NOTICE.md).
+- FreeType and HarfBuzz are linked from the system installation and are not
+  part of this repository.
+
+Komplete Kontrol, MASCHINE and Native Instruments are trademarks of Native
+Instruments GmbH. They are used here only to identify compatible hardware.
