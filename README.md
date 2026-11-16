@@ -19,9 +19,10 @@ Instruments' own software. Your own application gets a MIDI keyboard at best;
 the screens stay dark or show someone else's UI.
 
 We wanted these controllers to be a first-class, fully programmable surface for
-our own music software — in particular Paulinche, an Amiga-inspired tracker and
-wavetable synth — with pixel-exact control over every display, lamp and input,
-and without any proprietary middleware running in between.
+our own music software — in particular CornucopiaSoundSystem, an
+Amiga-inspired tracker and wavetable synth — with pixel-exact control over
+every display, lamp and input, and without any proprietary middleware running
+in between.
 
 CompleteControl is the result. It talks to the devices directly over USB,
 documents everything learned about the protocol along the way, and exposes the
@@ -108,7 +109,7 @@ ccd privileged daemon
 KompleteKontrol / KontrolSurfaceKit2
         |
         v
-Applications such as Paulinche
+Applications such as CornucopiaSoundSystem
 ```
 
 `ccd` owns the composite USB device and keeps one persistent session open.
@@ -203,7 +204,7 @@ scheduling or callback behavior.
 Set `CCD_ENABLE_AUTOMATION=1` when starting the daemon to open a fourth, opt-in socket
 (<socket-path>.automation, `chmod 0666`) that accepts a plain-text line REPL for synthesizing
 button presses, encoder turns, MIDI notes, and ribbon/strip input. Injected input reaches every
-connected client (Paulinche, the widget lab, demos) exactly as real or simulated hardware input
+connected client (CornucopiaSoundSystem, the widget lab, demos) exactly as real or simulated hardware input
 would — see `MK2InputFrameLowering` and `DaemonHardware.handleAutomation`. Unset (the default),
 the socket does not exist at all. The enabled socket is intentionally accessible to unprivileged
 local clients so it also works when `ccd` runs as a root-owned LaunchDaemon.
