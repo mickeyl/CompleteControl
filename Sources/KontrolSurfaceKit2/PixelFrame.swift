@@ -86,13 +86,29 @@ public struct MK2PixelFrame: Sendable, Equatable {
         guard let clipped = rect.clipped(to: Self.bounds) else { return }
         pixels.withUnsafeMutableBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
-            for y in clipped.y..<clipped.maxY {
-                let row = y * Self.width
-                for x in clipped.x..<clipped.maxX {
-                    let index = row + x
-                    let color = UInt16(bigEndian: base[index])
-                    base[index] = ((color >> 1) & 0x7BEF).bigEndian
+            var y = clipped.y
+            let maxY = clipped.maxY
+            let minX = clipped.x
+            let maxX = clipped.maxX
+            let spanCount = maxX - minX
+            while y < maxY {
+                let rowPtr = base + (y * Self.width + minX)
+                var offset = 0
+                while offset + 4 <= spanCount {
+                    let wordPtr = UnsafeMutableRawPointer(rowPtr + offset)
+                    let raw = wordPtr.loadUnaligned(as: UInt64.self)
+                    let host = ((raw & 0x00FF_00FF_00FF_00FF) << 8) | ((raw >> 8) & 0x00FF_00FF_00FF_00FF)
+                    let dimmed = (host >> 1) & 0x7BEF_7BEF_7BEF_7BEF
+                    let stored = ((dimmed & 0x00FF_00FF_00FF_00FF) << 8) | ((dimmed >> 8) & 0x00FF_00FF_00FF_00FF)
+                    wordPtr.storeBytes(of: stored, as: UInt64.self)
+                    offset += 4
                 }
+                while offset < spanCount {
+                    let color = UInt16(bigEndian: rowPtr[offset])
+                    rowPtr[offset] = ((color >> 1) & 0x7BEF).bigEndian
+                    offset += 1
+                }
+                y += 1
             }
         }
     }
